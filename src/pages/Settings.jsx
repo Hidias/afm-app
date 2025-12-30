@@ -52,7 +52,7 @@ export default function Settings() {
             </div>
           </div>
           <p className="text-sm text-gray-500">
-            Application de gestion des formations développée pour Access Formation.
+            Application de gestion des formations développée par et pour Access Formation.
             Conforme aux exigences Qualiopi pour la gestion documentaire et l'émargement.
           </p>
         </div>
