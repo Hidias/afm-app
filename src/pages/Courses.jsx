@@ -60,10 +60,10 @@ export default function Courses() {
     if (!form.title) return toast.error('Titre requis')
     if (!form.duration) return toast.error('Durée requise')
     
-    // Générer un code automatique si nouveau
-    const code = selectedCourse?.code || `FORM-${Date.now().toString(36).toUpperCase()}`
+    // Code auto-généré
+    const code = selectedCourse?.code || `F${Date.now().toString(36).toUpperCase()}`
     
-    // Données minimales qui existent forcément dans la base
+    // UNIQUEMENT les colonnes de base qui existent à coup sûr
     const data = {
       code,
       title: form.title,
@@ -71,7 +71,6 @@ export default function Courses() {
       objectives: form.objectives || null,
       prerequisites: form.prerequisites || null,
       target_audience: form.target_audience || null,
-      program: form.content || null,
       duration_hours: form.duration ? parseFloat(form.duration) : 7,
       price_ht: form.price_ht ? parseFloat(form.price_ht) : null,
     }
