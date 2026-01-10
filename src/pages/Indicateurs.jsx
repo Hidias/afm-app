@@ -151,8 +151,7 @@ export default function Indicateurs() {
     setLoading(false)
     
     // Détecter les alertes en ARRIÈRE-PLAN (ne bloque pas l'affichage)
-    detectAndCreateAlerts(hotEvalsResult.data || [], alertsResult.data || [])
-  }
+// detectAndCreateAlerts(hotEvalsResult.data || [], alertsResult.data || [])  }
   
   // Détecter les notes basses (1-3) et créer des alertes
   const detectAndCreateAlerts = async (evals, existingAlerts) => {
