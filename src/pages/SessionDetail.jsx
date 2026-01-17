@@ -253,6 +253,15 @@ export default function SessionDetail() {
     try {
       const { trainee, expectations, observation, stId } = expectationsModalData
       
+      // DEBUG: Afficher les valeurs
+      console.log('💾 Sauvegarde attentes/observation:', {
+        trainee_id: trainee?.id,
+        trainee_name: `${trainee?.first_name} ${trainee?.last_name}`,
+        stId,
+        expectations,
+        observation
+      })
+      
       // 1. Mettre à jour les attentes dans trainee_info_sheets (si modifiées)
       if (infoSheets[trainee.id]) {
         await supabase
@@ -286,10 +295,19 @@ export default function SessionDetail() {
       }
       
       // 2. Mettre à jour l'observation dans session_trainees
-      await supabase
+      console.log('🔄 Mise à jour session_trainees avec:', { stId, observation })
+      
+      const { data: updateData, error: updateError } = await supabase
         .from('session_trainees')
         .update({ admin_observation: observation || null })
         .eq('id', stId)
+        .select()
+      
+      console.log('✅ Résultat update session_trainees:', { updateData, updateError })
+      
+      if (updateError) {
+        throw updateError
+      }
       
       // 3. Créer notification si attentes stagiaire ET pas encore de notification
       const hasExpectations = expectations && expectations.trim().length > 0
