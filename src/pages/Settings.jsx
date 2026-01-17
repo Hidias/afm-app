@@ -248,7 +248,7 @@ export default function Settings() {
       a.href = url
       const date = new Date().toISOString().split('T')[0]
       const time = new Date().toTimeString().split(' ')[0].replace(/:/g, '-')
-      a.download = `afm-backup-complet-${date}_${time}.json`
+      a.download = `access-campus-backup-complet-${date}_${time}.json`
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
