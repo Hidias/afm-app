@@ -19,6 +19,7 @@ export default function Dashboard() {
   
   const [nonConformites, setNonConformites] = useState([])
   const [qualityAlerts, setQualityAlerts] = useState([])
+  const [recentReclamations, setRecentReclamations] = useState([])
   const [coldEvaluations, setColdEvaluations] = useState([])
   const [purgeStats, setPurgeStats] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -131,6 +132,59 @@ export default function Dashboard() {
       setQualityAlerts(enrichedAlerts)
     } else {
       setQualityAlerts([])
+    }
+    
+    // Charger les 5 dernières réclamations non traitées
+    const { data: reclamations } = await supabase
+      .from('reclamations')
+      .select('id, subject, description, created_at, session_id, trainee_id, status')
+      .in('status', ['pending', 'in_progress']) // Non traitées
+      .order('created_at', { ascending: false })
+      .limit(5)
+    
+    // Enrichir les réclamations avec session et stagiaire
+    if (reclamations && reclamations.length > 0) {
+      const sessionIds = [...new Set(reclamations.map(r => r.session_id).filter(Boolean))]
+      const traineeIds = [...new Set(reclamations.map(r => r.trainee_id).filter(Boolean))]
+      
+      const [sessionsResult, traineesResult] = await Promise.all([
+        sessionIds.length > 0 
+          ? supabase.from('sessions').select('id, reference, course_id').in('id', sessionIds)
+          : { data: [] },
+        traineeIds.length > 0
+          ? supabase.from('trainees').select('id, first_name, last_name').in('id', traineeIds)
+          : { data: [] }
+      ])
+      
+      // Récupérer les noms des formations
+      const courseIds = [...new Set((sessionsResult.data || []).map(s => s.course_id).filter(Boolean))]
+      const coursesResult = courseIds.length > 0
+        ? await supabase.from('courses').select('id, title').in('id', courseIds)
+        : { data: [] }
+      
+      const coursesMap = {}
+      ;(coursesResult.data || []).forEach(c => { coursesMap[c.id] = c })
+      
+      const sessionsMap = {}
+      ;(sessionsResult.data || []).forEach(s => { 
+        sessionsMap[s.id] = {
+          ...s,
+          courses: coursesMap[s.course_id] || null
+        }
+      })
+      
+      const traineesMap = {}
+      ;(traineesResult.data || []).forEach(t => { traineesMap[t.id] = t })
+      
+      const enrichedReclamations = reclamations.map(recl => ({
+        ...recl,
+        sessions: sessionsMap[recl.session_id] || null,
+        trainees: traineesMap[recl.trainee_id] || null
+      }))
+      
+      setRecentReclamations(enrichedReclamations)
+    } else {
+      setRecentReclamations([])
     }
     
     // Charger les stats de purge RGPD
@@ -478,25 +532,56 @@ export default function Dashboard() {
             <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
               <AlertTriangle className="w-5 h-5 text-orange-500" />
               Alertes Qualité
-              {qualityAlerts.length > 0 && (
-                <span className="bg-orange-500 text-white text-xs px-2 py-0.5 rounded-full">{qualityAlerts.length}</span>
+              {(qualityAlerts.length + recentReclamations.length) > 0 && (
+                <span className="bg-orange-500 text-white text-xs px-2 py-0.5 rounded-full">
+                  {qualityAlerts.length + recentReclamations.length}
+                </span>
               )}
             </h2>
             <Link to="/indicateurs" className="text-sm text-primary-600 hover:text-primary-700 flex items-center gap-1">
               Voir tout <ArrowRight className="w-4 h-4" />
             </Link>
           </div>
-          {qualityAlerts.length === 0 ? (
+          {(qualityAlerts.length === 0 && recentReclamations.length === 0) ? (
             <div className="text-center py-4">
               <CheckCircle className="w-8 h-8 text-green-500 mx-auto mb-2" />
               <p className="text-gray-500 text-sm">Aucune alerte qualité en attente</p>
-              <p className="text-xs text-gray-400">Les notes de 1 à 3 génèrent des alertes</p>
+              <p className="text-xs text-gray-400">Les notes de 1 à 3 et les réclamations génèrent des alertes</p>
             </div>
           ) : (
             <div className="space-y-3 max-h-80 overflow-y-auto">
+              {/* Réclamations */}
+              {recentReclamations.map((recl) => (
+                <div 
+                  key={`recl-${recl.id}`}
+                  className="p-3 rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 transition-colors cursor-pointer"
+                  onClick={() => navigate('/non-conformites')}
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="px-2 py-0.5 rounded text-xs font-bold bg-red-500 text-white">
+                          🔴 RÉCLAMATION
+                        </span>
+                        <span className="font-medium text-sm truncate">{recl.subject}</span>
+                      </div>
+                      <p className="text-xs text-gray-600 truncate mb-1">
+                        {recl.sessions?.courses?.title || 'Formation inconnue'}
+                        {recl.trainees && ` - ${recl.trainees.first_name} ${recl.trainees.last_name}`}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {format(new Date(recl.created_at), 'dd/MM/yyyy à HH:mm', { locale: fr })}
+                      </p>
+                    </div>
+                    <ExternalLink className="w-4 h-4 text-gray-400 ml-2 flex-shrink-0" />
+                  </div>
+                </div>
+              ))}
+              
+              {/* Alertes notes < 3 */}
               {qualityAlerts.map((alert) => (
                 <div 
-                  key={alert.id} 
+                  key={`alert-${alert.id}`}
                   className="p-3 rounded-lg border border-orange-200 bg-orange-50 hover:bg-orange-100 transition-colors cursor-pointer"
                   onClick={() => navigate(`/sessions/${alert.session_id}`)}
                 >
