@@ -419,7 +419,20 @@ export default function TraineePortal() {
         gender: infoForm.gender || 'male',
       }
       
-      await supabase.from('trainees').update(traineeUpdate).eq('id', selectedTrainee.id)
+      console.log('🔄 Mise à jour trainee avec:', traineeUpdate)
+      
+      const { data: updateData, error: updateError } = await supabase
+        .from('trainees')
+        .update(traineeUpdate)
+        .eq('id', selectedTrainee.id)
+        .select()
+      
+      console.log('✅ Résultat update trainees:', { updateData, updateError })
+      
+      if (updateError) {
+        throw updateError
+      }
+      
       setSelectedTrainee({ ...selectedTrainee, ...traineeUpdate })
       
       const infoData = {
@@ -1265,7 +1278,7 @@ export default function TraineePortal() {
         </div>
 
         <p className="text-center text-xs text-gray-400 mt-4">
-          Access Formation • v2.6.1
+          Access Formation • v2.7.0
         </p>
       </div>
     </div>
