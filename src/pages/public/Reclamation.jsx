@@ -36,28 +36,46 @@ export default function Reclamation() {
     try {
       const { data, error } = await supabase
         .from('sessions')
-        .select(`
-          id,
-          reference,
-          start_date,
-          end_date,
-          courses(title)
-        `)
+        .select('id, reference, start_date, end_date, course_id')
         .eq('reference', fullRef)
-        .single()
+        .maybeSingle()
       
-      if (error || !data) {
-        setSessionError('Session non trouvée. Vérifiez le numéro.')
-      } else {
-        setSessionInfo({
-          id: data.id,
-          reference: data.reference,
-          title: data.courses?.title || 'Formation',
-          startDate: data.start_date,
-          endDate: data.end_date
-        })
+      console.log('Session lookup:', { fullRef, data, error })
+      
+      if (error) {
+        console.error('Supabase error:', error)
+        setSessionError('Erreur lors de la vérification')
+        return
       }
+      
+      if (!data) {
+        setSessionError('Session non trouvée. Vérifiez le numéro.')
+        return
+      }
+      
+      // Récupérer le titre du cours séparément
+      let courseTitle = 'Formation'
+      if (data.course_id) {
+        const { data: courseData } = await supabase
+          .from('courses')
+          .select('title')
+          .eq('id', data.course_id)
+          .maybeSingle()
+        
+        if (courseData?.title) {
+          courseTitle = courseData.title
+        }
+      }
+      
+      setSessionInfo({
+        id: data.id,
+        reference: data.reference,
+        title: courseTitle,
+        startDate: data.start_date,
+        endDate: data.end_date
+      })
     } catch (err) {
+      console.error('Erreur:', err)
       setSessionError('Erreur lors de la vérification')
     } finally {
       setVerifying(false)
