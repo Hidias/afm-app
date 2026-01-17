@@ -345,30 +345,45 @@ export const useDataStore = create((set, get) => ({
       if (!error && data) {
         set({ trainees: [...get().trainees, data] })
       }
+      console.log('📌 Fallback insert result:', { data, error })
       return { data, error }
     }
     
+    console.log('📌 RPC result (trainee ID):', rpcData)
+    
     // RPC retourne l'ID, récupérer le stagiaire complet
     if (rpcData) {
-      // La RPC ne gère pas csp et job_title, donc on les met à jour séparément
+      // La RPC ne gère pas csp, job_title et gender, donc on les met à jour séparément
       if (trainee.csp !== undefined || trainee.job_title !== undefined || trainee.gender !== undefined) {
         const extraFields = {}
         if (trainee.csp !== undefined) extraFields.csp = trainee.csp
         if (trainee.job_title !== undefined) extraFields.job_title = trainee.job_title
         if (trainee.gender !== undefined) extraFields.gender = trainee.gender
         
-        await supabase
+        console.log('📌 Extra fields to update:', extraFields)
+        
+        const { error: updateError } = await supabase
           .from('trainees')
           .update(extraFields)
           .eq('id', rpcData)
+        
+        if (updateError) {
+          console.error('📌 Error updating extra fields:', updateError)
+        }
       }
       
-      const { data: newTrainee } = await supabase
+      console.log('📌 Fetching complete trainee with ID:', rpcData)
+      
+      const { data: newTrainee, error: fetchError } = await supabase
         .from('trainees')
         .select('*, clients(id, name)')
         .eq('id', rpcData)
         .single()
+      
+      console.log('📌 Fetched trainee:', { newTrainee, fetchError })
+      
       if (newTrainee) {
+        console.log('📌 Adding trainee to state')
         set({ trainees: [...get().trainees, newTrainee] })
       }
       return { data: newTrainee, error: null }
