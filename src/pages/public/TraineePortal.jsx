@@ -56,6 +56,10 @@ export default function TraineePortal() {
   // Data
   const [infoSheet, setInfoSheet] = useState(null)
   const [attendanceData, setAttendanceData] = useState({})
+  const [certificationAccepted, setCertificationAccepted] = useState(false)
+  const [signatureData, setSignatureData] = useState(null)
+  const [showTimeWarning, setShowTimeWarning] = useState(false)
+  const [timeWarningDetails, setTimeWarningDetails] = useState(null)
   const [evaluationData, setEvaluationData] = useState(null)
   
   // Forms
@@ -476,12 +480,97 @@ export default function TraineePortal() {
   }
 
   // ============================================================
+
+  // ========================================
+  // FONCTIONS UTILITAIRES POUR ÉMARGEMENT
+  // ========================================
+  
+  // Vérifier si on est dans le créneau horaire autorisé
+  const checkTimeSlot = (period) => {
+    if (!session?.start_time || !session?.end_time) return { allowed: true }
+    
+    const now = new Date()
+    const currentHour = now.getHours()
+    const currentMinute = now.getMinutes()
+    const currentTime = currentHour + currentMinute / 60
+    
+    // Parser les horaires de session (format "HH:MM")
+    const [startHour, startMin] = session.start_time.split(':').map(Number)
+    const [endHour, endMin] = session.end_time.split(':').map(Number)
+    
+    let allowedStart, allowedEnd
+    
+    if (period === 'morning') {
+      // Matin : 1h avant début session jusqu'à 13h
+      allowedStart = Math.max(0, startHour - 1)
+      allowedEnd = 13
+    } else {
+      // Après-midi : 13h jusqu'à 1h après fin session
+      allowedStart = 13
+      allowedEnd = Math.min(24, endHour + 1)
+    }
+    
+    const isInTimeSlot = currentTime >= allowedStart && currentTime <= allowedEnd
+    
+    return {
+      allowed: isInTimeSlot,
+      currentTime: `${currentHour.toString().padStart(2, '0')}:${currentMinute.toString().padStart(2, '0')}`,
+      allowedStart: `${allowedStart}:00`,
+      allowedEnd: `${allowedEnd}:00`,
+      period: period === 'morning' ? 'matin' : 'après-midi'
+    }
+  }
+  
+  // Vérifier si c'est la première demi-journée
+  const isFirstHalfDay = (date, period) => {
+    if (!session?.start_date) return false
+    const firstDate = format(parseISO(session.start_date), 'yyyy-MM-dd')
+    return date === firstDate && period === 'morning'
+  }
+
   // CORRECTION: Écrire dans attendance_halfdays avec morning/afternoon
   // ============================================================
   const handleToggleAttendance = async (date, period) => {
     const key = `${date}_${period}`
     const currentValue = attendanceData[key]
     const newValue = !currentValue
+    
+    // Vérifier si c'est la première demi-journée et si signature/certification sont OK
+    const isFirst = isFirstHalfDay(date, period)
+    if (isFirst && newValue) {
+      if (!certificationAccepted) {
+        alert('⚠️ Vous devez accepter la certification avant d\'émarger.')
+        return
+      }
+      if (!signatureData) {
+        alert('⚠️ Vous devez signer avant d\'émarger pour la première fois.')
+        return
+      }
+    }
+    
+    // Vérifier le créneau horaire
+    const timeCheck = checkTimeSlot(period)
+    if (!timeCheck.allowed && newValue) {
+      setTimeWarningDetails({
+        ...timeCheck,
+        onConfirm: () => {
+          setShowTimeWarning(false)
+          proceedWithAttendance(date, period, newValue, isFirst)
+        },
+        onCancel: () => {
+          setShowTimeWarning(false)
+        }
+      })
+      setShowTimeWarning(true)
+      return
+    }
+    
+    // Si tout est OK, procéder
+    await proceedWithAttendance(date, period, newValue, isFirst)
+  }
+  
+  const proceedWithAttendance = async (date, period, newValue, isFirst) => {
+    const key = `${date}_${period}`
 
     // Mise à jour optimiste
     const newAttendanceData = { ...attendanceData, [key]: newValue }
@@ -1021,6 +1110,39 @@ export default function TraineePortal() {
           )}
 
           {/* STEP: Émargement - CORRIGÉ */}
+          {/* Modal warning horaire */}
+          {showTimeWarning && timeWarningDetails && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-lg p-6 max-w-md w-full">
+                <h3 className="text-lg font-bold text-orange-600 mb-3">⚠️ Émargement hors créneau</h3>
+                <p className="text-sm text-gray-700 mb-2">
+                  Vous êtes actuellement hors du créneau horaire autorisé pour l'émargement {timeWarningDetails.period}.
+                </p>
+                <div className="bg-gray-50 p-3 rounded mb-4 text-sm">
+                  <p><strong>Heure actuelle :</strong> {timeWarningDetails.currentTime}</p>
+                  <p><strong>Créneau autorisé :</strong> {timeWarningDetails.allowedStart} - {timeWarningDetails.allowedEnd}</p>
+                </div>
+                <p className="text-sm text-gray-600 mb-4">
+                  Voulez-vous quand même émarger ? (Le formateur pourra valider manuellement)
+                </p>
+                <div className="flex gap-3">
+                  <button
+                    onClick={timeWarningDetails.onCancel}
+                    className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium"
+                  >
+                    Annuler
+                  </button>
+                  <button
+                    onClick={timeWarningDetails.onConfirm}
+                    className="flex-1 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 font-medium"
+                  >
+                    Confirmer
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {currentStep === 'attendance' && selectedTrainee && (() => {
             const dates = session.start_date && session.end_date
               ? eachDayOfInterval({ start: parseISO(session.start_date), end: parseISO(session.end_date) })
@@ -1038,6 +1160,8 @@ export default function TraineePortal() {
               )
             }
 
+            const isFirst = isFirstHalfDay(today, 'morning')
+            
             return (
               <div className="space-y-5">
                 <div>
@@ -1049,6 +1173,112 @@ export default function TraineePortal() {
                     {session.day_type === 'half' ? 'Matin' : 'Matin + Après-midi'} du jour en cours
                   </p>
                 </div>
+                
+                {/* Certification et signature (première demi-journée uniquement) */}
+                {isFirst && (
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-4">
+                    <div className="flex items-start gap-2">
+                      <Shield className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                      <div className="text-sm text-blue-900 space-y-2">
+                        <p className="font-medium">Certification et protection des données</p>
+                        <p>
+                          Je certifie que les informations renseignées (identité, coordonnées, etc.) sont exactes 
+                          et que ma présence à cette formation est effective.
+                        </p>
+                        <p className="text-xs">
+                          Je reconnais avoir pris connaissance de la politique de protection des données personnelles 
+                          conformément au RGPD. Mes données seront traitées uniquement dans le cadre de cette formation 
+                          et conservées selon les obligations légales (durée : 3 ans après la formation).
+                        </p>
+                      </div>
+                    </div>
+                    
+                    <label className="flex items-start gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={certificationAccepted}
+                        onChange={(e) => setCertificationAccepted(e.target.checked)}
+                        className="mt-1 w-4 h-4 text-blue-600"
+                      />
+                      <span className="text-sm text-blue-900">
+                        J'accepte et certifie l'exactitude des informations
+                      </span>
+                    </label>
+                    
+                    {certificationAccepted && (
+                      <div className="space-y-2">
+                        <p className="text-sm font-medium text-blue-900">Signature obligatoire :</p>
+                        <canvas
+                          ref={(canvas) => {
+                            if (!canvas || signatureData) return
+                            const ctx = canvas.getContext('2d')
+                            canvas.width = canvas.offsetWidth
+                            canvas.height = 100
+                            ctx.strokeStyle = '#1e40af'
+                            ctx.lineWidth = 2
+                            ctx.lineCap = 'round'
+                            
+                            let drawing = false
+                            const startDrawing = (e) => {
+                              drawing = true
+                              const rect = canvas.getBoundingClientRect()
+                              const x = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left
+                              const y = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top
+                              ctx.beginPath()
+                              ctx.moveTo(x, y)
+                            }
+                            const draw = (e) => {
+                              if (!drawing) return
+                              e.preventDefault()
+                              const rect = canvas.getBoundingClientRect()
+                              const x = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left
+                              const y = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top
+                              ctx.lineTo(x, y)
+                              ctx.stroke()
+                            }
+                            const stopDrawing = () => {
+                              if (drawing) {
+                                setSignatureData(canvas.toDataURL())
+                              }
+                              drawing = false
+                            }
+                            
+                            canvas.addEventListener('mousedown', startDrawing)
+                            canvas.addEventListener('mousemove', draw)
+                            canvas.addEventListener('mouseup', stopDrawing)
+                            canvas.addEventListener('touchstart', startDrawing)
+                            canvas.addEventListener('touchmove', draw)
+                            canvas.addEventListener('touchend', stopDrawing)
+                          }}
+                          className="w-full border-2 border-blue-300 rounded bg-white"
+                          style={{ touchAction: 'none' }}
+                        />
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSignatureData(null)
+                              const canvas = document.querySelector('canvas')
+                              if (canvas) {
+                                const ctx = canvas.getContext('2d')
+                                ctx.clearRect(0, 0, canvas.width, canvas.height)
+                              }
+                            }}
+                            className="text-xs px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+                          >
+                            Effacer
+                          </button>
+                          {signatureData && (
+                            <span className="text-xs text-green-600 flex items-center gap-1">
+                              <CheckCircle className="w-4 h-4" />
+                              Signature enregistrée
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                   <p className="text-sm text-blue-900">
