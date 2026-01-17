@@ -8,8 +8,6 @@ import {
 import { format, parseISO, isToday, eachDayOfInterval } from 'date-fns'
 import { fr } from 'date-fns/locale'
 
-const ratingLabels = ['Mauvais', 'Passable', 'Moyen', 'Satisfaisant', 'Très satisfaisant']
-
 const evalQuestions = {
   organisation: [
     { key: 'q_org_documents', label: 'Communication des documents avant la formation' },
@@ -72,6 +70,7 @@ export default function TraineePortal() {
     highest_diploma: '',
     csp: '',
     job_title: '',
+    training_expectations: '',
     rgpd_consent: false,
   })
   
@@ -132,7 +131,7 @@ export default function TraineePortal() {
           *,
           courses(title, duration_hours),
           clients(name),
-          session_trainees(id, trainee_id, access_code, failed_attempts, locked_until, trainees(id, first_name, last_name, email, phone, birth_date, social_security_number, refused_ssn, csp, job_title))
+          session_trainees(id, trainee_id, access_code, access_code_attempts, access_code_locked, trainees(id, first_name, last_name, email, phone, birth_date, social_security_number, refused_ssn, csp, job_title))
         `)
         .eq('attendance_token', token)
         .single()
@@ -143,6 +142,7 @@ export default function TraineePortal() {
         return
       }
 
+      // Déterminer les périodes selon le type de session
       let sessionPeriods = ['morning', 'afternoon']
       if (sessionData.day_type === 'half') {
         sessionPeriods = ['morning']
@@ -155,8 +155,8 @@ export default function TraineePortal() {
         ...st.trainees,
         session_trainee_id: st.id,
         access_code: st.access_code,
-        failed_attempts: st.failed_attempts,
-        locked_until: st.locked_until
+        access_code_attempts: st.access_code_attempts || 0,
+        access_code_locked: st.access_code_locked || false
       })).filter(Boolean) || []
       
       setTrainees(traineesList)
@@ -172,8 +172,21 @@ export default function TraineePortal() {
     setSelectedTrainee(trainee)
     setAccessCode('')
     setCodeError('')
-    setAttemptsRemaining(5 - (trainee.failed_attempts || 0))
-    setCurrentStep('verify_code')
+    setAttemptsRemaining(5 - (trainee.access_code_attempts || 0))
+    
+    // Si pas de code d'accès configuré ou codes désactivés, passer directement
+    if (!trainee.access_code) {
+      loadTraineeDataDirect(trainee)
+    } else {
+      setCurrentStep('verify_code')
+    }
+  }
+
+  // Chargement direct sans vérification de code (fallback)
+  const loadTraineeDataDirect = async (trainee) => {
+    setSelectedTrainee(trainee)
+    setSubmitting(true)
+    await loadTraineeData(trainee)
   }
 
   const handleVerifyCode = async (e) => {
@@ -182,12 +195,29 @@ export default function TraineePortal() {
     setCodeError('')
 
     try {
+      // Vérification via RPC si disponible, sinon vérification directe
       const { data, error } = await supabase.rpc('verify_trainee_access_code', {
         p_session_trainee_id: selectedTrainee.session_trainee_id,
         p_access_code: accessCode
       })
 
-      if (error || !data?.success) {
+      if (error) {
+        // Fallback: vérification directe si RPC n'existe pas
+        if (error.message?.includes('function') || error.code === '42883') {
+          // Vérification directe
+          if (accessCode === selectedTrainee.access_code) {
+            await loadTraineeData(selectedTrainee)
+            return
+          } else {
+            setCodeError('Code incorrect')
+            setSubmitting(false)
+            return
+          }
+        }
+        throw error
+      }
+
+      if (!data?.success) {
         setCodeError(data?.error || 'Code incorrect')
         if (data?.attempts_remaining !== undefined) {
           setAttemptsRemaining(data.attempts_remaining)
@@ -199,8 +229,7 @@ export default function TraineePortal() {
         return
       }
 
-      // Code correct - charger les données
-      await loadTraineeData()
+      await loadTraineeData(selectedTrainee)
       
     } catch (err) {
       console.error('Erreur:', err)
@@ -209,50 +238,59 @@ export default function TraineePortal() {
     }
   }
 
-  const loadTraineeData = async () => {
+  const loadTraineeData = async (trainee = selectedTrainee) => {
     try {
       // Charger fiche de renseignement
       const { data: infoData } = await supabase
         .from('trainee_info_sheets')
         .select('*')
         .eq('session_id', session.id)
-        .eq('trainee_id', selectedTrainee.id)
-        .single()
+        .eq('trainee_id', trainee.id)
+        .maybeSingle()
       
       setInfoSheet(infoData)
       
       let birthDateDisplay = ''
-      if (selectedTrainee.birth_date) {
-        const parts = selectedTrainee.birth_date.split('-')
+      if (trainee.birth_date) {
+        const parts = trainee.birth_date.split('-')
         if (parts.length === 3) {
           birthDateDisplay = `${parts[2]}/${parts[1]}/${parts[0]}`
         }
       }
       
       setInfoForm({
-        first_name: selectedTrainee.first_name || '',
-        last_name: selectedTrainee.last_name || '',
+        first_name: trainee.first_name || '',
+        last_name: trainee.last_name || '',
         birth_date_display: birthDateDisplay,
-        email: selectedTrainee.email || '',
+        email: trainee.email || '',
         ssn: infoData?.ssn || '',
         ssn_refused: infoData?.ssn_refused || false,
         last_training_year: infoData?.last_training_year?.toString() || '',
         highest_diploma: infoData?.highest_diploma || '',
-        csp: selectedTrainee.csp || infoData?.csp || '',
-        job_title: selectedTrainee.job_title || infoData?.job_title || '',
+        csp: trainee.csp || infoData?.csp || '',
+        job_title: trainee.job_title || infoData?.job_title || '',
+        training_expectations: infoData?.training_expectations || '',
         rgpd_consent: infoData?.rgpd_consent || false,
       })
 
-      // Charger émargement
+      // ============================================================
+      // CORRECTION: Charger émargement depuis attendance_halfdays
+      // ============================================================
       const { data: attendanceRecords } = await supabase
-        .from('trainee_attendance')
-        .select('date, period, is_present')
+        .from('attendance_halfdays')
+        .select('date, morning, afternoon')
         .eq('session_id', session.id)
-        .eq('trainee_id', selectedTrainee.id)
+        .eq('trainee_id', trainee.id)
 
       const attendanceMap = {}
       attendanceRecords?.forEach(rec => {
-        attendanceMap[`${rec.date}_${rec.period}`] = rec.is_present
+        const dateStr = typeof rec.date === 'string' ? rec.date.substring(0, 10) : format(new Date(rec.date), 'yyyy-MM-dd')
+        if (rec.morning) {
+          attendanceMap[`${dateStr}_morning`] = true
+        }
+        if (rec.afternoon) {
+          attendanceMap[`${dateStr}_afternoon`] = true
+        }
       })
       setAttendanceData(attendanceMap)
 
@@ -261,8 +299,8 @@ export default function TraineePortal() {
         .from('trainee_evaluations')
         .select('*')
         .eq('session_id', session.id)
-        .eq('trainee_id', selectedTrainee.id)
-        .single()
+        .eq('trainee_id', trainee.id)
+        .maybeSingle()
 
       setEvaluationData(evalData)
       if (evalData) {
@@ -290,16 +328,17 @@ export default function TraineePortal() {
       // Déterminer étape
       const today = getTodayFormation()
       
-      if (infoSheet && infoSheet.filled_at) {
+      if (infoData && infoData.filled_at) {
+        // Vérifier si toutes les périodes du jour sont cochées
         const allPeriodsChecked = session.periods.every(period => {
           const key = `${today}_${period}`
-          return attendanceData[key] !== undefined
+          return attendanceMap[key] === true
         })
         
         if (allPeriodsChecked) {
           const isLastDay = session.end_date && isToday(parseISO(session.end_date))
           if (isLastDay) {
-            if (evaluationData && evaluationData.filled_at) {
+            if (evalData && evalData.questionnaire_submitted) {
               setCurrentStep('thank_you')
             } else {
               setCurrentStep('evaluation')
@@ -343,6 +382,18 @@ export default function TraineePortal() {
     if (!infoForm.ssn_refused && !infoForm.ssn) {
       errors.ssn = 'N° Sécurité Sociale requis ou cochez "Je refuse"'
     }
+    if (!infoForm.highest_diploma) {
+      errors.highest_diploma = 'Diplôme requis'
+    }
+    if (!infoForm.csp) {
+      errors.csp = 'CSP requise'
+    }
+    if (!infoForm.job_title) {
+      errors.job_title = 'Intitulé du poste requis'
+    }
+    if (!infoForm.training_expectations || infoForm.training_expectations.trim().length === 0) {
+      errors.training_expectations = 'Vos attentes sont requises'
+    }
     if (!infoForm.rgpd_consent) {
       errors.rgpd = 'Veuillez accepter les conditions RGPD'
     }
@@ -378,6 +429,7 @@ export default function TraineePortal() {
         highest_diploma: infoForm.highest_diploma,
         csp: infoForm.csp || null,
         job_title: infoForm.job_title || null,
+        training_expectations: infoForm.training_expectations,
         rgpd_consent: infoForm.rgpd_consent,
         rgpd_consent_date: new Date().toISOString(),
         filled_at: new Date().toISOString(),
@@ -389,7 +441,7 @@ export default function TraineePortal() {
         .select('id')
         .eq('session_id', session.id)
         .eq('trainee_id', selectedTrainee.id)
-        .single()
+        .maybeSingle()
       
       if (existing) {
         await supabase.from('trainee_info_sheets').update(infoData).eq('id', existing.id)
@@ -407,45 +459,78 @@ export default function TraineePortal() {
     }
   }
 
+  // ============================================================
+  // CORRECTION: Écrire dans attendance_halfdays avec morning/afternoon
+  // ============================================================
   const handleToggleAttendance = async (date, period) => {
     const key = `${date}_${period}`
     const currentValue = attendanceData[key]
-    const newValue = currentValue === undefined ? true : !currentValue
+    const newValue = !currentValue
 
-    setAttendanceData({ ...attendanceData, [key]: newValue })
+    // Mise à jour optimiste
+    const newAttendanceData = { ...attendanceData, [key]: newValue }
+    setAttendanceData(newAttendanceData)
 
     try {
+      // Vérifier si une entrée existe pour cette date
       const { data: existing } = await supabase
-        .from('trainee_attendance')
-        .select('id')
+        .from('attendance_halfdays')
+        .select('id, morning, afternoon')
         .eq('session_id', session.id)
         .eq('trainee_id', selectedTrainee.id)
         .eq('date', date)
-        .eq('period', period)
-        .single()
+        .maybeSingle()
 
       if (existing) {
-        await supabase.from('trainee_attendance').update({ is_present: newValue }).eq('id', existing.id)
+        // Mettre à jour l'entrée existante
+        const updateData = {
+          [period]: newValue,
+          validated_at: new Date().toISOString(),
+          validated_by: `${selectedTrainee.first_name} ${selectedTrainee.last_name}`,
+        }
+        
+        const { error } = await supabase
+          .from('attendance_halfdays')
+          .update(updateData)
+          .eq('id', existing.id)
+        
+        if (error) {
+          console.error('Erreur update attendance_halfdays:', error)
+          throw error
+        }
       } else {
-        await supabase.from('trainee_attendance').insert({
+        // Créer une nouvelle entrée
+        const insertData = {
           session_id: session.id,
           trainee_id: selectedTrainee.id,
-          date,
-          period,
-          is_present: newValue,
-        })
+          date: date,
+          morning: period === 'morning' ? newValue : false,
+          afternoon: period === 'afternoon' ? newValue : false,
+          validated_at: new Date().toISOString(),
+          validated_by: `${selectedTrainee.first_name} ${selectedTrainee.last_name}`,
+        }
+        
+        const { error } = await supabase
+          .from('attendance_halfdays')
+          .insert(insertData)
+        
+        if (error) {
+          console.error('Erreur insert attendance_halfdays:', error)
+          throw error
+        }
       }
 
+      // Vérifier si toutes les périodes du jour sont cochées
       const today = getTodayFormation()
       const allPeriodsChecked = session.periods.every(p => {
         const k = `${today}_${p}`
-        return (k === key ? newValue : attendanceData[k]) !== undefined
+        return newAttendanceData[k] === true
       })
 
       if (allPeriodsChecked) {
         const isLastDay = session.end_date && isToday(parseISO(session.end_date))
         if (isLastDay) {
-          if (evaluationData && evaluationData.filled_at) {
+          if (evaluationData && evaluationData.questionnaire_submitted) {
             setCurrentStep('thank_you')
           } else {
             setCurrentStep('evaluation')
@@ -456,6 +541,7 @@ export default function TraineePortal() {
       }
     } catch (err) {
       console.error('Erreur émargement:', err)
+      // Rollback
       setAttendanceData({ ...attendanceData, [key]: currentValue })
       alert('Erreur lors de l\'enregistrement')
     }
@@ -466,25 +552,68 @@ export default function TraineePortal() {
     setSubmitting(true)
     
     try {
+      // Lister explicitement tous les champs pour éviter les conflits
       const evalData = {
         session_id: session.id,
         trainee_id: selectedTrainee.id,
-        ...evalForm,
-        filled_at: new Date().toISOString(),
-        filled_online: true,
+        q_org_documents: evalForm.q_org_documents,
+        q_org_accueil: evalForm.q_org_accueil,
+        q_org_locaux: evalForm.q_org_locaux,
+        q_org_materiel: evalForm.q_org_materiel,
+        q_contenu_organisation: evalForm.q_contenu_organisation,
+        q_contenu_supports: evalForm.q_contenu_supports,
+        q_contenu_duree: evalForm.q_contenu_duree,
+        q_contenu_programme: evalForm.q_contenu_programme,
+        q_formateur_pedagogie: evalForm.q_formateur_pedagogie,
+        q_formateur_expertise: evalForm.q_formateur_expertise,
+        q_formateur_progression: evalForm.q_formateur_progression,
+        q_formateur_moyens: evalForm.q_formateur_moyens,
+        q_global_adequation: evalForm.q_global_adequation,
+        q_global_competences: evalForm.q_global_competences,
+        would_recommend: evalForm.would_recommend,
+        comment_general: evalForm.comment_general || null,
+        comment_projet: evalForm.comment_projet || null,
+        questionnaire_submitted: true,
+        submitted_at: new Date().toISOString(),
+        submitted_online: true,
       }
+
+      console.log('Saving evaluation:', evalData)
 
       const { data: existing } = await supabase
         .from('trainee_evaluations')
         .select('id')
         .eq('session_id', session.id)
         .eq('trainee_id', selectedTrainee.id)
-        .single()
+        .maybeSingle()
+
+      console.log('Existing evaluation:', existing)
 
       if (existing) {
-        await supabase.from('trainee_evaluations').update(evalData).eq('id', existing.id)
+        const { data, error } = await supabase
+          .from('trainee_evaluations')
+          .update(evalData)
+          .eq('id', existing.id)
+          .select()
+        
+        console.log('Update result:', { data, error })
+        
+        if (error) {
+          console.error('Erreur update evaluation:', error)
+          throw error
+        }
       } else {
-        await supabase.from('trainee_evaluations').insert(evalData)
+        const { data, error } = await supabase
+          .from('trainee_evaluations')
+          .insert(evalData)
+          .select()
+        
+        console.log('Insert result:', { data, error })
+        
+        if (error) {
+          console.error('Erreur insert evaluation:', error)
+          throw error
+        }
       }
       
       // Calcul moyenne (exclure N/C = 0)
@@ -712,6 +841,20 @@ export default function TraineePortal() {
               </div>
 
               <div>
+                <label className="block text-sm font-medium mb-1">Date de naissance *</label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="JJ/MM/AAAA"
+                  value={infoForm.birth_date_display}
+                  onChange={(e) => setInfoForm({...infoForm, birth_date_display: formatBirthDateInput(e.target.value)})}
+                  maxLength={10}
+                  className="w-full px-3 py-2 border rounded-lg text-sm"
+                />
+                {formErrors.birth_date && <p className="text-xs text-red-600 mt-1">{formErrors.birth_date}</p>}
+              </div>
+
+              <div>
                 <label className="block text-sm font-medium mb-1">Email *</label>
                 <input
                   type="email"
@@ -723,104 +866,106 @@ export default function TraineePortal() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">Date de naissance * (JJ/MM/AAAA)</label>
-                <input
-                  type="text"
-                  value={infoForm.birth_date_display}
-                  onChange={(e) => setInfoForm({...infoForm, birth_date_display: formatBirthDateInput(e.target.value)})}
-                  placeholder="JJ/MM/AAAA"
-                  maxLength={10}
-                  className="w-full px-3 py-2 border rounded-lg text-sm"
-                />
-                {formErrors.birth_date && <p className="text-xs text-red-600 mt-1">{formErrors.birth_date}</p>}
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1">N° Sécurité Sociale</label>
+                <label className="block text-sm font-medium mb-1">N° Sécurité Sociale {!infoForm.ssn_refused && '*'}</label>
                 <input
                   type="text"
                   value={infoForm.ssn}
                   onChange={(e) => setInfoForm({...infoForm, ssn: e.target.value})}
                   disabled={infoForm.ssn_refused}
-                  maxLength={15}
-                  className="w-full px-3 py-2 border rounded-lg text-sm disabled:bg-gray-100"
+                  placeholder={infoForm.ssn_refused ? 'Non communiqué' : ''}
+                  className={`w-full px-3 py-2 border rounded-lg text-sm ${infoForm.ssn_refused ? 'bg-gray-100 text-gray-400' : ''}`}
                 />
-                <label className="flex items-center gap-2 mt-2 text-xs text-gray-600">
-                  <input
-                    type="checkbox"
-                    checked={infoForm.ssn_refused}
-                    onChange={(e) => setInfoForm({...infoForm, ssn_refused: e.target.checked, ssn: ''})}
-                    className="rounded"
-                  />
-                  Je refuse de communiquer mon numéro
-                </label>
                 {formErrors.ssn && <p className="text-xs text-red-600 mt-1">{formErrors.ssn}</p>}
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">Année de dernière formation</label>
+                <label className="block text-sm font-medium mb-1">Année dernière formation</label>
                 <input
-                  type="number"
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="Ex: 2023"
+                  maxLength={4}
                   value={infoForm.last_training_year}
-                  onChange={(e) => setInfoForm({...infoForm, last_training_year: e.target.value})}
-                  placeholder="2024"
-                  min="1900"
-                  max={new Date().getFullYear()}
+                  onChange={(e) => setInfoForm({...infoForm, last_training_year: e.target.value.replace(/\D/g, '')})}
                   className="w-full px-3 py-2 border rounded-lg text-sm"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">Diplôme le plus élevé</label>
+                <label className="block text-sm font-medium mb-1">Diplôme le plus élevé *</label>
                 <select
                   value={infoForm.highest_diploma}
                   onChange={(e) => setInfoForm({...infoForm, highest_diploma: e.target.value})}
                   className="w-full px-3 py-2 border rounded-lg text-sm"
                 >
-                  <option value="">Sélectionnez</option>
-                  <option value="Aucun">Aucun</option>
-                  <option value="CEP">CEP</option>
-                  <option value="BEPC">BEPC</option>
+                  <option value="">-- Sélectionner --</option>
+                  <option value="Sans diplôme">Sans diplôme</option>
                   <option value="CAP/BEP">CAP/BEP</option>
-                  <option value="Bac">Bac</option>
-                  <option value="Bac+2">Bac+2</option>
-                  <option value="Bac+3">Bac+3</option>
-                  <option value="Bac+5">Bac+5</option>
-                  <option value="Doctorat">Doctorat</option>
+                  <option value="Baccalauréat">Baccalauréat</option>
+                  <option value="Bac+2">Bac+2 (BTS, DUT)</option>
+                  <option value="Bac+3">Bac+3 (Licence)</option>
+                  <option value="Bac+5">Bac+5 (Master)</option>
+                  <option value="Bac+8">Bac+8 (Doctorat)</option>
                 </select>
+                {formErrors.highest_diploma && <p className="text-xs text-red-600 mt-1">{formErrors.highest_diploma}</p>}
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">CSP</label>
+                <label className="block text-sm font-medium mb-1">Catégorie socio-professionnelle (CSP) *</label>
                 <select
                   value={infoForm.csp}
                   onChange={(e) => setInfoForm({...infoForm, csp: e.target.value})}
                   className="w-full px-3 py-2 border rounded-lg text-sm"
                 >
-                  <option value="">Sélectionnez</option>
+                  <option value="">-- Sélectionner --</option>
                   <option value="Agriculteurs exploitants">Agriculteurs exploitants</option>
-                  <option value="Artisans, commerçants">Artisans, commerçants</option>
-                  <option value="Cadres">Cadres</option>
+                  <option value="Artisans, commerçants, chefs d'entreprise">Artisans, commerçants, chefs d'entreprise</option>
+                  <option value="Cadres et professions intellectuelles supérieures">Cadres et professions intellectuelles supérieures</option>
                   <option value="Professions intermédiaires">Professions intermédiaires</option>
                   <option value="Employés">Employés</option>
                   <option value="Ouvriers">Ouvriers</option>
                   <option value="Retraités">Retraités</option>
-                  <option value="Sans activité">Sans activité</option>
+                  <option value="Autres personnes sans activité professionnelle">Autres personnes sans activité professionnelle</option>
                 </select>
+                {formErrors.csp && <p className="text-xs text-red-600 mt-1">{formErrors.csp}</p>}
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">Intitulé de poste</label>
+                <label className="block text-sm font-medium mb-1">Intitulé du poste *</label>
                 <input
                   type="text"
                   value={infoForm.job_title}
                   onChange={(e) => setInfoForm({...infoForm, job_title: e.target.value})}
+                  placeholder="Ex: Technicien de maintenance"
                   className="w-full px-3 py-2 border rounded-lg text-sm"
                 />
+                {formErrors.job_title && <p className="text-xs text-red-600 mt-1">{formErrors.job_title}</p>}
               </div>
 
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-gray-700">
-                <label className="flex items-start gap-2">
+              <div>
+                <label className="block text-sm font-medium mb-1">Mes attentes de la formation *</label>
+                <textarea
+                  value={infoForm.training_expectations}
+                  onChange={(e) => setInfoForm({...infoForm, training_expectations: e.target.value})}
+                  placeholder="Décrivez vos attentes, objectifs personnels, compétences à acquérir..."
+                  className="w-full px-3 py-2 border rounded-lg text-sm"
+                  rows={3}
+                />
+                {formErrors.training_expectations && <p className="text-xs text-red-600 mt-1">{formErrors.training_expectations}</p>}
+              </div>
+
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 space-y-2">
+                <label className="flex items-start gap-2 text-xs text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={infoForm.ssn_refused}
+                    onChange={(e) => setInfoForm({...infoForm, ssn_refused: e.target.checked, ssn: e.target.checked ? '' : infoForm.ssn})}
+                    className="mt-0.5 rounded"
+                  />
+                  <span>Je refuse de communiquer mon numéro de Sécurité Sociale</span>
+                </label>
+                
+                <label className="flex items-start gap-2 text-xs text-gray-700">
                   <input
                     type="checkbox"
                     checked={infoForm.rgpd_consent}
@@ -832,7 +977,7 @@ export default function TraineePortal() {
                     conformément au RGPD. Ces données serviront uniquement à la gestion de ma formation.
                   </span>
                 </label>
-                {formErrors.rgpd && <p className="text-xs text-red-600 mt-2">{formErrors.rgpd}</p>}
+                {formErrors.rgpd && <p className="text-xs text-red-600">{formErrors.rgpd}</p>}
               </div>
 
               <button
@@ -846,7 +991,7 @@ export default function TraineePortal() {
             </form>
           )}
 
-          {/* STEP: Émargement */}
+          {/* STEP: Émargement - CORRIGÉ */}
           {currentStep === 'attendance' && selectedTrainee && (() => {
             const dates = session.start_date && session.end_date
               ? eachDayOfInterval({ start: parseISO(session.start_date), end: parseISO(session.end_date) })
@@ -904,7 +1049,7 @@ export default function TraineePortal() {
                               : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
                           }`}
                         >
-                          {isChecked ? 'Présent' : 'Signer'}
+                          {isChecked ? 'Présent ✓' : 'Signer'}
                         </button>
                       </div>
                     )
@@ -1104,7 +1249,7 @@ export default function TraineePortal() {
         </div>
 
         <p className="text-center text-xs text-gray-400 mt-4">
-          Access Formation • v2.6.0
+          Access Formation • v2.6.1
         </p>
       </div>
     </div>
