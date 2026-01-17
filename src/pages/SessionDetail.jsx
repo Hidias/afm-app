@@ -726,6 +726,29 @@ export default function SessionDetail() {
     setTraineeResults(prev => ({ ...prev, [traineeId]: traineeResult.result }))
   }
   
+  // Mettre à jour le commentaire de remédiation pour un objectif
+  const handleUpdateRemediationComment = async (traineeId, objectiveIndex, comment) => {
+    const objData = objectivesData.find(o => o.trainee_id === traineeId && o.objective_index === objectiveIndex)
+    if (!objData?.id) return
+    
+    // Mettre à jour en BDD
+    const { error } = await supabase
+      .from('objectives')
+      .update({ remediation_comment: comment || null })
+      .eq('id', objData.id)
+    
+    if (error) {
+      console.error('Erreur mise à jour commentaire:', error)
+      toast.error('Erreur lors de la sauvegarde')
+      return
+    }
+    
+    // Mettre à jour local
+    setObjectivesData(prev => prev.map(o => 
+      o.id === objData.id ? { ...o, remediation_comment: comment } : o
+    ))
+  }
+  
   // Marquer tous les objectifs comme acquis pour tous les stagiaires
   const handleMarkAllAcquired = async () => {
     if (!confirm('Marquer tous les objectifs comme acquis pour tous les stagiaires ?')) return
@@ -801,12 +824,15 @@ export default function SessionDetail() {
     await updateRemediationProposal(session.id, trainee.id, proposal)
     setRemediationProposals(prev => ({ ...prev, [trainee.id]: proposal }))
     
-    // Récupérer les objectifs non validés
+    // Récupérer les objectifs non validés avec leurs commentaires
     const traineeObjectives = objectivesData.filter(o => o.trainee_id === trainee.id)
-    const failedObjectives = traineeObjectives
+    const failedObjectivesWithComments = traineeObjectives
       .filter(o => !o.validated)
-      .map(o => getObjectivesList()[o.objective_index])
-      .filter(Boolean)
+      .map(o => ({
+        text: getObjectivesList()[o.objective_index],
+        comment: o.remediation_comment || null
+      }))
+      .filter(o => o.text) // Ne garder que ceux qui ont un texte
     
     // Générer le certificat avec les infos supplémentaires
     const trainer = session.trainers
@@ -815,7 +841,8 @@ export default function SessionDetail() {
       ...trainee, 
       result: stData?.result || traineeResults[trainee.id] || 'not_acquired',
       remediation_proposal: proposal,
-      failed_objectives: failedObjectives
+      failed_objectives: failedObjectivesWithComments.map(o => o.text), // Garder la compat
+      failed_objectives_with_comments: failedObjectivesWithComments // Nouveau format
     }
     
     downloadDocument('certificat', session, { trainee: enrichedTrainee, trainer })
@@ -2235,19 +2262,20 @@ ${organization?.phone || ''}`)
                             const isValidated = objData?.validated || false
                             
                             return (
-                              <td key={idx} className="text-center py-3 px-2">
-                                <button
-                                  onClick={() => hasFullPresence && handleToggleObjective(trainee.id, idx, isValidated)}
-                                  disabled={!hasFullPresence}
-                                  className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
-                                    !hasFullPresence
-                                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                                      : isValidated 
-                                        ? 'bg-green-100 text-green-700 hover:bg-green-200' 
-                                        : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                                  }`}
-                                  title={!hasFullPresence ? 'Présence 100% requise' : ''}
-                                >
+                              <td key={idx} className="py-3 px-2">
+                                <div className="flex flex-col items-center gap-2">
+                                  <button
+                                    onClick={() => hasFullPresence && handleToggleObjective(trainee.id, idx, isValidated)}
+                                    disabled={!hasFullPresence}
+                                    className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
+                                      !hasFullPresence
+                                        ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                                        : isValidated 
+                                          ? 'bg-green-100 text-green-700 hover:bg-green-200' 
+                                          : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                                    }`}
+                                    title={!hasFullPresence ? 'Présence 100% requise' : ''}
+                                  >
                                   {isValidated ? 'Oui' : 'Non'}
                                 </button>
                               </td>
