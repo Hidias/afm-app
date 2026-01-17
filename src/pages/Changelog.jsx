@@ -1,7 +1,48 @@
-import { ArrowLeft, CheckCircle, Plus, Wrench, AlertTriangle, Sparkles } from 'lucide-react'
+import { ArrowLeft, CheckCircle, Plus, Wrench, AlertTriangle, Sparkles, Shield } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 const versions = [
+  {
+    version: '2.6.1',
+    date: '17/01/2026',
+    type: 'fix',
+    changes: [
+      { type: 'fix', text: 'Correction portail stagiaire : émargements enregistrés dans attendance_halfdays (morning/afternoon)' },
+      { type: 'fix', text: 'Correction évaluations à chaud : questionnaire_submitted et submitted_at correctement renseignés' },
+      { type: 'fix', text: 'Correction formulaire réclamations : vérification de session fonctionnelle' },
+      { type: 'fix', text: 'Restauration design formulaire réclamations (logo Access Campus, couleurs, champ téléphone)' },
+      { type: 'fix', text: 'Configuration variables environnement Vercel pour accès anonyme Supabase' },
+      { type: 'improve', text: 'Requêtes Supabase optimisées avec maybeSingle() au lieu de single()' },
+    ]
+  },
+  {
+    version: '2.6.0',
+    date: '17/01/2026',
+    type: 'major',
+    changes: [
+      { type: 'new', text: '🔒 Codes d\'accès à 6 chiffres par stagiaire pour sécuriser le portail QR' },
+      { type: 'new', text: '🔒 Verrouillage automatique après 5 tentatives échouées (15 min)' },
+      { type: 'new', text: '🔒 Protection anti-bruteforce avec compteur de tentatives' },
+      { type: 'new', text: 'Onglet "Portail QR" dans SessionDetail pour gérer les codes d\'accès' },
+      { type: 'new', text: 'Génération et régénération de codes par l\'administrateur' },
+      { type: 'new', text: 'Envoi des codes par email aux stagiaires' },
+      { type: 'new', text: 'Affichage QR Code + codes d\'accès pour impression' },
+      { type: 'new', text: '🔒 Protection honeypot anti-spam sur formulaire réclamations' },
+      { type: 'new', text: 'Vérification de référence session obligatoire avant réclamation' },
+      { type: 'improve', text: 'Architecture RPC sécurisée (SECURITY DEFINER)' },
+      { type: 'improve', text: 'Nouvelles colonnes : access_code, access_code_attempts, access_code_locked' },
+    ]
+  },
+  {
+    version: '2.5.25',
+    date: '15/01/2026',
+    type: 'fix',
+    changes: [
+      { type: 'fix', text: 'Calcul résultats sessions demi-journées corrigé' },
+      { type: 'fix', text: 'Sauvegarde champs CSP et job_title dans fiche stagiaire' },
+      { type: 'fix', text: 'Filtres RGPD statistiques fonctionnels' },
+    ]
+  },
   {
     version: '2.5.24',
     date: '10/01/2026',
@@ -168,28 +209,6 @@ const versions = [
       { type: 'new', text: 'Case Intra-entreprise avec adresse automatique' },
       { type: 'new', text: 'Logo personnalisable sur tous les documents PDF' },
       { type: 'fix', text: 'Indicateurs à 0% quand aucune donnée' },
-      { type: 'fix', text: 'Sauvegarde paramètres organisation' },
-      { type: 'fix', text: 'Création/modification formateurs' },
-      { type: 'fix', text: 'Création sessions' },
-      { type: 'fix', text: 'Non-conformités' },
-    ]
-  },
-  {
-    version: '2.4',
-    date: '01/01/2026',
-    type: 'major',
-    changes: [
-      { type: 'new', text: 'Tests de positionnement personnalisables par formation (QCM ou questions ouvertes)' },
-      { type: 'new', text: 'Champ "Matériel à prévoir" sur les formations' },
-      { type: 'new', text: 'Champ "Fonction" sur les contacts clients' },
-      { type: 'new', text: 'Prix HT session (surcharge le prix formation)' },
-      { type: 'new', text: 'Page Historique des versions' },
-      { type: 'fix', text: 'Convention : mise en page exacte Word + coût HT affiché' },
-      { type: 'fix', text: 'Convocation : ajout matériel, accessibilité, contacts' },
-      { type: 'fix', text: 'Émargement : colonne N° Sécurité Sociale, retrait signature formateur' },
-      { type: 'fix', text: 'Attestation : mise en page exacte Word' },
-      { type: 'fix', text: 'Certificat : mise en page exacte Word officiel' },
-      { type: 'fix', text: 'Évaluations : tableau 1-5 centré, "Très Satisfaisant", ○ au lieu de &' },
       { type: 'fix', text: 'Tous documents : ☐/☑/○ au lieu de &' },
     ]
   },
@@ -270,6 +289,7 @@ const getTypeIcon = (type) => {
     case 'improve': return <Sparkles className="w-4 h-4 text-blue-600" />
     case 'fix': return <Wrench className="w-4 h-4 text-orange-600" />
     case 'warning': return <AlertTriangle className="w-4 h-4 text-red-600" />
+    case 'security': return <Shield className="w-4 h-4 text-purple-600" />
     default: return <CheckCircle className="w-4 h-4 text-gray-600" />
   }
 }
@@ -280,6 +300,7 @@ const getTypeLabel = (type) => {
     case 'improve': return 'Amélioration'
     case 'fix': return 'Correction'
     case 'warning': return 'Important'
+    case 'security': return 'Sécurité'
     default: return 'Autre'
   }
 }
@@ -288,6 +309,7 @@ const getVersionBadge = (type) => {
   switch (type) {
     case 'major': return 'bg-primary-100 text-primary-700'
     case 'minor': return 'bg-gray-100 text-gray-700'
+    case 'fix': return 'bg-orange-100 text-orange-700'
     default: return 'bg-gray-100 text-gray-700'
   }
 }
@@ -322,7 +344,7 @@ export default function Changelog() {
                   <div className="flex items-center gap-3">
                     <h2 className="text-xl font-semibold">Version {v.version}</h2>
                     <span className={`text-xs px-2 py-1 rounded-full font-medium ${getVersionBadge(v.type)}`}>
-                      {v.type === 'major' ? 'Majeure' : 'Mineure'}
+                      {v.type === 'major' ? 'Majeure' : v.type === 'fix' ? 'Correctif' : 'Mineure'}
                     </span>
                   </div>
                   <span className="text-sm text-gray-500">{v.date}</span>
@@ -339,6 +361,7 @@ export default function Changelog() {
                         change.type === 'new' ? 'bg-green-100 text-green-700' :
                         change.type === 'improve' ? 'bg-blue-100 text-blue-700' :
                         change.type === 'fix' ? 'bg-orange-100 text-orange-700' :
+                        change.type === 'security' ? 'bg-purple-100 text-purple-700' :
                         'bg-gray-100 text-gray-700'
                       }`}>
                         {getTypeLabel(change.type)}
@@ -353,7 +376,7 @@ export default function Changelog() {
       </div>
       
       <div className="text-center py-8 text-gray-500">
-        <p className="text-sm">Access Formation © 2024-2025</p>
+        <p className="text-sm">Access Formation © 2024-2026</p>
         <p className="text-xs mt-1">Développé avec ❤️ pour la qualité de vos formations</p>
       </div>
     </div>
