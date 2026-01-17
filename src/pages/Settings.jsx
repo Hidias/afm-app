@@ -186,7 +186,7 @@ export default function Settings() {
       const exportData = {
         _metadata: {
           exportDate: new Date().toISOString(),
-          version: 'V2.5.24',
+          version: 'V2.6.1',
           description: 'Export complet Access Campus - Toutes les données',
         },
         
@@ -742,7 +742,7 @@ $$;`}
         <div className="flex items-center justify-between">
           <div>
             <p className="text-primary-600 font-bold">Access Campus</p>
-            <p className="text-sm text-gray-500">Version 2.5.24</p>
+            <p className="text-sm text-gray-500">Version 2.6.1</p>
           </div>
           <Link to="/versions" className="btn btn-outline btn-sm flex items-center gap-2">
             <History className="w-4 h-4" />
