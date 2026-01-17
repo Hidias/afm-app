@@ -2276,8 +2276,25 @@ ${organization?.phone || ''}`)
                                     }`}
                                     title={!hasFullPresence ? 'Présence 100% requise' : ''}
                                   >
-                                  {isValidated ? 'Oui' : 'Non'}
-                                </button>
+                                    {isValidated ? '✓' : '○'}
+                                  </button>
+                                  
+                                  {/* Commentaire si objectif non acquis */}
+                                  {!isValidated && hasFullPresence && (
+                                    <textarea
+                                      value={objData?.remediation_comment || ''}
+                                      onChange={(e) => handleUpdateRemediationComment(trainee.id, idx, e.target.value)}
+                                      placeholder="Actions correctives..."
+                                      className="w-full min-w-[200px] text-xs px-2 py-1 border border-gray-300 rounded resize-none focus:outline-none focus:ring-1 focus:ring-orange-500"
+                                      rows={2}
+                                      onBlur={(e) => {
+                                        if (e.target.value.trim()) {
+                                          toast.success('💾 Commentaire sauvegardé', { duration: 1500 })
+                                        }
+                                      }}
+                                    />
+                                  )}
+                                </div>
                               </td>
                             )
                           })}
