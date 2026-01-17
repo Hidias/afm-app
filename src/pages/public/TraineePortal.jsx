@@ -71,6 +71,7 @@ export default function TraineePortal() {
     csp: '',
     job_title: '',
     training_expectations: '',
+    gender: 'male',
     rgpd_consent: false,
   })
   
@@ -131,7 +132,7 @@ export default function TraineePortal() {
           *,
           courses(title, duration_hours),
           clients(name),
-          session_trainees(id, trainee_id, access_code, access_code_attempts, access_code_locked, trainees(id, first_name, last_name, email, phone, birth_date, social_security_number, refused_ssn, csp, job_title))
+          session_trainees(id, trainee_id, access_code, access_code_attempts, access_code_locked, trainees(id, first_name, last_name, email, phone, birth_date, social_security_number, refused_ssn, csp, job_title, gender))
         `)
         .eq('attendance_token', token)
         .single()
@@ -270,6 +271,7 @@ export default function TraineePortal() {
         csp: trainee.csp || infoData?.csp || '',
         job_title: trainee.job_title || infoData?.job_title || '',
         training_expectations: infoData?.training_expectations || '',
+        gender: trainee.gender || 'male',
         rgpd_consent: infoData?.rgpd_consent || false,
       })
 
@@ -414,6 +416,7 @@ export default function TraineePortal() {
         refused_ssn: infoForm.ssn_refused,
         csp: infoForm.csp || null,
         job_title: infoForm.job_title || null,
+        gender: infoForm.gender || 'male',
       }
       
       await supabase.from('trainees').update(traineeUpdate).eq('id', selectedTrainee.id)
@@ -852,6 +855,19 @@ export default function TraineePortal() {
                   className="w-full px-3 py-2 border rounded-lg text-sm"
                 />
                 {formErrors.birth_date && <p className="text-xs text-red-600 mt-1">{formErrors.birth_date}</p>}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">Genre *</label>
+                <select
+                  value={infoForm.gender}
+                  onChange={(e) => setInfoForm({...infoForm, gender: e.target.value})}
+                  className="w-full px-3 py-2 border rounded-lg text-sm"
+                >
+                  <option value="male">Homme</option>
+                  <option value="female">Femme</option>
+                  <option value="non_binary">Non genré</option>
+                </select>
               </div>
 
               <div>
