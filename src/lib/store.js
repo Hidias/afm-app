@@ -466,7 +466,7 @@ export const useDataStore = create((set, get) => ({
         supabase.from('clients').select('*'),
         supabase.from('trainers').select('*'),
         supabase.from('trainees').select('*'),
-        supabase.from('session_trainees').select('id, session_id, trainee_id, registration_date, result'),
+        supabase.from('session_trainees').select('id, session_id, trainee_id, registration_date, result, admin_observation, expectations_notification_sent'),
         supabase.from('client_contacts').select('*')
       ])
       
@@ -2594,5 +2594,3 @@ export const useDataStore = create((set, get) => ({
     return { error }
   },
 }))
-
-
