@@ -390,6 +390,38 @@ function generateConvention(session, trainees = [], trainer = null, costs = []) 
     y += 3
   }
   
+  // Mention du type de financement si renseigné
+  if (session.funding_type && session.funding_type !== 'none') {
+    // Vérifier si on a assez d'espace
+    if (y + 15 > 270) {
+      addFooter(doc, DOC_CODES.convention)
+      doc.addPage()
+      y = 25
+    }
+    
+    const fundingLabels = {
+      opco: 'OPCO',
+      cpf: 'CPF (Compte Personnel de Formation)',
+      faf: 'FAF (Fonds d\'Assurance Formation)',
+      region: 'Région',
+      france_travail: 'France Travail',
+      ptp: 'PTP (Plan de Transition Professionnel)',
+      fne: 'FNE (Fonds National de l\'Emploi)',
+      direct: 'Financement direct',
+      other: 'Autre'
+    }
+    
+    doc.setFont('helvetica', 'bold')
+    doc.text('Mode de financement :', 20, y)
+    doc.setFont('helvetica', 'normal')
+    const fundingLabel = fundingLabels[session.funding_type] || session.funding_type
+    const fundingText = session.funding_details 
+      ? `${fundingLabel} (${session.funding_details})` 
+      : fundingLabel
+    doc.text(fundingText, 55, y)
+    y += 5
+  }
+  
   // Infos pratiques en tableau plus compact
   const infoStartY = y
   doc.setFont('helvetica', 'bold')
