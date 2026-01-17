@@ -6,7 +6,7 @@ import {
   ArrowLeft, Calendar, MapPin, Users, Clock, FileText, QrCode, UserPlus, UserMinus,
   Download, CheckCircle, AlertCircle, Copy, ExternalLink, X, Edit, Trash2, Save,
   FileSignature, Send, Upload, Eye, Star, ThumbsUp, ClipboardCheck, UserCheck, HelpCircle, Home, Target,
-  Sun, Moon, Plus, ChevronDown, Search, LogOut, MessageSquare
+  Sun, Moon, Plus, ChevronDown, Search, LogOut, MessageSquare, CheckCircle2
 } from 'lucide-react'
 import { format, eachDayOfInterval, parseISO, differenceInDays } from 'date-fns'
 import { fr } from 'date-fns/locale'
@@ -84,6 +84,9 @@ export default function SessionDetail() {
   const [infoSheets, setInfoSheets] = useState({}) // { traineeId: infoSheetData }
   const [showInfoSheet, setShowInfoSheet] = useState(false)
   const [selectedTraineeInfo, setSelectedTraineeInfo] = useState(null)
+  
+  // Suivi convention
+  const [uploadingConvention, setUploadingConvention] = useState(false)
   
   // Questions positionnement
   const [questions, setQuestions] = useState([])
@@ -869,6 +872,128 @@ export default function SessionDetail() {
     toast.success('Coût supprimé')
   }
   
+  // ============================================================
+  // GESTION SUIVI CONVENTION
+  // ============================================================
+  
+  // Marquer la convention comme envoyée
+  const handleConventionSent = async (sent) => {
+    const updateData = {
+      convention_sent: sent,
+      convention_sent_date: sent ? new Date().toISOString() : null
+    }
+    
+    const { error } = await supabase
+      .from('sessions')
+      .update(updateData)
+      .eq('id', id)
+    
+    if (error) {
+      toast.error('Erreur lors de la mise à jour')
+      console.error(error)
+      return
+    }
+    
+    setSession({ ...session, ...updateData })
+    toast.success(sent ? 'Convention marquée comme envoyée' : 'Envoi annulé')
+  }
+  
+  // Upload de la convention signée
+  const handleUploadConvention = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    
+    // Vérifier que c'est un PDF
+    if (file.type !== 'application/pdf') {
+      toast.error('Seuls les fichiers PDF sont acceptés')
+      return
+    }
+    
+    // Vérifier la taille (max 10MB)
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error('Le fichier est trop volumineux (max 10MB)')
+      return
+    }
+    
+    setUploadingConvention(true)
+    
+    try {
+      const filePath = `${id}/convention-signee.pdf`
+      
+      // Supprimer l'ancien fichier s'il existe
+      if (session.convention_signed_file_url) {
+        await supabase.storage
+          .from('signed-conventions')
+          .remove([session.convention_signed_file_url])
+      }
+      
+      // Upload du nouveau fichier
+      const { error: uploadError } = await supabase.storage
+        .from('signed-conventions')
+        .upload(filePath, file, { upsert: true })
+      
+      if (uploadError) {
+        throw uploadError
+      }
+      
+      // Mettre à jour la session (convention signée automatiquement)
+      const updateData = {
+        convention_signed: true,
+        convention_signed_date: new Date().toISOString(),
+        convention_signed_file_url: filePath
+      }
+      
+      const { error: dbError } = await supabase
+        .from('sessions')
+        .update(updateData)
+        .eq('id', id)
+      
+      if (dbError) {
+        throw dbError
+      }
+      
+      setSession({ ...session, ...updateData })
+      toast.success('Convention signée uploadée avec succès')
+    } catch (error) {
+      console.error('Erreur upload:', error)
+      toast.error('Erreur lors de l\'upload')
+    } finally {
+      setUploadingConvention(false)
+      // Reset input
+      e.target.value = ''
+    }
+  }
+  
+  // Télécharger la convention signée
+  const handleDownloadConvention = async () => {
+    if (!session.convention_signed_file_url) return
+    
+    try {
+      const { data, error } = await supabase.storage
+        .from('signed-conventions')
+        .download(session.convention_signed_file_url)
+      
+      if (error) {
+        throw error
+      }
+      
+      // Créer un lien de téléchargement
+      const url = URL.createObjectURL(data)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `Convention_Signee_${session.reference}.pdf`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      
+      toast.success('Convention téléchargée')
+    } catch (error) {
+      console.error('Erreur téléchargement:', error)
+      toast.error('Erreur lors du téléchargement')
+    }
+  }
+  
   // Calculer le total des coûts supplémentaires
   const calculateTotalCosts = () => {
     const nbTrainees = sessionTrainees.length || 1
@@ -1628,10 +1753,29 @@ ${organization?.phone || ''}`)
       <div className="flex items-start justify-between gap-4">
         <div>
           <Link to="/sessions" className="text-sm text-gray-500 hover:text-gray-700 flex items-center gap-1 mb-2"><ArrowLeft className="w-4 h-4" />Retour</Link>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <h1 className="text-2xl font-bold text-gray-900">{session.reference}</h1>
             <span className={`badge ${statusLabels[session.status]?.class}`}>{statusLabels[session.status]?.label}</span>
             {session.is_intra && <span className="badge bg-purple-100 text-purple-700 flex items-center gap-1"><Home className="w-3 h-3" />Intra</span>}
+            
+            {/* Suivi Convention - inline */}
+            <div className="flex items-center gap-2 border-l border-gray-300 pl-3">
+              {session.convention_sent && (
+                <span className="badge bg-blue-100 text-blue-700 flex items-center gap-1">
+                  <Send className="w-3 h-3" />Envoyée
+                </span>
+              )}
+              {session.convention_signed && (
+                <span className="badge bg-green-100 text-green-700 flex items-center gap-1">
+                  <CheckCircle2 className="w-3 h-3" />Signée
+                </span>
+              )}
+              {!session.convention_sent && !session.convention_signed && (
+                <span className="badge bg-gray-100 text-gray-600 text-xs">
+                  Convention en attente
+                </span>
+              )}
+            </div>
           </div>
           <p className="text-gray-600 mt-1">{session.courses?.title}</p>
           <p className="text-gray-500 text-sm">{session.clients?.name}</p>
@@ -1668,6 +1812,93 @@ ${organization?.phone || ''}`)
         <div className="card">
           <h3 className="font-medium text-gray-900 mb-2 flex items-center gap-2"><UserCheck className="w-4 h-4" />Formateur</h3>
           <p className="text-sm text-gray-600">{trainer ? `${trainer.first_name} ${trainer.last_name}` : 'Non assigné'}</p>
+        </div>
+      </div>
+      
+      {/* Suivi Convention */}
+      <div className="card bg-gradient-to-br from-blue-50 to-indigo-50 border-blue-200">
+        <div className="flex items-start justify-between mb-3">
+          <h3 className="font-medium text-gray-900 flex items-center gap-2">
+            <FileSignature className="w-5 h-5 text-blue-600" />
+            Suivi Convention
+          </h3>
+          {session.convention_signed && (
+            <span className="badge bg-green-100 text-green-700 flex items-center gap-1">
+              <CheckCircle2 className="w-3 h-3" />Signée
+            </span>
+          )}
+        </div>
+        
+        <div className="space-y-3">
+          {/* Convention envoyée */}
+          <label className="flex items-center gap-3 cursor-pointer p-2 rounded hover:bg-white/50 transition-colors">
+            <input
+              type="checkbox"
+              checked={session.convention_sent || false}
+              onChange={(e) => handleConventionSent(e.target.checked)}
+              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            <div className="flex-1">
+              <span className="text-sm font-medium text-gray-700">Convention envoyée</span>
+              {session.convention_sent_date && (
+                <p className="text-xs text-gray-500">
+                  Le {format(new Date(session.convention_sent_date), 'dd/MM/yyyy à HH:mm', { locale: fr })}
+                </p>
+              )}
+            </div>
+          </label>
+          
+          {/* Upload convention signée */}
+          <div className="border-t border-blue-200 pt-3">
+            {!session.convention_signed ? (
+              <div>
+                <label className="btn btn-primary btn-sm w-full flex items-center justify-center gap-2 cursor-pointer">
+                  <input
+                    type="file"
+                    accept="application/pdf"
+                    onChange={handleUploadConvention}
+                    className="hidden"
+                    disabled={uploadingConvention}
+                  />
+                  {uploadingConvention ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent" />
+                      Upload en cours...
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="w-4 h-4" />
+                      Uploader convention signée (PDF)
+                    </>
+                  )}
+                </label>
+                <p className="text-xs text-gray-500 mt-1 text-center">
+                  Le fichier sera automatiquement marqué comme signé
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-sm text-green-700 bg-green-50 p-2 rounded">
+                  <CheckCircle2 className="w-4 h-4" />
+                  <div className="flex-1">
+                    <span className="font-medium">Convention signée reçue</span>
+                    {session.convention_signed_date && (
+                      <p className="text-xs text-green-600">
+                        Le {format(new Date(session.convention_signed_date), 'dd/MM/yyyy à HH:mm', { locale: fr })}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <button
+                  onClick={handleDownloadConvention}
+                  className="btn btn-secondary btn-sm w-full flex items-center justify-center gap-2"
+                >
+                  <Download className="w-4 h-4" />
+                  Télécharger la convention signée
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
       
