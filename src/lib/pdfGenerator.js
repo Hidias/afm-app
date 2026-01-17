@@ -959,9 +959,9 @@ function generateCertificat(session, trainee, trainer = null) {
   doc.setFont('helvetica', 'normal')
   y += 10
   
-  // === SECTION NON ACQUIS : Objectifs non validés + Remédiation ===
+  // === SECTION NON ACQUIS : Objectifs non validés + Actions correctives + Remédiation ===
   if (!isAcquired) {
-    // Objectifs non validés
+    // Objectifs non validés (simple liste)
     const failedObjectives = trainee?.failed_objectives || []
     if (failedObjectives.length > 0) {
       doc.setFont('helvetica', 'bold')
@@ -981,7 +981,42 @@ function generateCertificat(session, trainee, trainer = null) {
       y += 4
     }
     
-    // Proposition de remédiation
+    // Actions correctives (nouveau - commentaires par objectif)
+    const failedWithComments = trainee?.failed_objectives_with_comments || []
+    const objectivesWithComments = failedWithComments.filter(o => o.comment && o.comment.trim())
+    
+    if (objectivesWithComments.length > 0) {
+      doc.setFont('helvetica', 'bold')
+      doc.setTextColor(220, 100, 0)
+      doc.text('Actions correctives préconisées :', 20, y)
+      y += 6
+      doc.setFont('helvetica', 'normal')
+      doc.setTextColor(0, 0, 0)
+      
+      objectivesWithComments.forEach((obj, idx) => {
+        // Nom de l'objectif
+        doc.setFont('helvetica', 'bold')
+        const objTitleLines = doc.splitTextToSize(`❌ ${obj.text}`, 160)
+        objTitleLines.forEach(line => {
+          doc.text(line, 25, y)
+          y += 5
+        })
+        
+        // Commentaire (actions correctives)
+        doc.setFont('helvetica', 'normal')
+        doc.setTextColor(60, 60, 60)
+        const commentLines = doc.splitTextToSize(`→ ${obj.comment}`, 155)
+        commentLines.forEach(line => {
+          doc.text(line, 30, y)
+          y += 5
+        })
+        doc.setTextColor(0, 0, 0)
+        y += 3
+      })
+      y += 2
+    }
+    
+    // Proposition de remédiation globale (garde l'ancien système)
     const remediation = trainee?.remediation_proposal || ''
     if (remediation) {
       doc.setFont('helvetica', 'bold')
