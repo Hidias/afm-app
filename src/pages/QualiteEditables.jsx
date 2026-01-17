@@ -407,7 +407,7 @@ export default function QualiteEditables() {
       const doc = new jsPDF()
       const w = doc.internal.pageSize.getWidth()
       const h = doc.internal.pageSize.getHeight()
-      const v = '2.5.24'
+      const v = '2.6.1'
       const d = format(new Date(), 'dd/MM/yyyy')
       const data = savedDocs[docId] || DEFAULT_DATA[docId] || {}
       
@@ -879,7 +879,7 @@ export default function QualiteEditables() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Documents Qualité</h1>
-        <p className="text-gray-500">Pack Qualiopi V2.5.24 - Documents éditables</p>
+        <p className="text-gray-500">Pack Qualiopi V2.6.1 - Documents éditables</p>
       </div>
       
       <div className="flex gap-2 border-b">
