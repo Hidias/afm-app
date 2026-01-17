@@ -613,9 +613,13 @@ function generateConvocation(session, trainee, trainer = null) {
   let y = addHeader(doc, ref)
   y = addTitle(doc, 'CONVOCATION À LA FORMATION', y)
   
+  // Civilité selon le genre
+  const civilite = trainee?.gender === 'female' ? 'Madame' : (trainee?.gender === 'non_binary' ? '' : 'Monsieur')
+  const fullName = civilite ? `${civilite} ${trainee?.first_name || ''} ${trainee?.last_name?.toUpperCase() || ''}` : `${trainee?.first_name || ''} ${trainee?.last_name?.toUpperCase() || ''}`
+  
   doc.setFontSize(12)
   doc.setFont('helvetica', 'bold')
-  doc.text(`${trainee?.first_name || ''} ${trainee?.last_name?.toUpperCase() || ''}`, pw / 2, y, { align: 'center' })
+  doc.text(fullName, pw / 2, y, { align: 'center' })
   y += 10
   
   doc.setFontSize(10)
@@ -1877,7 +1881,9 @@ function generateCertificatContent(doc, session, trainee, trainer) {
   doc.setFontSize(10)
   doc.setFont('helvetica', 'normal')
   if (client?.name) {
-    doc.text(`Salarié(e) de l'entreprise : ${client.name}`, 20, y)
+    const salarie = trainee?.gender === 'female' ? 'Salariée' : 'Salarié'
+    const salarieText = trainee?.gender === 'non_binary' ? `Salarié·e de l'entreprise : ${client.name}` : `${salarie} de l'entreprise : ${client.name}`
+    doc.text(salarieText, 20, y)
     y += 10
   }
   
@@ -1950,9 +1956,13 @@ function generateConvocationContent(doc, session, trainee, trainer) {
   let y = addHeader(doc, ref)
   y = addTitle(doc, 'CONVOCATION À LA FORMATION', y)
   
+  // Civilité selon le genre
+  const civilite = trainee?.gender === 'female' ? 'Madame' : (trainee?.gender === 'non_binary' ? '' : 'Monsieur')
+  const fullName = civilite ? `${civilite} ${trainee?.first_name || ''} ${trainee?.last_name?.toUpperCase() || ''}` : `${trainee?.first_name || ''} ${trainee?.last_name?.toUpperCase() || ''}`
+  
   doc.setFontSize(12)
   doc.setFont('helvetica', 'bold')
-  doc.text(`${trainee?.first_name || ''} ${trainee?.last_name?.toUpperCase() || ''}`, pw / 2, y, { align: 'center' })
+  doc.text(fullName, pw / 2, y, { align: 'center' })
   y += 10
   
   doc.setFontSize(10)
