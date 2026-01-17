@@ -170,14 +170,17 @@ export default function SessionDetail() {
   }, [organization])
   
   useEffect(() => {
-    const found = sessions.find(s => s.id === id)
-    if (found) {
-      setSession(found)
-      fetchAttendances(id)
-      loadSuiviData(found)
-      loadQuestions(found)
-      loadObjectives(found)
-      loadSessionEquipment(found.id)
+  const found = sessions.find(s => s.id === id)
+  if (found) {
+    setSession(found)
+    fetchAttendances(id)
+    loadSuiviData(found)
+    loadQuestions(found)
+    loadObjectives(found)
+    loadSessionEquipment(found.id)
+    loadAccessCodes(found.id) // ← AJOUTER CETTE LIGNE
+    
+    // QR Code unifié...
       
       // QR Code unifié - Portail stagiaire
       if (found.attendance_token) {
@@ -198,6 +201,46 @@ export default function SessionDetail() {
         start_time: found.start_time || '09:00',
         end_time: found.end_time || '17:00',
         location: found.location_name || found.location || '',
+        // Charger les codes d'accès
+const [accessCodes, setAccessCodes] = useState({}) // { trainee_id: code }
+
+const loadAccessCodes = async (sessionId) => {
+  const { data, error } = await supabase
+    .from('session_trainees')
+    .select('trainee_id, access_code, access_code_attempts, access_code_locked')
+    .eq('session_id', sessionId)
+  
+  if (!error && data) {
+    const codes = {}
+    data.forEach(st => {
+      codes[st.trainee_id] = {
+        code: st.access_code,
+        attempts: st.access_code_attempts || 0,
+        locked: st.access_code_locked || false
+      }
+    })
+    setAccessCodes(codes)
+  }
+}
+
+const handleRegenerateCode = async (traineeId) => {
+  const stData = session.session_trainees?.find(st => st.trainee_id === traineeId)
+  if (!stData) return
+  
+  const { data, error } = await supabase.rpc('admin_regenerate_access_code', {
+    p_session_trainee_id: stData.id
+  })
+  
+  if (error) {
+    toast.error('Erreur lors de la régénération du code')
+    return
+  }
+  
+  if (data?.success) {
+    toast.success('Code régénéré : ' + data.code)
+    await loadAccessCodes(session.id)
+  }
+}
         status: found.status,
         notes: found.notes || '',
         total_price: found.total_price || '',
