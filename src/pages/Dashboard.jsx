@@ -542,7 +542,7 @@ export default function Dashboard() {
       
       {/* Mention légale */}
       <div className="text-center text-xs text-gray-400 p-4 bg-primary-500/5 rounded-lg border border-primary-500/10">
-        <p className="font-medium text-primary-600">Access Campus - Version 2.5.25</p>
+        <p className="font-medium text-primary-600">Access Campus - Version 2.6.1</p>
         <p>© {new Date().getFullYear()} Access Formation - Tous droits réservés</p>
         <p>Données protégées conformément au RGPD</p>
       </div>
