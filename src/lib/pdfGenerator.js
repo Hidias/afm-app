@@ -517,7 +517,7 @@ function generateConvention(session, trainees = [], trainer = null, costs = []) 
   const articles = [
     { title: 'ARTICLE 2 – Engagements des parties', text: "Le Bénéficiaire s'engage à assurer la présence des stagiaires inscrits et à fournir les moyens nécessaires à la réalisation de la formation (salle, matériel, conditions d'accueil). L'Organisme de Formation s'engage à mettre en œuvre les moyens pédagogiques, techniques et d'encadrement nécessaires pour atteindre les objectifs visés." },
     { title: 'ARTICLE 3 – Dispositions financières', text: article3Text },
-    { title: 'ARTICLE 4 – Moyens et modalités pédagogiques', text: "La formation est dispensée selon une pédagogie active et participative : alternance d'apports théoriques, démonstrations pratiques et mises en situation ; utilisation de supports visuels et matériels spécifiques (mannequins, extincteurs, matériel électrique selon le thème).\n\nUne feuille d'émargement par demi-journée est signée par chaque stagiaire et le formateur." },
+    { title: 'ARTICLE 4 – Moyens et modalités pédagogiques', text: "La formation est dispensée selon une pédagogie active et participative : alternance d'apports théoriques, démonstrations pratiques et mises en situation ; utilisation de supports visuels et matériels spécifiques (mannequins, extincteurs, matériel électrique selon le thème).\n\nLes émargements sont effectués de manière dématérialisée via QR Code individuel pour chaque stagiaire, ou sur feuille papier en cas d'indisponibilité du réseau. Une feuille d'émargement par demi-journée est signée par chaque stagiaire et le formateur." },
     { title: "ARTICLE 5 – Modalités de suivi et d'évaluation", text: "Évaluation formative pendant la formation (mises en situation, QCM, exercices pratiques). Validation des acquis selon les critères du référentiel concerné (INRS, prévention incendie, etc.). Délivrance d'un certificat de réalisation indiquant le niveau d'atteinte des objectifs : Acquis / Non acquis." },
     { title: 'ARTICLE 6 – Sanction et documents délivrés', text: "À l'issue de la formation, l'Organisme de Formation délivrera : une attestation de présence, un certificat de réalisation (Acquis / Non acquis) et, le cas échéant, une attestation officielle selon le module suivi." },
     { title: 'ARTICLE 7 – Annulation et dédommagement', text: "En cas de désistement du Bénéficiaire moins de 14 jours avant le début de la formation, une indemnité forfaitaire de 50 % du coût total sera facturée. En cas de désistement moins de 7 jours avant, une indemnité de 75 % sera facturée. En cas d'annulation par Access Formation moins de 7 jours avant, une nouvelle date sera proposée sans frais." },
@@ -657,6 +657,12 @@ function generateConvocation(session, trainee, trainer = null) {
   }
   
   doc.text(`Accessibilité : en cas de besoins spécifiques (mobilité, auditif, visuel...), merci de nous en informer à ${ORG.email} au moins 72 heures avant la formation.`, 20, y, { maxWidth: 170 }); y += 12
+  
+  // Mention émargement QR Code
+  doc.setFont('helvetica', 'bold')
+  doc.text('Émargement dématérialisé :', 20, y); y += 5
+  doc.setFont('helvetica', 'normal')
+  doc.text('Votre présence sera enregistrée via votre QR Code personnel (ou sur feuille papier en cas d\'indisponibilité du réseau).', 20, y, { maxWidth: 170 }); y += 10
   
   doc.text(`Contact Access Formation : Pour toute question, contactez-nous au ${ORG.phone} ou par mail à ${ORG.email}`, 20, y, { maxWidth: 170 }); y += 8
   
@@ -1988,6 +1994,12 @@ function generateConvocationContent(doc, session, trainee, trainer) {
   }
   
   doc.text(`Accessibilité : en cas de besoins spécifiques (mobilité, auditif, visuel...), merci de nous en informer à ${ORG.email} au moins 72 heures avant la formation.`, 20, y, { maxWidth: 170 }); y += 12
+  
+  // Mention émargement QR Code
+  doc.setFont('helvetica', 'bold')
+  doc.text('Émargement dématérialisé :', 20, y); y += 5
+  doc.setFont('helvetica', 'normal')
+  doc.text('Votre présence sera enregistrée via votre QR Code personnel (ou sur feuille papier en cas d\'indisponibilité du réseau).', 20, y, { maxWidth: 170 }); y += 10
   
   doc.text(`Contact Access Formation : Pour toute question, contactez-nous au ${ORG.phone} ou par mail à ${ORG.email}`, 20, y, { maxWidth: 170 }); y += 8
   
