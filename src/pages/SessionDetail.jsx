@@ -2858,51 +2858,57 @@ ${organization?.phone || ''}`)
             </div>
           </div>
 
-          {/* Suivi des présences */}
-          <div className="card">
-            <h3 className="font-semibold mb-4 flex items-center gap-2">
-              <CheckCircle className="w-5 h-5 text-green-600" />
-              Suivi des présences (via QR code)
-            </h3>
-            
-            {sessionTrainees.length === 0 ? (
-              <p className="text-gray-500 text-center py-4">Aucun stagiaire inscrit</p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b">
-                      <th className="text-left py-2 px-2">Stagiaire</th>
-                      <th className="text-center py-2 px-2">Fiche</th>
-                      <th className="text-center py-2 px-2">Éval.</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {sessionTrainees.map(t => {
-                      const stData = session.session_trainees?.find(st => st.trainee_id === t.id)
-                      return (
-                        <tr key={t.id} className="hover:bg-gray-50">
-                          <td className="py-2 px-2">
-                            <p className="font-medium">{t.first_name} {t.last_name?.toUpperCase()}</p>
-                          </td>
-                          <td className="text-center py-2 px-2">
-                            <span className="text-gray-400">-</span>
-                          </td>
-                          <td className="text-center py-2 px-2">
-                            <span className="text-gray-400">-</span>
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-            
-            <p className="text-xs text-gray-400 mt-4">
-              💡 Les données de présence par demi-journée sont visibles dans l'onglet "Présence".
-            </p>
-          </div>
+{/* Suivi des présences */}
+<div className="card">
+  <h3 className="font-semibold mb-4 flex items-center gap-2">
+    <CheckCircle className="w-5 h-5 text-green-600" />
+    Suivi des présences (via QR code)
+  </h3>
+  
+  {sessionTrainees.length === 0 ? (
+    <p className="text-gray-500 text-center py-4">Aucun stagiaire inscrit</p>
+  ) : (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b">
+            <th className="text-left py-2 px-2">Stagiaire</th>
+            <th className="text-center py-2 px-2">Code</th>
+            <th className="text-center py-2 px-2">Fiche</th>
+            <th className="text-center py-2 px-2">Éval.</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y">
+          {sessionTrainees.map(t => {
+            const stData = session.session_trainees?.find(st => st.trainee_id === t.id)
+            return (
+              <tr key={t.id} className="hover:bg-gray-50">
+                <td className="py-2 px-2">
+                  <p className="font-medium">{t.first_name} {t.last_name?.toUpperCase()}</p>
+                </td>
+                <td className="text-center py-2 px-2">
+                  <span className="font-mono font-bold text-blue-600 text-base">
+                    {stData?.access_code || '-'}
+                  </span>
+                </td>
+                <td className="text-center py-2 px-2">
+                  <span className="text-gray-400">-</span>
+                </td>
+                <td className="text-center py-2 px-2">
+                  <span className="text-gray-400">-</span>
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )}
+  
+  <p className="text-xs text-gray-400 mt-4">
+    💡 Les données de présence par demi-journée sont visibles dans l'onglet "Présence".
+  </p>
+</div>
         </div>
       )}
       
