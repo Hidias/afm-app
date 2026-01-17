@@ -351,10 +351,11 @@ export const useDataStore = create((set, get) => ({
     // RPC retourne l'ID, récupérer le stagiaire complet
     if (rpcData) {
       // La RPC ne gère pas csp et job_title, donc on les met à jour séparément
-      if (trainee.csp !== undefined || trainee.job_title !== undefined) {
+      if (trainee.csp !== undefined || trainee.job_title !== undefined || trainee.gender !== undefined) {
         const extraFields = {}
         if (trainee.csp !== undefined) extraFields.csp = trainee.csp
         if (trainee.job_title !== undefined) extraFields.job_title = trainee.job_title
+        if (trainee.gender !== undefined) extraFields.gender = trainee.gender
         
         await supabase
           .from('trainees')
@@ -394,8 +395,7 @@ export const useDataStore = create((set, get) => ({
         p_disability_details: updates.disability_details || null,
         p_disability_adaptations: updates.disability_adaptations || null,
         p_csp: updates.csp || null,
-        p_job_title: updates.job_title || null,
-        p_gender: updates.gender || 'male'
+        p_job_title: updates.job_title || null
       })
     
     if (rpcError) {
@@ -413,11 +413,12 @@ export const useDataStore = create((set, get) => ({
       return { data, error }
     }
     
-    // La RPC ne gère pas csp et job_title, donc on les met à jour séparément
-    if (updates.csp !== undefined || updates.job_title !== undefined) {
+    // La RPC ne gère pas csp, job_title et gender, donc on les met à jour séparément
+    if (updates.csp !== undefined || updates.job_title !== undefined || updates.gender !== undefined) {
       const extraFields = {}
       if (updates.csp !== undefined) extraFields.csp = updates.csp
       if (updates.job_title !== undefined) extraFields.job_title = updates.job_title
+      if (updates.gender !== undefined) extraFields.gender = updates.gender
       
       await supabase
         .from('trainees')
