@@ -23,6 +23,7 @@ import Settings from './pages/Settings'
 import VersionHistory from './pages/VersionHistory'
 import NonConformites from './pages/NonConformites'
 import Indicateurs from './pages/Indicateurs'
+import ProfilStagiaires from './pages/ProfilStagiaires'
 import TestsPositionnement from './pages/TestsPositionnement'
 import VeilleQualiopi from './pages/VeilleQualiopi'
 import Qualiopi from './pages/Qualiopi'
@@ -144,6 +145,7 @@ export default function App() {
           <Route path="questionnaires" element={<Questionnaires />} />
           <Route path="non-conformites" element={<NonConformites />} />
           <Route path="indicateurs" element={<Indicateurs />} />
+          <Route path="profil-stagiaires" element={<ProfilStagiaires />} />
           <Route path="qualiopi" element={<Qualiopi />} />
           <Route path="veille-qualiopi" element={<VeilleQualiopi />} />
           <Route path="audit-logs" element={<AuditLogs />} />
