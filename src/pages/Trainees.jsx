@@ -79,7 +79,7 @@ export default function Trainees() {
     social_security_number: '', client_id: '', notes: '',
     birth_date: '', refused_ssn: false,
     has_disability: false, disability_details: '', disability_adaptations: '',
-    csp: '', job_title: ''
+    csp: '', job_title: '', gender: 'male'
   })
   
   useEffect(() => {
@@ -128,10 +128,11 @@ export default function Trainees() {
         disability_adaptations: trainee.disability_adaptations || '',
         csp: trainee.csp || '',
         job_title: trainee.job_title || '',
+        gender: trainee.gender || 'male',
       })
       setSelectedTrainee(trainee)
     } else {
-      setForm({ first_name: '', last_name: '', email: '', phone: '', social_security_number: '', client_id: '', notes: '', birth_date: '', refused_ssn: false, has_disability: false, disability_details: '', disability_adaptations: '', csp: '', job_title: '' })
+      setForm({ first_name: '', last_name: '', email: '', phone: '', social_security_number: '', client_id: '', notes: '', birth_date: '', refused_ssn: false, has_disability: false, disability_details: '', disability_adaptations: '', csp: '', job_title: '', gender: 'male' })
       setSelectedTrainee(null)
     }
     setShowForm(true)
@@ -217,6 +218,7 @@ export default function Trainees() {
       disability_adaptations: form.disability_adaptations || null,
       csp: form.csp || null,
       job_title: form.job_title || null,
+      gender: form.gender || 'male',
     }
     
     const traineeName = `${form.first_name} ${form.last_name}`
@@ -639,13 +641,23 @@ export default function Trainees() {
                     <input type="date" className="input" value={form.birth_date} onChange={(e) => setForm({...form, birth_date: e.target.value})} />
                   </div>
                   <div>
+                    <label className="label">Genre *</label>
+                    <select className="input" value={form.gender} onChange={(e) => setForm({...form, gender: e.target.value})}>
+                      <option value="male">Homme</option>
+                      <option value="female">Femme</option>
+                      <option value="non_binary">Non genré</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
                     <label className="label">Téléphone</label>
                     <input type="tel" className="input" value={form.phone} onChange={(e) => setForm({...form, phone: e.target.value})} />
                   </div>
-                </div>
-                <div>
-                  <label className="label">Email</label>
-                  <input type="email" className="input" value={form.email} onChange={(e) => setForm({...form, email: e.target.value})} />
+                  <div>
+                    <label className="label">Email</label>
+                    <input type="email" className="input" value={form.email} onChange={(e) => setForm({...form, email: e.target.value})} />
+                  </div>
                 </div>
                 <div>
                   <label className="label">N° Sécurité Sociale</label>
