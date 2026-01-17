@@ -53,6 +53,8 @@ export default function Sessions() {
     is_intra: false,
     trainer_ids: [],
     trainee_ids: [],
+    funding_type: 'none',
+    funding_details: '',
   })
   
   useEffect(() => {
@@ -191,6 +193,11 @@ export default function Sessions() {
       return
     }
     
+    if (!formData.funding_type || formData.funding_type === '') {
+      toast.error('Le type de financement est obligatoire')
+      return
+    }
+    
     // Vérifier que la date de fin n'est pas avant la date de début
     if (new Date(formData.end_date) < new Date(formData.start_date)) {
       toast.error('La date de fin ne peut pas être avant la date de début')
@@ -212,6 +219,8 @@ export default function Sessions() {
       is_intra: formData.is_intra,
       trainer_ids: formData.trainer_ids,
       trainee_ids: formData.trainee_ids,
+      funding_type: formData.funding_type || 'none',
+      funding_details: formData.funding_details || null,
     }
     
     const { error } = await createSession(sessionData)
@@ -512,6 +521,49 @@ export default function Sessions() {
                     <option value="half">Demi-journée (1 émargement/jour)</option>
                   </select>
                 </div>
+              </div>
+              
+              {/* Type de financement */}
+              <div className="p-4 bg-blue-50 rounded-lg space-y-4">
+                <h3 className="font-medium text-blue-900">Financement de la formation</h3>
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="label">Type de financement *</label>
+                    <select
+                      value={formData.funding_type}
+                      onChange={(e) => setFormData({ ...formData, funding_type: e.target.value })}
+                      className="input"
+                      required
+                    >
+                      <option value="">Sélectionner...</option>
+                      <option value="none">Aucun (pas de mention)</option>
+                      <option value="opco">OPCO</option>
+                      <option value="cpf">CPF</option>
+                      <option value="faf">FAF</option>
+                      <option value="region">Région</option>
+                      <option value="france_travail">France Travail</option>
+                      <option value="ptp">PTP (Plan de Transition Professionnel)</option>
+                      <option value="fne">FNE (Fonds National de l'Emploi)</option>
+                      <option value="direct">Financement direct</option>
+                      <option value="other">Autre</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="label">Précisions (optionnel)</label>
+                    <input
+                      type="text"
+                      value={formData.funding_details}
+                      onChange={(e) => setFormData({ ...formData, funding_details: e.target.value })}
+                      className="input"
+                      placeholder="Ex: OPCO Atlas, Région Bretagne..."
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-blue-600">
+                  {formData.funding_type === 'none' 
+                    ? 'Aucune mention de financement ne sera ajoutée à la convention' 
+                    : 'Le type de financement sera mentionné dans la convention'}
+                </p>
               </div>
               
               {/* Intra + Lieu */}
