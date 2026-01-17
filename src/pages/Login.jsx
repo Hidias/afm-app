@@ -111,7 +111,7 @@ export default function Login() {
           </div>
         </div>
         
-        <p className="text-center text-white/40 text-xs mt-6">Access Campus V2.5.25</p>
+        <p className="text-center text-white/40 text-xs mt-6">Access Campus V2.6.1</p>
       </div>
     </div>
   )
