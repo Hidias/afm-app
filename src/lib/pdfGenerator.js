@@ -837,7 +837,7 @@ function generateAttestation(session, trainee, trainer = null) {
   doc.text(`Nombre total d'heures de présence : ${course.duration_hours || course.duration || '7'}`, 20, y); y += 12
   
   doc.text('Fait pour servir et valoir ce que de droit.', 20, y); y += 10
-  doc.text(`Fait à ${ORG.city}, le ${formatDate(new Date())}`, 20, y); y += 10
+  doc.text(`Fait à ${ORG.city}, le ${formatDate(session?.end_date || new Date())}`, 20, y); y += 10
   
   doc.text(`Pour ${ORG.name}`, 20, y); y += 5
   try { doc.addImage(LOGO_BASE64, 'PNG', 130, y - 5, 25, 25) } catch {}
@@ -1003,7 +1003,7 @@ function generateCertificat(session, trainee, trainer = null) {
   
   doc.setFontSize(10)
   doc.text(`Fait à : Concarneau`, 20, y); y += 6
-  doc.text(`Le : ${formatDate(new Date())}`, 20, y); y += 10
+  doc.text(`Le : ${formatDate(session?.end_date || new Date())}`, 20, y); y += 10
   
   doc.text('Cachet et signature du responsable du dispensateur de formation :', 20, y); y += 5
   try { doc.addImage(STAMP_BASE64, 'JPEG', 20, y, 50, 18) } catch {}
@@ -1937,7 +1937,7 @@ function generateCertificatContent(doc, session, trainee, trainer) {
   y += 12
   
   doc.text(`Fait à : Concarneau`, 20, y); y += 6
-  doc.text(`Le : ${formatDate(new Date())}`, 20, y); y += 10
+  doc.text(`Le : ${formatDate(session?.end_date || new Date())}`, 20, y); y += 10
   
   doc.text('Cachet et signature du responsable du dispensateur de formation :', 20, y); y += 5
   try { doc.addImage(STAMP_BASE64, 'JPEG', 20, y, 50, 18) } catch {}
@@ -2064,7 +2064,7 @@ function generateAttestationContent(doc, session, trainee, trainer) {
   doc.text(`Nombre total d'heures de présence : ${course.duration_hours || course.duration || '7'}`, 20, y); y += 12
   
   doc.text('Fait pour servir et valoir ce que de droit.', 20, y); y += 10
-  doc.text(`Fait à ${ORG.city}, le ${formatDate(new Date())}`, 20, y); y += 10
+  doc.text(`Fait à ${ORG.city}, le ${formatDate(session?.end_date || new Date())}`, 20, y); y += 10
   
   doc.text(`Pour ${ORG.name}`, 20, y); y += 5
   try { doc.addImage(LOGO_BASE64, 'PNG', 130, y - 5, 25, 25) } catch {}
