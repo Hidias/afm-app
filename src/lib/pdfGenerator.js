@@ -818,6 +818,8 @@ function generateCertificat(session, trainee, trainer = null) {
   const result = trainee?.result || 'acquired' // Par défaut acquis si non défini
   const isAcquired = result === 'acquired'
   
+  console.log('📄 generateCertificat - trainee.gender:', trainee?.gender)
+  
   let y = addHeader(doc, ref)
   y = addTitle(doc, 'CERTIFICAT DE RÉALISATION', y)
   
