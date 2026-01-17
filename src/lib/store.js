@@ -316,80 +316,23 @@ export const useDataStore = create((set, get) => ({
   },
   
   createTrainee: async (trainee) => {
-    // Essayer d'utiliser la RPC sécurisée
-    const { data: rpcData, error: rpcError } = await supabase
-      .rpc('save_trainee_with_ssn', {
-        p_id: null,
-        p_first_name: trainee.first_name,
-        p_last_name: trainee.last_name,
-        p_email: trainee.email || null,
-        p_phone: trainee.phone || null,
-        p_ssn: trainee.social_security_number || null,
-        p_client_id: trainee.client_id || null,
-        p_notes: trainee.notes || null,
-        p_birth_date: trainee.birth_date || null,
-        p_refused_ssn: trainee.refused_ssn || false,
-        p_has_disability: trainee.has_disability || false,
-        p_disability_details: trainee.disability_details || null,
-        p_disability_adaptations: trainee.disability_adaptations || null
-      })
+    console.log('🔧 Utilisation de l\'insert direct (RPC désactivée temporairement)')
     
-    if (rpcError) {
-      console.warn('RPC save_trainee_with_ssn not available, using direct insert:', rpcError)
-      // Fallback sur l'insert classique
-      const { data, error } = await supabase
-        .from('trainees')
-        .insert([trainee])
-        .select('*, clients(id, name)')
-        .single()
-      if (!error && data) {
-        set({ trainees: [...get().trainees, data] })
-      }
-      console.log('📌 Fallback insert result:', { data, error })
-      return { data, error }
+    // Insert direct dans la table trainees
+    const { data, error } = await supabase
+      .from('trainees')
+      .insert([trainee])
+      .select('*, clients(id, name)')
+      .single()
+    
+    console.log('📌 Insert result:', { data, error })
+    
+    if (!error && data) {
+      console.log('📌 Adding trainee to state:', data)
+      set({ trainees: [...get().trainees, data] })
     }
     
-    console.log('📌 RPC result (trainee ID):', rpcData)
-    
-    // RPC retourne l'ID, récupérer le stagiaire complet
-    if (rpcData) {
-      // La RPC ne gère pas csp, job_title et gender, donc on les met à jour séparément
-      if (trainee.csp !== undefined || trainee.job_title !== undefined || trainee.gender !== undefined) {
-        const extraFields = {}
-        if (trainee.csp !== undefined) extraFields.csp = trainee.csp
-        if (trainee.job_title !== undefined) extraFields.job_title = trainee.job_title
-        if (trainee.gender !== undefined) extraFields.gender = trainee.gender
-        
-        console.log('📌 Extra fields to update:', extraFields)
-        
-        const { error: updateError } = await supabase
-          .from('trainees')
-          .update(extraFields)
-          .eq('id', rpcData)
-        
-        if (updateError) {
-          console.error('📌 Error updating extra fields:', updateError)
-        }
-      }
-      
-      console.log('📌 Fetching complete trainee with ID:', rpcData)
-      
-      const { data: newTrainee, error: fetchError } = await supabase
-        .from('trainees')
-        .select('*, clients(id, name)')
-        .eq('id', rpcData)
-        .single()
-      
-      console.log('📌 Fetched trainee:', { newTrainee, fetchError })
-      
-      if (newTrainee) {
-        console.log('📌 Adding trainee to state')
-        set({ trainees: [...get().trainees, newTrainee] })
-      }
-      return { data: newTrainee, error: null }
-    }
-    
-    return { data: null, error: rpcError }
+    return { data, error }
   },
   
   updateTrainee: async (id, updates) => {
