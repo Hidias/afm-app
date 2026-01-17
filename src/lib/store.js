@@ -392,7 +392,10 @@ export const useDataStore = create((set, get) => ({
         p_refused_ssn: updates.refused_ssn || false,
         p_has_disability: updates.has_disability || false,
         p_disability_details: updates.disability_details || null,
-        p_disability_adaptations: updates.disability_adaptations || null
+        p_disability_adaptations: updates.disability_adaptations || null,
+        p_csp: updates.csp || null,
+        p_job_title: updates.job_title || null,
+        p_gender: updates.gender || 'male'
       })
     
     if (rpcError) {
