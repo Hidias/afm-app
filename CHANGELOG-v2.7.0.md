@@ -1,4 +1,4 @@
-# Changelog - AFM
+# Changelog - Access Campus
 
 ## [2.7.0] - 2026-01-17
 
