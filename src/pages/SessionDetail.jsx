@@ -733,7 +733,7 @@ export default function SessionDetail() {
     
     // Mettre à jour en BDD
     const { error } = await supabase
-      .from('objectives')
+      .from('trainee_objectives')
       .update({ remediation_comment: comment || null })
       .eq('id', objData.id)
     
