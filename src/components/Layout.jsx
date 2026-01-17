@@ -21,6 +21,7 @@ const navItems = [
   { to: '/qualite', icon: FolderCheck, label: 'Qualité' },
   { to: '/non-conformites', icon: AlertTriangle, label: 'Non-conformités' },
   { to: '/indicateurs', icon: BarChart3, label: 'Indicateurs' },
+  { to: '/profil-stagiaires', icon: Users, label: 'Profil Stagiaires' },
   { to: '/qualiopi', icon: Award, label: 'Qualiopi' },
   { to: '/parametres', icon: Settings, label: 'Paramètres' },
 ]
