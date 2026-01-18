@@ -44,7 +44,7 @@ const QUALITY_DOCS = {
   registres: { name: 'Registres', icon: Table, color: 'purple', docs: [
     { id: 'reg-recl', name: 'Registre réclamations', code: 'AF-REGREC', table: 'reclamations' },
     { id: 'reg-nc', name: 'Registre non-conformités', code: 'AF-REGNC', table: 'non_conformites' },
-    { id: 'reg-veille', name: 'Registre veille', code: 'AF-REGVEI', table: 'veille_reglementaire' },
+    { id: 'reg-veille', name: 'Registre veille', code: 'AF-REGVEI', table: 'veille_qualiopi' },
     { id: 'reg-mat', name: 'Registre matériel', code: 'AF-REGMAT', table: 'equipment_catalog' },
     { id: 'reg-rgpd', name: 'Registre traitements RGPD', code: 'AF-REGRGPD', table: 'rgpd_traitements' },
     { id: 'reg-audit', name: 'Registre audits internes', code: 'AF-REGAUD', table: 'audits_internes' },
@@ -955,8 +955,8 @@ export default function QualiteEditables() {
                       <tbody className="divide-y">
                         {registreData[reg.table].slice(0, 5).map((item, i) => (
                           <tr key={i}>
-                            <td className="px-3 py-2">{format(new Date(item.created_at || item.date_veille), 'dd/MM/yy')}</td>
-                            <td className="px-3 py-2">{(item.subject || item.titre || item.description || item.name || '-').substring(0, 50)}</td>
+                            <td className="px-3 py-2">{format(new Date(item.created_at || item.date_veille || item.date), 'dd/MM/yy')}</td>
+                            <td className="px-3 py-2">{(item.subject || item.sujet || item.titre || item.description || item.name || '-').substring(0, 50)}</td>
                             <td className="px-3 py-2 text-center">
                               <span className={`px-2 py-0.5 rounded text-xs ${
                                 (item.status === 'resolved' || item.status === 'closed' || item.statut === 'traite') 
