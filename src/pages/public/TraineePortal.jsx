@@ -1071,7 +1071,7 @@ export default function TraineePortal() {
                   }}
                   disabled={infoForm.ssn_refused}
                   placeholder={infoForm.ssn_refused ? 'Non communiqué' : '1 23 45 67 890 123 45'}
-                  maxLength={19}
+                  maxLength={21}
                   className={`w-full px-3 py-2 border rounded-lg text-sm font-mono ${
                     infoForm.ssn_refused ? 'bg-gray-100 text-gray-400' : ''
                   }`}
