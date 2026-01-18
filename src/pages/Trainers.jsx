@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useDataStore } from '../lib/store'
-import { Plus, Search, Edit, Trash2, X, UserCheck, Save, Award, FileText, Upload, Calendar, AlertTriangle, Eye, Settings } from 'lucide-react'
+import { Plus, Search, Edit, Trash2, X, UserCheck, Save, Award, FileText, Upload, Calendar, AlertTriangle, Eye, Settings, BookOpen } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { format, differenceInDays, isPast, parseISO } from 'date-fns'
 import { supabase } from '../lib/supabase'
+import TrainerDevelopment from '../components/TrainerDevelopment'
 
 const CERTIFICATE_TYPES = [
   'SST - Formateur',
@@ -91,6 +92,9 @@ export default function Trainers() {
     file: null
   })
   const [uploading, setUploading] = useState(false)
+  
+  // Gestion développement formateur
+  const [showDevelopment, setShowDevelopment] = useState(false)
   
   useEffect(() => { 
     fetchTrainers() 
@@ -218,6 +222,17 @@ export default function Trainers() {
     setCertificates([])
     setShowCertForm(false)
     resetCertForm()
+  }
+  
+  // ========== DÉVELOPPEMENT ==========
+  const openDevelopment = (trainer) => {
+    setSelectedTrainer(trainer)
+    setShowDevelopment(true)
+  }
+  
+  const closeDevelopment = () => {
+    setShowDevelopment(false)
+    setSelectedTrainer(null)
   }
   
   const resetCertForm = () => {
@@ -403,6 +418,7 @@ export default function Trainers() {
                   <div className="flex items-center gap-1">
                     <button onClick={() => openPreview(item)} className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg" title="Aperçu"><Eye className="w-4 h-4" /></button>
                     <button onClick={() => openCertificates(item)} className="p-2 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg" title="Certificats"><FileText className="w-4 h-4" /></button>
+                    <button onClick={() => openDevelopment(item)} className="p-2 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-lg" title="Développement"><BookOpen className="w-4 h-4" /></button>
                     <button onClick={() => handleEdit(item)} className="p-2 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg" title="Modifier"><Edit className="w-4 h-4" /></button>
                     <button onClick={() => setConfirmDelete(item.id)} className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg" title="Supprimer"><Trash2 className="w-4 h-4" /></button>
                   </div>
@@ -712,6 +728,34 @@ export default function Trainers() {
                     })}
                   </div>
                 )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Modal Développement */}
+      {showDevelopment && selectedTrainer && (
+        <div className="fixed inset-0 z-50 overflow-y-auto">
+          <div className="fixed inset-0 bg-black/50" onClick={closeDevelopment} />
+          <div className="relative min-h-full flex items-center justify-center p-4">
+            <div className="relative bg-white rounded-xl shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+              <div className="flex items-center justify-between p-4 border-b">
+                <div>
+                  <h2 className="text-lg font-semibold">
+                    Développement des compétences - {selectedTrainer.first_name} {selectedTrainer.last_name?.toUpperCase()}
+                  </h2>
+                  <p className="text-sm text-gray-500">Plan de formation et entretiens professionnels</p>
+                </div>
+                <button onClick={closeDevelopment}>
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4">
+                <TrainerDevelopment 
+                  trainerId={selectedTrainer.id}
+                  trainerName={`${selectedTrainer.first_name} ${selectedTrainer.last_name}`}
+                />
               </div>
             </div>
           </div>
