@@ -1097,6 +1097,11 @@ function generateEvaluation(session, trainee = null, isBlank = false) {
   
   y = addTitle(doc, 'ÉVALUATION À CHAUD', y)
   
+  // Plus d'espace après le titre pour documents vierges
+  if (isBlank) {
+    y += 3
+  }
+  
   doc.setFontSize(9)
   doc.text(`Formation : ${isBlank ? '________________________' : (course?.title || '')}`, 20, y)
   doc.text(`Date : ${isBlank ? '___/___/______' : formatDate(session?.start_date)}`, 130, y)
@@ -1247,6 +1252,11 @@ function generateEvaluationFroid(session, trainee = null, isBlank = false) {
   
   y = addTitle(doc, 'ÉVALUATION À FROID', y)
   
+  // Plus d'espace après le titre pour documents vierges
+  if (isBlank) {
+    y += 3
+  }
+  
   doc.setFontSize(9)
   doc.text(`Formation : ${isBlank ? '________________________' : (course?.title || '')}`, 20, y)
   y += 6
@@ -1330,6 +1340,11 @@ function generateEvaluationFormateur(session = null, isBlank = false) {
   }
   
   y = addTitle(doc, 'ÉVALUATION DE LA SESSION PAR LE FORMATEUR', y)
+  
+  // Plus d'espace après le titre pour documents vierges
+  if (isBlank) {
+    y += 3
+  }
   
   doc.setFontSize(9)
   doc.text(`Formation : ${isBlank ? '________________________' : (session?.courses?.title || '')}`, 20, y)
@@ -1681,6 +1696,12 @@ function generateAnalyseBesoin(session = null, isBlank = false) {
   }
   
   y = addTitle(doc, 'ANALYSE DU BESOIN DE FORMATION', y)
+  
+  // Plus d'espace après le titre pour documents vierges
+  if (isBlank) {
+    y += 3
+  }
+  
   doc.setFontSize(9)
   doc.text(`Entreprise : ${isBlank ? '________________________' : (session?.clients?.name || '')}`, 20, y)
   doc.text(`Date : ${isBlank ? '___/___/______' : formatDate(new Date())}`, 130, y)
@@ -1753,6 +1774,7 @@ function generateFicheRenseignements(session, trainee = null, isBlank = false) {
   doc.setFontSize(8)
   
   const lineHeight = 8
+  const firstLinesHeight = 10 // Plus d'espace pour les 2 premières lignes
   const labelWidth = 45
   const fieldStart = 65
   const fieldWidth = pw - fieldStart - 20
@@ -1766,21 +1788,21 @@ function generateFicheRenseignements(session, trainee = null, isBlank = false) {
     doc.text(trainee.last_name?.toUpperCase() || '', fieldStart - 23, y - 1)
     doc.text(trainee.first_name || '', fieldStart + 62, y - 1)
   }
-  y += lineHeight
+  y += firstLinesHeight // Espace agrandi
   
-  // Genre / CSP sur même ligne (NOUVEAU)
+  // Genre / CSP* sur même ligne
   doc.text('Genre :', 17, y)
   doc.line(fieldStart - 25, y, fieldStart + 30, y)
-  doc.text('CSP :', fieldStart + 40, y)
+  doc.text('CSP* :', fieldStart + 40, y) // Astérisque ajouté
   doc.line(fieldStart + 60, y, pw - 17, y)
   if (!isBlank && trainee) {
     const genderMap = { 'male': 'Homme', 'female': 'Femme', 'non_binary': 'Non-binaire' }
     doc.text(genderMap[trainee?.gender] || '', fieldStart - 23, y - 1)
     doc.text(trainee?.csp || '', fieldStart + 62, y - 1)
   }
-  y += lineHeight
+  y += firstLinesHeight // Espace agrandi
   
-  // Date de naissance / Téléphone sur même ligne
+  // Date de naissance / Téléphone sur même ligne (espace normal)
   doc.text('Date naissance :', 17, y)
   doc.text('__ / __ / ____', fieldStart - 15, y)
   doc.text('Téléphone :', fieldStart + 40, y)
@@ -1871,6 +1893,15 @@ function generateFicheRenseignements(session, trainee = null, isBlank = false) {
   doc.text(`Date : ${isBlank ? '__ / __ / ____' : formatDate(new Date())}`, 17, y)
   doc.text('Signature :', pw / 2 + 20, y)
   doc.rect(pw / 2 + 40, y - 3, 45, 12)
+  
+  // Note explicative CSP en bas de page
+  doc.setFontSize(7)
+  doc.setFont('helvetica', 'italic')
+  doc.setTextColor(100, 100, 100)
+  doc.text('* CSP : Catégorie Socio-Professionnelle', 17, ph - 15)
+  doc.text('Exemples : Employé, Cadre, Ouvrier, Artisan, Demandeur d\'emploi, Étudiant', 17, ph - 11)
+  doc.setTextColor(0, 0, 0)
+  doc.setFont('helvetica', 'normal')
   
   addFooter(doc, 'AF-FICHE-V' + APP_VERSION.replace('V', ''))
   return doc
