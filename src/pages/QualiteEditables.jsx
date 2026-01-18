@@ -954,7 +954,19 @@ export default function QualiteEditables() {
                       <thead className="bg-gray-50"><tr><th className="text-left px-3 py-2">Date</th><th className="text-left px-3 py-2">Description</th><th className="px-3 py-2">Statut</th></tr></thead>
                       <tbody className="divide-y">
                         {registreData[reg.table].slice(0, 5).map((item, i) => (
-                          <tr key={i}><td className="px-3 py-2">{format(new Date(item.created_at), 'dd/MM/yy')}</td><td className="px-3 py-2">{(item.subject || item.description || item.name || '-').substring(0, 50)}</td><td className="px-3 py-2 text-center"><span className={`px-2 py-0.5 rounded text-xs ${item.status === 'resolved' || item.status === 'closed' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>{item.status || '-'}</span></td></tr>
+                          <tr key={i}>
+                            <td className="px-3 py-2">{format(new Date(item.created_at || item.date_veille), 'dd/MM/yy')}</td>
+                            <td className="px-3 py-2">{(item.subject || item.titre || item.description || item.name || '-').substring(0, 50)}</td>
+                            <td className="px-3 py-2 text-center">
+                              <span className={`px-2 py-0.5 rounded text-xs ${
+                                (item.status === 'resolved' || item.status === 'closed' || item.statut === 'traite') 
+                                  ? 'bg-green-100 text-green-700' 
+                                  : 'bg-yellow-100 text-yellow-700'
+                              }`}>
+                                {item.status || item.statut || '-'}
+                              </span>
+                            </td>
+                          </tr>
                         ))}
                       </tbody>
                     </table>
