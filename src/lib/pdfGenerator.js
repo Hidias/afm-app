@@ -700,11 +700,40 @@ function generateEmargement(session, trainees = [], trainer = null, isBlank = fa
   const ref = session?.reference || ''
   const lieu = isBlank ? '________________________________' : getLocation(session)
   
-  // Pour documents vierges : rectangle pour numéro de session en haut à droite
+  // Pour documents vierges : logo + rectangle N° Session
   if (isBlank) {
+    // Logo en haut à gauche
+    const logoBase64 = ORG.logo_base64
+    if (logoBase64) {
+      try {
+        const format = logoBase64.includes('image/png') ? 'PNG' : 'JPEG'
+        doc.addImage(logoBase64, format, 15, 10, 50, 12.5)
+      } catch (e) {
+        console.warn('Erreur chargement logo:', e)
+        // Fallback: rectangle bleu
+        doc.setFillColor(0, 102, 204)
+        doc.rect(15, 10, 50, 12, 'F')
+        doc.setFontSize(10)
+        doc.setFont('helvetica', 'bold')
+        doc.setTextColor(255, 255, 255)
+        doc.text('ACCESS FORMATION', 20, 18)
+        doc.setTextColor(0, 0, 0)
+      }
+    } else {
+      doc.setFillColor(0, 102, 204)
+      doc.rect(15, 10, 50, 12, 'F')
+      doc.setFontSize(10)
+      doc.setFont('helvetica', 'bold')
+      doc.setTextColor(255, 255, 255)
+      doc.text('ACCESS FORMATION', 20, 18)
+      doc.setTextColor(0, 0, 0)
+    }
+    
+    // Rectangle N° Session en haut à droite
     doc.setFontSize(8)
-    doc.text('N° Session :', pw - 65, 10)
-    doc.rect(pw - 45, 5, 35, 10)
+    doc.setFont('helvetica', 'normal')
+    doc.setTextColor(0, 0, 0)
+    doc.text('N° Session : __________', pw - 55, 15)
   } else {
     doc.setFontSize(8)
     doc.setTextColor(150, 150, 150)
