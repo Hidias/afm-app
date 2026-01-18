@@ -1087,6 +1087,14 @@ function generateEvaluation(session, trainee = null, isBlank = false) {
   const course = session?.courses || {}
   
   let y = addHeader(doc, isBlank ? '' : ref)
+  
+  // Rectangle N° Session pour documents vierges
+  if (isBlank) {
+    doc.setFontSize(8)
+    doc.setFont('helvetica', 'normal')
+    doc.text('N° Session : __________', pw - 55, 10)
+  }
+  
   y = addTitle(doc, 'ÉVALUATION À CHAUD', y)
   
   doc.setFontSize(9)
@@ -1224,10 +1232,19 @@ function generateEvaluation(session, trainee = null, isBlank = false) {
 // ============================================================
 function generateEvaluationFroid(session, trainee = null, isBlank = false) {
   const doc = new jsPDF()
+  const pw = doc.internal.pageSize.getWidth()
   const ref = session?.reference || ''
   const course = session?.courses || {}
   
   let y = addHeader(doc, isBlank ? '' : ref)
+  
+  // Rectangle N° Session pour documents vierges
+  if (isBlank) {
+    doc.setFontSize(8)
+    doc.setFont('helvetica', 'normal')
+    doc.text('N° Session : __________', pw - 55, 10)
+  }
+  
   y = addTitle(doc, 'ÉVALUATION À FROID', y)
   
   doc.setFontSize(9)
@@ -1304,6 +1321,14 @@ function generateEvaluationFormateur(session = null, isBlank = false) {
   const ref = session?.reference || ''
   
   let y = addHeader(doc, isBlank ? '' : ref)
+  
+  // Rectangle N° Session pour documents vierges
+  if (isBlank) {
+    doc.setFontSize(8)
+    doc.setFont('helvetica', 'normal')
+    doc.text('N° Session : __________', pw - 55, 10)
+  }
+  
   y = addTitle(doc, 'ÉVALUATION DE LA SESSION PAR LE FORMATEUR', y)
   
   doc.setFontSize(9)
@@ -1644,7 +1669,17 @@ function generateLivret(session = null) {
 
 function generateAnalyseBesoin(session = null, isBlank = false) {
   const doc = new jsPDF()
+  const pw = doc.internal.pageSize.getWidth()
+  
   let y = addHeader(doc, isBlank ? '' : session?.reference)
+  
+  // Rectangle N° Session pour documents vierges
+  if (isBlank) {
+    doc.setFontSize(8)
+    doc.setFont('helvetica', 'normal')
+    doc.text('N° Session : __________', pw - 55, 10)
+  }
+  
   y = addTitle(doc, 'ANALYSE DU BESOIN DE FORMATION', y)
   doc.setFontSize(9)
   doc.text(`Entreprise : ${isBlank ? '________________________' : (session?.clients?.name || '')}`, 20, y)
@@ -1681,6 +1716,14 @@ function generateFicheRenseignements(session, trainee = null, isBlank = false) {
   
   // En-tête
   addHeader(doc)
+  
+  // Rectangle N° Session pour documents vierges
+  if (isBlank) {
+    doc.setFontSize(8)
+    doc.setFont('helvetica', 'normal')
+    doc.text('N° Session : __________', pw - 55, 10)
+  }
+  
   y = 42
   
   doc.setFontSize(14)
@@ -1722,6 +1765,18 @@ function generateFicheRenseignements(session, trainee = null, isBlank = false) {
   if (!isBlank && trainee) {
     doc.text(trainee.last_name?.toUpperCase() || '', fieldStart - 23, y - 1)
     doc.text(trainee.first_name || '', fieldStart + 62, y - 1)
+  }
+  y += lineHeight
+  
+  // Genre / CSP sur même ligne (NOUVEAU)
+  doc.text('Genre :', 17, y)
+  doc.line(fieldStart - 25, y, fieldStart + 30, y)
+  doc.text('CSP :', fieldStart + 40, y)
+  doc.line(fieldStart + 60, y, pw - 17, y)
+  if (!isBlank && trainee) {
+    const genderMap = { 'male': 'Homme', 'female': 'Femme', 'non_binary': 'Non-binaire' }
+    doc.text(genderMap[trainee?.gender] || '', fieldStart - 23, y - 1)
+    doc.text(trainee?.csp || '', fieldStart + 62, y - 1)
   }
   y += lineHeight
   
