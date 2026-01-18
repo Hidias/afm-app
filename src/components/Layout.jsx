@@ -19,7 +19,6 @@ const navItems = [
   { to: '/sessions', icon: Calendar, label: 'Sessions' },
   { to: '/documents', icon: FileText, label: 'Documents' },
   { to: '/qualite', icon: FolderCheck, label: 'Qualité' },
-  { to: '/qualite/completude', icon: CheckCircle, label: 'Complétude' },
   { to: '/non-conformites', icon: AlertTriangle, label: 'Non-conformités' },
   { to: '/indicateurs', icon: BarChart3, label: 'Indicateurs' },
   { to: '/profil-stagiaires', icon: Users, label: 'Profil Stagiaires' },
@@ -169,7 +168,7 @@ export default function Layout() {
             </div>
             <div className="mt-2">
               <p className="text-accent-400 font-bold text-lg">Access Campus</p>
-              <p className="text-xs text-white/60">V2.8.1</p>
+              <p className="text-xs text-white/60">V2.8.0</p>
             </div>
           </div>
           
@@ -199,7 +198,7 @@ export default function Layout() {
             <button onClick={handleLogout} className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm text-white/80 hover:bg-red-500/20 hover:text-red-300 rounded-lg transition-colors">
               <LogOut className="w-4 h-4" />Déconnexion
             </button>
-            <p className="text-center text-xs text-white/40 mt-3">Access Campus V2.8.1</p>
+            <p className="text-center text-xs text-white/40 mt-3">Access Campus V2.8.0</p>
           </div>
         </div>
       </aside>
