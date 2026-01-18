@@ -1535,7 +1535,7 @@ export default function TraineePortal() {
         </div>
 
         <p className="text-center text-xs text-gray-400 mt-4">
-          Access Formation • v2.7.0
+          Access Formation • v2.8.0
         </p>
       </div>
     </div>
