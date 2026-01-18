@@ -879,7 +879,7 @@ export default function QualiteEditables() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Documents Qualité</h1>
-        <p className="text-gray-500">Pack Qualiopi V2.7.0 - Documents éditables</p>
+        <p className="text-gray-500">Pack Qualiopi V2.8.0 - Documents éditables</p>
       </div>
       
       <div className="flex gap-2 border-b">
