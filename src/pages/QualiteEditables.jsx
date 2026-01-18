@@ -407,7 +407,7 @@ export default function QualiteEditables() {
       const doc = new jsPDF()
       const w = doc.internal.pageSize.getWidth()
       const h = doc.internal.pageSize.getHeight()
-      const v = '2.7.0'
+      const v = '2.8.0'
       const d = format(new Date(), 'dd/MM/yyyy')
       const data = savedDocs[docId] || DEFAULT_DATA[docId] || {}
       
