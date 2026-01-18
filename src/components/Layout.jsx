@@ -34,7 +34,6 @@ export default function Layout() {
   const [notifications, setNotifications] = useState([])
   const [showNotifications, setShowNotifications] = useState(false)
   const [currentTime, setCurrentTime] = useState(new Date())
-  const [completudeBlockersCount, setCompletudeBlockersCount] = useState(0)
   
   // Horloge temps réel
   useEffect(() => {
@@ -42,15 +41,11 @@ export default function Layout() {
     return () => clearInterval(timer)
   }, [])
   
-  // Charger les notifications et le compteur de bloquants
+  // Charger les notifications
   useEffect(() => {
     loadNotifications()
-    loadCompletudeBlockers()
     // Rafraîchir toutes les 30 secondes
-    const interval = setInterval(() => {
-      loadNotifications()
-      loadCompletudeBlockers()
-    }, 30000)
+    const interval = setInterval(loadNotifications, 30000)
     return () => clearInterval(interval)
   }, [])
   
@@ -61,15 +56,6 @@ export default function Layout() {
       .order('created_at', { ascending: false })
       .limit(20)
     setNotifications(data || [])
-  }
-  
-  const loadCompletudeBlockers = async () => {
-    const { data } = await supabase
-      .rpc('get_active_blockers_count')
-    
-    if (data && data.length > 0) {
-      setCompletudeBlockersCount(data[0].bloquant_count || 0)
-    }
   }
   
   const unreadCount = notifications.filter(n => !n.read_at).length
@@ -93,15 +79,24 @@ export default function Layout() {
     loadNotifications()
   }
   
-  const getNotificationIcon = (type) => {
-    switch(type) {
+  const getNotificationIcon = (notif) => {
+    // Pour les notifications de complétude, utiliser l'emoji basé sur la priorité
+    if (notif.type === 'completude') {
+      const priority = notif.metadata?.priority
+      if (priority === 'bloquant') return '🔴'
+      if (priority === 'important') return '🟠'
+      if (priority === 'mineur') return '🟡'
+      return '🔴' // Défaut
+    }
+    
+    // Autres types de notifications
+    switch(notif.type) {
       case 'reclamation': return '📩'
       case 'veille': return '👁️'
       case 'materiel': return '🔧'
       case 'audit': return '📋'
       case 'revue_direction': return '📊'
       case 'j90': return '📅'
-      case 'completude': return '🔴'
       default: return '🔔'
     }
   }
@@ -158,11 +153,6 @@ export default function Layout() {
                 >
                   <item.icon className="w-5 h-5" />
                   <span>{item.label}</span>
-                  {item.to === '/qualite/completude' && completudeBlockersCount > 0 && (
-                    <span className="ml-auto bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
-                      {completudeBlockersCount}
-                    </span>
-                  )}
                 </NavLink>
               ))}
             </nav>
@@ -192,11 +182,6 @@ export default function Layout() {
               >
                 <item.icon className="w-5 h-5" />
                 <span>{item.label}</span>
-                {item.to === '/qualite/completude' && completudeBlockersCount > 0 && (
-                  <span className="ml-auto bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full animate-pulse">
-                    {completudeBlockersCount}
-                  </span>
-                )}
               </NavLink>
             ))}
           </nav>
@@ -269,7 +254,7 @@ export default function Layout() {
                           }}
                         >
                           <div className="flex items-start gap-2">
-                            <span className="text-lg">{getNotificationIcon(notif.type)}</span>
+                            <span className="text-lg">{getNotificationIcon(notif)}</span>
                             <div className="flex-1 min-w-0">
                               <p className={`text-sm ${!notif.read_at ? 'font-semibold text-gray-900' : 'text-gray-700'}`}>
                                 {notif.title}
