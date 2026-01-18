@@ -79,9 +79,28 @@ export default function CourseDocumentsList() {
   const handleUpload = async (courseId, type, file) => {
     if (!file) return
 
-    if (file.type !== 'application/pdf') {
-      toast.error('Seuls les fichiers PDF sont acceptés')
+    // Restriction PDF uniquement pour document stagiaire
+    if (type === 'document_stagiaire' && file.type !== 'application/pdf') {
+      toast.error('Le document stagiaire doit être un PDF')
       return
+    }
+
+    // Pour support formateur et programme : accepter PDF, PPT, Word, Excel
+    if (type !== 'document_stagiaire') {
+      const allowedTypes = [
+        'application/pdf',
+        'application/vnd.ms-powerpoint', // PPT
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation', // PPTX
+        'application/msword', // DOC
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // DOCX
+        'application/vnd.ms-excel', // XLS
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // XLSX
+      ]
+      
+      if (!allowedTypes.includes(file.type)) {
+        toast.error('Format non accepté. Utilisez PDF, PowerPoint, Word ou Excel')
+        return
+      }
     }
 
     const maxSize = 50 * 1024 * 1024 // 50 MB
@@ -354,7 +373,7 @@ export default function CourseDocumentsList() {
                               <label className="cursor-pointer">
                                 <input
                                   type="file"
-                                  accept="application/pdf"
+                                  accept={type === 'document_stagiaire' ? 'application/pdf' : '.pdf,.ppt,.pptx,.doc,.docx,.xls,.xlsx'}
                                   className="hidden"
                                   onChange={(e) => {
                                     const file = e.target.files?.[0]
@@ -371,7 +390,7 @@ export default function CourseDocumentsList() {
                                   ) : (
                                     <>
                                       <Upload className="w-3 h-3" />
-                                      Choisir un PDF
+                                      {type === 'document_stagiaire' ? 'Choisir un PDF' : 'Choisir un fichier'}
                                     </>
                                   )}
                                 </span>
