@@ -1768,7 +1768,7 @@ function generateFicheRenseignements(session, trainee = null, isBlank = false) {
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(8)
   doc.text('INFORMATIONS PERSONNELLES', 17, y + 4)
-  y += 9
+  y += 12 // Espace augmenté (était 9)
   
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(8)
@@ -1827,7 +1827,7 @@ function generateFicheRenseignements(session, trainee = null, isBlank = false) {
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(8)
   doc.text('INFORMATIONS PROFESSIONNELLES', 17, y + 4)
-  y += 9
+  y += 12 // Espace augmenté (était 9)
   
   doc.setFont('helvetica', 'normal')
   
@@ -1870,7 +1870,7 @@ function generateFicheRenseignements(session, trainee = null, isBlank = false) {
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(8)
   doc.text('VOS BESOINS ET ATTENTES', 17, y + 4)
-  y += 9
+  y += 12 // Espace augmenté (était 9)
   
   doc.setFont('helvetica', 'normal')
   doc.text('Quels sont vos besoins spécifiques et vos attentes concernant cette formation ?', 17, y)
@@ -1893,13 +1893,14 @@ function generateFicheRenseignements(session, trainee = null, isBlank = false) {
   doc.text(`Date : ${isBlank ? '__ / __ / ____' : formatDate(new Date())}`, 17, y)
   doc.text('Signature :', pw / 2 + 20, y)
   doc.rect(pw / 2 + 40, y - 3, 45, 12)
+  y += 15
   
-  // Note explicative CSP en bas de page
+  // Note explicative CSP (déplacée ici, au-dessus du footer)
   doc.setFontSize(7)
   doc.setFont('helvetica', 'italic')
   doc.setTextColor(100, 100, 100)
-  doc.text('* CSP : Catégorie Socio-Professionnelle', 17, ph - 15)
-  doc.text('Exemples : Employé, Cadre, Ouvrier, Artisan, Demandeur d\'emploi, Étudiant', 17, ph - 11)
+  doc.text('* CSP : Catégorie Socio-Professionnelle', 17, y)
+  doc.text('Exemples : Employé, Cadre, Ouvrier, Artisan, Demandeur d\'emploi, Étudiant', 17, y + 4)
   doc.setTextColor(0, 0, 0)
   doc.setFont('helvetica', 'normal')
   
