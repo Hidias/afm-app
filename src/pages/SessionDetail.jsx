@@ -1627,17 +1627,33 @@ export default function SessionDetail() {
       }
       
       const programme = data[0]
+      console.log('Programme trouvé:', programme.file_name, programme.file_url)
       
-      // Télécharger le fichier
-      const link = document.createElement('a')
-      link.href = programme.file_url
-      link.download = programme.file_name || 'programme.pdf'
-      link.target = '_blank'
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-      
-      console.log('Programme téléchargé:', programme.file_name)
+      // Méthode 1: Fetch + Blob (contourne les blocages popup)
+      try {
+        const response = await fetch(programme.file_url)
+        if (!response.ok) throw new Error('Erreur réseau')
+        
+        const blob = await response.blob()
+        const blobUrl = window.URL.createObjectURL(blob)
+        
+        const link = document.createElement('a')
+        link.href = blobUrl
+        link.download = programme.file_name || 'programme.pdf'
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        
+        // Nettoyer l'URL blob
+        setTimeout(() => window.URL.revokeObjectURL(blobUrl), 100)
+        
+        console.log('✅ Programme téléchargé:', programme.file_name)
+        
+      } catch (fetchError) {
+        // Fallback: ouverture directe dans nouvel onglet
+        console.warn('Fetch échoué, fallback vers ouverture directe:', fetchError)
+        window.open(programme.file_url, '_blank')
+      }
       
     } catch (err) {
       console.error('Erreur téléchargement programme:', err)
