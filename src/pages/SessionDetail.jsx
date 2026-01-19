@@ -1833,6 +1833,18 @@ ${organization?.phone || ''}`)
   // Stagiaires avec 100% de présence validée (pour évaluations uniquement)
   const sessionTraineesForEvals = sessionTrainees.filter(t => t.presence_complete === true)
   
+  console.log('🔥 SessionDetail DEBUG:', {
+    session_id: session.id,
+    session_reference: session.reference,
+    total_trainees: sessionTrainees.length,
+    trainees_for_evals: sessionTraineesForEvals.length,
+    trainees_data: sessionTrainees.map(t => ({
+      name: `${t.first_name} ${t.last_name}`,
+      presence_complete: t.presence_complete,
+      early_departure: t.early_departure
+    }))
+  })
+  
   const enrolledTraineeIds = sessionTrainees.map(t => t.id)
   let availableTrainees = trainees.filter(t => !enrolledTraineeIds.includes(t.id))
   if (traineeFilterClient) availableTrainees = availableTrainees.filter(t => t.client_id === traineeFilterClient)
