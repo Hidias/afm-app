@@ -1614,21 +1614,30 @@ export default function SessionDetail() {
         .eq('type', 'programme')
         .order('created_at', { ascending: false })
         .limit(1)
-        .single()
       
-      if (error || !data) {
+      if (error) {
+        console.error('Erreur Supabase:', error)
+        toast.error('Erreur lors de la récupération du programme')
+        return
+      }
+      
+      if (!data || data.length === 0) {
         toast.error('Programme non trouvé. Veuillez l\'uploader dans Documents de formations.')
         return
       }
       
+      const programme = data[0]
+      
       // Télécharger le fichier
       const link = document.createElement('a')
-      link.href = data.file_url
-      link.download = data.file_name || 'programme.pdf'
+      link.href = programme.file_url
+      link.download = programme.file_name || 'programme.pdf'
       link.target = '_blank'
       document.body.appendChild(link)
       link.click()
       document.body.removeChild(link)
+      
+      console.log('Programme téléchargé:', programme.file_name)
       
     } catch (err) {
       console.error('Erreur téléchargement programme:', err)
