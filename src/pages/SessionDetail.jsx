@@ -2438,7 +2438,7 @@ ${organization?.phone || ''}`)
                 {sessionTrainees.map(t => {
                   const eval_ = evaluationsData[t.id] || {}
                   const isEnabled = eval_.questionnaire_submitted
-                  const isAbsent = !t.presence_complete && !t.early_departure // Absent total
+                  const isAbsent = t.presence_complete === false && t.early_departure === false // Absent total (pas null)
                   return (
                     <div key={t.id} className={`border rounded-lg p-4 ${isAbsent ? 'bg-gray-50 opacity-60' : ''}`}>
                       <div className="flex items-center justify-between mb-3">
@@ -2644,7 +2644,7 @@ ${organization?.phone || ''}`)
                     {sessionTrainees.map(t => {
                       const coldEval = coldEvaluationsData[t.id] || {}
                       const isEnabled = !!coldEval.completed_at
-                      const isAbsent = !t.presence_complete && !t.early_departure // Absent total
+                      const isAbsent = t.presence_complete === false && t.early_departure === false // Absent total (pas null)
                       return (
                         <tr key={t.id} className={`border-b ${isAbsent ? 'bg-gray-50 opacity-60' : ''}`}>
                           <td className="py-3 font-medium">
