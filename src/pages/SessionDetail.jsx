@@ -1817,14 +1817,14 @@ ${organization?.phone || ''}`)
   
   // Construire la liste des stagiaires avec leurs données de présence
   const sessionTrainees = session.session_trainees?.map(st => {
-    // Extraire les données du stagiaire sans les champs de présence (qui seraient undefined)
-    const traineeData = st.trainees || {}
+    // IMPORTANT: Exclure presence_complete et early_departure du spread car ils viennent de trainees (undefined)
+    const { presence_complete: _, early_departure: __, ...traineeData } = st.trainees || {}
     
     return {
       ...traineeData,
       status: st.status,
       result: st.result || traineeResults[st.trainee_id] || null,
-      // Forcer les valeurs de session_trainees (pas celles de trainees)
+      // Ces valeurs viennent de session_trainees (les VRAIES valeurs)
       presence_complete: st.presence_complete,
       early_departure: st.early_departure
     }
