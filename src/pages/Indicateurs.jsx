@@ -543,16 +543,19 @@ export default function Indicateurs() {
   
   // Calcul des taux pour évaluations à froid (5=Oui, 1=Non)
   const calcColdStats = () => {
-    // Total stagiaires des sessions terminées (base pour le taux d'envoi)
+    // Total stagiaires FORMÉS des sessions terminées (base pour le taux d'envoi)
     const completedSessionIds = filteredSessions.filter(s => s.status === 'completed').map(s => s.id)
-    const totalTraineesInCompleted = traineeResults.filter(r => completedSessionIds.includes(r.session_id)).length
+    const totalTraineesInCompleted = traineeResults.filter(r => 
+      completedSessionIds.includes(r.session_id) &&
+      (r.presence_complete === true || r.early_departure === true)
+    ).length
     
     if (totalTraineesInCompleted === 0) return null
     
     // Évaluations à froid des sessions filtrées
     const coldEvalsFiltered = coldEvals.filter(e => completedSessionIds.includes(e.session_id))
     
-    // Taux d'envoi : combien ont été envoyées / total stagiaires
+    // Taux d'envoi : combien ont été envoyées / total stagiaires formés
     const sentCount = coldEvalsFiltered.filter(e => e.sent_at).length
     const sendRate = (sentCount / totalTraineesInCompleted * 100).toFixed(0)
     
@@ -612,27 +615,35 @@ export default function Indicateurs() {
   // Calcul du taux de présence (basé sur presence_complete)
   const calcPresenceRate = () => {
     const completedSessionIds = filteredSessions.filter(s => s.status === 'completed').map(s => s.id)
-    const filteredResults = traineeResults.filter(r => completedSessionIds.includes(r.session_id))
+    // Base = stagiaires formés (presence_complete OU early_departure)
+    const traineesFormed = traineeResults.filter(r => 
+      completedSessionIds.includes(r.session_id) &&
+      (r.presence_complete === true || r.early_departure === true)
+    )
     
-    if (filteredResults.length === 0) return null
+    if (traineesFormed.length === 0) return null
     
-    const presentCount = filteredResults.filter(r => r.presence_complete === true).length
-    const rate = (presentCount / filteredResults.length * 100).toFixed(0)
+    const presentCount = traineesFormed.filter(r => r.presence_complete === true).length
+    const rate = (presentCount / traineesFormed.length * 100).toFixed(0)
     
-    return { rate, present: presentCount, total: filteredResults.length }
+    return { rate, present: presentCount, total: traineesFormed.length }
   }
   
   // Calcul du taux d'abandon (basé sur early_departure)
   const calcAbandonRate = () => {
     const completedSessionIds = filteredSessions.filter(s => s.status === 'completed').map(s => s.id)
-    const filteredResults = traineeResults.filter(r => completedSessionIds.includes(r.session_id))
+    // Base = stagiaires formés (presence_complete OU early_departure)
+    const traineesFormed = traineeResults.filter(r => 
+      completedSessionIds.includes(r.session_id) &&
+      (r.presence_complete === true || r.early_departure === true)
+    )
     
-    if (filteredResults.length === 0) return null
+    if (traineesFormed.length === 0) return null
     
-    const abandonCount = filteredResults.filter(r => r.early_departure === true).length
-    const rate = (abandonCount / filteredResults.length * 100).toFixed(0)
+    const abandonCount = traineesFormed.filter(r => r.early_departure === true).length
+    const rate = (abandonCount / traineesFormed.length * 100).toFixed(0)
     
-    return { rate, abandoned: abandonCount, total: filteredResults.length }
+    return { rate, abandoned: abandonCount, total: traineesFormed.length }
   }
   
   // Calcul du taux de recommandation global
@@ -644,6 +655,16 @@ export default function Indicateurs() {
     const rate = (recommendCount / withResponse.length * 100).toFixed(0)
     
     return { rate, recommended: recommendCount, total: withResponse.length }
+  }
+  
+  // Calcul du nombre total de stagiaires formés (présence_complete OU early_departure)
+  const calcTotalTrainees = () => {
+    const completedSessionIds = filteredSessions.filter(s => s.status === 'completed').map(s => s.id)
+    const traineesInCompleted = traineeResults.filter(r => 
+      completedSessionIds.includes(r.session_id) &&
+      (r.presence_complete === true || r.early_departure === true)
+    )
+    return traineesInCompleted.length
   }
   
   // =====================================================
@@ -869,6 +890,7 @@ export default function Indicateurs() {
   const presenceRate = calcPresenceRate()
   const abandonRate = calcAbandonRate()
   const globalRecommendRate = calcGlobalRecommendRate()
+  const totalTrainees = calcTotalTrainees()
   
   // Calcul note globale (basé sur évaluations à chaud et formateur uniquement - PAS à froid)
   const globalScore = () => {
@@ -941,7 +963,7 @@ export default function Indicateurs() {
           </select>
           
           <span className="text-sm text-gray-500">
-            {filteredSessions.length} session(s) • {filteredHotEvals.length} éval. à chaud • {coldStats ? `${coldStats.sentCount} éval. à froid envoyées` : '0 éval. à froid'}
+            {filteredSessions.length} session(s) • {totalTrainees} stagiaires • {filteredHotEvals.length} éval. à chaud ({totalTrainees > 0 ? Math.round(filteredHotEvals.length / totalTrainees * 100) : 0}%) • {coldStats ? `${coldStats.sentCount} éval. à froid envoyées (${coldStats.sendRate}%)` : '0 éval. à froid'}
           </span>
         </div>
       </div>
