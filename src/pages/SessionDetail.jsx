@@ -1603,6 +1603,39 @@ export default function SessionDetail() {
     toast.success('Documents générés')
   }
   
+  // Télécharger le programme uploadé depuis course_documents
+  const downloadUploadedProgramme = async (courseId) => {
+    try {
+      // Récupérer le programme depuis course_documents
+      const { data, error } = await supabase
+        .from('course_documents')
+        .select('*')
+        .eq('course_id', courseId)
+        .eq('type', 'programme')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single()
+      
+      if (error || !data) {
+        toast.error('Programme non trouvé. Veuillez l\'uploader dans Documents de formations.')
+        return
+      }
+      
+      // Télécharger le fichier
+      const link = document.createElement('a')
+      link.href = data.file_url
+      link.download = data.file_name || 'programme.pdf'
+      link.target = '_blank'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      
+    } catch (err) {
+      console.error('Erreur téléchargement programme:', err)
+      toast.error('Erreur lors du téléchargement du programme')
+    }
+  }
+  
   // Ouvrir modal email "Avant formation"
   const handleSendEmailBefore = () => {
     // Priorité : 1) Contact spécifique de la session, 2) Contact principal du client, 3) Email générique du client
@@ -1672,7 +1705,7 @@ ${organization?.phone || ''}`)
       
       // Télécharger les documents
       downloadDocument('convention', session, { trainees: traineesWithResult, trainer, costs: sessionCosts })
-      downloadDocument('programme', session, { trainer })
+      downloadUploadedProgramme(session.course_id) // Programme uploadé depuis course_documents
       downloadAllDocuments('convocation', session, traineesWithResult, { trainer })
       
       // Ouvrir le client mail
