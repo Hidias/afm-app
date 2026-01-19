@@ -432,7 +432,25 @@ export default function Indicateurs() {
       r.session_id === e.session_id && 
       r.trainee_id === e.trainee_id
     )
+    
+    // DEBUG
+    if (e.session_id === '9bdd3c72-1cea-494a-a406-e7089b0b602e') {
+      console.log('🔍 Eval found for session MK2TZI7S:', {
+        trainee_id: e.trainee_id,
+        traineeResult: traineeResult,
+        presence_complete: traineeResult?.presence_complete,
+        early_departure: traineeResult?.early_departure,
+        will_keep: traineeResult && (traineeResult.presence_complete === true || traineeResult.early_departure === true)
+      })
+    }
+    
     return traineeResult && (traineeResult.presence_complete === true || traineeResult.early_departure === true)
+  })
+  
+  console.log('📊 Indicateurs - Évaluations filtrées:', {
+    total_hot_evals: traineeEvals.length,
+    filtered_hot_evals: filteredHotEvals.length,
+    total_trainee_results: traineeResults.length
   })
   
   // Évaluations formateur filtrées
