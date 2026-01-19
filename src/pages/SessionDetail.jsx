@@ -1815,58 +1815,16 @@ ${organization?.phone || ''}`)
   if (loading) return <div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div></div>
   if (!session) return <div className="text-center py-12"><p className="text-gray-500">Session non trouvée</p><Link to="/sessions" className="text-primary-600 hover:underline mt-2 inline-block">Retour</Link></div>
   
-  // Construire la liste des stagiaires avec leurs données de présence
-  const sessionTrainees = session.session_trainees?.map(st => {
-    const trainee = st.trainees || {}
-    
-    // Copier EXPLICITEMENT les propriétés sans spread (pour éviter les écrasements)
-    return {
-      id: trainee.id,
-      first_name: trainee.first_name,
-      last_name: trainee.last_name,
-      email: trainee.email,
-      phone: trainee.phone,
-      address: trainee.address,
-      city: trainee.city,
-      postal_code: trainee.postal_code,
-      birth_date: trainee.birth_date,
-      birth_place: trainee.birth_place,
-      social_security_number: trainee.social_security_number,
-      gender: trainee.gender,
-      csp: trainee.csp,
-      job_title: trainee.job_title,
-      client_id: trainee.client_id,
-      has_disability: trainee.has_disability,
-      disability_details: trainee.disability_details,
-      disability_adaptations: trainee.disability_adaptations,
-      notes: trainee.notes,
-      created_at: trainee.created_at,
-      updated_at: trainee.updated_at,
-      last_session_date: trainee.last_session_date,
-      refused_ssn: trainee.refused_ssn,
-      ssn_encrypted: trainee.ssn_encrypted,
-      // Données de la session (ne JAMAIS prendre de trainee car undefined)
-      status: st.status,
-      result: st.result || traineeResults[st.trainee_id] || null,
-      presence_complete: st.presence_complete,
-      early_departure: st.early_departure
-    }
-  }) || []
+  const sessionTrainees = session.session_trainees?.map(st => ({ 
+    ...st.trainees, 
+    status: st.status, 
+    result: st.result || traineeResults[st.trainee_id] || null,
+    presence_complete: st.presence_complete,
+    early_departure: st.early_departure
+  })) || []
   
-  // Stagiaires avec 100% de présence validée (pour évaluations uniquement)
+  // Liste filtrée pour les évaluations (seulement les présents)
   const sessionTraineesForEvals = sessionTrainees.filter(t => t.presence_complete === true)
-  
-  console.log('🔥 SessionDetail DEBUG:', {
-    session_id: session.id,
-    session_reference: session.reference,
-    total_trainees: sessionTrainees.length,
-    trainees_for_evals: sessionTraineesForEvals.length,
-    trainees_data: sessionTrainees.map(t => ({
-      name: `${t.first_name} ${t.last_name}`,
-      presence_complete: t.presence_complete,
-      early_departure: t.early_departure
-    }))
-  })
   
   const enrolledTraineeIds = sessionTrainees.map(t => t.id)
   let availableTrainees = trainees.filter(t => !enrolledTraineeIds.includes(t.id))
@@ -2489,12 +2447,7 @@ ${organization?.phone || ''}`)
                       <div className="flex items-center justify-between mb-3">
                         <span className="font-medium">{t.first_name} {t.last_name}</span>
                         <label className="flex items-center gap-2 text-sm">
-                          <input 
-                            type="checkbox" 
-                            checked={eval_.questionnaire_submitted || false} 
-                            onChange={(e) => handleEvalChange(t.id, 'questionnaire_submitted', e.target.checked)} 
-                            className="w-4 h-4 text-orange-600 rounded" 
-                          />
+                          <input type="checkbox" checked={eval_.questionnaire_submitted || false} onChange={(e) => handleEvalChange(t.id, 'questionnaire_submitted', e.target.checked)} className="w-4 h-4 text-orange-600 rounded" />
                           Questionnaire reçu
                         </label>
                       </div>
@@ -2689,21 +2642,10 @@ ${organization?.phone || ''}`)
                         <tr key={t.id} className="border-b">
                           <td className="py-3 font-medium">{t.first_name} {t.last_name}</td>
                           <td className="text-center py-3">
-                            <input 
-                              type="checkbox" 
-                              checked={!!coldEval.sent_at} 
-                              onChange={(e) => handleColdEvalChange(t.id, 'sent_at', e.target.checked ? new Date().toISOString() : null)} 
-                              className="w-5 h-5 text-purple-600 rounded" 
-                            />
+                            <input type="checkbox" checked={!!coldEval.sent_at} onChange={(e) => handleColdEvalChange(t.id, 'sent_at', e.target.checked ? new Date().toISOString() : null)} className="w-5 h-5 text-purple-600 rounded" />
                           </td>
                           <td className="text-center py-3">
-                            <input 
-                              type="checkbox" 
-                              checked={!!coldEval.completed_at} 
-                              onChange={(e) => handleColdEvalChange(t.id, 'completed_at', e.target.checked ? new Date().toISOString() : null)} 
-                              disabled={!coldEval.sent_at}
-                              className="w-5 h-5 text-purple-600 rounded disabled:opacity-50 disabled:cursor-not-allowed" 
-                            />
+                            <input type="checkbox" checked={!!coldEval.completed_at} onChange={(e) => handleColdEvalChange(t.id, 'completed_at', e.target.checked ? new Date().toISOString() : null)} className="w-5 h-5 text-purple-600 rounded" disabled={!coldEval.sent_at} />
                           </td>
                           <td className="text-center py-3">
                             <div className="flex items-center justify-center gap-1">
