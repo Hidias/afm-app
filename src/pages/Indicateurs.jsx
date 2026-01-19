@@ -423,14 +423,32 @@ export default function Indicateurs() {
   const filteredSessions = getFilteredSessions()
   const filteredSessionIds = filteredSessions.map(s => s.id)
   
-  // Évaluations à chaud filtrées
-  const filteredHotEvals = traineeEvals.filter(e => filteredSessionIds.includes(e.session_id))
+  // Évaluations à chaud filtrées (exclure les absents)
+  const filteredHotEvals = traineeEvals.filter(e => {
+    if (!filteredSessionIds.includes(e.session_id)) return false
+    
+    // Vérifier que le stagiaire est formé (présent ou départ anticipé)
+    const traineeResult = traineeResults.find(r => 
+      r.session_id === e.session_id && 
+      r.trainee_id === e.trainee_id
+    )
+    return traineeResult && (traineeResult.presence_complete === true || traineeResult.early_departure === true)
+  })
   
   // Évaluations formateur filtrées
   const filteredTrainerEvals = trainerEvals.filter(e => filteredSessionIds.includes(e.session_id))
   
-  // Évaluations à froid filtrées
-  const filteredColdEvals = coldEvals.filter(e => filteredSessionIds.includes(e.session_id))
+  // Évaluations à froid filtrées (exclure les absents)
+  const filteredColdEvals = coldEvals.filter(e => {
+    if (!filteredSessionIds.includes(e.session_id)) return false
+    
+    // Vérifier que le stagiaire est formé (présent ou départ anticipé)
+    const traineeResult = traineeResults.find(r => 
+      r.session_id === e.session_id && 
+      r.trainee_id === e.trainee_id
+    )
+    return traineeResult && (traineeResult.presence_complete === true || traineeResult.early_departure === true)
+  })
   
   // Calcul des moyennes pour évaluations à chaud (qualité complet)
   const calcHotStats = () => {
