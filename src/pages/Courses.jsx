@@ -570,12 +570,7 @@ export default function Courses() {
                     <Clock className="w-4 h-4" />
                     {course.duration_hours || course.duration || '?'}h
                   </span>
-                  {course.price_ht && (
-                    <span className="flex items-center gap-1">
-                      <Euro className="w-4 h-4" />
-                      {course.price_ht}€
-                    </span>
-                  )}
+                  {/* Prix masqué - conservé en base de données */}
                   {course.program_url && (
                     <a
                       href={course.program_url}
