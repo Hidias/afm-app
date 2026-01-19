@@ -9,6 +9,10 @@ import {
 } from 'lucide-react'
 import { format, isAfter, isBefore, startOfToday, addDays, differenceInDays } from 'date-fns'
 import { fr } from 'date-fns/locale'
+import toast from 'react-hot-toast'
+import QRCode from 'qrcode'
+import { supabase } from '../lib/supabase'
+import SessionDocumentAccess from '../components/SessionDocumentAccess'
 
 export default function Dashboard() {
   const { 
@@ -299,7 +303,7 @@ export default function Dashboard() {
     return daysSinceEnd >= 0 && daysSinceEnd <= 7
   })
   
-  // Sessions à J+90 (évaluation à froid)
+  // Sessions à J+90 (évaluation à froid) - CORRIGÉ : exclure les absents
   const sessionsJ90 = sessions.filter(s => {
     if (s.status !== 'completed') return false
     if (!s.end_date) return false
@@ -309,28 +313,39 @@ export default function Dashboard() {
     
     if (!isInWindow) return false
     
-    // Vérifier si TOUS les stagiaires ont reçu l'évaluation à froid
+    // Vérifier si TOUS les stagiaires FORMÉS ont reçu l'évaluation à froid
     const sessionTrainees = s.session_trainees || []
     if (sessionTrainees.length === 0) return false
     
-    const traineeIds = sessionTrainees.map(st => st.trainee_id)
+    // Filtrer uniquement les stagiaires formés (exclure absents)
+    const traineesFormed = sessionTrainees.filter(st => 
+      st.presence_complete === true || st.early_departure === true
+    )
+    
+    if (traineesFormed.length === 0) return false
+    
+    const traineeIds = traineesFormed.map(st => st.trainee_id)
     const coldEvalsForSession = coldEvaluations.filter(ce => ce.session_id === s.id)
     
-    // Compter les stagiaires qui ont sent_at
+    // Compter les stagiaires formés qui ont sent_at
     const sentCount = traineeIds.filter(tid => 
       coldEvalsForSession.some(ce => ce.trainee_id === tid && ce.sent_at)
     ).length
     
-    // Si tous ont été envoyés, ne pas afficher l'alerte
+    // Si tous les stagiaires formés ont été envoyés, ne pas afficher l'alerte
     if (sentCount >= traineeIds.length) return false
     
     return true
   })
   
-  // Compteurs
+  // Compteurs - CORRIGÉ : compter uniquement les personnes formées
   const completedSessions = sessions.filter(s => s.status === 'completed')
   const personnesFormees = completedSessions.reduce((total, s) => {
-    return total + (s.session_trainees?.length || 0)
+    // Compter uniquement les stagiaires formés (exclure absents)
+    const traineesFormed = (s.session_trainees || []).filter(st => 
+      st.presence_complete === true || st.early_departure === true
+    )
+    return total + traineesFormed.length
   }, 0)
   
   const stats = [
