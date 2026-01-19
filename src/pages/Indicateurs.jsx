@@ -630,21 +630,25 @@ export default function Indicateurs() {
     return { rate, acquired: acquiredCount, total: filteredResults.length }
   }
   
-  // Calcul du taux de présence (basé sur presence_complete)
+  // Calcul du taux de présence (basé sur tous les inscrits vs présents)
   const calcPresenceRate = () => {
     const completedSessionIds = filteredSessions.filter(s => s.status === 'completed').map(s => s.id)
-    // Base = stagiaires formés (presence_complete OU early_departure)
-    const traineesFormed = traineeResults.filter(r => 
-      completedSessionIds.includes(r.session_id) &&
-      (r.presence_complete === true || r.early_departure === true)
+    
+    // Base = TOUS les inscrits dans les sessions terminées (y compris absents)
+    const allTraineesInCompleted = traineeResults.filter(r => 
+      completedSessionIds.includes(r.session_id)
     )
     
-    if (traineesFormed.length === 0) return null
+    if (allTraineesInCompleted.length === 0) return null
     
-    const presentCount = traineesFormed.filter(r => r.presence_complete === true).length
-    const rate = (presentCount / traineesFormed.length * 100).toFixed(0)
+    // Présents = ceux qui sont venus (presence_complete OU early_departure)
+    const presentCount = allTraineesInCompleted.filter(r => 
+      r.presence_complete === true || r.early_departure === true
+    ).length
     
-    return { rate, present: presentCount, total: traineesFormed.length }
+    const rate = (presentCount / allTraineesInCompleted.length * 100).toFixed(0)
+    
+    return { rate, present: presentCount, total: allTraineesInCompleted.length }
   }
   
   // Calcul du taux d'abandon (basé sur early_departure)
