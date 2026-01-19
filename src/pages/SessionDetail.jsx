@@ -2438,6 +2438,18 @@ ${organization?.phone || ''}`)
                 {sessionTrainees.map(t => {
                   const eval_ = evaluationsData[t.id] || {}
                   const isEnabled = eval_.questionnaire_submitted
+                  
+                  // DEBUG
+                  if (t.last_name === 'PAUL') {
+                    console.log('Emmanuel PAUL data:', {
+                      presence_complete: t.presence_complete,
+                      early_departure: t.early_departure,
+                      type_pc: typeof t.presence_complete,
+                      type_ed: typeof t.early_departure,
+                      full_object: t
+                    })
+                  }
+                  
                   const isAbsent = t.presence_complete === false && t.early_departure === false // Absent total (pas null)
                   return (
                     <div key={t.id} className={`border rounded-lg p-4 ${isAbsent ? 'bg-gray-50 opacity-60' : ''}`}>
