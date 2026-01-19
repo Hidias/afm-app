@@ -677,6 +677,56 @@ export default function TraineePortal() {
         }
       }
 
+      // ============================================================
+      // CORRECTION CRITIQUE : Calculer et mettre à jour presence_complete
+      // ============================================================
+      
+      // Calculer le nombre total de demi-journées de la formation
+      const dates = session.start_date && session.end_date
+        ? eachDayOfInterval({ start: parseISO(session.start_date), end: parseISO(session.end_date) })
+        : []
+      
+      const totalHalfDays = dates.length * session.periods.length
+      
+      // Compter les présences validées dans newAttendanceData
+      let presentCount = 0
+      dates.forEach(d => {
+        const dateStr = format(d, 'yyyy-MM-dd')
+        session.periods.forEach(p => {
+          const k = `${dateStr}_${p}`
+          if (newAttendanceData[k] === true) {
+            presentCount++
+          }
+        })
+      })
+      
+      // Déterminer si présence complète (100%)
+      const isComplete = presentCount === totalHalfDays && totalHalfDays > 0
+      
+      console.log('📊 Calcul presence_complete:', { 
+        presentCount, 
+        totalHalfDays, 
+        isComplete,
+        trainee: `${selectedTrainee.first_name} ${selectedTrainee.last_name}`
+      })
+      
+      // Mettre à jour presence_complete dans session_trainees
+      const { error: updateError } = await supabase
+        .from('session_trainees')
+        .update({ presence_complete: isComplete })
+        .eq('session_id', session.id)
+        .eq('trainee_id', selectedTrainee.id)
+      
+      if (updateError) {
+        console.error('❌ Erreur update presence_complete:', updateError)
+      } else {
+        console.log('✅ presence_complete mis à jour:', isComplete)
+      }
+      
+      // ============================================================
+      // FIN CORRECTION
+      // ============================================================
+
       // Vérifier si toutes les périodes du jour sont cochées
       const today = getTodayFormation()
       const allPeriodsChecked = session.periods.every(p => {
@@ -699,7 +749,8 @@ export default function TraineePortal() {
     } catch (err) {
       console.error('Erreur émargement:', err)
       // Rollback
-      setAttendanceData({ ...attendanceData, [key]: currentValue })
+      const originalValue = !newValue
+      setAttendanceData({ ...attendanceData, [key]: originalValue })
       alert('Erreur lors de l\'enregistrement')
     }
   }
@@ -1606,7 +1657,7 @@ export default function TraineePortal() {
         </div>
 
         <p className="text-center text-xs text-gray-400 mt-4">
-          Access Formation • v2.7.0
+          Access Formation • v2.7.2
         </p>
       </div>
     </div>
