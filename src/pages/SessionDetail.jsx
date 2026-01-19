@@ -1815,13 +1815,20 @@ ${organization?.phone || ''}`)
   if (loading) return <div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div></div>
   if (!session) return <div className="text-center py-12"><p className="text-gray-500">Session non trouvée</p><Link to="/sessions" className="text-primary-600 hover:underline mt-2 inline-block">Retour</Link></div>
   
-  const sessionTrainees = session.session_trainees?.map(st => ({ 
-    ...st.trainees, 
-    status: st.status, 
-    result: st.result || traineeResults[st.trainee_id] || null,
-    presence_complete: st.presence_complete,
-    early_departure: st.early_departure
-  })) || []
+  // Construire la liste des stagiaires avec leurs données de présence
+  const sessionTrainees = session.session_trainees?.map(st => {
+    // Extraire les données du stagiaire sans les champs de présence (qui seraient undefined)
+    const traineeData = st.trainees || {}
+    
+    return {
+      ...traineeData,
+      status: st.status,
+      result: st.result || traineeResults[st.trainee_id] || null,
+      // Forcer les valeurs de session_trainees (pas celles de trainees)
+      presence_complete: st.presence_complete,
+      early_departure: st.early_departure
+    }
+  }) || []
   const enrolledTraineeIds = sessionTrainees.map(t => t.id)
   let availableTrainees = trainees.filter(t => !enrolledTraineeIds.includes(t.id))
   if (traineeFilterClient) availableTrainees = availableTrainees.filter(t => t.client_id === traineeFilterClient)
@@ -2438,18 +2445,6 @@ ${organization?.phone || ''}`)
                 {sessionTrainees.map(t => {
                   const eval_ = evaluationsData[t.id] || {}
                   const isEnabled = eval_.questionnaire_submitted
-                  
-                  // DEBUG
-                  if (t.last_name === 'PAUL') {
-                    console.log('Emmanuel PAUL data:', {
-                      presence_complete: t.presence_complete,
-                      early_departure: t.early_departure,
-                      type_pc: typeof t.presence_complete,
-                      type_ed: typeof t.early_departure,
-                      full_object: t
-                    })
-                  }
-                  
                   const isAbsent = t.presence_complete === false && t.early_departure === false // Absent total (pas null)
                   return (
                     <div key={t.id} className={`border rounded-lg p-4 ${isAbsent ? 'bg-gray-50 opacity-60' : ''}`}>
