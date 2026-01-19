@@ -103,9 +103,9 @@ export default function CourseDocumentsList() {
       }
     }
 
-    const maxSize = 50 * 1024 * 1024 // 50 MB
+    const maxSize = 200 * 1024 * 1024 // 200 MB (était 50 MB)
     if (file.size > maxSize) {
-      toast.error('Fichier trop volumineux (max 50 Mo)')
+      toast.error('Fichier trop volumineux (max 200 Mo)')
       return
     }
 
