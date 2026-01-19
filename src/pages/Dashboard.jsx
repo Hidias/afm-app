@@ -9,10 +9,6 @@ import {
 } from 'lucide-react'
 import { format, isAfter, isBefore, startOfToday, addDays, differenceInDays } from 'date-fns'
 import { fr } from 'date-fns/locale'
-import toast from 'react-hot-toast'
-import QRCode from 'qrcode'
-import { supabase } from '../lib/supabase'
-import SessionDocumentAccess from '../components/SessionDocumentAccess'
 
 export default function Dashboard() {
   const { 
