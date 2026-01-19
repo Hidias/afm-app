@@ -1817,14 +1817,37 @@ ${organization?.phone || ''}`)
   
   // Construire la liste des stagiaires avec leurs données de présence
   const sessionTrainees = session.session_trainees?.map(st => {
-    // IMPORTANT: Exclure presence_complete et early_departure du spread car ils viennent de trainees (undefined)
-    const { presence_complete: _, early_departure: __, ...traineeData } = st.trainees || {}
+    const trainee = st.trainees || {}
     
+    // Copier EXPLICITEMENT les propriétés sans spread (pour éviter les écrasements)
     return {
-      ...traineeData,
+      id: trainee.id,
+      first_name: trainee.first_name,
+      last_name: trainee.last_name,
+      email: trainee.email,
+      phone: trainee.phone,
+      address: trainee.address,
+      city: trainee.city,
+      postal_code: trainee.postal_code,
+      birth_date: trainee.birth_date,
+      birth_place: trainee.birth_place,
+      social_security_number: trainee.social_security_number,
+      gender: trainee.gender,
+      csp: trainee.csp,
+      job_title: trainee.job_title,
+      client_id: trainee.client_id,
+      has_disability: trainee.has_disability,
+      disability_details: trainee.disability_details,
+      disability_adaptations: trainee.disability_adaptations,
+      notes: trainee.notes,
+      created_at: trainee.created_at,
+      updated_at: trainee.updated_at,
+      last_session_date: trainee.last_session_date,
+      refused_ssn: trainee.refused_ssn,
+      ssn_encrypted: trainee.ssn_encrypted,
+      // Données de la session (ne JAMAIS prendre de trainee car undefined)
       status: st.status,
       result: st.result || traineeResults[st.trainee_id] || null,
-      // Ces valeurs viennent de session_trainees (les VRAIES valeurs)
       presence_complete: st.presence_complete,
       early_departure: st.early_departure
     }
