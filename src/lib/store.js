@@ -428,7 +428,7 @@ export const useDataStore = create((set, get) => ({
         supabase.from('clients').select('*'),
         supabase.from('trainers').select('*'),
         supabase.from('trainees').select('*'),
-        supabase.from('session_trainees').select('id, session_id, trainee_id, registration_date, result, admin_observation, expectations_notification_sent, presence_complete, early_departure, status'),
+        supabase.from('session_trainees').select('id, session_id, trainee_id, registration_date, result, admin_observation, expectations_notification_sent, presence_complete, early_departure'),
         supabase.from('client_contacts').select('*')
       ])
       
@@ -563,10 +563,10 @@ export const useDataStore = create((set, get) => ({
         const { data: trainer } = await supabase.from('trainers').select('*').eq('id', data.trainer_id).single()
         data.trainers = trainer
       }
-      // Charger les stagiaires avec presence_complete, early_departure et status
+      // Charger les stagiaires avec presence_complete et early_departure
       const { data: sessionTrainees, error: stError } = await supabase
         .from('session_trainees')
-        .select('id, trainee_id, registration_date, result, remediation_proposal, result_forced_reason, result_forced_at, presence_complete, early_departure, status')
+        .select('id, trainee_id, registration_date, result, remediation_proposal, result_forced_reason, result_forced_at, presence_complete, early_departure')
         .eq('session_id', id)
       
       if (stError) console.error('Error loading session_trainees:', stError)
