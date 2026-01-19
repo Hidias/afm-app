@@ -1818,7 +1818,9 @@ ${organization?.phone || ''}`)
   const sessionTrainees = session.session_trainees?.map(st => ({ 
     ...st.trainees, 
     status: st.status, 
-    result: st.result || traineeResults[st.trainee_id] || null 
+    result: st.result || traineeResults[st.trainee_id] || null,
+    presence_complete: st.presence_complete,
+    early_departure: st.early_departure
   })) || []
   const enrolledTraineeIds = sessionTrainees.map(t => t.id)
   let availableTrainees = trainees.filter(t => !enrolledTraineeIds.includes(t.id))
@@ -2436,12 +2438,22 @@ ${organization?.phone || ''}`)
                 {sessionTrainees.map(t => {
                   const eval_ = evaluationsData[t.id] || {}
                   const isEnabled = eval_.questionnaire_submitted
+                  const isAbsent = !t.presence_complete && !t.early_departure // Absent total
                   return (
-                    <div key={t.id} className="border rounded-lg p-4">
+                    <div key={t.id} className={`border rounded-lg p-4 ${isAbsent ? 'bg-gray-50 opacity-60' : ''}`}>
                       <div className="flex items-center justify-between mb-3">
-                        <span className="font-medium">{t.first_name} {t.last_name}</span>
+                        <span className="font-medium">
+                          {t.first_name} {t.last_name}
+                          {isAbsent && <span className="ml-2 text-xs text-red-600 font-normal">(Absent)</span>}
+                        </span>
                         <label className="flex items-center gap-2 text-sm">
-                          <input type="checkbox" checked={eval_.questionnaire_submitted || false} onChange={(e) => handleEvalChange(t.id, 'questionnaire_submitted', e.target.checked)} className="w-4 h-4 text-orange-600 rounded" />
+                          <input 
+                            type="checkbox" 
+                            checked={eval_.questionnaire_submitted || false} 
+                            onChange={(e) => handleEvalChange(t.id, 'questionnaire_submitted', e.target.checked)} 
+                            disabled={isAbsent}
+                            className="w-4 h-4 text-orange-600 rounded disabled:opacity-50 disabled:cursor-not-allowed" 
+                          />
                           Questionnaire reçu
                         </label>
                       </div>
@@ -2632,14 +2644,30 @@ ${organization?.phone || ''}`)
                     {sessionTrainees.map(t => {
                       const coldEval = coldEvaluationsData[t.id] || {}
                       const isEnabled = !!coldEval.completed_at
+                      const isAbsent = !t.presence_complete && !t.early_departure // Absent total
                       return (
-                        <tr key={t.id} className="border-b">
-                          <td className="py-3 font-medium">{t.first_name} {t.last_name}</td>
-                          <td className="text-center py-3">
-                            <input type="checkbox" checked={!!coldEval.sent_at} onChange={(e) => handleColdEvalChange(t.id, 'sent_at', e.target.checked ? new Date().toISOString() : null)} className="w-5 h-5 text-purple-600 rounded" />
+                        <tr key={t.id} className={`border-b ${isAbsent ? 'bg-gray-50 opacity-60' : ''}`}>
+                          <td className="py-3 font-medium">
+                            {t.first_name} {t.last_name}
+                            {isAbsent && <span className="ml-2 text-xs text-red-600 font-normal">(Absent)</span>}
                           </td>
                           <td className="text-center py-3">
-                            <input type="checkbox" checked={!!coldEval.completed_at} onChange={(e) => handleColdEvalChange(t.id, 'completed_at', e.target.checked ? new Date().toISOString() : null)} className="w-5 h-5 text-purple-600 rounded" disabled={!coldEval.sent_at} />
+                            <input 
+                              type="checkbox" 
+                              checked={!!coldEval.sent_at} 
+                              onChange={(e) => handleColdEvalChange(t.id, 'sent_at', e.target.checked ? new Date().toISOString() : null)} 
+                              disabled={isAbsent}
+                              className="w-5 h-5 text-purple-600 rounded disabled:opacity-50 disabled:cursor-not-allowed" 
+                            />
+                          </td>
+                          <td className="text-center py-3">
+                            <input 
+                              type="checkbox" 
+                              checked={!!coldEval.completed_at} 
+                              onChange={(e) => handleColdEvalChange(t.id, 'completed_at', e.target.checked ? new Date().toISOString() : null)} 
+                              disabled={!coldEval.sent_at || isAbsent}
+                              className="w-5 h-5 text-purple-600 rounded disabled:opacity-50 disabled:cursor-not-allowed" 
+                            />
                           </td>
                           <td className="text-center py-3">
                             <div className="flex items-center justify-center gap-1">
