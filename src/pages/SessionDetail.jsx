@@ -1829,6 +1829,10 @@ ${organization?.phone || ''}`)
       early_departure: st.early_departure
     }
   }) || []
+  
+  // Stagiaires avec 100% de présence validée (pour évaluations uniquement)
+  const sessionTraineesForEvals = sessionTrainees.filter(t => t.presence_complete === true)
+  
   const enrolledTraineeIds = sessionTrainees.map(t => t.id)
   let availableTrainees = trainees.filter(t => !enrolledTraineeIds.includes(t.id))
   if (traineeFilterClient) availableTrainees = availableTrainees.filter(t => t.client_id === traineeFilterClient)
@@ -2440,26 +2444,21 @@ ${organization?.phone || ''}`)
             <p className="text-sm text-gray-500 mb-4">
               Formation : <strong>{session.courses?.title || 'Non définie'}</strong> - Formateur : <strong>{trainer ? `${trainer.first_name} ${trainer.last_name}` : 'Non assigné'}</strong>
             </p>
-            {sessionTrainees.length === 0 ? <p className="text-gray-500">Aucun stagiaire</p> : (
+            {sessionTraineesForEvals.length === 0 ? <p className="text-gray-500">Aucun stagiaire avec présence validée</p> : (
               <div className="space-y-4">
-                {sessionTrainees.map(t => {
+                {sessionTraineesForEvals.map(t => {
                   const eval_ = evaluationsData[t.id] || {}
                   const isEnabled = eval_.questionnaire_submitted
-                  const isAbsent = t.presence_complete === false && t.early_departure === false // Absent total (pas null)
                   return (
-                    <div key={t.id} className={`border rounded-lg p-4 ${isAbsent ? 'bg-gray-50 opacity-60' : ''}`}>
+                    <div key={t.id} className="border rounded-lg p-4">
                       <div className="flex items-center justify-between mb-3">
-                        <span className="font-medium">
-                          {t.first_name} {t.last_name}
-                          {isAbsent && <span className="ml-2 text-xs text-red-600 font-normal">(Absent)</span>}
-                        </span>
+                        <span className="font-medium">{t.first_name} {t.last_name}</span>
                         <label className="flex items-center gap-2 text-sm">
                           <input 
                             type="checkbox" 
                             checked={eval_.questionnaire_submitted || false} 
                             onChange={(e) => handleEvalChange(t.id, 'questionnaire_submitted', e.target.checked)} 
-                            disabled={isAbsent}
-                            className="w-4 h-4 text-orange-600 rounded disabled:opacity-50 disabled:cursor-not-allowed" 
+                            className="w-4 h-4 text-orange-600 rounded" 
                           />
                           Questionnaire reçu
                         </label>
@@ -2632,7 +2631,7 @@ ${organization?.phone || ''}`)
             <p className="text-sm text-gray-500 mb-4">
               Formation : <strong>{session.courses?.title || 'Non définie'}</strong> - Formateur : <strong>{trainer ? `${trainer.first_name} ${trainer.last_name}` : 'Non assigné'}</strong>
             </p>
-            {sessionTrainees.length === 0 ? <p className="text-gray-500">Aucun stagiaire</p> : (
+            {sessionTraineesForEvals.length === 0 ? <p className="text-gray-500">Aucun stagiaire avec présence validée</p> : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
@@ -2648,23 +2647,18 @@ ${organization?.phone || ''}`)
                     </tr>
                   </thead>
                   <tbody>
-                    {sessionTrainees.map(t => {
+                    {sessionTraineesForEvals.map(t => {
                       const coldEval = coldEvaluationsData[t.id] || {}
                       const isEnabled = !!coldEval.completed_at
-                      const isAbsent = t.presence_complete === false && t.early_departure === false // Absent total (pas null)
                       return (
-                        <tr key={t.id} className={`border-b ${isAbsent ? 'bg-gray-50 opacity-60' : ''}`}>
-                          <td className="py-3 font-medium">
-                            {t.first_name} {t.last_name}
-                            {isAbsent && <span className="ml-2 text-xs text-red-600 font-normal">(Absent)</span>}
-                          </td>
+                        <tr key={t.id} className="border-b">
+                          <td className="py-3 font-medium">{t.first_name} {t.last_name}</td>
                           <td className="text-center py-3">
                             <input 
                               type="checkbox" 
                               checked={!!coldEval.sent_at} 
                               onChange={(e) => handleColdEvalChange(t.id, 'sent_at', e.target.checked ? new Date().toISOString() : null)} 
-                              disabled={isAbsent}
-                              className="w-5 h-5 text-purple-600 rounded disabled:opacity-50 disabled:cursor-not-allowed" 
+                              className="w-5 h-5 text-purple-600 rounded" 
                             />
                           </td>
                           <td className="text-center py-3">
@@ -2672,7 +2666,7 @@ ${organization?.phone || ''}`)
                               type="checkbox" 
                               checked={!!coldEval.completed_at} 
                               onChange={(e) => handleColdEvalChange(t.id, 'completed_at', e.target.checked ? new Date().toISOString() : null)} 
-                              disabled={!coldEval.sent_at || isAbsent}
+                              disabled={!coldEval.sent_at}
                               className="w-5 h-5 text-purple-600 rounded disabled:opacity-50 disabled:cursor-not-allowed" 
                             />
                           </td>
