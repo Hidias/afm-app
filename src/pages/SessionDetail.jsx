@@ -1620,7 +1620,12 @@ export default function SessionDetail() {
     // Ajouter l'infoSheet pour la fiche de renseignements
     const options = { trainees: traineesWithResult, trainee: enrichedTrainee, trainer, questions, costs }
     if (docType === 'ficheRenseignements' && trainee) {
+      console.log('=== handleDownload DEBUG ficheRenseignements ===')
+      console.log('trainee.id:', trainee.id)
+      console.log('infoSheets:', infoSheets)
+      console.log('infoSheets[trainee.id]:', infoSheets[trainee.id])
       options.infoSheet = infoSheets[trainee.id] || null
+      console.log('options.infoSheet final:', options.infoSheet)
     }
     
     downloadDocument(docType, session, options)
