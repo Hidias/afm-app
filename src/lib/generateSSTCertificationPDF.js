@@ -49,43 +49,47 @@ export async function generateSSTCertificationPDF(certification, trainee, sessio
     
     // === COMPÉTENCES (cases à cocher) ===
     
+    // ⚠️ IMPORTANT : Les PDF INRS officiels n'ont PAS de cases "Non acquise"
+    // On coche uniquement "Acquise" si true, sinon on ne coche rien
+    
     // Mapping des compétences
     const competences = isFI 
       ? [
-          { db: 'c1_acquis', acquis: 'Acquise', nonAcquis: 'Non acquise' },
-          { db: 'c2_acquis', acquis: 'Acquise_2', nonAcquis: 'Non acquise_2' },
-          { db: 'c3_acquis', acquis: 'Acquise_3', nonAcquis: 'Non acquise_3' },
-          { db: 'c4_acquis', acquis: 'Acquise_4', nonAcquis: 'Non acquise_4' },
-          { db: 'c5_acquis', acquis: 'Acquise_5', nonAcquis: 'Non acquise_5' },
-          { db: 'c6_acquis', acquis: 'Acquise_6', nonAcquis: 'Non acquise_6' },
-          { db: 'c7_acquis', acquis: 'Acquise_7', nonAcquis: 'Non acquise_7' },
-          { db: 'c8_acquis', acquis: 'Acquise_8', nonAcquis: 'Non acquise_8' },
+          // FI : C1 à C8 (8 compétences)
+          { db: 'c1_acquis', acquis: 'Acquise' },
+          { db: 'c2_acquis', acquis: 'Acquise_2' },
+          { db: 'c3_acquis', acquis: 'Acquise_3' },
+          { db: 'c4_acquis', acquis: 'Acquise_4' },
+          { db: 'c5_acquis', acquis: 'Acquise_5' },
+          { db: 'c6_acquis', acquis: 'Acquise_6' },
+          { db: 'c7_acquis', acquis: 'Acquise_7' },
+          { db: 'c8_acquis', acquis: 'Acquise_8' },
         ]
       : [
-          // MAC : C2 à C8 (pas de C1)
-          { db: 'c2_acquis', acquis: 'Acquise', nonAcquis: 'Non acquise' },
-          { db: 'c3_acquis', acquis: 'Acquise_2', nonAcquis: 'Non acquise_2' },
-          { db: 'c4_acquis', acquis: 'Acquise_3', nonAcquis: 'Non acquise_3' },
-          { db: 'c5_acquis', acquis: 'Acquise_4', nonAcquis: 'Non acquise_4' },
-          { db: 'c6_acquis', acquis: 'Acquise_5', nonAcquis: 'Non acquise_5' },
-          { db: 'c7_acquis', acquis: 'Acquise_6', nonAcquis: 'Non acquise_6' },
-          { db: 'c8_acquis', acquis: 'Acquise_7', nonAcquis: 'Non acquise_7' },
+          // MAC : C2 à C8 (7 compétences, pas de C1)
+          { db: 'c2_acquis', acquis: 'Acquise' },
+          { db: 'c3_acquis', acquis: 'Acquise_2' },
+          { db: 'c4_acquis', acquis: 'Acquise_3' },
+          { db: 'c5_acquis', acquis: 'Acquise_4' },
+          { db: 'c6_acquis', acquis: 'Acquise_5' },
+          { db: 'c7_acquis', acquis: 'Acquise_6' },
+          { db: 'c8_acquis', acquis: 'Acquise_7' },
         ]
     
     // Cocher les cases de compétences
     competences.forEach(comp => {
       const value = certification[comp.db]
       
+      // On coche UNIQUEMENT si la compétence est acquise (true)
+      // Si false ou null, on ne coche rien (pas de case "Non acquise" dans les PDF INRS)
       if (value === true) {
-        // Compétence acquise
-        const acquisField = form.getCheckBox(comp.acquis)
-        acquisField.check()
-      } else if (value === false) {
-        // Compétence non acquise
-        const nonAcquisField = form.getCheckBox(comp.nonAcquis)
-        nonAcquisField.check()
+        try {
+          const acquisField = form.getCheckBox(comp.acquis)
+          acquisField.check()
+        } catch (error) {
+          console.warn(`Case à cocher "${comp.acquis}" introuvable dans le PDF`, error)
+        }
       }
-      // Si null/undefined, on ne coche rien
     })
     
     // === PAGE 2 : Formateur et résultat ===
