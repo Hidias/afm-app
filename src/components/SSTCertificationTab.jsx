@@ -5,6 +5,7 @@ import toast from 'react-hot-toast'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import SSTCertificationModal from './SSTCertificationModal'
+import { generateSSTCertificationPDF } from '../lib/generateSSTCertificationPDF'
 
 export default function SSTCertificationTab({ session, sessionTrainees, trainer }) {
   const [certifications, setCertifications] = useState([])
@@ -57,8 +58,13 @@ export default function SSTCertificationTab({ session, sessionTrainees, trainer 
       return
     }
 
-    // TODO: Appeler la génération PDF
-    toast.info('Génération PDF en cours...')
+    try {
+      await generateSSTCertificationPDF(cert, trainee, session, trainer)
+      toast.success('PDF généré avec succès')
+    } catch (error) {
+      console.error('Erreur génération PDF:', error)
+      toast.error('Erreur lors de la génération du PDF')
+    }
   }
 
   const handleGenerateAllPDFs = async () => {
@@ -73,7 +79,17 @@ export default function SSTCertificationTab({ session, sessionTrainees, trainer 
     }
 
     toast.info(`Génération de ${certifiedTrainees.length} certificat(s)...`)
-    // TODO: Génération en masse
+    
+    for (const trainee of certifiedTrainees) {
+      const cert = getCertification(trainee.id)
+      try {
+        await generateSSTCertificationPDF(cert, trainee, session, trainer)
+      } catch (error) {
+        console.error(`Erreur pour ${trainee.first_name} ${trainee.last_name}:`, error)
+      }
+    }
+    
+    toast.success(`${certifiedTrainees.length} PDF(s) générés`)
   }
 
   const stats = {
