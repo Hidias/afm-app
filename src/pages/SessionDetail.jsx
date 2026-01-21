@@ -2108,7 +2108,7 @@ ${organization?.phone || ''}`)
                   )}
                 </div>
                 <a 
-                  href="https://www.inrs.fr/services/formation/forprev.html" 
+                  href="https://www.forprev.fr/connexion" 
                   target="_blank" 
                   rel="noopener noreferrer"
                   className="text-sm text-green-600 hover:underline flex items-center gap-1"
