@@ -1447,8 +1447,6 @@ export default function SessionDetail() {
       toast.success('Session modifiée')
       setShowEdit(false)
       
-      // Recharger les sessions
-      await fetchSessions()
       // Recharger cette session spécifiquement
       const result = await getSession(id)
       if (result.data) setSession(result.data)
