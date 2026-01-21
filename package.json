@@ -23,7 +23,8 @@
     "lucide-react": "^0.294.0",
     "clsx": "^2.0.0",
     "zustand": "^4.4.7",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "pdf-lib": "^1.17.1"
   },
   "devDependencies": {
     "@types/react": "^18.2.37",
