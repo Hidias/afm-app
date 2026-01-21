@@ -1586,9 +1586,17 @@ export default function SessionDetail() {
       const stData = session.session_trainees?.find(st => st.trainee_id === trainee.id)
       enrichedTrainee = { ...trainee, result: stData?.result || traineeResults[trainee.id] || null }
     }
+    
     // Ajouter les coûts pour la convention
     const costs = docType === 'convention' ? sessionCosts : []
-    downloadDocument(docType, session, { trainees: traineesWithResult, trainee: enrichedTrainee, trainer, questions, costs })
+    
+    // Ajouter l'infoSheet pour la fiche de renseignements
+    const options = { trainees: traineesWithResult, trainee: enrichedTrainee, trainer, questions, costs }
+    if (docType === 'ficheRenseignements' && trainee) {
+      options.infoSheet = infoSheets[trainee.id] || null
+    }
+    
+    downloadDocument(docType, session, options)
     toast.success('Document généré')
   }
   
