@@ -133,6 +133,50 @@ export async function generateSSTCertificationPDF(certification, trainee, sessio
       format(new Date(certification.date_certification), 'dd/MM/yyyy')
     )
     
+    // === SIGNATURE DU FORMATEUR ===
+    if (certification.formateur_signature_url) {
+      try {
+        console.log('📝 Ajout de la signature du formateur')
+        
+        // Charger l'image de signature
+        const signatureResponse = await fetch(certification.formateur_signature_url)
+        const signatureBytes = await signatureResponse.arrayBuffer()
+        
+        // Déterminer le type d'image
+        const isPng = certification.formateur_signature_url.toLowerCase().includes('.png')
+        const signatureImage = isPng 
+          ? await pdfDoc.embedPng(signatureBytes)
+          : await pdfDoc.embedJpg(signatureBytes)
+        
+        // Récupérer la page 2 (index 1)
+        const pages = pdfDoc.getPages()
+        const page2 = pages[1]
+        
+        // Dimensions de la signature (ajuster selon besoin)
+        const signatureWidth = 100
+        const signatureHeight = 40
+        
+        // Position de la signature (à ajuster selon le PDF)
+        // Ces coordonnées placent la signature sous "Signature :" 
+        // en bas à gauche de la page
+        const x = 60  // Position horizontale (marge gauche)
+        const y = 80  // Position verticale depuis le bas
+        
+        // Dessiner la signature sur la page
+        page2.drawImage(signatureImage, {
+          x: x,
+          y: y,
+          width: signatureWidth,
+          height: signatureHeight,
+        })
+        
+        console.log('✅ Signature ajoutée au PDF')
+      } catch (error) {
+        console.warn('⚠️ Erreur lors de l\'ajout de la signature:', error)
+        // On continue même si la signature échoue
+      }
+    }
+    
     // === RÉSULTAT FINAL ===
     
     if (certification.candidat_certifie) {
