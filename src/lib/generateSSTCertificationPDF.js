@@ -1,23 +1,22 @@
 import { PDFDocument } from 'pdf-lib'
 import { format } from 'date-fns'
-import { fr } from 'date-fns/locale'
+import { getCompetencesConfig } from './sstCompetencesConfig'
 
 /**
  * Génère le PDF de certification SST en remplissant les vrais PDF INRS
- * Utilise les templates officiels avec champs de formulaire
+ * avec toutes les cases d'indicateurs cochées selon l'évaluation du formateur
  */
 export async function generateSSTCertificationPDF(certification, trainee, session, trainer) {
   const isFI = certification.formation_type === 'FI'
   
   // Charger le template PDF approprié
   const templatePath = isFI 
-    ? '/templates/sst/FI.pdf'  // Formation Initiale
-    : '/templates/sst/MAC.pdf' // MAC
+    ? '/templates/sst/FI.pdf'
+    : '/templates/sst/MAC.pdf'
   
   try {
     console.log('📥 Chargement du template:', templatePath)
     
-    // Charger le PDF template
     const response = await fetch(templatePath)
     
     if (!response.ok) {
@@ -27,11 +26,11 @@ export async function generateSSTCertificationPDF(certification, trainee, sessio
     const existingPdfBytes = await response.arrayBuffer()
     console.log('📦 PDF chargé:', existingPdfBytes.byteLength, 'bytes')
     
-    // Charger le PDF template avec options pour gérer les PDF protégés
+    // Charger le PDF template
     const pdfDoc = await PDFDocument.load(existingPdfBytes, {
       ignoreEncryption: true,
       updateMetadata: false,
-      throwOnInvalidObject: false // Ignorer les objets invalides
+      throwOnInvalidObject: false
     })
     
     console.log('✅ PDF document chargé avec succès')
@@ -39,109 +38,116 @@ export async function generateSSTCertificationPDF(certification, trainee, sessio
     // Récupérer le formulaire
     const form = pdfDoc.getForm()
     
-    // Vérifier que le formulaire a des champs
     const fields = form.getFields()
     console.log(`📋 Formulaire trouvé avec ${fields.length} champs`)
     
     if (fields.length === 0) {
-      throw new Error('Le PDF ne contient aucun champ de formulaire. Vérifiez que le PDF uploadé sur GitHub a bien des champs interactifs.')
+      throw new Error('Le PDF ne contient aucun champ de formulaire')
     }
     
-    // === PAGE 1 : Informations candidat et session ===
+    // === INFORMATIONS CANDIDAT ET SESSION ===
     
-    // Candidat
-    const nomField = form.getTextField('Nom')
-    nomField.setText(trainee.last_name || '')
+    form.getTextField('Nom').setText(trainee.last_name || '')
+    form.getTextField('Prénom').setText(trainee.first_name || '')
     
-    const prenomField = form.getTextField('Prénom')
-    prenomField.setText(trainee.first_name || '')
-    
-    const dateNaissanceField = form.getTextField('Date de naissance')
     if (trainee.birth_date) {
-      dateNaissanceField.setText(format(new Date(trainee.birth_date), 'dd/MM/yyyy'))
+      form.getTextField('Date de naissance').setText(
+        format(new Date(trainee.birth_date), 'dd/MM/yyyy')
+      )
     }
     
-    // Session
-    const dateDebutField = form.getTextField('Date début')
-    dateDebutField.setText(format(new Date(session.start_date), 'dd/MM/yyyy'))
+    form.getTextField('Date début').setText(
+      format(new Date(session.start_date), 'dd/MM/yyyy')
+    )
+    form.getTextField('Date fin').setText(
+      format(new Date(session.end_date), 'dd/MM/yyyy')
+    )
     
-    const dateFinField = form.getTextField('Date fin')
-    dateFinField.setText(format(new Date(session.end_date), 'dd/MM/yyyy'))
+    // === INDICATEURS DÉTAILLÉS ===
     
-    // === COMPÉTENCES (cases à cocher) ===
+    const config = getCompetencesConfig(certification.formation_type)
     
-    // ⚠️ IMPORTANT : Les PDF INRS officiels n'ont PAS de cases "Non acquise"
-    // On coche uniquement "Acquise" si true, sinon on ne coche rien
+    // Cocher les cases d'indicateurs selon l'évaluation
+    Object.values(config).forEach(comp => {
+      comp.indicateurs.forEach(ind => {
+        const value = certification[ind.id] // true, false ou null
+        
+        try {
+          if (value === true) {
+            // Cocher "Acquis"
+            form.getCheckBox(ind.pdfAcquis).check()
+          } else if (value === false) {
+            // Cocher "Non acquis"
+            form.getCheckBox(ind.pdfNonAcquis).check()
+          }
+          // Si null, ne rien cocher (non évalué)
+        } catch (error) {
+          console.warn(`Case "${ind.pdfAcquis}" ou "${ind.pdfNonAcquis}" introuvable`, error)
+        }
+      })
+    })
     
-    // Mapping des compétences
-    const competences = isFI 
+    // === RÉSUMÉ DES COMPÉTENCES (page 2) ===
+    
+    // Cocher les cases "Acquise" / "Non acquise" pour chaque compétence
+    const competencesMapping = isFI 
       ? [
-          // FI : C1 à C8 (8 compétences)
-          { db: 'c1_acquis', acquis: 'Acquise' },
-          { db: 'c2_acquis', acquis: 'Acquise_2' },
-          { db: 'c3_acquis', acquis: 'Acquise_3' },
-          { db: 'c4_acquis', acquis: 'Acquise_4' },
-          { db: 'c5_acquis', acquis: 'Acquise_5' },
-          { db: 'c6_acquis', acquis: 'Acquise_6' },
-          { db: 'c7_acquis', acquis: 'Acquise_7' },
-          { db: 'c8_acquis', acquis: 'Acquise_8' },
+          { db: 'c1_acquis', acquis: 'Acquise', nonAcquis: 'Non acquise' },
+          { db: 'c2_acquis', acquis: 'Acquise_2', nonAcquis: 'Non acquise_2' },
+          { db: 'c3_acquis', acquis: 'Acquise_3', nonAcquis: 'Non acquise_3' },
+          { db: 'c4_acquis', acquis: 'Acquise_4', nonAcquis: 'Non acquise_4' },
+          { db: 'c5_acquis', acquis: 'Acquise_5', nonAcquis: 'Non acquise_5' },
+          { db: 'c6_acquis', acquis: 'Acquise_6', nonAcquis: 'Non acquise_6' },
+          { db: 'c7_acquis', acquis: 'Acquise_7', nonAcquis: 'Non acquise_7' },
+          { db: 'c8_acquis', acquis: 'Acquise_8', nonAcquis: 'Non acquise_8' },
         ]
       : [
-          // MAC : C2 à C8 (7 compétences, pas de C1)
-          { db: 'c2_acquis', acquis: 'Acquise' },
-          { db: 'c3_acquis', acquis: 'Acquise_2' },
-          { db: 'c4_acquis', acquis: 'Acquise_3' },
-          { db: 'c5_acquis', acquis: 'Acquise_4' },
-          { db: 'c6_acquis', acquis: 'Acquise_5' },
-          { db: 'c7_acquis', acquis: 'Acquise_6' },
-          { db: 'c8_acquis', acquis: 'Acquise_7' },
+          { db: 'c2_acquis', acquis: 'Acquise', nonAcquis: 'Non acquise' },
+          { db: 'c3_acquis', acquis: 'Acquise_2', nonAcquis: 'Non acquise_2' },
+          { db: 'c4_acquis', acquis: 'Acquise_3', nonAcquis: 'Non acquise_3' },
+          { db: 'c5_acquis', acquis: 'Acquise_4', nonAcquis: 'Non acquise_4' },
+          { db: 'c6_acquis', acquis: 'Acquise_5', nonAcquis: 'Non acquise_5' },
+          { db: 'c7_acquis', acquis: 'Acquise_6', nonAcquis: 'Non acquise_6' },
+          { db: 'c8_acquis', acquis: 'Acquise_7', nonAcquis: 'Non acquise_7' },
         ]
     
-    // Cocher les cases de compétences
-    competences.forEach(comp => {
+    competencesMapping.forEach(comp => {
       const value = certification[comp.db]
       
-      // On coche UNIQUEMENT si la compétence est acquise (true)
-      // Si false ou null, on ne coche rien (pas de case "Non acquise" dans les PDF INRS)
-      if (value === true) {
-        try {
-          const acquisField = form.getCheckBox(comp.acquis)
-          acquisField.check()
-        } catch (error) {
-          console.warn(`Case à cocher "${comp.acquis}" introuvable dans le PDF`, error)
+      try {
+        if (value === true) {
+          form.getCheckBox(comp.acquis).check()
+        } else if (value === false) {
+          form.getCheckBox(comp.nonAcquis).check()
         }
+      } catch (error) {
+        console.warn(`Case compétence "${comp.acquis}" introuvable`, error)
       }
     })
     
-    // === PAGE 2 : Formateur et résultat ===
+    // === FORMATEUR ===
     
-    // Formateur
-    const nomFormateurField = form.getTextField('Nom Formateur')
-    nomFormateurField.setText(trainer?.last_name || '')
+    form.getTextField('Nom Formateur').setText(trainer?.last_name || '')
+    form.getTextField('Prénom Formateur').setText(trainer?.first_name || '')
+    form.getTextField('Date Certification').setText(
+      format(new Date(certification.date_certification), 'dd/MM/yyyy')
+    )
     
-    const prenomFormateurField = form.getTextField('Prénom Formateur')
-    prenomFormateurField.setText(trainer?.first_name || '')
+    // === RÉSULTAT FINAL ===
     
-    // Date de certification
-    const dateCertifField = form.getTextField('Date Certification')
-    dateCertifField.setText(format(new Date(certification.date_certification), 'dd/MM/yyyy'))
-    
-    // Résultat final (OUI/NON)
     if (certification.candidat_certifie) {
-      const ouiField = form.getCheckBox('OUI')
-      ouiField.check()
+      form.getCheckBox('OUI').check()
     } else {
-      const nonField = form.getCheckBox('NON')
-      nonField.check()
+      form.getCheckBox('NON').check()
     }
     
-    // Aplatir le formulaire (rendre les champs non modifiables)
+    // Aplatir le formulaire
     form.flatten()
     
-    // Sauvegarder le PDF modifié
+    // Sauvegarder le PDF
     const pdfBytes = await pdfDoc.save()
     
-    // Télécharger le PDF
+    // Télécharger
     const blob = new Blob([pdfBytes], { type: 'application/pdf' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
@@ -154,6 +160,6 @@ export async function generateSSTCertificationPDF(certification, trainee, sessio
     
   } catch (error) {
     console.error('Erreur lors de la génération du PDF:', error)
-    throw new Error(`Impossible de charger le template ${templatePath}. Vérifiez que le fichier existe dans public/templates/sst/`)
+    throw new Error(`Impossible de charger le template ${templatePath}`)
   }
 }
