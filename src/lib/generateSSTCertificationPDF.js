@@ -161,7 +161,7 @@ export async function generateSSTCertificationPDF(certification, trainee, sessio
         // Entre "Prénom : Hicham" et "Date de certification"
         // Coordonnées PDF : origine en bas à gauche
         const x = 130  // Position horizontale (colonne de gauche, après "Signature :")
-        const y = 200  // Position verticale depuis le bas (ligne "Signature :")
+        const y = 250  // Position verticale depuis le bas (ligne "Signature :")
         
         // Dessiner la signature sur la page
         page2.drawImage(signatureImage, {
