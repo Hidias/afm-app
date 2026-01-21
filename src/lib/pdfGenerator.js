@@ -1727,6 +1727,11 @@ function generateAnalyseBesoin(session = null, isBlank = false) {
 // FICHE DE RENSEIGNEMENTS STAGIAIRE
 // ============================================================
 function generateFicheRenseignements(session, trainee = null, isBlank = false, infoSheet = null) {
+  console.log('=== generateFicheRenseignements DEBUG ===')
+  console.log('trainee:', trainee)
+  console.log('infoSheet:', infoSheet)
+  console.log('isBlank:', isBlank)
+  
   const doc = new jsPDF()
   const pw = doc.internal.pageSize.getWidth()
   const ph = doc.internal.pageSize.getHeight()
