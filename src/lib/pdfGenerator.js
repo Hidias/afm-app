@@ -1726,7 +1726,7 @@ function generateAnalyseBesoin(session = null, isBlank = false) {
 // ============================================================
 // FICHE DE RENSEIGNEMENTS STAGIAIRE
 // ============================================================
-function generateFicheRenseignements(session, trainee = null, isBlank = false) {
+function generateFicheRenseignements(session, trainee = null, isBlank = false, infoSheet = null) {
   const doc = new jsPDF()
   const pw = doc.internal.pageSize.getWidth()
   const ph = doc.internal.pageSize.getHeight()
@@ -1784,9 +1784,11 @@ function generateFicheRenseignements(session, trainee = null, isBlank = false) {
   doc.line(fieldStart - 25, y, fieldStart + 30, y)
   doc.text('Prénom :', fieldStart + 40, y)
   doc.line(fieldStart + 60, y, pw - 17, y)
-  if (!isBlank && trainee) {
-    doc.text(trainee.last_name?.toUpperCase() || '', fieldStart - 23, y - 1)
-    doc.text(trainee.first_name || '', fieldStart + 62, y - 1)
+  if (!isBlank && (trainee || infoSheet)) {
+    const lastName = infoSheet?.last_name || trainee?.last_name || ''
+    const firstName = infoSheet?.first_name || trainee?.first_name || ''
+    doc.text(lastName.toUpperCase(), fieldStart - 23, y - 1)
+    doc.text(firstName, fieldStart + 62, y - 1)
   }
   y += firstLinesHeight // Espace agrandi
   
@@ -1795,29 +1797,44 @@ function generateFicheRenseignements(session, trainee = null, isBlank = false) {
   doc.line(fieldStart - 25, y, fieldStart + 30, y)
   doc.text('CSP* :', fieldStart + 40, y) // Astérisque ajouté
   doc.line(fieldStart + 60, y, pw - 17, y)
-  if (!isBlank && trainee) {
+  if (!isBlank && (trainee || infoSheet)) {
+    const gender = infoSheet?.gender || trainee?.gender || ''
+    const csp = infoSheet?.csp || trainee?.csp || ''
     const genderMap = { 'male': 'Homme', 'female': 'Femme', 'non_binary': 'Non-binaire' }
-    doc.text(genderMap[trainee?.gender] || '', fieldStart - 23, y - 1)
-    doc.text(trainee?.csp || '', fieldStart + 62, y - 1)
+    doc.text(genderMap[gender] || '', fieldStart - 23, y - 1)
+    doc.text(csp, fieldStart + 62, y - 1)
   }
   y += firstLinesHeight // Espace agrandi
   
   // Date de naissance / Téléphone sur même ligne (espace normal)
   doc.text('Date naissance :', 17, y)
   doc.text('__ / __ / ____', fieldStart - 15, y)
+  if (!isBlank && infoSheet?.birth_date) {
+    const birthDate = new Date(infoSheet.birth_date)
+    doc.text(format(birthDate, 'dd/MM/yyyy'), fieldStart - 15, y)
+  }
   doc.text('Téléphone :', fieldStart + 40, y)
   doc.line(fieldStart + 60, y, pw - 17, y)
+  if (!isBlank && (infoSheet?.phone || trainee?.phone)) {
+    doc.text(infoSheet?.phone || trainee?.phone || '', fieldStart + 62, y - 1)
+  }
   y += lineHeight
   
   // Email
   doc.text('Email :', 17, y)
   doc.line(fieldStart - 25, y, pw - 17, y)
+  if (!isBlank && (infoSheet?.email || trainee?.email)) {
+    doc.text(infoSheet?.email || trainee?.email || '', fieldStart - 23, y - 1)
+  }
   y += lineHeight
   
   // N° Sécurité sociale
   doc.text('N° Sécu. Sociale :', 17, y)
   doc.setFontSize(7)
   doc.text('|__|__|__|__|__|__|__|__|__|__|__|__|__|__|__|', fieldStart - 15, y)
+  if (!isBlank && infoSheet?.ssn) {
+    doc.text(infoSheet.ssn, fieldStart - 14, y)
+  }
   doc.setFontSize(8)
   y += lineHeight + 3
   
@@ -1834,20 +1851,36 @@ function generateFicheRenseignements(session, trainee = null, isBlank = false) {
   // Poste exercé / Depuis quand
   doc.text('Poste exercé :', 17, y)
   doc.line(fieldStart - 15, y, fieldStart + 50, y)
+  if (!isBlank && infoSheet?.job_title) {
+    doc.text(infoSheet.job_title, fieldStart - 13, y - 1)
+  }
   doc.text('Depuis :', fieldStart + 55, y)
   doc.line(fieldStart + 70, y, pw - 17, y)
+  if (!isBlank && infoSheet?.job_since) {
+    doc.text(infoSheet.job_since, fieldStart + 72, y - 1)
+  }
   y += lineHeight
   
   // Adresse entreprise
   doc.text('Adresse entreprise :', 17, y)
   doc.rect(fieldStart - 15, y - 3, pw - fieldStart, 12)
+  if (!isBlank && infoSheet?.company_address) {
+    const addressLines = doc.splitTextToSize(infoSheet.company_address, pw - fieldStart - 4)
+    doc.text(addressLines, fieldStart - 13, y + 1)
+  }
   y += 14
   
   // Dernière formation / Diplôme
   doc.text('Dernière formation (année) :', 17, y)
   doc.line(fieldStart + 15, y, fieldStart + 40, y)
+  if (!isBlank && infoSheet?.last_training_year) {
+    doc.text(infoSheet.last_training_year, fieldStart + 17, y - 1)
+  }
   doc.text('Plus haut diplôme :', fieldStart + 45, y)
   doc.line(fieldStart + 75, y, pw - 17, y)
+  if (!isBlank && infoSheet?.highest_diploma) {
+    doc.text(infoSheet.highest_diploma, fieldStart + 77, y - 1)
+  }
   y += lineHeight + 3
   
   // Niveau de connaissances
@@ -1857,7 +1890,11 @@ function generateFicheRenseignements(session, trainee = null, isBlank = false) {
   let xNiv = 25
   doc.setFontSize(7)
   niveaux.forEach((niv) => {
+    const isChecked = !isBlank && infoSheet?.knowledge_level === niv.toLowerCase()
     doc.rect(xNiv, y - 1, 3, 3)
+    if (isChecked) {
+      doc.text('X', xNiv + 0.5, y + 1.5)
+    }
     doc.text(niv, xNiv + 5, y + 1.5)
     xNiv += 32
   })
@@ -1879,18 +1916,27 @@ function generateFicheRenseignements(session, trainee = null, isBlank = false) {
   // Zone de texte libre - hauteur ajustée pour ne pas déborder
   const textBoxHeight = Math.min(35, ph - y - 45) // Laisser espace pour signature + footer
   doc.rect(17, y, pw - 34, textBoxHeight)
+  if (!isBlank && infoSheet?.training_expectations) {
+    const expectationLines = doc.splitTextToSize(infoSheet.training_expectations, pw - 38)
+    doc.text(expectationLines, 19, y + 3)
+  }
   y += textBoxHeight + 5
   
   // Consentement RGPD
   doc.setFontSize(6)
   doc.text('J\'accepte que mes données soient traitées par Access Formation dans le cadre de cette formation (RGPD).', 17, y)
   doc.rect(pw - 30, y - 2, 3, 3)
+  const rgpdChecked = !isBlank && infoSheet?.rgpd_consent === true
+  if (rgpdChecked) {
+    doc.text('X', pw - 29.5, y)
+  }
   doc.text('J\'accepte', pw - 25, y)
   y += 8
   
   // Date et signature
   doc.setFontSize(8)
-  doc.text(`Date : ${isBlank ? '__ / __ / ____' : formatDate(new Date())}`, 17, y)
+  const signDate = infoSheet?.filled_at ? new Date(infoSheet.filled_at) : new Date()
+  doc.text(`Date : ${isBlank ? '__ / __ / ____' : formatDate(signDate)}`, 17, y)
   doc.text('Signature :', pw / 2 + 20, y)
   doc.rect(pw / 2 + 40, y - 3, 45, 12)
   y += 15
@@ -1931,7 +1977,7 @@ export function downloadDocument(docType, session, options = {}) {
     case 'evaluationFormateur': doc = generateEvaluationFormateur(session, isBlank); filename = isBlank ? 'Evaluation_Formateur_Vierge.pdf' : `Evaluation_Formateur_${ref}.pdf`; break
     case 'positionnement': doc = generatePositionnement(session, questions, isBlank, trainee, false); filename = isBlank ? 'Test_Positionnement_Vierge.pdf' : `Test_Positionnement_${ref}_${trainee?.last_name || ''}.pdf`; break
     case 'positionnementCorrige': doc = generatePositionnement(session, questions, false, null, true); filename = `CORRIGE_Test_Positionnement_${ref}.pdf`; break
-    case 'ficheRenseignements': doc = generateFicheRenseignements(session, trainee, isBlank); filename = isBlank ? 'Fiche_Renseignements_Vierge.pdf' : `Fiche_Renseignements_${ref}_${trainee?.last_name || ''}.pdf`; break
+    case 'ficheRenseignements': doc = generateFicheRenseignements(session, trainee, isBlank, options.infoSheet || null); filename = isBlank ? 'Fiche_Renseignements_Vierge.pdf' : `Fiche_Renseignements_${ref}_${trainee?.last_name || ''}.pdf`; break
     default: console.error('Type inconnu:', docType); return
   }
   if (doc) doc.save(filename)
