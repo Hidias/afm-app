@@ -4033,7 +4033,10 @@ ${organization?.phone || ''}`)
                 {selectedTraineeInfo.info?.filled_at && (
                   <button 
                     onClick={() => {
-                      generateDocument('ficheRenseignements', session, selectedTraineeInfo.trainee, false)
+                      downloadDocument('ficheRenseignements', session, { 
+                        trainee: selectedTraineeInfo.trainee, 
+                        infoSheet: selectedTraineeInfo.info 
+                      })
                       toast.success('PDF généré')
                     }}
                     className="btn btn-primary flex items-center gap-2"
