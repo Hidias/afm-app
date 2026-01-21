@@ -366,6 +366,32 @@ export default function SessionDetail() {
     loadData()
   }, [])
   
+  // Charger les fiches de renseignements
+  const loadInfoSheets = async (sessionId) => {
+    try {
+      const { data, error } = await supabase
+        .from('trainee_info_sheets')
+        .select('*')
+        .eq('session_id', sessionId)
+      
+      if (error) {
+        console.error('Erreur chargement infoSheets:', error)
+        return
+      }
+      
+      // Transformer en objet { traineeId: infoSheet }
+      const sheetsMap = {}
+      data?.forEach(sheet => {
+        sheetsMap[sheet.trainee_id] = sheet
+      })
+      
+      setInfoSheets(sheetsMap)
+      console.log('📄 InfoSheets chargées:', sheetsMap)
+    } catch (err) {
+      console.error('Erreur loadInfoSheets:', err)
+    }
+  }
+  
   // Mettre à jour les infos organisation pour les PDF
   useEffect(() => {
     if (organization) {
@@ -383,6 +409,7 @@ export default function SessionDetail() {
       loadObjectives(found)
       loadSessionEquipment(found.id)
       loadAccessCodes(found.id) // Charger les codes d'accès
+      loadInfoSheets(found.id) // 📄 Charger les fiches de renseignements
       
       // QR Code unifié - Portail stagiaire
       if (found.attendance_token) {
