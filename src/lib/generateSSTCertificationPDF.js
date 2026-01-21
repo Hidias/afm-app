@@ -157,10 +157,10 @@ export async function generateSSTCertificationPDF(certification, trainee, sessio
         const signatureHeight = 40
         
         // Position de la signature dans le tableau formateur
-        // À droite de "Signature :" entre le prénom et la date de certification
+        // Dans l'espace entre "Signature :" et "Date de certification :"
         // Coordonnées PDF : origine en bas à gauche
-        const x = 270  // Position horizontale (à droite de "Signature :")
-        const y = 210  // Position verticale depuis le bas (sur la ligne "Signature :")
+        const x = 260  // Position horizontale (à droite de "Signature :")
+        const y = 118  // Position verticale depuis le bas (centré dans l'espace jaune)
         
         // Dessiner la signature sur la page
         page2.drawImage(signatureImage, {
