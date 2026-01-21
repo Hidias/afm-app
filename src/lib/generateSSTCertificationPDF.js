@@ -15,16 +15,37 @@ export async function generateSSTCertificationPDF(certification, trainee, sessio
     : '/templates/sst/MAC.pdf' // MAC
   
   try {
+    console.log('📥 Chargement du template:', templatePath)
+    
     // Charger le PDF template
-    const existingPdfBytes = await fetch(templatePath).then(res => res.arrayBuffer())
+    const response = await fetch(templatePath)
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: Impossible de charger ${templatePath}`)
+    }
+    
+    const existingPdfBytes = await response.arrayBuffer()
+    console.log('📦 PDF chargé:', existingPdfBytes.byteLength, 'bytes')
+    
     // Charger le PDF template avec options pour gérer les PDF protégés
     const pdfDoc = await PDFDocument.load(existingPdfBytes, {
       ignoreEncryption: true,
-      updateMetadata: false
+      updateMetadata: false,
+      throwOnInvalidObject: false // Ignorer les objets invalides
     })
+    
+    console.log('✅ PDF document chargé avec succès')
     
     // Récupérer le formulaire
     const form = pdfDoc.getForm()
+    
+    // Vérifier que le formulaire a des champs
+    const fields = form.getFields()
+    console.log(`📋 Formulaire trouvé avec ${fields.length} champs`)
+    
+    if (fields.length === 0) {
+      throw new Error('Le PDF ne contient aucun champ de formulaire. Vérifiez que le PDF uploadé sur GitHub a bien des champs interactifs.')
+    }
     
     // === PAGE 1 : Informations candidat et session ===
     
