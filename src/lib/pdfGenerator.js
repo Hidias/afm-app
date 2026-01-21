@@ -1893,8 +1893,9 @@ function generateFicheRenseignements(session, trainee = null, isBlank = false, i
   const niveaux = ['Aucune', 'Faible', 'Moyen', 'Bon', 'Expert']
   let xNiv = 25
   doc.setFontSize(7)
-  niveaux.forEach((niv) => {
-    const isChecked = !isBlank && infoSheet?.knowledge_level === niv.toLowerCase()
+  niveaux.forEach((niv, idx) => {
+    // knowledge_level est stocké comme 1-5 dans la DB
+    const isChecked = !isBlank && infoSheet?.knowledge_level === (idx + 1)
     doc.rect(xNiv, y - 1, 3, 3)
     if (isChecked) {
       doc.text('X', xNiv + 0.5, y + 1.5)
@@ -1920,8 +1921,8 @@ function generateFicheRenseignements(session, trainee = null, isBlank = false, i
   // Zone de texte libre - hauteur ajustée pour ne pas déborder
   const textBoxHeight = Math.min(35, ph - y - 45) // Laisser espace pour signature + footer
   doc.rect(17, y, pw - 34, textBoxHeight)
-  if (!isBlank && infoSheet?.training_expectations) {
-    const expectationLines = doc.splitTextToSize(infoSheet.training_expectations, pw - 38)
+  if (!isBlank && infoSheet?.needs_and_expectations) {
+    const expectationLines = doc.splitTextToSize(infoSheet.needs_and_expectations, pw - 38)
     doc.text(expectationLines, 19, y + 3)
   }
   y += textBoxHeight + 5
