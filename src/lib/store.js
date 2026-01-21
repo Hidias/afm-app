@@ -754,6 +754,45 @@ export const useDataStore = create((set, get) => ({
     return { error }
   },
   
+  // Ajouter un formateur à une session
+  addTrainerToSession: async (sessionId, trainerId) => {
+    console.log('Adding trainer to session:', sessionId, trainerId)
+    const { data, error } = await supabase
+      .from('sessions')
+      .update({ trainer_id: trainerId })
+      .eq('id', sessionId)
+      .select()
+      .single()
+    
+    if (error) {
+      console.error('addTrainerToSession error:', error)
+      return { data: null, error }
+    }
+    
+    if (!error) await get().fetchSessions()
+    return { data, error }
+  },
+
+  // Retirer un formateur d'une session
+  removeTrainerFromSession: async (sessionId, trainerId) => {
+    console.log('Removing trainer from session:', sessionId, trainerId)
+    const { data, error } = await supabase
+      .from('sessions')
+      .update({ trainer_id: null })
+      .eq('id', sessionId)
+      .eq('trainer_id', trainerId)
+      .select()
+      .single()
+    
+    if (error) {
+      console.error('removeTrainerFromSession error:', error)
+      return { data: null, error }
+    }
+    
+    if (!error) await get().fetchSessions()
+    return { data, error }
+  },
+  
   updateTraineeStatus: async (sessionId, traineeId, status) => {
     const { error } = await supabase
       .from('session_trainees')
