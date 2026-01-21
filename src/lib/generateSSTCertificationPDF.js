@@ -17,7 +17,11 @@ export async function generateSSTCertificationPDF(certification, trainee, sessio
   try {
     // Charger le PDF template
     const existingPdfBytes = await fetch(templatePath).then(res => res.arrayBuffer())
-    const pdfDoc = await PDFDocument.load(existingPdfBytes)
+    // Charger le PDF template avec options pour gérer les PDF protégés
+    const pdfDoc = await PDFDocument.load(existingPdfBytes, {
+      ignoreEncryption: true,
+      updateMetadata: false
+    })
     
     // Récupérer le formulaire
     const form = pdfDoc.getForm()
