@@ -1,118 +1,15 @@
 import { useState, useEffect } from 'react'
-import { X, CheckCircle, AlertCircle, Download, Save } from 'lucide-react'
+import { X, CheckCircle, AlertCircle, Save } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import toast from 'react-hot-toast'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
-
-// Données des compétences selon le référentiel INRS
-const COMPETENCES_FI = [
-  {
-    code: 'C1',
-    titre: "Délimiter son champ d'intervention en matière de secours",
-    indicateur: "Explique les limites de son intervention"
-  },
-  {
-    code: 'C2',
-    titre: "Identifier les dangers persistants et repérer les personnes qui pourraient y être exposées + Supprimer ou isoler le danger persistant, ou soustraire la victime au danger persistant sans s'exposer soi-même",
-    indicateurs: [
-      "Repère le(s) danger(s) persistant(s) dans la situation d'accident simulée",
-      "Repère la(les) personne(s) qui est(sont) exposée(s) au(x) danger(s) persistant(s) identifié(s)",
-      "Assure ou fait assurer la suppression / Isole ou fait isoler le danger / Soustrait ou fait soustraire la victime au danger"
-    ]
-  },
-  {
-    code: 'C3',
-    titre: "Rechercher, suivant un ordre déterminé, la présence d'un (ou plusieurs) des signes indiquant que la vie de la victime est immédiatement menacée",
-    indicateurs: [
-      "Recherche les signes indiquant que la vie de la victime est menacée",
-      "Effectue l'examen dans l'ordre déterminé"
-    ]
-  },
-  {
-    code: 'C4',
-    titre: "Garantir une alerte favorisant l'arrivée de secours adaptés au plus près de la victime",
-    indicateurs: [
-      "Transmet le message d'alerte permettant le déclenchement des secours adaptés",
-      "Favorise l'arrivée des secours au plus près de la victime"
-    ]
-  },
-  {
-    code: 'C5',
-    titre: "Choisir à l'issue de l'examen l'action ou les actions à effectuer + Réaliser l'action ou les actions choisie(s) + Surveiller jusqu'à la prise en charge",
-    indicateurs: [
-      "Choisit l'action appropriée au résultat à atteindre",
-      "Utilise la (ou les) technique(s) préconisée(s)",
-      "Surveille la victime et agit en conséquence jusqu'à la prise en charge de celle-ci par les secours"
-    ]
-  },
-  {
-    code: 'C6',
-    titre: "Situer son rôle de SST dans l'organisation de la prévention de l'entreprise",
-    indicateur: "Indique comment il peut contribuer concrètement à la prévention dans son entreprise"
-  },
-  {
-    code: 'C7',
-    titre: "Caractériser des risques professionnels dans une situation de travail",
-    indicateur: "À partir d'une situation dangereuse, détermine des risques et les autres dommages potentiels"
-  },
-  {
-    code: 'C8',
-    titre: "Participer à la maîtrise des risques professionnels par des actions de prévention",
-    indicateurs: [
-      "Supprime ou à défaut réduit les risques",
-      "Propose, si possible, des pistes d'amélioration"
-    ]
-  }
-]
-
-const COMPETENCES_MAC = [
-  {
-    code: 'C2',
-    titre: "Supprimer ou isoler le danger persistant, ou soustraire la victime au danger persistant sans s'exposer soi-même",
-    indicateurs: [
-      "Assure ou fait assurer la suppression",
-      "Isole ou fait isoler le danger",
-      "Soustrait ou fait soustraire la victime au danger"
-    ]
-  },
-  {
-    code: 'C3',
-    titre: "Rechercher, suivant un ordre déterminé, la présence d'un (ou plusieurs) des signes indiquant que la vie de la victime est immédiatement menacée",
-    indicateur: "Recherche les signes indiquant que la vie de la victime est menacée"
-  },
-  {
-    code: 'C4',
-    titre: "Garantir une alerte favorisant l'arrivée de secours adaptés au plus près de la victime",
-    indicateurs: [
-      "Transmet le message d'alerte permettant le déclenchement des secours adaptés",
-      "Favorise l'arrivée des secours au plus près de la victime"
-    ]
-  },
-  {
-    code: 'C5',
-    titre: "Choisir à l'issue de l'examen l'action ou les actions à effectuer + Surveiller jusqu'à la prise en charge",
-    indicateurs: [
-      "Choisit l'action appropriée au résultat à atteindre",
-      "Surveille la victime et agit en conséquence jusqu'à la prise en charge de celle-ci par les secours"
-    ]
-  },
-  {
-    code: 'C6',
-    titre: "Situer son rôle de SST dans l'organisation de la prévention de l'entreprise",
-    indicateur: "Indique comment il peut contribuer concrètement à la prévention dans son entreprise"
-  },
-  {
-    code: 'C7',
-    titre: "Caractériser des risques professionnels dans une situation de travail",
-    indicateur: "À partir de la situation d'accident de travail précédemment simulée, explicite le mécanisme d'apparition du dommage rencontré"
-  },
-  {
-    code: 'C8',
-    titre: "Participer à la maîtrise des risques professionnels par des actions de prévention",
-    indicateur: "À partir de la situation d'accident précédemment simulée, propose des actions visant à supprimer ou à défaut réduire les risques"
-  }
-]
+import { 
+  getCompetencesConfig, 
+  getAllIndicatorIds,
+  isCompetenceAcquise,
+  isCandidatCertifie 
+} from '../lib/sstCompetencesConfig'
 
 export default function SSTCertificationModal({ 
   show, 
@@ -122,8 +19,8 @@ export default function SSTCertificationModal({
   trainer,
   onSave 
 }) {
-  const [formationType, setFormationType] = useState('FI') // FI ou MAC
-  const [competences, setCompetences] = useState({})
+  const [formationType, setFormationType] = useState('FI')
+  const [indicateurs, setIndicateurs] = useState({})
   const [loading, setLoading] = useState(false)
   const [existingCertification, setExistingCertification] = useState(null)
 
@@ -134,7 +31,7 @@ export default function SSTCertificationModal({
     }
   }, [show, session, trainee])
 
-  // Détecter automatiquement le type de formation (FI ou MAC)
+  // Détecter automatiquement le type de formation
   const detectFormationType = () => {
     const courseTitle = session?.courses?.title?.toLowerCase() || ''
     if (courseTitle.includes('mac') || courseTitle.includes('recyclage') || courseTitle.includes('maintien')) {
@@ -159,40 +56,37 @@ export default function SSTCertificationModal({
       if (data) {
         setExistingCertification(data)
         setFormationType(data.formation_type)
-        setCompetences({
-          c1_acquis: data.c1_acquis,
-          c2_acquis: data.c2_acquis,
-          c3_acquis: data.c3_acquis,
-          c4_acquis: data.c4_acquis,
-          c5_acquis: data.c5_acquis,
-          c6_acquis: data.c6_acquis,
-          c7_acquis: data.c7_acquis,
-          c8_acquis: data.c8_acquis,
+        
+        // Charger tous les indicateurs depuis la BDD
+        const indicateurIds = getAllIndicatorIds(data.formation_type)
+        const loadedIndicateurs = {}
+        
+        indicateurIds.forEach(id => {
+          loadedIndicateurs[id] = data[id]
         })
+        
+        setIndicateurs(loadedIndicateurs)
       }
     } catch (error) {
       console.error('Erreur chargement certification:', error)
     }
   }
 
-  // Calculer si le candidat est certifié
-  const isCertifie = () => {
-    const competencesList = formationType === 'FI' 
-      ? ['c1_acquis', 'c2_acquis', 'c3_acquis', 'c4_acquis', 'c5_acquis', 'c6_acquis', 'c7_acquis', 'c8_acquis']
-      : ['c2_acquis', 'c3_acquis', 'c4_acquis', 'c5_acquis', 'c6_acquis', 'c7_acquis', 'c8_acquis']
-    
-    const acquises = competencesList.filter(c => competences[c] === true).length
-    const requises = competencesList.length
-    
-    return acquises >= requises
-  }
-
-  const toggleCompetence = (key) => {
-    setCompetences(prev => ({
+  // Toggle un indicateur : null → true → false → null
+  const toggleIndicateur = (id) => {
+    setIndicateurs(prev => ({
       ...prev,
-      [key]: prev[key] === true ? false : prev[key] === false ? null : true
+      [id]: prev[id] === true ? false : prev[id] === false ? null : true
     }))
   }
+
+  // Calculer l'état de chaque compétence
+  const getCompetenceStatus = (competenceCode) => {
+    return isCompetenceAcquise(competenceCode, indicateurs, formationType)
+  }
+
+  // Calculer si certifié
+  const certifie = isCandidatCertifie(indicateurs, formationType)
 
   const handleSave = async () => {
     if (!trainer) {
@@ -202,25 +96,30 @@ export default function SSTCertificationModal({
 
     setLoading(true)
     try {
+      // Préparer les données avec tous les indicateurs
       const certificationData = {
         session_id: session.id,
         trainee_id: trainee.id,
         formation_type: formationType,
-        // Préserver null pour "Non évalué", true pour "Acquis", false pour "Non acquis"
-        c1_acquis: formationType === 'FI' ? (competences.c1_acquis === undefined ? null : competences.c1_acquis) : null,
-        c2_acquis: competences.c2_acquis === undefined ? null : competences.c2_acquis,
-        c3_acquis: competences.c3_acquis === undefined ? null : competences.c3_acquis,
-        c4_acquis: competences.c4_acquis === undefined ? null : competences.c4_acquis,
-        c5_acquis: competences.c5_acquis === undefined ? null : competences.c5_acquis,
-        c6_acquis: competences.c6_acquis === undefined ? null : competences.c6_acquis,
-        c7_acquis: competences.c7_acquis === undefined ? null : competences.c7_acquis,
-        c8_acquis: competences.c8_acquis === undefined ? null : competences.c8_acquis,
         date_certification: session.end_date,
         formateur_id: trainer.id,
         formateur_nom: trainer.last_name,
         formateur_prenom: trainer.first_name,
         formateur_signature_url: trainer.signature_url || null,
       }
+
+      // Ajouter tous les indicateurs
+      const indicateurIds = getAllIndicatorIds(formationType)
+      indicateurIds.forEach(id => {
+        certificationData[id] = indicateurs[id] === undefined ? null : indicateurs[id]
+      })
+
+      // Calculer automatiquement les compétences acquises
+      const config = getCompetencesConfig(formationType)
+      Object.keys(config).forEach(code => {
+        const key = `${code.toLowerCase()}_acquis`
+        certificationData[key] = getCompetenceStatus(code)
+      })
 
       const { data, error } = await supabase
         .from('sst_certifications')
@@ -245,16 +144,20 @@ export default function SSTCertificationModal({
     }
   }
 
-  const competencesData = formationType === 'FI' ? COMPETENCES_FI : COMPETENCES_MAC
-  const certifie = isCertifie()
-  const nbAcquises = Object.values(competences).filter(v => v === true).length
-  const nbRequises = formationType === 'FI' ? 8 : 7
+  const competencesConfig = getCompetencesConfig(formationType)
+  const competencesList = Object.values(competencesConfig)
+
+  // Calculer les stats
+  const nbCompetencesAcquises = Object.keys(competencesConfig).filter(code => 
+    getCompetenceStatus(code)
+  ).length
+  const nbCompetencesRequises = Object.keys(competencesConfig).length
 
   if (!show) return null
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-6xl max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="sticky top-0 bg-white border-b px-6 py-4 flex items-center justify-between z-10">
           <div>
@@ -299,48 +202,85 @@ export default function SSTCertificationModal({
           </div>
         </div>
 
-        {/* Grille des compétences */}
+        {/* Grille des compétences avec indicateurs détaillés */}
         <div className="px-6 py-4">
-          <div className="space-y-4">
-            {competencesData.map((comp) => {
-              const key = `${comp.code.toLowerCase()}_acquis`
-              const value = competences[key]
+          <div className="space-y-6">
+            {competencesList.map((comp) => {
+              const isAcquise = getCompetenceStatus(comp.code)
               
               return (
-                <div key={comp.code} className="border rounded-lg p-4 hover:bg-gray-50 transition-colors">
-                  <div className="flex items-start gap-4">
+                <div 
+                  key={comp.code} 
+                  className={`border-2 rounded-xl p-5 transition-all ${
+                    isAcquise 
+                      ? 'border-green-300 bg-green-50' 
+                      : 'border-gray-300 bg-white'
+                  }`}
+                >
+                  {/* En-tête de la compétence */}
+                  <div className="flex items-start gap-4 mb-4 pb-4 border-b">
                     <div className="flex-shrink-0">
-                      <span className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-blue-100 text-blue-700 font-bold">
+                      <span className={`inline-flex items-center justify-center w-12 h-12 rounded-full font-bold text-lg ${
+                        isAcquise 
+                          ? 'bg-green-600 text-white' 
+                          : 'bg-blue-100 text-blue-700'
+                      }`}>
                         {comp.code}
                       </span>
                     </div>
                     <div className="flex-1">
-                      <h4 className="font-medium text-gray-900 mb-2">{comp.titre}</h4>
-                      {comp.indicateur && (
-                        <p className="text-sm text-gray-600 mb-3">• {comp.indicateur}</p>
-                      )}
-                      {comp.indicateurs && (
-                        <ul className="text-sm text-gray-600 mb-3 space-y-1">
-                          {comp.indicateurs.map((ind, idx) => (
-                            <li key={idx}>• {ind}</li>
-                          ))}
-                        </ul>
-                      )}
+                      <h4 className="font-semibold text-gray-900 mb-1">{comp.titre}</h4>
+                      <p className="text-xs text-gray-500">
+                        Épreuve {comp.epreuve} • {comp.indicateurs.length} indicateur{comp.indicateurs.length > 1 ? 's' : ''}
+                      </p>
                     </div>
-                    <div className="flex-shrink-0">
-                      <button
-                        onClick={() => toggleCompetence(key)}
-                        className={`px-4 py-2 rounded-lg font-medium transition-all ${
-                          value === true
-                            ? 'bg-green-600 text-white hover:bg-green-700'
-                            : value === false
-                            ? 'bg-red-600 text-white hover:bg-red-700'
-                            : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                        }`}
-                      >
-                        {value === true ? '✓ Acquis' : value === false ? '✗ Non acquis' : 'Non évalué'}
-                      </button>
-                    </div>
+                    {isAcquise && (
+                      <div className="flex-shrink-0">
+                        <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-green-600 text-white text-sm font-medium">
+                          <CheckCircle className="w-4 h-4" />
+                          Acquise
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Liste des indicateurs */}
+                  <div className="space-y-3">
+                    {comp.indicateurs.map((ind, idx) => {
+                      const value = indicateurs[ind.id]
+                      
+                      return (
+                        <div 
+                          key={ind.id}
+                          className="flex items-start gap-3 p-3 rounded-lg bg-white border border-gray-200 hover:border-gray-300 transition-colors"
+                        >
+                          <div className="flex-1">
+                            <p className="text-sm text-gray-800">
+                              {ind.incontournable && (
+                                <span className="inline-block px-2 py-0.5 mr-2 text-xs font-medium bg-yellow-100 text-yellow-800 rounded">
+                                  Incontournable
+                                </span>
+                              )}
+                              {ind.texte}
+                            </p>
+                          </div>
+                          <div className="flex-shrink-0">
+                            <button
+                              onClick={() => toggleIndicateur(ind.id)}
+                              className={`px-4 py-2 rounded-lg font-medium text-sm transition-all min-w-[130px] ${
+                                value === true
+                                  ? 'bg-green-600 text-white hover:bg-green-700'
+                                  : value === false
+                                  ? 'bg-red-600 text-white hover:bg-red-700'
+                                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                              }`}
+                            >
+                              {value === true ? '✓ Acquis' : value === false ? '✗ Non acquis' : 'Non évalué'}
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    })}
                   </div>
                 </div>
               )
@@ -362,8 +302,8 @@ export default function SSTCertificationModal({
                   {certifie ? '✓ CANDIDAT CERTIFIÉ' : '✗ CANDIDAT NON CERTIFIÉ'}
                 </p>
                 <p className="text-sm">
-                  {nbAcquises}/{nbRequises} compétences acquises
-                  {certifie ? ' (validation automatique)' : ` (minimum ${nbRequises} requis)`}
+                  {nbCompetencesAcquises}/{nbCompetencesRequises} compétences acquises
+                  {certifie ? ' (validation automatique)' : ` (minimum ${nbCompetencesRequises} requis)`}
                 </p>
               </div>
             </div>
@@ -371,7 +311,7 @@ export default function SSTCertificationModal({
         </div>
 
         {/* Actions */}
-        <div className="px-6 py-4 border-t flex items-center justify-between">
+        <div className="px-6 py-4 border-t flex items-center justify-between bg-white">
           <button
             onClick={onClose}
             className="btn btn-secondary"
