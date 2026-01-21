@@ -5,6 +5,7 @@ import toast from 'react-hot-toast'
 import { format, differenceInDays, isPast, parseISO } from 'date-fns'
 import { supabase } from '../lib/supabase'
 import TrainerDevelopment from '../components/TrainerDevelopment'
+import TrainerSignatureManager from '../components/TrainerSignatureManager'
 
 const CERTIFICATE_TYPES = [
   'SST - Formateur',
@@ -520,6 +521,19 @@ export default function Trainers() {
                 
                 <div><label className="label">N° Agrément</label><input type="text" value={formData.certification_number} onChange={(e) => setFormData({...formData, certification_number: e.target.value})} className="input" /></div>
                 <div><label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={formData.is_internal} onChange={(e) => setFormData({...formData, is_internal: e.target.checked})} className="w-4 h-4 rounded" /><span className="text-sm">Formateur interne</span></label></div>
+                
+                {/* Signature du formateur - uniquement en mode édition */}
+                {editingId && (
+                  <div className="pt-4 border-t">
+                    <TrainerSignatureManager 
+                      trainer={trainers.find(t => t.id === editingId)} 
+                      onUpdate={(updatedTrainer) => {
+                        // Rafraîchir la liste des formateurs
+                        fetchTrainers()
+                      }}
+                    />
+                  </div>
+                )}
                 
                 <div className="flex justify-end gap-3 pt-4 border-t">
                   <button type="button" onClick={resetForm} className="btn btn-secondary">Annuler</button>
