@@ -1863,12 +1863,16 @@ function generateFicheRenseignements(session, trainee = null, isBlank = false, i
   
   // Adresse entreprise
   doc.text('Adresse entreprise :', 17, y)
-  doc.rect(fieldStart - 15, y - 3, pw - fieldStart, 12)
   if (!isBlank && infoSheet?.company_address) {
+    // Si adresse existe, ne pas dessiner le rectangle, juste afficher le texte
     const addressLines = doc.splitTextToSize(infoSheet.company_address, pw - fieldStart - 4)
     doc.text(addressLines, fieldStart - 13, y + 1)
+    y += Math.max(14, addressLines.length * 4 + 6) // Adapter hauteur au nombre de lignes
+  } else {
+    // Sinon dessiner le rectangle vide
+    doc.rect(fieldStart - 15, y - 3, pw - fieldStart, 12)
+    y += 14
   }
-  y += 14
   
   // Dernière formation / Diplôme
   doc.text('Dernière formation (année) :', 17, y)
@@ -1935,7 +1939,7 @@ function generateFicheRenseignements(session, trainee = null, isBlank = false, i
   
   // Date et signature
   doc.setFontSize(8)
-  const signDate = infoSheet?.filled_at ? new Date(infoSheet.filled_at) : new Date()
+  const signDate = session?.start_date ? new Date(session.start_date) : new Date()
   doc.text(`Date : ${isBlank ? '__ / __ / ____' : formatDate(signDate)}`, 17, y)
   doc.text('Signature :', pw / 2 + 20, y)
   doc.rect(pw / 2 + 40, y - 3, 45, 12)
