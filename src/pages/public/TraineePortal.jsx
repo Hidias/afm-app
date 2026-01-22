@@ -470,11 +470,11 @@ export default function TraineePortal() {
       
       console.log('🔄 Mise à jour trainee avec:', traineeUpdate)
       
-      const { data: updateData, error: updateError } = await supabase
-        .from('trainees')
-        .update(traineeUpdate)
-        .eq('id', selectedTrainee.id)
-        .select()
+      const { data: updateData, error: updateError } = await supabase.rpc('update_trainee_data', {
+        p_token: token,
+        p_trainee_id: selectedTrainee.id,
+        p_data: traineeUpdate
+      })
       
       console.log('✅ Résultat update trainees:', { updateData, updateError })
       
@@ -501,17 +501,21 @@ export default function TraineePortal() {
         filled_online: true,
       }
       
-      const { data: existing } = await supabase
-        .from('trainee_info_sheets')
-        .select('id')
-        .eq('session_id', session.id)
-        .eq('trainee_id', selectedTrainee.id)
-        .maybeSingle()
+      const { data: infoResult, error: infoError } = await supabase.rpc('save_trainee_info', {
+        p_token: token,
+        p_trainee_id: selectedTrainee.id,
+        p_data: {
+          last_training_year: infoData.last_training_year,
+          highest_diploma: infoData.highest_diploma,
+          csp: infoData.csp,
+          job_title: infoData.job_title,
+          training_expectations: infoData.training_expectations
+        }
+      })
       
-      if (existing) {
-        await supabase.from('trainee_info_sheets').update(infoData).eq('id', existing.id)
-      } else {
-        await supabase.from('trainee_info_sheets').insert(infoData)
+      if (infoError) {
+        console.error('Erreur sauvegarde fiche:', infoError)
+        throw infoError
       }
       
       setInfoSheet({ ...infoData, filled_at: new Date().toISOString() })
@@ -622,52 +626,19 @@ export default function TraineePortal() {
     setAttendanceData(newAttendanceData)
 
     try {
-      // Vérifier si une entrée existe pour cette date
-      const { data: existing } = await supabase
-        .from('attendance_halfdays')
-        .select('id, morning, afternoon')
-        .eq('session_id', session.id)
-        .eq('trainee_id', selectedTrainee.id)
-        .eq('date', date)
-        .maybeSingle()
-
-      if (existing) {
-        // Mettre à jour l'entrée existante
-        const updateData = {
-          [period]: newValue,
-          validated_at: new Date().toISOString(),
-          validated_by: `${selectedTrainee.first_name} ${selectedTrainee.last_name}`,
-        }
-        
-        const { error } = await supabase
-          .from('attendance_halfdays')
-          .update(updateData)
-          .eq('id', existing.id)
-        
-        if (error) {
-          console.error('Erreur update attendance_halfdays:', error)
-          throw error
-        }
-      } else {
-        // Créer une nouvelle entrée
-        const insertData = {
-          session_id: session.id,
-          trainee_id: selectedTrainee.id,
-          date: date,
-          morning: period === 'morning' ? newValue : false,
-          afternoon: period === 'afternoon' ? newValue : false,
-          validated_at: new Date().toISOString(),
-          validated_by: `${selectedTrainee.first_name} ${selectedTrainee.last_name}`,
-        }
-        
-        const { error } = await supabase
-          .from('attendance_halfdays')
-          .insert(insertData)
-        
-        if (error) {
-          console.error('Erreur insert attendance_halfdays:', error)
-          throw error
-        }
+      // Utiliser la fonction RPC pour sauvegarder la présence
+      const { data: attendanceResult, error: attendanceError } = await supabase.rpc('save_single_attendance', {
+        p_token: token,
+        p_trainee_id: selectedTrainee.id,
+        p_date: date,
+        p_period: period,
+        p_value: newValue,
+        p_validated_by: `${selectedTrainee.first_name} ${selectedTrainee.last_name}`
+      })
+      
+      if (attendanceError) {
+        console.error('Erreur save attendance:', attendanceError)
+        throw attendanceError
       }
 
       // ============================================================
@@ -781,40 +752,17 @@ export default function TraineePortal() {
 
       console.log('Saving evaluation:', evalData)
 
-      const { data: existing } = await supabase
-        .from('trainee_evaluations')
-        .select('id')
-        .eq('session_id', session.id)
-        .eq('trainee_id', selectedTrainee.id)
-        .maybeSingle()
+      const { data: evalResult, error: evalError } = await supabase.rpc('save_evaluation', {
+        p_token: token,
+        p_trainee_id: selectedTrainee.id,
+        p_eval_data: evalData
+      })
 
-      console.log('Existing evaluation:', existing)
+      console.log('Save evaluation result:', { evalResult, evalError })
 
-      if (existing) {
-        const { data, error } = await supabase
-          .from('trainee_evaluations')
-          .update(evalData)
-          .eq('id', existing.id)
-          .select()
-        
-        console.log('Update result:', { data, error })
-        
-        if (error) {
-          console.error('Erreur update evaluation:', error)
-          throw error
-        }
-      } else {
-        const { data, error } = await supabase
-          .from('trainee_evaluations')
-          .insert(evalData)
-          .select()
-        
-        console.log('Insert result:', { data, error })
-        
-        if (error) {
-          console.error('Erreur insert evaluation:', error)
-          throw error
-        }
+      if (evalError) {
+        console.error('Erreur save evaluation:', evalError)
+        throw evalError
       }
       
       // Calcul moyenne (exclure N/C = 0)
