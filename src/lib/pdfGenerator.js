@@ -2282,97 +2282,144 @@ function generateAttestationContent(doc, session, trainee, trainer) {
 }
 
 function generateEvaluationContent(doc, session, trainee) {
-  const course = session?.courses || {}
   const pw = doc.internal.pageSize.getWidth()
   const ref = session?.reference || ''
+  const course = session?.courses || {}
   
   let y = addHeader(doc, ref)
   y = addTitle(doc, 'ÉVALUATION À CHAUD', y)
   
   doc.setFontSize(9)
-  doc.text(`Formation : ${course.title || ''}`, 20, y)
+  doc.text(`Formation : ${course?.title || ''}`, 20, y)
   doc.text(`Date : ${formatDate(session?.start_date)}`, 130, y)
-  y += 5
-  if (trainee) { doc.text(`Stagiaire : ${trainee.first_name || ''} ${trainee.last_name?.toUpperCase() || ''}`, 20, y); y += 5 }
-  y += 4
-  
-  // Objectifs de la formation
-  const objectives = (course?.objectives || '').split('\n').map(o => o.trim()).filter(o => o.length > 0)
-  if (objectives.length > 0) {
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(8)
-    doc.text('Objectifs de la formation :', 20, y)
-    y += 4
-    doc.setFont('helvetica', 'normal')
-    objectives.forEach((obj, idx) => {
-      doc.text(`• ${obj}`, 22, y)
-      y += 3.5
-    })
-    y += 4
+  y += 6
+  if (trainee) {
+    doc.text(`Stagiaire : ${trainee.first_name || ''} ${trainee.last_name?.toUpperCase() || ''}`, 20, y)
   }
+  y += 8
   
   doc.setFont('helvetica', 'bold')
-  doc.setFontSize(9)
-  doc.text('Merci de noter chaque critère :', 20, y)
+  doc.setFontSize(8)
+  doc.text('Échelle de notation :', 20, y)
   y += 4
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(7)
-  doc.text('1 = Insuffisant   2 = Passable   3 = Moyen   4 = Satisfaisant   5 = Très Satisfaisant', 20, y)
+  doc.text('1 = Mauvais   2 = Passable   3 = Moyen   4 = Satisfaisant   5 = Très Satisfaisant   N/C = Non concerné', 20, y)
   y += 6
   
-  // 9 critères qualité
-  const criteres = [
-    'Clarté des objectifs',
-    'Accueil et organisation',
-    'Pertinence du contenu',
-    'Supports pédagogiques',
-    'Pédagogie du formateur',
-    'Rythme et durée',
-    'Conditions matérielles',
-    'Utilité professionnelle',
-    'Satisfaction globale',
-  ]
+  const colW = 10
+  const ncW = 12
+  const labelW = pw - 40 - colW * 5 - ncW
   
-  const colW = 12, labelW = pw - 40 - colW * 5
-  
-  doc.setFillColor(240, 240, 240)
-  doc.rect(20, y, labelW, 6, 'F')
-  for (let i = 1; i <= 5; i++) doc.rect(20 + labelW + (i - 1) * colW, y, colW, 6, 'F')
-  doc.setFontSize(8)
-  doc.setFont('helvetica', 'bold')
-  doc.text('Critère', 22, y + 4)
-  for (let i = 1; i <= 5; i++) doc.text(String(i), 20 + labelW + (i - 1) * colW + colW / 2, y + 4, { align: 'center' })
-  y += 6
-  
-  doc.setFont('helvetica', 'normal')
-  criteres.forEach(c => {
-    doc.rect(20, y, labelW, 6)
-    for (let i = 1; i <= 5; i++) {
-      doc.rect(20 + labelW + (i - 1) * colW, y, colW, 6)
-      drawCircle(doc, 20 + labelW + (i - 1) * colW + colW / 2 - 1, y + 4, 1.2, false)
-    }
-    doc.text(c, 22, y + 4)
+  // Fonction pour dessiner une section
+  const drawSection = (title, questions) => {
+    // Titre section
+    doc.setFillColor(230, 230, 230)
+    doc.rect(20, y, pw - 40, 6, 'F')
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(8)
+    doc.text(title, 22, y + 4)
     y += 6
-  })
+    
+    // En-tête colonnes
+    doc.setFillColor(245, 245, 245)
+    doc.rect(20, y, labelW, 5, 'F')
+    for (let i = 1; i <= 5; i++) {
+      doc.rect(20 + labelW + (i - 1) * colW, y, colW, 5, 'F')
+    }
+    doc.rect(20 + labelW + 5 * colW, y, ncW, 5, 'F')
+    
+    doc.setFontSize(6)
+    doc.setFont('helvetica', 'bold')
+    for (let i = 1; i <= 5; i++) {
+      doc.text(String(i), 20 + labelW + (i - 1) * colW + colW / 2, y + 3.5, { align: 'center' })
+    }
+    doc.text('N/C', 20 + labelW + 5 * colW + ncW / 2, y + 3.5, { align: 'center' })
+    y += 5
+    
+    // Questions
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(7)
+    questions.forEach(q => {
+      doc.rect(20, y, labelW, 6)
+      for (let i = 1; i <= 5; i++) {
+        doc.rect(20 + labelW + (i - 1) * colW, y, colW, 6)
+        drawCircle(doc, 20 + labelW + (i - 1) * colW + colW / 2, y + 3, 1.2, false)
+      }
+      doc.rect(20 + labelW + 5 * colW, y, ncW, 6)
+      drawCircle(doc, 20 + labelW + 5 * colW + ncW / 2, y + 3, 1.2, false)
+      doc.text(q, 22, y + 4)
+      y += 6
+    })
+    y += 2
+  }
   
+  // 1. Organisation
+  drawSection('1. ORGANISATION DE LA FORMATION', [
+    'Communication des documents avant la formation',
+    'Accueil sur le lieu de la formation',
+    'Qualité des locaux (salles, signalétique)',
+    'Adéquation des moyens matériels',
+  ])
+  
+  // 2. Contenu
+  drawSection('2. LE CONTENU DE LA FORMATION', [
+    'Organisation et déroulement',
+    'Qualité des supports pédagogiques',
+    'Durée de la formation',
+    'Respect du programme de formation',
+  ])
+  
+  // 3. Formateur
+  drawSection('3. L\'INTERVENTION DE L\'ANIMATEUR', [
+    'La pédagogie du formateur',
+    'L\'expertise du formateur (maîtrise du sujet)',
+    'Progression de la formation (rythme)',
+    'Adéquation des moyens mis à disposition',
+  ])
+  
+  // 4. Perception globale
+  drawSection('4. PERCEPTION GLOBALE', [
+    'Adéquation formation / métier ou secteur',
+    'Amélioration de vos connaissances',
+  ])
+  
+  // Recommandation
+  y += 2
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(8)
+  doc.text('Recommanderiez-vous cette formation ?', 20, y)
+  doc.setFont('helvetica', 'normal')
+  drawCircle(doc, 100, y - 1, 1.5, false)
+  doc.text('  Oui', 103, y)
+  drawCircle(doc, 125, y - 1, 1.5, false)
+  doc.text('  Non', 128, y)
+  y += 8
+  
+  // Commentaires
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(8)
+  doc.text('5. COMMENTAIRES', 20, y)
   y += 5
-  doc.setFont('helvetica', 'bold')
-  doc.text('Recommanderiez-vous cette formation ?', 20, y); y += 5
   doc.setFont('helvetica', 'normal')
-  drawCircle(doc, 30, y, 1.5, false); doc.text('  Oui', 34, y)
-  drawCircle(doc, 60, y, 1.5, false); doc.text('  Non', 64, y)
-  y += 7
+  doc.setFontSize(7)
+  doc.text('Commentaire général (remarques, suggestions) :', 20, y)
+  y += 3
+  doc.rect(20, y, pw - 40, 18)
+  y += 21
   
-  doc.setFont('helvetica', 'bold')
-  doc.text('Commentaires :', 20, y); y += 4
-  doc.rect(20, y, 170, 22); y += 26
+  doc.text('Projet de formation (besoins futurs) :', 20, y)
+  y += 3
+  doc.rect(20, y, pw - 40, 15)
+  y += 18
   
-  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(8)
   doc.text(`Date : ${formatDate(new Date())}`, 20, y)
-  doc.text('Signature :', 120, y)
+  doc.text('Signature :', 130, y)
   
   addFooter(doc, DOC_CODES.evaluation)
 }
+
 
 function generateEvaluationFroidContent(doc, session, trainee) {
   const course = session?.courses || {}
