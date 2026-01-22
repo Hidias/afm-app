@@ -277,13 +277,20 @@ export default function TraineePortal() {
 
   const loadTraineeData = async (trainee = selectedTrainee) => {
     try {
-      // Charger fiche de renseignement
-      const { data: infoData } = await supabase
-        .from('trainee_info_sheets')
-        .select('*')
-        .eq('session_id', session.id)
-        .eq('trainee_id', trainee.id)
-        .maybeSingle()
+      // Charger toutes les données via RPC
+      const { data: traineeData, error: traineeError } = await supabase.rpc('load_trainee_data', {
+        p_token: token,
+        p_trainee_id: trainee.id
+      })
+      
+      if (traineeError) {
+        console.error('Erreur chargement données:', traineeError)
+        throw traineeError
+      }
+      
+      const infoData = traineeData?.info_sheet
+      const attendanceRecords = traineeData?.attendance || []
+      const evalData = traineeData?.evaluation
       
       setInfoSheet(infoData)
       
@@ -311,15 +318,7 @@ export default function TraineePortal() {
         rgpd_consent: infoData?.rgpd_consent || false,
       })
 
-      // ============================================================
-      // CORRECTION: Charger émargement depuis attendance_halfdays
-      // ============================================================
-      const { data: attendanceRecords } = await supabase
-        .from('attendance_halfdays')
-        .select('date, morning, afternoon')
-        .eq('session_id', session.id)
-        .eq('trainee_id', trainee.id)
-
+      // Charger émargement
       const attendanceMap = {}
       attendanceRecords?.forEach(rec => {
         const dateStr = typeof rec.date === 'string' ? rec.date.substring(0, 10) : format(new Date(rec.date), 'yyyy-MM-dd')
@@ -331,14 +330,6 @@ export default function TraineePortal() {
         }
       })
       setAttendanceData(attendanceMap)
-
-      // Charger évaluation
-      const { data: evalData } = await supabase
-        .from('trainee_evaluations')
-        .select('*')
-        .eq('session_id', session.id)
-        .eq('trainee_id', trainee.id)
-        .maybeSingle()
 
       setEvaluationData(evalData)
       if (evalData) {
@@ -484,9 +475,31 @@ export default function TraineePortal() {
       
       setSelectedTrainee({ ...selectedTrainee, ...traineeUpdate })
       
-      const infoData = {
-        session_id: session.id,
-        trainee_id: selectedTrainee.id,
+      const { data: infoResult, error: infoError } = await supabase.rpc('save_trainee_info', {
+        p_token: token,
+        p_trainee_id: selectedTrainee.id,
+        p_data: {
+          email: infoForm.email,
+          ssn: infoForm.ssn_refused ? null : infoForm.ssn.replace(/\s/g, ''),
+          ssn_refused: infoForm.ssn_refused,
+          last_training_year: infoForm.last_training_year ? parseInt(infoForm.last_training_year) : null,
+          highest_diploma: infoForm.highest_diploma,
+          csp: infoForm.csp || null,
+          job_title: infoForm.job_title || null,
+          training_expectations: infoForm.training_expectations,
+          rgpd_consent: infoForm.rgpd_consent,
+          rgpd_consent_date: new Date().toISOString(),
+          filled_at: new Date().toISOString(),
+          filled_online: true
+        }
+      })
+      
+      if (infoError) {
+        console.error('Erreur sauvegarde fiche:', infoError)
+        throw infoError
+      }
+      
+      setInfoSheet({ 
         email: infoForm.email,
         ssn: infoForm.ssn_refused ? null : infoForm.ssn.replace(/\s/g, ''),
         ssn_refused: infoForm.ssn_refused,
@@ -496,29 +509,8 @@ export default function TraineePortal() {
         job_title: infoForm.job_title || null,
         training_expectations: infoForm.training_expectations,
         rgpd_consent: infoForm.rgpd_consent,
-        rgpd_consent_date: new Date().toISOString(),
-        filled_at: new Date().toISOString(),
-        filled_online: true,
-      }
-      
-      const { data: infoResult, error: infoError } = await supabase.rpc('save_trainee_info', {
-        p_token: token,
-        p_trainee_id: selectedTrainee.id,
-        p_data: {
-          last_training_year: infoData.last_training_year,
-          highest_diploma: infoData.highest_diploma,
-          csp: infoData.csp,
-          job_title: infoData.job_title,
-          training_expectations: infoData.training_expectations
-        }
+        filled_at: new Date().toISOString() 
       })
-      
-      if (infoError) {
-        console.error('Erreur sauvegarde fiche:', infoError)
-        throw infoError
-      }
-      
-      setInfoSheet({ ...infoData, filled_at: new Date().toISOString() })
       setCurrentStep('attendance')
     } catch (err) {
       console.error('Erreur:', err)
