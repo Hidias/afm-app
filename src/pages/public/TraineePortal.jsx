@@ -169,16 +169,9 @@ export default function TraineePortal() {
 
   const loadSession = async () => {
     try {
+      // Utiliser la fonction RPC pour contourner le problème CORS
       const { data: sessionData, error: sessionError } = await supabase
-        .from('sessions')
-        .select(`
-          *,
-          courses(title, duration_hours),
-          clients(name),
-          session_trainees(id, trainee_id, access_code, access_code_attempts, access_code_locked, trainees(id, first_name, last_name, email, phone, birth_date, social_security_number, refused_ssn, csp, job_title, gender))
-        `)
-        .eq('attendance_token', token)
-        .single()
+        .rpc('get_portal_session', { token_param: token })
 
       if (sessionError || !sessionData) {
         setError('Session non trouvée ou lien invalide')
