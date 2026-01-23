@@ -30,7 +30,7 @@ export default function InfoSheet() {
     company_address: '',
     last_training_year: '',
     highest_diploma: '',
-    needs_and_expectations: '',
+    training_expectations: '',
     rgpd_consent: false,
   })
 
@@ -94,7 +94,7 @@ export default function InfoSheet() {
         company_address: existing.company_address || '',
         last_training_year: existing.last_training_year || '',
         highest_diploma: existing.highest_diploma || '',
-        needs_and_expectations: existing.needs_and_expectations || '',
+        training_expectations: existing.training_expectations || '',
         rgpd_consent: existing.rgpd_consent || false,
       })
     }
@@ -346,8 +346,8 @@ export default function InfoSheet() {
                 </h3>
                 
                 <textarea
-                  value={formData.needs_and_expectations}
-                  onChange={(e) => setFormData({...formData, needs_and_expectations: e.target.value})}
+                  value={formData.training_expectations}
+                  onChange={(e) => setFormData({...formData, training_expectations: e.target.value})}
                   className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   rows={4}
                   placeholder="Quels sont vos besoins spécifiques et vos attentes concernant cette formation ?"
