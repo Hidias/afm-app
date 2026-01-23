@@ -1790,8 +1790,8 @@ function generateFicheRenseignements(session, trainee = null, isBlank = false, i
   doc.text('Prénom :', fieldStart + 40, y)
   doc.line(fieldStart + 60, y, pw - 17, y)
   if (!isBlank && (trainee || infoSheet)) {
-    const lastName = infoSheet?.last_name || trainee?.last_name || ''
-    const firstName = infoSheet?.first_name || trainee?.first_name || ''
+    const lastName = String(infoSheet?.last_name || trainee?.last_name || '')
+    const firstName = String(infoSheet?.first_name || trainee?.first_name || '')
     doc.text(lastName.toUpperCase(), fieldStart - 23, y - 1)
     doc.text(firstName, fieldStart + 62, y - 1)
   }
@@ -1803,8 +1803,8 @@ function generateFicheRenseignements(session, trainee = null, isBlank = false, i
   doc.text('CSP* :', fieldStart + 40, y) // Astérisque ajouté
   doc.line(fieldStart + 60, y, pw - 17, y)
   if (!isBlank && (trainee || infoSheet)) {
-    const gender = infoSheet?.gender || trainee?.gender || ''
-    const csp = infoSheet?.csp || trainee?.csp || ''
+    const gender = String(infoSheet?.gender || trainee?.gender || '')
+    const csp = String(infoSheet?.csp || trainee?.csp || '')
     const genderMap = { 'male': 'Homme', 'female': 'Femme', 'non_binary': 'Non-binaire' }
     doc.text(genderMap[gender] || '', fieldStart - 23, y - 1)
     doc.text(csp, fieldStart + 62, y - 1)
@@ -1821,7 +1821,7 @@ function generateFicheRenseignements(session, trainee = null, isBlank = false, i
   doc.text('Téléphone :', fieldStart + 40, y)
   doc.line(fieldStart + 60, y, pw - 17, y)
   if (!isBlank && (infoSheet?.phone || trainee?.phone)) {
-    doc.text(infoSheet?.phone || trainee?.phone || '', fieldStart + 62, y - 1)
+    doc.text(String(infoSheet?.phone || trainee?.phone || ''), fieldStart + 62, y - 1)
   }
   y += lineHeight
   
@@ -1829,7 +1829,7 @@ function generateFicheRenseignements(session, trainee = null, isBlank = false, i
   doc.text('Email :', 17, y)
   doc.line(fieldStart - 25, y, pw - 17, y)
   if (!isBlank && (infoSheet?.email || trainee?.email)) {
-    doc.text(infoSheet?.email || trainee?.email || '', fieldStart - 23, y - 1)
+    doc.text(String(infoSheet?.email || trainee?.email || ''), fieldStart - 23, y - 1)
   }
   y += lineHeight
   
@@ -1838,7 +1838,7 @@ function generateFicheRenseignements(session, trainee = null, isBlank = false, i
   doc.setFontSize(7)
   doc.text('|__|__|__|__|__|__|__|__|__|__|__|__|__|__|__|', fieldStart - 15, y)
   if (!isBlank && infoSheet?.ssn) {
-    doc.text(infoSheet.ssn, fieldStart - 14, y)
+    doc.text(String(infoSheet.ssn || ''), fieldStart - 14, y)
   }
   doc.setFontSize(8)
   y += lineHeight + 3
@@ -1857,12 +1857,12 @@ function generateFicheRenseignements(session, trainee = null, isBlank = false, i
   doc.text('Poste exercé :', 17, y)
   doc.line(fieldStart - 15, y, fieldStart + 50, y)
   if (!isBlank && infoSheet?.job_title) {
-    doc.text(infoSheet.job_title, fieldStart - 13, y - 1)
+    doc.text(String(infoSheet.job_title || ''), fieldStart - 13, y - 1)
   }
   doc.text('Depuis :', fieldStart + 55, y)
   doc.line(fieldStart + 70, y, pw - 17, y)
   if (!isBlank && infoSheet?.job_since) {
-    doc.text(infoSheet.job_since, fieldStart + 72, y - 1)
+    doc.text(String(infoSheet.job_since || ''), fieldStart + 72, y - 1)
   }
   y += lineHeight
   
@@ -1870,7 +1870,7 @@ function generateFicheRenseignements(session, trainee = null, isBlank = false, i
   doc.text('Adresse entreprise :', 17, y)
   if (!isBlank && infoSheet?.company_address) {
     // Si adresse existe, ne pas dessiner le rectangle, juste afficher le texte
-    const addressLines = doc.splitTextToSize(infoSheet.company_address, pw - fieldStart - 4)
+    const addressLines = doc.splitTextToSize(String(infoSheet.company_address || ''), pw - fieldStart - 4)
     doc.text(addressLines, fieldStart - 13, y + 1)
     y += Math.max(14, addressLines.length * 4 + 6) // Adapter hauteur au nombre de lignes
   } else {
@@ -1883,12 +1883,12 @@ function generateFicheRenseignements(session, trainee = null, isBlank = false, i
   doc.text('Dernière formation (année) :', 17, y)
   doc.line(fieldStart + 15, y, fieldStart + 40, y)
   if (!isBlank && infoSheet?.last_training_year) {
-    doc.text(infoSheet.last_training_year, fieldStart + 17, y - 1)
+    doc.text(String(infoSheet.last_training_year || ''), fieldStart + 17, y - 1)
   }
   doc.text('Plus haut diplôme :', fieldStart + 45, y)
   doc.line(fieldStart + 75, y, pw - 17, y)
   if (!isBlank && infoSheet?.highest_diploma) {
-    doc.text(infoSheet.highest_diploma, fieldStart + 77, y - 1)
+    doc.text(String(infoSheet.highest_diploma || ''), fieldStart + 77, y - 1)
   }
   y += lineHeight + 3
   
@@ -1927,7 +1927,7 @@ function generateFicheRenseignements(session, trainee = null, isBlank = false, i
   const textBoxHeight = Math.min(35, ph - y - 45) // Laisser espace pour signature + footer
   doc.rect(17, y, pw - 34, textBoxHeight)
   if (!isBlank && infoSheet?.needs_and_expectations) {
-    const expectationLines = doc.splitTextToSize(infoSheet.needs_and_expectations, pw - 38)
+    const expectationLines = doc.splitTextToSize(String(infoSheet.needs_and_expectations || ''), pw - 38)
     doc.text(expectationLines, 19, y + 3)
   }
   y += textBoxHeight + 5
@@ -1948,7 +1948,24 @@ function generateFicheRenseignements(session, trainee = null, isBlank = false, i
   const signDate = session?.start_date ? new Date(session.start_date) : new Date()
   doc.text(`Date : ${isBlank ? '__ / __ / ____' : formatDate(signDate)}`, 17, y)
   doc.text('Signature :', pw / 2 + 20, y)
-  doc.rect(pw / 2 + 40, y - 3, 45, 12)
+  
+  // Rectangle pour la signature
+  const signX = pw / 2 + 40
+  const signY = y - 3
+  const signW = 45
+  const signH = 12
+  doc.rect(signX, signY, signW, signH)
+  
+  // Si on a une signature du stagiaire (signature_data de InfoSheet)
+  if (!isBlank && infoSheet?.signature_data) {
+    try {
+      // La signature est déjà en base64, on peut l'ajouter directement
+      doc.addImage(infoSheet.signature_data, 'PNG', signX + 1, signY + 1, signW - 2, signH - 2, undefined, 'FAST')
+    } catch (err) {
+      console.error('Erreur ajout signature stagiaire:', err)
+    }
+  }
+  
   y += 15
   
   // Note explicative CSP (déplacée ici, au-dessus du footer)
