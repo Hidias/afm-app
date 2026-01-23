@@ -188,13 +188,7 @@ export default function TraineePortal() {
       sessionData.periods = sessionPeriods
       setSession(sessionData)
       
-      const traineesList = sessionData.session_trainees?.map(st => ({
-        ...st.trainees,
-        session_trainee_id: st.id,
-        access_code: st.access_code,
-        access_code_attempts: st.access_code_attempts || 0,
-        access_code_locked: st.access_code_locked || false
-      })).filter(Boolean) || []
+      const traineesList = sessionData.trainees || []
       
       setTrainees(traineesList)
       setLoading(false)
