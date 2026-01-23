@@ -9,7 +9,6 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
-import ThemeToggle from './ThemeToggle'
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Tableau de bord' },
@@ -119,7 +118,7 @@ export default function Layout() {
   }
   
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+    <div className="min-h-screen bg-gray-50">
       {/* Mobile header */}
       <div className="lg:hidden bg-primary-500 px-4 py-3 flex items-center justify-between">
         <button onClick={() => setSidebarOpen(true)} className="p-2 hover:bg-primary-600 rounded-lg text-white">
@@ -207,17 +206,14 @@ export default function Layout() {
       {/* Main content */}
       <main className="lg:pl-64">
         {/* Top header bar with notifications and clock */}
-        <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 flex items-center justify-end gap-4">
-          {/* Theme toggle button */}
-          <ThemeToggle />
-          
+        <div className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-end gap-4">
           {/* Notification bell */}
           <div className="relative">
             <button 
               onClick={() => setShowNotifications(!showNotifications)}
-              className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full relative"
+              className="p-2 hover:bg-gray-100 rounded-full relative"
             >
-              <Bell className="w-5 h-5 text-gray-600 dark:text-gray-300" />
+              <Bell className="w-5 h-5 text-gray-600" />
               {unreadCount > 0 && (
                 <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-medium">
                   {unreadCount > 9 ? '9+' : unreadCount}
@@ -229,13 +225,13 @@ export default function Layout() {
             {showNotifications && (
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setShowNotifications(false)} />
-                <div className="absolute right-0 top-12 w-80 bg-white dark:bg-gray-800 rounded-xl shadow-xl border dark:border-gray-700 z-50 overflow-hidden">
-                  <div className="p-3 border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-900 flex items-center justify-between">
-                    <span className="font-semibold text-gray-900 dark:text-gray-100">Notifications</span>
+                <div className="absolute right-0 top-12 w-80 bg-white rounded-xl shadow-xl border z-50 overflow-hidden">
+                  <div className="p-3 border-b bg-gray-50 flex items-center justify-between">
+                    <span className="font-semibold text-gray-900">Notifications</span>
                     {unreadCount > 0 && (
                       <button 
                         onClick={markAllAsRead}
-                        className="text-xs text-primary-600 dark:text-accent-400 hover:underline flex items-center gap-1"
+                        className="text-xs text-primary-600 hover:underline flex items-center gap-1"
                       >
                         <Check className="w-3 h-3" />
                         Tout marquer comme lu
@@ -244,12 +240,12 @@ export default function Layout() {
                   </div>
                   <div className="max-h-96 overflow-y-auto">
                     {notifications.length === 0 ? (
-                      <p className="p-4 text-center text-gray-500 dark:text-gray-400 text-sm">Aucune notification</p>
+                      <p className="p-4 text-center text-gray-500 text-sm">Aucune notification</p>
                     ) : (
                       notifications.map(notif => (
                         <div 
                           key={notif.id}
-                          className={`p-3 border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer ${!notif.read_at ? 'bg-blue-50 dark:bg-blue-900/30' : ''}`}
+                          className={`p-3 border-b hover:bg-gray-50 cursor-pointer ${!notif.read_at ? 'bg-blue-50' : ''}`}
                           onClick={() => {
                             markAsRead(notif.id)
                             if (notif.link) navigate(notif.link)
@@ -259,13 +255,13 @@ export default function Layout() {
                           <div className="flex items-start gap-2">
                             <span className="text-lg">{getNotificationIcon(notif)}</span>
                             <div className="flex-1 min-w-0">
-                              <p className={`text-sm ${!notif.read_at ? 'font-semibold text-gray-900 dark:text-gray-100' : 'text-gray-700 dark:text-gray-300'}`}>
+                              <p className={`text-sm ${!notif.read_at ? 'font-semibold text-gray-900' : 'text-gray-700'}`}>
                                 {notif.title}
                               </p>
                               {notif.message && (
-                                <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{notif.message}</p>
+                                <p className="text-xs text-gray-500 truncate">{notif.message}</p>
                               )}
-                              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                              <p className="text-xs text-gray-400 mt-1">
                                 {format(new Date(notif.created_at), 'd MMM à HH:mm', { locale: fr })}
                               </p>
                             </div>
@@ -283,19 +279,19 @@ export default function Layout() {
           </div>
           
           {/* Clock and greeting */}
-          <div className="flex items-center gap-3 bg-gray-50 dark:bg-gray-700 rounded-lg px-3 py-2">
-            <span className="text-lg font-mono tabular-nums text-gray-700 dark:text-gray-200">
+          <div className="flex items-center gap-3 bg-gray-50 rounded-lg px-3 py-2">
+            <span className="text-lg font-mono tabular-nums text-gray-700">
               {currentTime.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
             </span>
             {greeting && (
-              <span className="text-sm font-medium text-primary-600 dark:text-accent-400 border-l border-gray-300 dark:border-gray-600 pl-3">
+              <span className="text-sm font-medium text-primary-600 border-l border-gray-300 pl-3">
                 {greeting}
               </span>
             )}
           </div>
         </div>
         
-        <div className="p-6 lg:p-8 max-w-7xl mx-auto dark:text-gray-100">
+        <div className="p-6 lg:p-8 max-w-7xl mx-auto">
           <Outlet />
         </div>
       </main>
