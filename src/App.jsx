@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
 import { useAuthStore } from './lib/store'
+import { ThemeProvider } from './contexts/ThemeContext'
 
 // Layouts
 import Layout from './components/Layout'
@@ -47,8 +48,8 @@ function PrivateRoute({ children }) {
   
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 dark:border-accent-500"></div>
       </div>
     )
   }
@@ -68,97 +69,99 @@ export default function App() {
   }, [initialize])
   
   return (
-    <HashRouter>
-      <Toaster 
-        position="top-right"
-        toastOptions={{
-          duration: 4000,
-          style: {
-            background: '#0F2D35',
-            color: '#fff',
-            borderLeft: '4px solid #E9B44C',
-          },
-          success: {
-            iconTheme: {
-              primary: '#E9B44C',
-              secondary: '#0F2D35',
-            },
-          },
-          error: {
+    <ThemeProvider>
+      <HashRouter>
+        <Toaster 
+          position="top-right"
+          toastOptions={{
+            duration: 4000,
             style: {
               background: '#0F2D35',
-              borderLeft: '4px solid #ef4444',
+              color: '#fff',
+              borderLeft: '4px solid #E9B44C',
             },
-            iconTheme: {
-              primary: '#ef4444',
-              secondary: '#fff',
+            success: {
+              iconTheme: {
+                primary: '#E9B44C',
+                secondary: '#0F2D35',
+              },
             },
-          },
-        }}
-      />
-      
-      <Routes>
-        {/* Routes publiques */}
-        <Route path="/login" element={<Login />} />
+            error: {
+              style: {
+                background: '#0F2D35',
+                borderLeft: '4px solid #ef4444',
+              },
+              iconTheme: {
+                primary: '#ef4444',
+                secondary: '#fff',
+              },
+            },
+          }}
+        />
         
-        {/* Formulaire de réclamation public */}
-        <Route path="/reclamation" element={<PublicReclamation />} />
-        
-        {/* QR Code Unifié - Portail Stagiaire */}
-        <Route path="/portail/:token" element={<TraineePortal />} />
-        
-        {/* Anciennes routes (rétrocompatibilité) */}
-        <Route path="/emargement/:token" element={
-          <PublicLayout>
-            <PublicAttendance />
-          </PublicLayout>
-        } />
-        <Route path="/questionnaire/:token" element={
-          <PublicLayout>
-            <PublicQuestionnaire />
-          </PublicLayout>
-        } />
-        <Route path="/fiche-renseignement/:token" element={
-          <PublicInfoSheet />
-        } />
-        <Route path="/evaluation-chaud/:token" element={
-          <PublicHotEvaluation />
-        } />
-        
-        {/* Routes privées */}
-        <Route path="/" element={
-          <PrivateRoute>
-            <Layout />
-          </PrivateRoute>
-        }>
-          <Route index element={<Dashboard />} />
-          <Route path="clients" element={<Clients />} />
-          <Route path="clients/:id" element={<ClientDetail />} />
-          <Route path="formations" element={<Courses />} />
-          <Route path="formateurs" element={<Trainers />} />
-          <Route path="stagiaires" element={<Trainees />} />
-          <Route path="sessions" element={<Sessions />} />
-          <Route path="sessions/:id" element={<SessionDetail />} />
-          <Route path="documents" element={<Documents />} />
-          <Route path="documents-vierges" element={<DocumentsVierges />} />
-          <Route path="qualite" element={<QualiteEditables />} />
-          <Route path="qualite/completude" element={<Completude />} />
-          <Route path="tests-positionnement" element={<TestsPositionnement />} />
-          <Route path="questionnaires" element={<Questionnaires />} />
-          <Route path="non-conformites" element={<NonConformites />} />
-          <Route path="indicateurs" element={<Indicateurs />} />
-          <Route path="profil-stagiaires" element={<ProfilStagiaires />} />
-          <Route path="qualiopi" element={<Qualiopi />} />
-          <Route path="veille-qualiopi" element={<VeilleQualiopi />} />
-          <Route path="audit-logs" element={<AuditLogs />} />
-          <Route path="parametres" element={<Settings />} />
-          <Route path="versions" element={<VersionHistory />} />
-          <Route path="changelog" element={<Changelog />} />
-        </Route>
-        
-        {/* 404 */}
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </HashRouter>
+        <Routes>
+          {/* Routes publiques */}
+          <Route path="/login" element={<Login />} />
+          
+          {/* Formulaire de réclamation public */}
+          <Route path="/reclamation" element={<PublicReclamation />} />
+          
+          {/* QR Code Unifié - Portail Stagiaire */}
+          <Route path="/portail/:token" element={<TraineePortal />} />
+          
+          {/* Anciennes routes (rétrocompatibilité) */}
+          <Route path="/emargement/:token" element={
+            <PublicLayout>
+              <PublicAttendance />
+            </PublicLayout>
+          } />
+          <Route path="/questionnaire/:token" element={
+            <PublicLayout>
+              <PublicQuestionnaire />
+            </PublicLayout>
+          } />
+          <Route path="/fiche-renseignement/:token" element={
+            <PublicInfoSheet />
+          } />
+          <Route path="/evaluation-chaud/:token" element={
+            <PublicHotEvaluation />
+          } />
+          
+          {/* Routes privées */}
+          <Route path="/" element={
+            <PrivateRoute>
+              <Layout />
+            </PrivateRoute>
+          }>
+            <Route index element={<Dashboard />} />
+            <Route path="clients" element={<Clients />} />
+            <Route path="clients/:id" element={<ClientDetail />} />
+            <Route path="formations" element={<Courses />} />
+            <Route path="formateurs" element={<Trainers />} />
+            <Route path="stagiaires" element={<Trainees />} />
+            <Route path="sessions" element={<Sessions />} />
+            <Route path="sessions/:id" element={<SessionDetail />} />
+            <Route path="documents" element={<Documents />} />
+            <Route path="documents-vierges" element={<DocumentsVierges />} />
+            <Route path="qualite" element={<QualiteEditables />} />
+            <Route path="qualite/completude" element={<Completude />} />
+            <Route path="tests-positionnement" element={<TestsPositionnement />} />
+            <Route path="questionnaires" element={<Questionnaires />} />
+            <Route path="non-conformites" element={<NonConformites />} />
+            <Route path="indicateurs" element={<Indicateurs />} />
+            <Route path="profil-stagiaires" element={<ProfilStagiaires />} />
+            <Route path="qualiopi" element={<Qualiopi />} />
+            <Route path="veille-qualiopi" element={<VeilleQualiopi />} />
+            <Route path="audit-logs" element={<AuditLogs />} />
+            <Route path="parametres" element={<Settings />} />
+            <Route path="versions" element={<VersionHistory />} />
+            <Route path="changelog" element={<Changelog />} />
+          </Route>
+          
+          {/* 404 */}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </HashRouter>
+    </ThemeProvider>
   )
 }
