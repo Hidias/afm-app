@@ -1887,9 +1887,10 @@ function generateFicheRenseignements(session, trainee = null, isBlank = false, i
   
   // Adresse entreprise
   doc.text('Adresse entreprise :', 17, y)
-  if (!isBlank && infoSheet?.company_address) {
-    // Si adresse existe, ne pas dessiner le rectangle, juste afficher le texte
-    const addressLines = doc.splitTextToSize(String(infoSheet.company_address || ''), pw - fieldStart - 4)
+  const clientAddress = session?.clients?.address || session?.clients?.name
+  if (!isBlank && clientAddress) {
+    // Afficher l'adresse du client (entreprise où travaille le stagiaire)
+    const addressLines = doc.splitTextToSize(String(clientAddress || ''), pw - fieldStart - 4)
     doc.text(addressLines, fieldStart - 13, y + 1)
     y += Math.max(14, addressLines.length * 4 + 6) // Adapter hauteur au nombre de lignes
   } else {
