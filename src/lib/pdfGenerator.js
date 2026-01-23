@@ -1945,10 +1945,21 @@ function generateFicheRenseignements(session, trainee = null, isBlank = false, i
   // Zone de texte libre - hauteur ajustée pour ne pas déborder
   const textBoxHeight = Math.min(35, ph - y - 45) // Laisser espace pour signature + footer
   doc.rect(17, y, pw - 34, textBoxHeight)
-  if (!isBlank && infoSheet?.needs_and_expectations) {
-    const expectationLines = doc.splitTextToSize(String(infoSheet.needs_and_expectations || ''), pw - 38)
+  
+  if (!isBlank && infoSheet?.training_expectations && String(infoSheet.training_expectations).trim() !== '') {
+    // Afficher le contenu si présent
+    const expectationLines = doc.splitTextToSize(String(infoSheet.training_expectations || ''), pw - 38)
     doc.text(expectationLines, 19, y + 3)
+  } else if (!isBlank) {
+    // Afficher "/" centré si vide
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(14)
+    doc.setTextColor(180, 180, 180) // Gris clair
+    doc.text('/', (17 + pw - 34) / 2, y + textBoxHeight / 2, { align: 'center' })
+    doc.setTextColor(0, 0, 0) // Retour au noir
+    doc.setFontSize(8)
   }
+  
   y += textBoxHeight + 5
   
   // Consentement RGPD
