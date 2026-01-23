@@ -15,6 +15,7 @@ import QRCode from 'qrcode'
 import { supabase } from '../lib/supabase'
 import SessionDocumentAccess from '../components/SessionDocumentAccess'
 import SSTCertificationTab from '../components/SSTCertificationTab'
+import DateTimePickerModal from '../components/DateTimePickerModal'
 
 const statusLabels = {
   draft: { label: 'Brouillon', class: 'badge-gray' },
@@ -89,6 +90,13 @@ export default function SessionDetail() {
   
   // Suivi convention
   const [uploadingConvention, setUploadingConvention] = useState(false)
+  
+  // Modals date/heure pour tracking documents
+  const [dateTimeModal, setDateTimeModal] = useState({
+    isOpen: false,
+    type: null, // 'convention_sent' ou 'convention_signed'
+    currentDate: null
+  })
   
   // Questions positionnement
   const [questions, setQuestions] = useState([])
@@ -933,10 +941,42 @@ export default function SessionDetail() {
   // ============================================================
   
   // Marquer la convention comme envoyée
-  const handleConventionSent = async (sent) => {
+  const handleConventionSent = async (checked) => {
+    if (checked) {
+      // Ouvrir le popup pour choisir la date/heure
+      setDateTimeModal({
+        isOpen: true,
+        type: 'convention_sent',
+        currentDate: session.convention_sent_date || new Date().toISOString()
+      })
+    } else {
+      // Décocher = supprimer la date
+      const updateData = {
+        convention_sent: false,
+        convention_sent_date: null
+      }
+      
+      const { error } = await supabase
+        .from('sessions')
+        .update(updateData)
+        .eq('id', id)
+      
+      if (error) {
+        toast.error('Erreur lors de la mise à jour')
+        console.error(error)
+        return
+      }
+      
+      setSession({ ...session, ...updateData })
+      toast.success('Envoi annulé')
+    }
+  }
+  
+  // Sauvegarder la date d'envoi de convention
+  const saveConventionSentDate = async (datetime) => {
     const updateData = {
-      convention_sent: sent,
-      convention_sent_date: sent ? new Date().toISOString() : null
+      convention_sent: true,
+      convention_sent_date: datetime
     }
     
     const { error } = await supabase
@@ -951,7 +991,16 @@ export default function SessionDetail() {
     }
     
     setSession({ ...session, ...updateData })
-    toast.success(sent ? 'Convention marquée comme envoyée' : 'Envoi annulé')
+    toast.success('Convention marquée comme envoyée')
+  }
+  
+  // Modifier la date d'envoi de convention
+  const editConventionSentDate = () => {
+    setDateTimeModal({
+      isOpen: true,
+      type: 'convention_sent',
+      currentDate: session.convention_sent_date
+    })
   }
   
   // Upload de la convention signée
@@ -992,24 +1041,15 @@ export default function SessionDetail() {
         throw uploadError
       }
       
-      // Mettre à jour la session (convention signée automatiquement)
-      const updateData = {
-        convention_signed: true,
-        convention_signed_date: new Date().toISOString(),
-        convention_signed_file_url: filePath
-      }
+      // Ouvrir le popup pour choisir la date/heure de réception
+      setDateTimeModal({
+        isOpen: true,
+        type: 'convention_signed',
+        currentDate: new Date().toISOString(),
+        filePath: filePath // Stocker le filePath pour l'utiliser après
+      })
       
-      const { error: dbError } = await supabase
-        .from('sessions')
-        .update(updateData)
-        .eq('id', id)
-      
-      if (dbError) {
-        throw dbError
-      }
-      
-      setSession({ ...session, ...updateData })
-      toast.success('Convention signée uploadée avec succès')
+      setUploadingConvention(false)
     } catch (error) {
       console.error('Erreur upload:', error)
       toast.error('Erreur lors de l\'upload')
@@ -1017,6 +1057,47 @@ export default function SessionDetail() {
       setUploadingConvention(false)
       // Reset input
       e.target.value = ''
+    }
+  }
+  
+  // Sauvegarder la date de réception de la convention signée
+  const saveConventionSignedDate = async (datetime) => {
+    const updateData = {
+      convention_signed: true,
+      convention_signed_date: datetime,
+      convention_signed_file_url: dateTimeModal.filePath
+    }
+    
+    const { error } = await supabase
+      .from('sessions')
+      .update(updateData)
+      .eq('id', id)
+    
+    if (error) {
+      toast.error('Erreur lors de la mise à jour')
+      console.error(error)
+      return
+    }
+    
+    setSession({ ...session, ...updateData })
+    toast.success('Convention signée uploadée avec succès')
+  }
+  
+  // Modifier la date de réception de la convention signée
+  const editConventionSignedDate = () => {
+    setDateTimeModal({
+      isOpen: true,
+      type: 'convention_signed',
+      currentDate: session.convention_signed_date
+    })
+  }
+  
+  // Handler général pour le modal date/heure
+  const handleDateTimeSave = (datetime) => {
+    if (dateTimeModal.type === 'convention_sent') {
+      saveConventionSentDate(datetime)
+    } else if (dateTimeModal.type === 'convention_signed') {
+      saveConventionSignedDate(datetime)
     }
   }
   
@@ -1967,19 +2048,28 @@ ${organization?.phone || ''}`)
         
         <div className="space-y-3">
           {/* Convention envoyée */}
-          <label className="flex items-center gap-3 cursor-pointer p-2 rounded hover:bg-white/50 transition-colors">
+          <label className="flex items-center gap-3 p-2 rounded hover:bg-white/50 transition-colors">
             <input
               type="checkbox"
               checked={session.convention_sent || false}
               onChange={(e) => handleConventionSent(e.target.checked)}
-              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
             />
             <div className="flex-1">
               <span className="text-sm font-medium text-gray-700">Convention envoyée</span>
               {session.convention_sent_date && (
-                <p className="text-xs text-gray-500">
-                  Le {format(new Date(session.convention_sent_date), 'dd/MM/yyyy à HH:mm', { locale: fr })}
-                </p>
+                <div className="flex items-center gap-2">
+                  <p className="text-xs text-gray-500">
+                    Le {format(new Date(session.convention_sent_date), 'dd/MM/yyyy à HH:mm', { locale: fr })}
+                  </p>
+                  <button
+                    onClick={editConventionSentDate}
+                    className="text-blue-600 hover:text-blue-800 text-xs underline"
+                    title="Modifier la date/heure"
+                  >
+                    Modifier
+                  </button>
+                </div>
               )}
             </div>
           </label>
@@ -2019,9 +2109,18 @@ ${organization?.phone || ''}`)
                   <div className="flex-1">
                     <span className="font-medium">Convention signée reçue</span>
                     {session.convention_signed_date && (
-                      <p className="text-xs text-green-600">
-                        Le {format(new Date(session.convention_signed_date), 'dd/MM/yyyy à HH:mm', { locale: fr })}
-                      </p>
+                      <div className="flex items-center gap-2">
+                        <p className="text-xs text-green-600">
+                          Le {format(new Date(session.convention_signed_date), 'dd/MM/yyyy à HH:mm', { locale: fr })}
+                        </p>
+                        <button
+                          onClick={editConventionSignedDate}
+                          className="text-green-700 hover:text-green-900 text-xs underline"
+                          title="Modifier la date/heure"
+                        >
+                          Modifier
+                        </button>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -4255,6 +4354,19 @@ ${organization?.phone || ''}`)
           trainer={trainer}
         />
       )}
+      
+      {/* Modal Date/Heure pour tracking documents */}
+      <DateTimePickerModal
+        isOpen={dateTimeModal.isOpen}
+        onClose={() => setDateTimeModal({ isOpen: false, type: null, currentDate: null })}
+        onSave={handleDateTimeSave}
+        title={
+          dateTimeModal.type === 'convention_sent' 
+            ? 'Date et heure d\'envoi de la convention'
+            : 'Date et heure de réception de la convention signée'
+        }
+        currentDate={dateTimeModal.currentDate}
+      />
     </div>
   )
 }
