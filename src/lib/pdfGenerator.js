@@ -1813,10 +1813,11 @@ function generateFicheRenseignements(session, trainee = null, isBlank = false, i
   
   // Date de naissance / Téléphone sur même ligne (espace normal)
   doc.text('Date naissance :', 17, y)
-  doc.text('__ / __ / ____', fieldStart - 15, y)
-  if (!isBlank && infoSheet?.birth_date) {
-    const birthDate = new Date(infoSheet.birth_date)
+  if (!isBlank && trainee?.birth_date) {
+    const birthDate = new Date(trainee.birth_date)
     doc.text(format(birthDate, 'dd/MM/yyyy'), fieldStart - 15, y)
+  } else {
+    doc.text('__ / __ / ____', fieldStart - 15, y)
   }
   doc.text('Téléphone :', fieldStart + 40, y)
   doc.line(fieldStart + 60, y, pw - 17, y)
@@ -1836,10 +1837,28 @@ function generateFicheRenseignements(session, trainee = null, isBlank = false, i
   // N° Sécurité sociale
   doc.text('N° Sécu. Sociale :', 17, y)
   doc.setFontSize(7)
-  doc.text('|__|__|__|__|__|__|__|__|__|__|__|__|__|__|__|', fieldStart - 15, y)
-  if (!isBlank && infoSheet?.ssn) {
-    doc.text(String(infoSheet.ssn || ''), fieldStart - 14, y)
+  
+  // Dessiner les cases
+  const ssnStartX = fieldStart - 15
+  const caseWidth = 3.5
+  const caseSpacing = 0.3
+  
+  for (let i = 0; i < 15; i++) {
+    const x = ssnStartX + i * (caseWidth + caseSpacing)
+    doc.rect(x, y - 3, caseWidth, 4)
   }
+  
+  // Remplir les cases si on a un SSN
+  if (!isBlank && trainee?.social_security_number) {
+    const ssn = String(trainee.social_security_number).replace(/\s/g, '') // Enlever les espaces
+    doc.setFont('helvetica', 'bold')
+    for (let i = 0; i < Math.min(ssn.length, 15); i++) {
+      const x = ssnStartX + i * (caseWidth + caseSpacing) + 1
+      doc.text(ssn[i], x, y)
+    }
+    doc.setFont('helvetica', 'normal')
+  }
+  
   doc.setFontSize(8)
   y += lineHeight + 3
   
@@ -1949,22 +1968,8 @@ function generateFicheRenseignements(session, trainee = null, isBlank = false, i
   doc.text(`Date : ${isBlank ? '__ / __ / ____' : formatDate(signDate)}`, 17, y)
   doc.text('Signature :', pw / 2 + 20, y)
   
-  // Rectangle pour la signature
-  const signX = pw / 2 + 40
-  const signY = y - 3
-  const signW = 45
-  const signH = 12
-  doc.rect(signX, signY, signW, signH)
-  
-  // Si on a une signature du stagiaire (signature_data de InfoSheet)
-  if (!isBlank && infoSheet?.signature_data) {
-    try {
-      // La signature est déjà en base64, on peut l'ajouter directement
-      doc.addImage(infoSheet.signature_data, 'PNG', signX + 1, signY + 1, signW - 2, signH - 2, undefined, 'FAST')
-    } catch (err) {
-      console.error('Erreur ajout signature stagiaire:', err)
-    }
-  }
+  // Rectangle pour la signature (vide - signature papier)
+  doc.rect(pw / 2 + 40, y - 3, 45, 12)
   
   y += 15
   
