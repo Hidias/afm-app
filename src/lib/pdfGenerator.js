@@ -1952,13 +1952,14 @@ function generateFicheRenseignements(session, trainee = null, isBlank = false, i
     const expectationLines = doc.splitTextToSize(String(infoSheet.training_expectations || ''), pw - 38)
     doc.text(expectationLines, 19, y + 3)
   } else if (!isBlank) {
-    // Afficher "/" centré si vide
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(14)
-    doc.setTextColor(180, 180, 180) // Gris clair
-    doc.text('/', (17 + pw - 34) / 2, y + textBoxHeight / 2, { align: 'center' })
-    doc.setTextColor(0, 0, 0) // Retour au noir
-    doc.setFontSize(8)
+    // Afficher une barre diagonale fine si vide
+    doc.setDrawColor(180, 180, 180) // Gris clair
+    doc.setLineWidth(0.3) // Ligne fine
+    // Tracer une diagonale du bas gauche au haut droit
+    doc.line(17, y + textBoxHeight, 17 + pw - 34, y)
+    // Réinitialiser
+    doc.setDrawColor(0, 0, 0) // Noir
+    doc.setLineWidth(0.2) // Épaisseur normale
   }
   
   y += textBoxHeight + 5
