@@ -117,7 +117,7 @@ Pour toute question ou problème :
 
 Propriétaire - Access Formation © 2026
 
----
+--- ENVIRONNEMENT DE TEST ---
 
 **Version actuelle** : v2.7.0  
 **Dernière mise à jour** : 17 janvier 2026  
