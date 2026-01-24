@@ -106,48 +106,35 @@ export default function Reclamation() {
     setError('')
     
     try {
-      // Créer la réclamation dans la table reclamations
-      const { error: reclError } = await supabase
-        .from('reclamations')
-        .insert({
-          source: 'stagiaire',
-          canal: 'formulaire',
-          session_id: sessionInfo.id,
-          subject: `Réclamation - ${form.fullName}`,
-          description: `**Réclamation reçue via formulaire public**
-
-**Informations du réclamant:**
-- Nom: ${form.fullName}
-- Email: ${form.email}
-- Téléphone: ${form.phone || 'Non renseigné'}
-- Entreprise: ${form.company || 'Non renseignée'}
-
-**Session concernée:**
-- Référence: ${sessionInfo.reference}
-- Formation: ${sessionInfo.title}
-
-**Message:**
-${form.message}`,
-          status: 'open',
-          responsable: 'Hicham SAIDI'
-        })
+      // Appeler la RPC public_submit_reclamation
+      const { data, error: rpcError } = await supabase.rpc('public_submit_reclamation', {
+        p_reference: sessionInfo.reference,
+        p_full_name: form.fullName,
+        p_email: form.email,
+        p_phone: form.phone || null,
+        p_company: form.company || null,
+        p_message: form.message,
+        p_honeypot: form.honeypot
+      })
       
-      if (reclError) throw reclError
+      console.log('RPC result:', { data, rpcError })
       
-      // Créer une notification
-      await supabase
-        .from('notifications')
-        .insert({
-          type: 'reclamation',
-          title: 'Nouvelle réclamation reçue',
-          message: `${form.fullName} - ${sessionInfo.reference}`,
-          link: '/non-conformites',
-          metadata: {
-            fullName: form.fullName,
-            email: form.email,
-            sessionRef: sessionInfo.reference
-          }
-        })
+      if (rpcError) {
+        console.error('RPC error:', rpcError)
+        throw rpcError
+      }
+      
+      if (!data || !data.success) {
+        const errorMsg = data?.error || 'Erreur inconnue'
+        if (errorMsg === 'SESSION_NOT_FOUND') {
+          setError('Session non trouvée. Vérifiez le numéro.')
+        } else if (errorMsg === 'VALIDATION') {
+          setError(data?.message || 'Erreur de validation')
+        } else {
+          setError('Une erreur est survenue. Veuillez réessayer.')
+        }
+        return
+      }
       
       setSubmitted(true)
     } catch (err) {
