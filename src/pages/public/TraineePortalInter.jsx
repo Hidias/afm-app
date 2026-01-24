@@ -777,19 +777,11 @@ export default function TraineePortalInter() {
                       </>
                     ) : (
                       <>
-                        <span className="text-orange-600">⚠</span> Clé de contrôle incorrecte
+                        <span className="text-orange-600">⚠</span> Clé de contrôle incorrecte - Vérifiez votre saisie
                       </>
                     )}
                   </p>
                 )}
-                <label className="flex items-center gap-2 mt-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={infoForm.ssn_refused}
-                    onChange={(e) => setInfoForm({...infoForm, ssn_refused: e.target.checked, ssn: ''})}
-                  />
-                  <span>A refusé de communiquer son numéro</span>
-                </label>
               </div>
               
               <div>
@@ -868,19 +860,30 @@ export default function TraineePortalInter() {
                 {formErrors.training_expectations && <p className="text-xs text-red-600 mt-1">{formErrors.training_expectations}</p>}
               </div>
               
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <label className="flex items-start gap-3">
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 space-y-2">
+                <label className="flex items-start gap-2 text-xs text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={infoForm.ssn_refused}
+                    onChange={(e) => setInfoForm({...infoForm, ssn_refused: e.target.checked, ssn: e.target.checked ? '' : infoForm.ssn})}
+                    className="mt-0.5 rounded"
+                  />
+                  <span>Je refuse de communiquer mon numéro de Sécurité Sociale</span>
+                </label>
+                
+                <label className="flex items-start gap-2 text-xs text-gray-700">
                   <input
                     type="checkbox"
                     checked={infoForm.rgpd_consent}
                     onChange={(e) => setInfoForm({...infoForm, rgpd_consent: e.target.checked})}
-                    className="mt-1"
+                    className="mt-0.5 rounded"
                   />
-                  <span className="text-sm text-gray-700">
-                    J'accepte que mes données soient utilisées dans le cadre de cette formation *
+                  <span>
+                    J'accepte que mes données personnelles soient collectées et traitées par Access Formation 
+                    conformément au RGPD. Ces données serviront uniquement à la gestion de ma formation.
                   </span>
                 </label>
-                {formErrors.rgpd_consent && <p className="text-xs text-red-600 mt-2">{formErrors.rgpd_consent}</p>}
+                {formErrors.rgpd_consent && <p className="text-xs text-red-600">{formErrors.rgpd_consent}</p>}
               </div>
               
               <button
@@ -1117,17 +1120,29 @@ export default function TraineePortalInter() {
               
               {/* Would recommend */}
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <label className="flex items-start gap-3">
-                  <input
-                    type="checkbox"
-                    checked={evalForm.would_recommend}
-                    onChange={(e) => setEvalForm({...evalForm, would_recommend: e.target.checked})}
-                    className="mt-1"
-                  />
-                  <span className="text-sm font-medium">
-                    Je recommanderais cette formation à un collègue
-                  </span>
-                </label>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-gray-900">Recommanderiez-vous cette formation ?</span>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setEvalForm({...evalForm, would_recommend: true})}
+                      className={`px-4 py-1.5 rounded text-sm font-medium ${
+                        evalForm.would_recommend ? 'bg-green-600 text-white' : 'bg-white text-gray-700 border border-gray-300 hover:bg-green-50'
+                      }`}
+                    >
+                      Oui
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEvalForm({...evalForm, would_recommend: false})}
+                      className={`px-4 py-1.5 rounded text-sm font-medium ${
+                        evalForm.would_recommend === false ? 'bg-red-600 text-white' : 'bg-white text-gray-700 border border-gray-300 hover:bg-red-50'
+                      }`}
+                    >
+                      Non
+                    </button>
+                  </div>
+                </div>
               </div>
               
               {/* Comments */}
