@@ -11,6 +11,7 @@ import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import toast from 'react-hot-toast'
 import AddTraineesToGroup from '../components/AddTraineesToGroup'
+import SendEmailsModal from '../components/SendEmailsModal'
 import { generateAccessCodeForTrainee, generateAccessCodesForTrainees } from '../lib/accessCodeGenerator'
 
 export default function SessionInterDetail() {
@@ -317,6 +318,7 @@ export default function SessionInterDetail() {
 function GroupCard({ group, session, onUpdate }) {
   const [expanded, setExpanded] = useState(false)
   const [showAddTraineesModal, setShowAddTraineesModal] = useState(false)
+  const [showSendEmailsModal, setShowSendEmailsModal] = useState(false)
   const [generatingCodes, setGeneratingCodes] = useState(false)
   const [generatingCodeId, setGeneratingCodeId] = useState(null)
   const [copiedCode, setCopiedCode] = useState(null)
@@ -345,6 +347,7 @@ function GroupCard({ group, session, onUpdate }) {
   const nbPlacesReservees = group.nb_personnes || 0
   const traineesWithoutCode = group.session_trainees?.filter(st => !st.access_code) || []
   const traineesWithCode = group.session_trainees?.filter(st => st.access_code) || []
+  const traineesWithCodeAndEmail = traineesWithCode.filter(st => st.trainees?.email) || []
 
   // Générer tous les codes manquants
   const handleGenerateAllCodes = async () => {
@@ -476,6 +479,15 @@ function GroupCard({ group, session, onUpdate }) {
                 Stagiaires inscrits ({nbTraineesInscrits}/{nbPlacesReservees})
               </h4>
               <div className="flex items-center gap-2">
+                {traineesWithCodeAndEmail.length > 0 && (
+                  <button
+                    onClick={() => setShowSendEmailsModal(true)}
+                    className="btn btn-sm flex items-center gap-1 bg-green-600 hover:bg-green-700 text-white"
+                  >
+                    <Mail className="w-4 h-4" />
+                    Envoyer emails ({traineesWithCodeAndEmail.length})
+                  </button>
+                )}
                 {traineesWithoutCode.length > 0 && (
                   <button
                     onClick={handleGenerateAllCodes}
@@ -580,6 +592,20 @@ function GroupCard({ group, session, onUpdate }) {
           onClose={() => setShowAddTraineesModal(false)}
           onSuccess={() => {
             setShowAddTraineesModal(false)
+            onUpdate()
+          }}
+        />
+      )}
+
+      {/* Modal envoi emails */}
+      {showSendEmailsModal && (
+        <SendEmailsModal
+          group={group}
+          session={session}
+          trainees={group.session_trainees || []}
+          onClose={() => setShowSendEmailsModal(false)}
+          onSuccess={() => {
+            setShowSendEmailsModal(false)
             onUpdate()
           }}
         />
