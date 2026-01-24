@@ -4,12 +4,14 @@ import { supabase } from '../lib/supabase'
 import { 
   ArrowLeft, Calendar, MapPin, Users, Euro, TrendingUp, 
   Plus, Edit, Trash2, Mail, FileText, AlertCircle, 
-  CheckCircle, Clock, Building2, User, Phone, UserPlus
+  CheckCircle, Clock, Building2, User, Phone, UserPlus,
+  Key, Copy, Check, Sparkles
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import toast from 'react-hot-toast'
 import AddTraineesToGroup from '../components/AddTraineesToGroup'
+import { generateAccessCodeForTrainee, generateAccessCodesForTrainees } from '../lib/accessCodeGenerator'
 
 export default function SessionInterDetail() {
   const { id } = useParams()
@@ -315,6 +317,9 @@ export default function SessionInterDetail() {
 function GroupCard({ group, session, onUpdate }) {
   const [expanded, setExpanded] = useState(false)
   const [showAddTraineesModal, setShowAddTraineesModal] = useState(false)
+  const [generatingCodes, setGeneratingCodes] = useState(false)
+  const [generatingCodeId, setGeneratingCodeId] = useState(null)
+  const [copiedCode, setCopiedCode] = useState(null)
 
   const getStatusBadge = (status) => {
     const config = {
@@ -338,6 +343,58 @@ function GroupCard({ group, session, onUpdate }) {
 
   const nbTraineesInscrits = group.session_trainees?.length || 0
   const nbPlacesReservees = group.nb_personnes || 0
+  const traineesWithoutCode = group.session_trainees?.filter(st => !st.access_code) || []
+  const traineesWithCode = group.session_trainees?.filter(st => st.access_code) || []
+
+  // Générer tous les codes manquants
+  const handleGenerateAllCodes = async () => {
+    if (traineesWithoutCode.length === 0) {
+      toast.error('Tous les codes sont déjà générés')
+      return
+    }
+
+    setGeneratingCodes(true)
+    try {
+      const traineeIds = traineesWithoutCode.map(st => st.id)
+      const results = await generateAccessCodesForTrainees(traineeIds, session.id)
+
+      if (results.errors.length > 0) {
+        toast.error(`${results.errors.length} erreur(s) lors de la génération`)
+      } else {
+        toast.success(`${results.success.length} code(s) généré(s) avec succès !`)
+      }
+
+      onUpdate()
+    } catch (error) {
+      console.error('Erreur génération codes:', error)
+      toast.error('Erreur lors de la génération des codes')
+    } finally {
+      setGeneratingCodes(false)
+    }
+  }
+
+  // Générer un code individuel
+  const handleGenerateCode = async (traineeId) => {
+    setGeneratingCodeId(traineeId)
+    try {
+      const code = await generateAccessCodeForTrainee(traineeId, session.id)
+      toast.success(`Code généré : ${code}`)
+      onUpdate()
+    } catch (error) {
+      console.error('Erreur génération code:', error)
+      toast.error('Erreur lors de la génération du code')
+    } finally {
+      setGeneratingCodeId(null)
+    }
+  }
+
+  // Copier un code
+  const handleCopyCode = (code) => {
+    navigator.clipboard.writeText(code)
+    setCopiedCode(code)
+    toast.success('Code copié !')
+    setTimeout(() => setCopiedCode(null), 2000)
+  }
 
   return (
     <>
@@ -353,7 +410,7 @@ function GroupCard({ group, session, onUpdate }) {
               {getPaymentBadge(group.payment_status)}
             </div>
 
-            <div className="grid md:grid-cols-3 gap-4 text-sm">
+            <div className="grid md:grid-cols-4 gap-4 text-sm">
               <div>
                 <p className="text-gray-500">Participants</p>
                 <p className="font-medium text-gray-900">
@@ -368,6 +425,17 @@ function GroupCard({ group, session, onUpdate }) {
                 <p className="font-medium text-gray-900">
                   {group.price_total?.toLocaleString('fr-FR')}€
                 </p>
+              </div>
+              <div>
+                <p className="text-gray-500">Codes d'accès</p>
+                <p className="font-medium text-gray-900">
+                  {traineesWithCode.length}/{nbTraineesInscrits}
+                </p>
+                {traineesWithoutCode.length > 0 && (
+                  <p className="text-xs text-orange-600">
+                    {traineesWithoutCode.length} manquant{traineesWithoutCode.length > 1 ? 's' : ''}
+                  </p>
+                )}
               </div>
               {group.clients?.contact_email && (
                 <div>
@@ -407,15 +475,27 @@ function GroupCard({ group, session, onUpdate }) {
               <h4 className="font-medium text-gray-900">
                 Stagiaires inscrits ({nbTraineesInscrits}/{nbPlacesReservees})
               </h4>
-              {nbTraineesInscrits < nbPlacesReservees && (
-                <button
-                  onClick={() => setShowAddTraineesModal(true)}
-                  className="text-sm text-primary-600 hover:underline flex items-center gap-1"
-                >
-                  <Plus className="w-4 h-4" />
-                  Ajouter des stagiaires
-                </button>
-              )}
+              <div className="flex items-center gap-2">
+                {traineesWithoutCode.length > 0 && (
+                  <button
+                    onClick={handleGenerateAllCodes}
+                    disabled={generatingCodes}
+                    className="btn btn-primary btn-sm flex items-center gap-1"
+                  >
+                    <Sparkles className="w-4 h-4" />
+                    {generatingCodes ? 'Génération...' : `Générer ${traineesWithoutCode.length} code${traineesWithoutCode.length > 1 ? 's' : ''}`}
+                  </button>
+                )}
+                {nbTraineesInscrits < nbPlacesReservees && (
+                  <button
+                    onClick={() => setShowAddTraineesModal(true)}
+                    className="text-sm text-primary-600 hover:underline flex items-center gap-1"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Ajouter
+                  </button>
+                )}
+              </div>
             </div>
             {group.session_trainees?.length === 0 ? (
               <div className="text-center py-8 bg-gray-50 rounded-lg">
@@ -433,18 +513,18 @@ function GroupCard({ group, session, onUpdate }) {
               <div className="space-y-2">
                 {group.session_trainees.map((st) => (
                   <div key={st.id} className="flex items-center justify-between p-3 bg-white rounded-lg border">
-                    <div className="flex items-center gap-3">
-                      <User className="w-5 h-5 text-gray-400" />
-                      <div>
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      <User className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
                         <p className="font-medium text-gray-900">
                           {st.trainees?.first_name} {st.trainees?.last_name}
                         </p>
                         {st.trainees?.email && (
-                          <p className="text-sm text-gray-500">{st.trainees.email}</p>
+                          <p className="text-sm text-gray-500 truncate">{st.trainees.email}</p>
                         )}
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-shrink-0">
                       {st.info_completed_at ? (
                         <span className="badge badge-green flex items-center gap-1">
                           <CheckCircle className="w-3 h-3" />
@@ -456,10 +536,32 @@ function GroupCard({ group, session, onUpdate }) {
                           En attente
                         </span>
                       )}
-                      {st.access_code && (
-                        <span className="text-xs font-mono bg-gray-100 px-2 py-1 rounded">
-                          {st.access_code}
-                        </span>
+                      {st.access_code ? (
+                        <div className="flex items-center gap-1">
+                          <span className="text-sm font-mono bg-gray-100 px-3 py-1 rounded">
+                            {st.access_code}
+                          </span>
+                          <button
+                            onClick={() => handleCopyCode(st.access_code)}
+                            className="p-1.5 hover:bg-gray-100 rounded transition-colors"
+                            title="Copier le code"
+                          >
+                            {copiedCode === st.access_code ? (
+                              <Check className="w-4 h-4 text-green-600" />
+                            ) : (
+                              <Copy className="w-4 h-4 text-gray-500" />
+                            )}
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => handleGenerateCode(st.id)}
+                          disabled={generatingCodeId === st.id}
+                          className="btn btn-sm flex items-center gap-1 bg-indigo-500 hover:bg-indigo-600 text-white"
+                        >
+                          <Key className="w-3 h-3" />
+                          {generatingCodeId === st.id ? 'Génération...' : 'Générer code'}
+                        </button>
                       )}
                     </div>
                   </div>
