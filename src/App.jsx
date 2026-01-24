@@ -42,7 +42,7 @@ import PublicQuestionnaire from './pages/public/Questionnaire'
 import PublicInfoSheet from './pages/public/InfoSheet'
 import PublicHotEvaluation from './pages/public/HotEvaluation'
 import TraineePortal from './pages/public/TraineePortal'
-import TraineePortalInter from './pages/TraineePortalInter'
+import TraineePortalInter from './pages/public/TraineePortalInter'
 import PublicReclamation from './pages/public/Reclamation'
 
 // Composant de protection des routes
