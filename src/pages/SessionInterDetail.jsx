@@ -72,6 +72,28 @@ export default function SessionInterDetail() {
     }
   }
 
+  const handleDeleteGroup = async (groupId, groupName) => {
+    if (!confirm(`Supprimer le groupe "${groupName}" ?\n\nTous les stagiaires de ce groupe seront également retirés de la session.`)) {
+      return
+    }
+
+    try {
+      // Supprimer le groupe (cascade supprimera les session_trainees)
+      const { error } = await supabase
+        .from('session_groups')
+        .delete()
+        .eq('id', groupId)
+
+      if (error) throw error
+
+      toast.success('Groupe supprimé')
+      loadSessionData()
+    } catch (error) {
+      console.error('Erreur suppression groupe:', error)
+      toast.error('Erreur lors de la suppression du groupe')
+    }
+  }
+
   // Calculer les stats
   const stats = {
     nb_groups: groups.length,
@@ -292,6 +314,7 @@ export default function SessionInterDetail() {
                 group={group} 
                 session={session}
                 onUpdate={loadSessionData}
+                onDeleteGroup={handleDeleteGroup}
               />
             ))}
           </div>
@@ -315,7 +338,7 @@ export default function SessionInterDetail() {
 }
 
 // Composant GroupCard
-function GroupCard({ group, session, onUpdate }) {
+function GroupCard({ group, session, onUpdate, onDeleteGroup }) {
   const [expanded, setExpanded] = useState(false)
   const [showAddTraineesModal, setShowAddTraineesModal] = useState(false)
   const [showSendEmailsModal, setShowSendEmailsModal] = useState(false)
@@ -404,6 +427,28 @@ function GroupCard({ group, session, onUpdate }) {
     setTimeout(() => setCopiedCode(null), 2000)
   }
 
+  // Retirer un stagiaire du groupe
+  const handleRemoveTrainee = async (traineeId, traineeName) => {
+    if (!confirm(`Retirer "${traineeName}" de ce groupe ?`)) {
+      return
+    }
+
+    try {
+      const { error } = await supabase
+        .from('session_trainees')
+        .delete()
+        .eq('id', traineeId)
+
+      if (error) throw error
+
+      toast.success('Stagiaire retiré du groupe')
+      onUpdate()
+    } catch (error) {
+      console.error('Erreur retrait stagiaire:', error)
+      toast.error('Erreur lors du retrait')
+    }
+  }
+
   return (
     <>
       <div className="border rounded-lg p-4 hover:bg-gray-50 transition-colors">
@@ -472,6 +517,13 @@ function GroupCard({ group, session, onUpdate }) {
               className="btn btn-secondary btn-sm"
             >
               {expanded ? 'Masquer' : 'Voir'} ({nbTraineesInscrits})
+            </button>
+            <button
+              onClick={() => onDeleteGroup(group.id, group.clients?.name || group.company_name)}
+              className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+              title="Supprimer le groupe"
+            >
+              <Trash2 className="w-4 h-4" />
             </button>
           </div>
         </div>
@@ -580,6 +632,13 @@ function GroupCard({ group, session, onUpdate }) {
                           {generatingCodeId === st.id ? 'Génération...' : 'Générer code'}
                         </button>
                       )}
+                      <button
+                        onClick={() => handleRemoveTrainee(st.id, `${st.trainees?.first_name} ${st.trainees?.last_name}`)}
+                        className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
+                        title="Retirer du groupe"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </div>
                   </div>
                 ))}
