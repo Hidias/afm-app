@@ -90,11 +90,11 @@ export default function SessionInterNouvelle() {
 
     setLoading(true)
     try {
-      // Générer une référence unique avec timestamp
+      // Générer une référence unique courte (max 20 caractères)
       const courseCode = courses.find(c => c.id === formData.course_id)?.code || 'FORM'
-      const dateStr = new Date(formData.start_date).toISOString().split('T')[0]
-      const timestamp = Date.now().toString().slice(-6)
-      const reference = `${courseCode}-INTER-${dateStr}-${timestamp}`
+      const dateStr = new Date(formData.start_date).toISOString().split('T')[0].replace(/-/g, '') // 20260301
+      const timestamp = Date.now().toString().slice(-4) // 4 derniers chiffres
+      const reference = `${courseCode}-I${dateStr.slice(2)}-${timestamp}` // Ex: SST-I260301-1234 (19 chars max)
 
       // Préparer les données
       const sessionData = {
