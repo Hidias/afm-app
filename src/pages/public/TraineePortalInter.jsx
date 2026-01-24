@@ -260,6 +260,18 @@ export default function TraineePortalInter() {
     if (infoForm.email && !isValidEmail(infoForm.email)) {
       errors.email = 'Email invalide'
     }
+    if (!infoForm.highest_diploma) {
+      errors.highest_diploma = 'Diplôme requis'
+    }
+    if (!infoForm.csp) {
+      errors.csp = 'CSP requise'
+    }
+    if (!infoForm.job_title) {
+      errors.job_title = 'Intitulé du poste requis'
+    }
+    if (!infoForm.training_expectations || infoForm.training_expectations.trim().length === 0) {
+      errors.training_expectations = 'Vos attentes sont requises'
+    }
     if (!infoForm.rgpd_consent) {
       errors.rgpd_consent = 'Vous devez accepter'
     }
@@ -608,75 +620,83 @@ export default function TraineePortalInter() {
 
               {/* Formation précédente */}
               <div>
-                <label className="block text-sm font-medium mb-1">Année de dernière formation</label>
+                <label className="block text-sm font-medium mb-1">Année dernière formation</label>
                 <input
                   type="text"
-                  value={infoForm.last_training_year}
-                  onChange={(e) => setInfoForm({...infoForm, last_training_year: e.target.value})}
+                  inputMode="numeric"
                   placeholder="Ex: 2023"
+                  maxLength={4}
+                  value={infoForm.last_training_year}
+                  onChange={(e) => setInfoForm({...infoForm, last_training_year: e.target.value.replace(/\D/g, '')})}
                   className="w-full px-3 py-2 border rounded-lg text-sm"
                 />
               </div>
 
               {/* Diplôme */}
               <div>
-                <label className="block text-sm font-medium mb-1">Diplôme le plus élevé</label>
+                <label className="block text-sm font-medium mb-1">Diplôme le plus élevé *</label>
                 <select
                   value={infoForm.highest_diploma}
                   onChange={(e) => setInfoForm({...infoForm, highest_diploma: e.target.value})}
                   className="w-full px-3 py-2 border rounded-lg text-sm"
                 >
-                  <option value="">Sélectionnez...</option>
-                  <option value="Aucun">Aucun</option>
+                  <option value="">Sélectionner...</option>
+                  <option value="Sans diplôme">Sans diplôme</option>
                   <option value="CAP/BEP">CAP/BEP</option>
-                  <option value="Bac">Bac</option>
-                  <option value="Bac+2">Bac+2</option>
-                  <option value="Bac+3">Bac+3</option>
-                  <option value="Bac+5">Bac+5</option>
-                  <option value="Doctorat">Doctorat</option>
+                  <option value="Baccalauréat">Baccalauréat</option>
+                  <option value="Bac+2">Bac+2 (BTS, DUT)</option>
+                  <option value="Bac+3">Bac+3 (Licence)</option>
+                  <option value="Bac+5">Bac+5 (Master)</option>
+                  <option value="Bac+8">Bac+8 (Doctorat)</option>
                 </select>
+                {formErrors.highest_diploma && <p className="text-xs text-red-600 mt-1">{formErrors.highest_diploma}</p>}
               </div>
 
               {/* CSP */}
               <div>
-                <label className="block text-sm font-medium mb-1">Catégorie socio-professionnelle (CSP)</label>
+                <label className="block text-sm font-medium mb-1">Catégorie socio-professionnelle (CSP) *</label>
                 <select
                   value={infoForm.csp}
                   onChange={(e) => setInfoForm({...infoForm, csp: e.target.value})}
                   className="w-full px-3 py-2 border rounded-lg text-sm"
                 >
-                  <option value="">Sélectionnez...</option>
-                  <option value="Employé">Employé</option>
-                  <option value="Ouvrier">Ouvrier</option>
-                  <option value="Agent de maîtrise">Agent de maîtrise</option>
-                  <option value="Cadre">Cadre</option>
-                  <option value="Chef d'entreprise">Chef d'entreprise</option>
-                  <option value="Demandeur d'emploi">Demandeur d'emploi</option>
-                  <option value="Autre">Autre</option>
+                  <option value="">Sélectionner...</option>
+                  <option value="Agriculteurs exploitants">Agriculteurs exploitants</option>
+                  <option value="Artisans, commerçants, chefs d'entreprise">Artisans, commerçants, chefs d'entreprise</option>
+                  <option value="Cadres et professions intellectuelles supérieures">Cadres et professions intellectuelles supérieures</option>
+                  <option value="Professions intermédiaires">Professions intermédiaires</option>
+                  <option value="Employés">Employés</option>
+                  <option value="Ouvriers">Ouvriers</option>
+                  <option value="Retraités">Retraités</option>
+                  <option value="Autres personnes sans activité professionnelle">Autres personnes sans activité professionnelle</option>
                 </select>
+                {formErrors.csp && <p className="text-xs text-red-600 mt-1">{formErrors.csp}</p>}
               </div>
 
               {/* Poste */}
               <div>
-                <label className="block text-sm font-medium mb-1">Intitulé du poste actuel</label>
+                <label className="block text-sm font-medium mb-1">Intitulé du poste *</label>
                 <input
                   type="text"
                   value={infoForm.job_title}
                   onChange={(e) => setInfoForm({...infoForm, job_title: e.target.value})}
+                  placeholder="Ex: Technicien de maintenance"
                   className="w-full px-3 py-2 border rounded-lg text-sm"
                 />
+                {formErrors.job_title && <p className="text-xs text-red-600 mt-1">{formErrors.job_title}</p>}
               </div>
 
               {/* Attentes */}
               <div>
-                <label className="block text-sm font-medium mb-1">Vos attentes concernant cette formation</label>
+                <label className="block text-sm font-medium mb-1">Mes attentes de la formation *</label>
                 <textarea
                   value={infoForm.training_expectations}
                   onChange={(e) => setInfoForm({...infoForm, training_expectations: e.target.value})}
+                  placeholder="Décrivez vos attentes, objectifs personnels, compétences à acquérir..."
                   className="w-full px-3 py-2 border rounded-lg text-sm"
                   rows={3}
-                  placeholder="Qu'attendez-vous de cette formation ?"
                 />
+                {formErrors.training_expectations && <p className="text-xs text-red-600 mt-1">{formErrors.training_expectations}</p>}
               </div>
 
               {/* RGPD */}
