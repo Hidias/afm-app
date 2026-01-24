@@ -5,7 +5,7 @@ import {
   ArrowLeft, Calendar, MapPin, Users, Euro, TrendingUp, 
   Plus, Edit, Trash2, Mail, FileText, AlertCircle, 
   CheckCircle, Clock, Building2, User, Phone, UserPlus,
-  Key, Copy, Check, Sparkles
+  Key, Copy, Check, Sparkles, Download
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
@@ -13,6 +13,7 @@ import toast from 'react-hot-toast'
 import AddTraineesToGroup from '../components/AddTraineesToGroup'
 import SendEmailsModal from '../components/SendEmailsModal'
 import { generateAccessCodeForTrainee, generateAccessCodesForTrainees } from '../lib/accessCodeGenerator'
+import { downloadConventionInter, downloadEmargementInter, downloadDocument } from '../lib/pdfGenerator'
 
 export default function SessionInterDetail() {
   const { id } = useParams()
@@ -48,14 +49,14 @@ export default function SessionInterDetail() {
         .from('session_groups')
         .select(`
           *,
-          clients(id, name, contact_email, contact_phone),
+          clients(id, name, contact_email, contact_phone, address, siret, contact_name, contact_function),
           session_trainees(
             id,
             trainee_id,
             trainee_status,
             access_code,
             info_completed_at,
-            trainees(id, first_name, last_name, email, phone)
+            trainees(id, first_name, last_name, email, phone, social_security_number)
           )
         `)
         .eq('session_id', id)
@@ -69,28 +70,6 @@ export default function SessionInterDetail() {
       toast.error('Erreur lors du chargement')
     } finally {
       setLoading(false)
-    }
-  }
-
-  const handleDeleteGroup = async (groupId, groupName) => {
-    if (!confirm(`Supprimer le groupe "${groupName}" ?\n\nTous les stagiaires de ce groupe seront également retirés de la session.`)) {
-      return
-    }
-
-    try {
-      // Supprimer le groupe (cascade supprimera les session_trainees)
-      const { error } = await supabase
-        .from('session_groups')
-        .delete()
-        .eq('id', groupId)
-
-      if (error) throw error
-
-      toast.success('Groupe supprimé')
-      loadSessionData()
-    } catch (error) {
-      console.error('Erreur suppression groupe:', error)
-      toast.error('Erreur lors de la suppression du groupe')
     }
   }
 
@@ -122,182 +101,150 @@ export default function SessionInterDetail() {
 
   if (!session) {
     return (
-      <div className="text-center py-12">
-        <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-        <h3 className="text-lg font-semibold text-gray-900 mb-2">Session introuvable</h3>
-        <Link to="/sessions-inter" className="text-primary-600 hover:underline">
-          Retour à la liste
+      <div className="text-center py-8">
+        <p className="text-gray-500">Session non trouvée</p>
+        <Link to="/sessions" className="text-primary-600 hover:underline mt-2">
+          Retour aux sessions
         </Link>
       </div>
     )
   }
 
   return (
-    <div className="space-y-6">
+    <div className="max-w-7xl mx-auto">
       {/* Header */}
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex items-start gap-4">
-          <button
-            onClick={() => navigate('/sessions-inter')}
-            className="p-2 hover:bg-gray-100 rounded-lg mt-1"
-          >
-            <ArrowLeft className="w-5 h-5" />
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-3">
+          <button onClick={() => navigate('/sessions')} className="btn btn-secondary">
+            <ArrowLeft className="w-4 h-4" />
           </button>
           <div>
             <h1 className="text-2xl font-bold text-gray-900">
-              {session.courses?.title || 'Formation'}
+              {session.courses?.title}
             </h1>
-            <p className="text-gray-500 mt-1">
-              Référence : {session.reference}
+            <p className="text-sm text-gray-500 mt-1">
+              {session.reference} • Session INTER-ENTREPRISES
             </p>
-            <div className="flex items-center gap-4 mt-2 text-sm text-gray-600">
-              <span className="flex items-center gap-1">
-                <Calendar className="w-4 h-4" />
-                {format(new Date(session.start_date), 'd MMM', { locale: fr })} - 
-                {format(new Date(session.end_date), 'd MMM yyyy', { locale: fr })}
-              </span>
-              {session.location_city && (
-                <span className="flex items-center gap-1">
-                  <MapPin className="w-4 h-4" />
-                  {session.location_city}
-                </span>
-              )}
-            </div>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => navigate(`/sessions-inter/${id}/edit`)}
-            className="btn btn-secondary flex items-center gap-2"
-          >
+          <Link to={`/sessions/${id}/edit`} className="btn btn-secondary">
             <Edit className="w-4 h-4" />
             Modifier
-          </button>
-        </div>
-      </div>
-
-      {/* Alertes */}
-      {!isMinReached && (
-        <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
-          <div className="flex gap-3">
-            <AlertCircle className="w-5 h-5 text-orange-600 flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="font-medium text-orange-900">
-                Seuil minimum non atteint
-              </p>
-              <p className="text-sm text-orange-700 mt-1">
-                {stats.nb_participants} / {session.min_participants} participants minimum requis
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {fillRate >= 90 && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-          <div className="flex gap-3">
-            <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="font-medium text-red-900">
-                Session presque complète
-              </p>
-              <p className="text-sm text-red-700 mt-1">
-                {stats.nb_participants} / {session.max_participants} places occupées ({fillRate}%)
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-        <div className="card">
-          <div className="flex items-center gap-3">
-            <div className="bg-blue-500 p-3 rounded-lg">
-              <Building2 className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-gray-900">{stats.nb_groups}</p>
-              <p className="text-sm text-gray-500">Groupes</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="flex items-center gap-3">
-            <div className="bg-purple-500 p-3 rounded-lg">
-              <Users className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-gray-900">{stats.nb_participants}</p>
-              <p className="text-sm text-gray-500">Participants</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="flex items-center gap-3">
-            <div className={`p-3 rounded-lg ${fillRate >= 90 ? 'bg-red-500' : fillRate >= 70 ? 'bg-orange-500' : 'bg-green-500'}`}>
-              <TrendingUp className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-gray-900">{fillRate}%</p>
-              <p className="text-sm text-gray-500">Taux remplissage</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="flex items-center gap-3">
-            <div className="bg-emerald-500 p-3 rounded-lg">
-              <Euro className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-gray-900">
-                {stats.ca_confirmed.toLocaleString('fr-FR')}€
-              </p>
-              <p className="text-sm text-gray-500">CA confirmé</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="flex items-center gap-3">
-            <div className="bg-indigo-500 p-3 rounded-lg">
-              <CheckCircle className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-gray-900">{stats.nb_infos_completed}</p>
-              <p className="text-sm text-gray-500">Fiches complétées</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Groupes */}
-      <div className="card">
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-xl font-semibold text-gray-900">
-            Groupes d'entreprises
-          </h2>
+          </Link>
           <button
             onClick={() => setShowAddGroupModal(true)}
-            className="btn btn-primary flex items-center gap-2"
+            className="btn btn-primary"
           >
             <Plus className="w-4 h-4" />
             Ajouter un groupe
           </button>
         </div>
+      </div>
 
-        {groups.length === 0 ? (
-          <div className="text-center py-12 bg-gray-50 rounded-lg">
-            <Building2 className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">
-              Aucun groupe inscrit
-            </h3>
-            <p className="text-gray-500 mb-4">
-              Ajoutez votre premier groupe d'entreprise pour cette session
+      {/* Infos session */}
+      <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
+        <div className="grid md:grid-cols-4 gap-6">
+          <div>
+            <div className="flex items-center gap-2 text-gray-500 mb-1">
+              <Calendar className="w-4 h-4" />
+              <span className="text-sm">Dates</span>
+            </div>
+            <p className="font-medium text-gray-900">
+              {format(new Date(session.start_date), 'd MMM', { locale: fr })} - {format(new Date(session.end_date), 'd MMM yyyy', { locale: fr })}
             </p>
+          </div>
+          <div>
+            <div className="flex items-center gap-2 text-gray-500 mb-1">
+              <MapPin className="w-4 h-4" />
+              <span className="text-sm">Lieu</span>
+            </div>
+            <p className="font-medium text-gray-900">
+              {session.location_city || 'Non défini'}
+            </p>
+          </div>
+          <div>
+            <div className="flex items-center gap-2 text-gray-500 mb-1">
+              <Users className="w-4 h-4" />
+              <span className="text-sm">Effectif</span>
+            </div>
+            <p className="font-medium text-gray-900">
+              {session.min_participants} - {session.max_participants} participants
+            </p>
+          </div>
+          <div>
+            <div className="flex items-center gap-2 text-gray-500 mb-1">
+              <Euro className="w-4 h-4" />
+              <span className="text-sm">Prix public</span>
+            </div>
+            <p className="font-medium text-gray-900">
+              {session.public_price_per_person}€ / pers.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Stats */}
+      <div className="grid md:grid-cols-5 gap-4 mb-6">
+        <div className="bg-white rounded-xl shadow-sm p-4">
+          <p className="text-sm text-gray-500 mb-1">Groupes</p>
+          <p className="text-2xl font-bold text-gray-900">{stats.nb_groups}</p>
+        </div>
+        <div className="bg-white rounded-xl shadow-sm p-4">
+          <p className="text-sm text-gray-500 mb-1">Participants</p>
+          <p className="text-2xl font-bold text-gray-900">{stats.nb_participants}</p>
+          <div className="flex items-center gap-1 mt-1">
+            <div className="flex-1 bg-gray-200 rounded-full h-2">
+              <div 
+                className={`h-2 rounded-full transition-all ${isMinReached ? 'bg-green-500' : 'bg-orange-500'}`}
+                style={{ width: `${Math.min(fillRate, 100)}%` }}
+              />
+            </div>
+            <span className="text-xs text-gray-500">{fillRate}%</span>
+          </div>
+        </div>
+        <div className="bg-white rounded-xl shadow-sm p-4">
+          <p className="text-sm text-gray-500 mb-1">Confirmés</p>
+          <p className="text-2xl font-bold text-green-600">{stats.nb_confirmed}</p>
+        </div>
+        <div className="bg-white rounded-xl shadow-sm p-4">
+          <p className="text-sm text-gray-500 mb-1">CA Total</p>
+          <p className="text-2xl font-bold text-gray-900">
+            {stats.ca_total.toLocaleString('fr-FR')}€
+          </p>
+        </div>
+        <div className="bg-white rounded-xl shadow-sm p-4">
+          <p className="text-sm text-gray-500 mb-1">Fiches complétées</p>
+          <p className="text-2xl font-bold text-blue-600">
+            {stats.nb_infos_completed}/{stats.nb_participants}
+          </p>
+        </div>
+      </div>
+
+      {/* Alert minimum */}
+      {!isMinReached && (
+        <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 mb-6">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-orange-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="font-medium text-orange-900">Effectif minimum non atteint</p>
+              <p className="text-sm text-orange-700 mt-1">
+                Il manque encore {(session.min_participants || 4) - stats.nb_participants} participant(s) pour atteindre le minimum.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Groupes */}
+      <div className="space-y-4">
+        <h2 className="text-lg font-semibold text-gray-900">
+          Groupes inscrits ({groups.length})
+        </h2>
+        {groups.length === 0 ? (
+          <div className="bg-white rounded-xl shadow-sm p-8 text-center">
+            <Building2 className="w-12 h-12 text-gray-400 mx-auto mb-3" />
+            <p className="text-gray-500 mb-4">Aucun groupe inscrit</p>
             <button
               onClick={() => setShowAddGroupModal(true)}
               className="btn btn-primary inline-flex items-center gap-2"
@@ -307,21 +254,18 @@ export default function SessionInterDetail() {
             </button>
           </div>
         ) : (
-          <div className="space-y-4">
-            {groups.map((group) => (
-              <GroupCard 
-                key={group.id} 
-                group={group} 
-                session={session}
-                onUpdate={loadSessionData}
-                onDeleteGroup={handleDeleteGroup}
-              />
-            ))}
-          </div>
+          groups.map((group) => (
+            <GroupCard 
+              key={group.id} 
+              group={group} 
+              session={session}
+              onUpdate={loadSessionData}
+            />
+          ))
         )}
       </div>
 
-      {/* Modal Ajouter un groupe */}
+      {/* Modal ajout groupe */}
       {showAddGroupModal && (
         <AddGroupModal
           sessionId={id}
@@ -338,88 +282,67 @@ export default function SessionInterDetail() {
 }
 
 // Composant GroupCard
-function GroupCard({ group, session, onUpdate, onDeleteGroup }) {
+function GroupCard({ group, session, onUpdate }) {
   const [expanded, setExpanded] = useState(false)
   const [showAddTraineesModal, setShowAddTraineesModal] = useState(false)
   const [showSendEmailsModal, setShowSendEmailsModal] = useState(false)
-  const [generatingCodes, setGeneratingCodes] = useState(false)
-  const [generatingCodeId, setGeneratingCodeId] = useState(null)
   const [copiedCode, setCopiedCode] = useState(null)
+  const [generatingCodeId, setGeneratingCodeId] = useState(null)
+  const [generatingCodes, setGeneratingCodes] = useState(false)
+
+  const nbPlacesReservees = group.nb_personnes || 0
+  const nbTraineesInscrits = group.session_trainees?.length || 0
+  const traineesWithCode = group.session_trainees?.filter(st => st.access_code) || []
+  const traineesWithoutCode = group.session_trainees?.filter(st => !st.access_code) || []
+  const traineesWithCodeSendable = traineesWithCode.filter(st => st.trainees?.email)
 
   const getStatusBadge = (status) => {
-    const config = {
-      pending: { label: 'En attente', color: 'orange' },
-      confirmed: { label: 'Confirmé', color: 'green' },
-      cancelled: { label: 'Annulé', color: 'red' }
+    const badges = {
+      pending: <span className="badge badge-orange">En attente</span>,
+      confirmed: <span className="badge badge-green">Confirmé</span>,
+      cancelled: <span className="badge badge-red">Annulé</span>
     }
-    const { label, color } = config[status] || config.pending
-    return <span className={`badge badge-${color}`}>{label}</span>
+    return badges[status] || null
   }
 
   const getPaymentBadge = (status) => {
-    const config = {
-      pending: { label: 'Non payé', color: 'orange' },
-      confirmed: { label: 'Payé', color: 'green' },
-      cancelled: { label: 'Annulé', color: 'red' }
+    const badges = {
+      pending: <span className="badge badge-gray">Paiement en attente</span>,
+      confirmed: <span className="badge badge-blue">Payé</span>,
+      partial: <span className="badge badge-yellow">Acompte</span>
     }
-    const { label, color } = config[status] || config.pending
-    return <span className={`badge badge-${color}`}>{label}</span>
+    return badges[status] || null
   }
 
-  const nbTraineesInscrits = group.session_trainees?.length || 0
-  const nbPlacesReservees = group.nb_personnes || 0
-  const traineesWithoutCode = group.session_trainees?.filter(st => !st.access_code) || []
-  const traineesWithCode = group.session_trainees?.filter(st => st.access_code) || []
-  const traineesWithCodeAndEmail = traineesWithCode.filter(st => st.trainees?.email) || []
-  
-  // Stagiaires "envoyables" : avec email direct OU via contact entreprise
-  const traineesWithCodeSendable = traineesWithCode.filter(st => 
-    st.trainees?.email || group.clients?.contact_email
-  ) || []
-
-  // Générer tous les codes manquants
-  const handleGenerateAllCodes = async () => {
-    if (traineesWithoutCode.length === 0) {
-      toast.error('Tous les codes sont déjà générés')
-      return
-    }
-
-    setGeneratingCodes(true)
+  const handleGenerateCode = async (sessionTraineeId) => {
+    setGeneratingCodeId(sessionTraineeId)
     try {
-      const traineeIds = traineesWithoutCode.map(st => st.id)
-      const results = await generateAccessCodesForTrainees(traineeIds, session.id)
-
-      if (results.errors.length > 0) {
-        toast.error(`${results.errors.length} erreur(s) lors de la génération`)
-      } else {
-        toast.success(`${results.success.length} code(s) généré(s) avec succès !`)
-      }
-
-      onUpdate()
-    } catch (error) {
-      console.error('Erreur génération codes:', error)
-      toast.error('Erreur lors de la génération des codes')
-    } finally {
-      setGeneratingCodes(false)
-    }
-  }
-
-  // Générer un code individuel
-  const handleGenerateCode = async (traineeId) => {
-    setGeneratingCodeId(traineeId)
-    try {
-      const code = await generateAccessCodeForTrainee(traineeId, session.id)
-      toast.success(`Code généré : ${code}`)
+      await generateAccessCodeForTrainee(sessionTraineeId)
+      toast.success('Code généré !')
       onUpdate()
     } catch (error) {
       console.error('Erreur génération code:', error)
-      toast.error('Erreur lors de la génération du code')
+      toast.error('Erreur lors de la génération')
     } finally {
       setGeneratingCodeId(null)
     }
   }
 
-  // Copier un code
+  const handleGenerateAllCodes = async () => {
+    setGeneratingCodes(true)
+    try {
+      const ids = traineesWithoutCode.map(st => st.id)
+      await generateAccessCodesForTrainees(ids)
+      toast.success(`${ids.length} code(s) généré(s) !`)
+      onUpdate()
+    } catch (error) {
+      console.error('Erreur génération codes:', error)
+      toast.error('Erreur lors de la génération')
+    } finally {
+      setGeneratingCodes(false)
+    }
+  }
+
   const handleCopyCode = (code) => {
     navigator.clipboard.writeText(code)
     setCopiedCode(code)
@@ -427,25 +350,51 @@ function GroupCard({ group, session, onUpdate, onDeleteGroup }) {
     setTimeout(() => setCopiedCode(null), 2000)
   }
 
-  // Retirer un stagiaire du groupe
-  const handleRemoveTrainee = async (traineeId, traineeName) => {
-    if (!confirm(`Retirer "${traineeName}" de ce groupe ?`)) {
-      return
-    }
-
+  // === NOUVELLES FONCTIONS PDF ===
+  const handleDownloadConvention = () => {
     try {
-      const { error } = await supabase
-        .from('session_trainees')
-        .delete()
-        .eq('id', traineeId)
-
-      if (error) throw error
-
-      toast.success('Stagiaire retiré du groupe')
-      onUpdate()
+      const trainees = group.session_trainees?.map(st => st.trainees).filter(Boolean) || []
+      downloadConventionInter(session, group, trainees, session.trainers, [])
+      toast.success('Convention téléchargée !')
     } catch (error) {
-      console.error('Erreur retrait stagiaire:', error)
-      toast.error('Erreur lors du retrait')
+      console.error('Erreur téléchargement convention:', error)
+      toast.error('Erreur lors du téléchargement')
+    }
+  }
+
+  const handleDownloadEmargementVierge = () => {
+    try {
+      const trainees = group.session_trainees?.map(st => st.trainees).filter(Boolean) || []
+      downloadEmargementInter(session, group, trainees, session.trainers, { isBlank: true })
+      toast.success('Émargement vierge téléchargé !')
+    } catch (error) {
+      console.error('Erreur téléchargement émargement:', error)
+      toast.error('Erreur lors du téléchargement')
+    }
+  }
+
+  const handleDownloadEmargementSigne = async () => {
+    try {
+      // Récupérer les présences
+      const traineeIds = group.session_trainees?.map(st => st.trainees?.id).filter(Boolean) || []
+      
+      const { data: attendanceData, error } = await supabase
+        .from('attendance_halfdays')
+        .select('*')
+        .eq('session_id', session.id)
+        .in('trainee_id', traineeIds)
+      
+      if (error) throw error
+      
+      const trainees = group.session_trainees?.map(st => st.trainees).filter(Boolean) || []
+      downloadEmargementInter(session, group, trainees, session.trainers, { 
+        isBlank: false, 
+        attendanceData: attendanceData || [] 
+      })
+      toast.success('Émargement signé téléchargé !')
+    } catch (error) {
+      console.error('Erreur téléchargement émargement signé:', error)
+      toast.error('Erreur lors du téléchargement')
     }
   }
 
@@ -518,12 +467,36 @@ function GroupCard({ group, session, onUpdate, onDeleteGroup }) {
             >
               {expanded ? 'Masquer' : 'Voir'} ({nbTraineesInscrits})
             </button>
+          </div>
+        </div>
+
+        {/* === SECTION DOCUMENTS PDF === */}
+        <div className="mt-4 pt-4 border-t">
+          <h4 className="text-sm font-medium text-gray-700 mb-3 flex items-center gap-2">
+            <FileText className="w-4 h-4" />
+            Documents du groupe
+          </h4>
+          <div className="flex flex-wrap gap-2">
             <button
-              onClick={() => onDeleteGroup(group.id, group.clients?.name || group.company_name)}
-              className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-              title="Supprimer le groupe"
+              onClick={handleDownloadConvention}
+              className="btn btn-sm btn-secondary flex items-center gap-1"
             >
-              <Trash2 className="w-4 h-4" />
+              <Download className="w-3 h-3" />
+              Convention
+            </button>
+            <button
+              onClick={handleDownloadEmargementVierge}
+              className="btn btn-sm btn-secondary flex items-center gap-1"
+            >
+              <Download className="w-3 h-3" />
+              Émargement vierge
+            </button>
+            <button
+              onClick={handleDownloadEmargementSigne}
+              className="btn btn-sm btn-secondary flex items-center gap-1"
+            >
+              <Download className="w-3 h-3" />
+              Émargement signé
             </button>
           </div>
         </div>
@@ -632,13 +605,6 @@ function GroupCard({ group, session, onUpdate, onDeleteGroup }) {
                           {generatingCodeId === st.id ? 'Génération...' : 'Générer code'}
                         </button>
                       )}
-                      <button
-                        onClick={() => handleRemoveTrainee(st.id, `${st.trainees?.first_name} ${st.trainees?.last_name}`)}
-                        className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
-                        title="Retirer du groupe"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
                     </div>
                   </div>
                 ))}
@@ -708,60 +674,44 @@ function AddGroupModal({ sessionId, sessionPrice, onClose, onSuccess }) {
     try {
       const price_total = formData.nb_personnes * formData.price_per_person
 
-      // Récupérer le nom du client pour générer le group_name
-      const selectedClient = clients.find(c => c.id === formData.client_id)
-      const group_name = selectedClient ? `Groupe ${selectedClient.name}` : 'Groupe'
-
       const { error } = await supabase
         .from('session_groups')
         .insert({
           session_id: sessionId,
-          client_id: formData.client_id,
-          group_name,
-          nb_personnes: parseInt(formData.nb_personnes),
-          price_per_person: parseFloat(formData.price_per_person),
+          client_id: formData.client_id || null,
+          nb_personnes: formData.nb_personnes,
           price_total,
           status: formData.status,
           payment_status: formData.payment_status
         })
 
       if (error) throw error
-
-      toast.success('Groupe ajouté avec succès !')
+      toast.success('Groupe ajouté !')
       onSuccess()
     } catch (error) {
-      console.error('Erreur:', error)
-      toast.error('Erreur lors de l\'ajout du groupe')
+      console.error('Erreur ajout groupe:', error)
+      toast.error('Erreur lors de l\'ajout')
     } finally {
       setLoading(false)
     }
   }
 
-  const priceTotal = formData.nb_personnes * formData.price_per_person
-
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
-        <div className="p-6 border-b">
-          <h2 className="text-xl font-semibold text-gray-900">
-            Ajouter un groupe d'entreprise
-          </h2>
-        </div>
-
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          {/* Client */}
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-xl max-w-md w-full p-6">
+        <h2 className="text-xl font-bold text-gray-900 mb-4">Ajouter un groupe</h2>
+        <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Entreprise *
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Entreprise (optionnel)
             </label>
             <select
               value={formData.client_id}
               onChange={(e) => setFormData({ ...formData, client_id: e.target.value })}
-              required
               className="input"
             >
-              <option value="">Sélectionner une entreprise</option>
-              {clients.map(client => (
+              <option value="">-- Nouvelle entreprise --</option>
+              {clients.map((client) => (
                 <option key={client.id} value={client.id}>
                   {client.name}
                 </option>
@@ -769,66 +719,75 @@ function AddGroupModal({ sessionId, sessionPrice, onClose, onSuccess }) {
             </select>
           </div>
 
-          {/* Nombre de personnes */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700 mb-1">
               Nombre de participants *
             </label>
             <input
               type="number"
               min="1"
               value={formData.nb_personnes}
-              onChange={(e) => setFormData({ ...formData, nb_personnes: e.target.value })}
-              required
+              onChange={(e) => setFormData({ ...formData, nb_personnes: parseInt(e.target.value) })}
               className="input"
+              required
             />
           </div>
 
-          {/* Prix par personne */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700 mb-1">
               Prix par personne *
             </label>
-            <div className="relative">
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={formData.price_per_person}
-                onChange={(e) => setFormData({ ...formData, price_per_person: e.target.value })}
-                required
-                className="input pr-12"
-              />
-              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">€</span>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={formData.price_per_person}
+              onChange={(e) => setFormData({ ...formData, price_per_person: parseFloat(e.target.value) })}
+              className="input"
+              required
+            />
+            <p className="text-sm text-gray-500 mt-1">
+              Prix total : {(formData.nb_personnes * formData.price_per_person).toFixed(2)}€
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Statut
+              </label>
+              <select
+                value={formData.status}
+                onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+                className="input"
+              >
+                <option value="pending">En attente</option>
+                <option value="confirmed">Confirmé</option>
+                <option value="cancelled">Annulé</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Paiement
+              </label>
+              <select
+                value={formData.payment_status}
+                onChange={(e) => setFormData({ ...formData, payment_status: e.target.value })}
+                className="input"
+              >
+                <option value="pending">En attente</option>
+                <option value="confirmed">Payé</option>
+                <option value="partial">Acompte</option>
+              </select>
             </div>
           </div>
 
-          {/* Prix total calculé */}
-          <div className="bg-gray-50 p-4 rounded-lg">
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-gray-700">Prix total</span>
-              <span className="text-2xl font-bold text-gray-900">
-                {priceTotal.toLocaleString('fr-FR')}€
-              </span>
-            </div>
-          </div>
-
-          {/* Boutons */}
-          <div className="flex items-center justify-end gap-3 pt-4 border-t">
-            <button
-              type="button"
-              onClick={onClose}
-              className="btn btn-secondary"
-              disabled={loading}
-            >
+          <div className="flex justify-end gap-2 mt-6">
+            <button type="button" onClick={onClose} className="btn btn-secondary">
               Annuler
             </button>
-            <button
-              type="submit"
-              className="btn btn-primary"
-              disabled={loading}
-            >
-              {loading ? 'Ajout...' : 'Ajouter le groupe'}
+            <button type="submit" disabled={loading} className="btn btn-primary">
+              {loading ? 'Ajout...' : 'Ajouter'}
             </button>
           </div>
         </form>
