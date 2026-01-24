@@ -18,6 +18,7 @@ import Sessions from './pages/Sessions'
 import SessionsInter from './pages/SessionsInter'
 import SessionInterNouvelle from './pages/SessionInterNouvelle'
 import SessionInterDetail from './pages/SessionInterDetail'
+import SessionInterEdit from './pages/SessionInterEdit'
 import SessionDetail from './pages/SessionDetail'
 import Documents from './pages/Documents'
 import DocumentsVierges from './pages/DocumentsVierges'
@@ -149,6 +150,7 @@ export default function App() {
           <Route path="sessions-inter" element={<SessionsInter />} />
           <Route path="sessions-inter/nouvelle" element={<SessionInterNouvelle />} />
           <Route path="sessions-inter/:id" element={<SessionInterDetail />} />
+          <Route path="sessions-inter/:id/edit" element={<SessionInterEdit />} />
           <Route path="documents" element={<Documents />} />
           <Route path="documents-vierges" element={<DocumentsVierges />} />
           <Route path="qualite" element={<QualiteEditables />} />
