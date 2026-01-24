@@ -2643,4 +2643,72 @@ function generatePositionnementContent(doc, session, questions, trainee) {
     doc.text('(Page intentionnellement vide)', pw / 2, ph / 2, { align: 'center' })
     doc.setTextColor(0, 0, 0)
   }
+import { generateConventionInter, generateEmargementInter } from '../utils/pdfGenerator'
+
+// Pour générer une convention pour un groupe
+const handleGenerateConvention = async (groupId) => {
+  // 1. Récupérer les données du groupe
+  const { data: group } = await supabase
+    .from('session_groups')
+    .select('*, clients(*)')
+    .eq('id', groupId)
+    .single()
+  
+  // 2. Récupérer les stagiaires du groupe
+  const { data: traineesOfGroup } = await supabase
+    .from('session_trainees')
+    .select('*, trainees(*)')
+    .eq('group_id', groupId)
+  
+  // 3. Générer le PDF
+  const doc = generateConventionInter(
+    session,          // Session complète avec courses
+    group,            // Groupe avec clients
+    traineesOfGroup.map(st => st.trainees), // Juste les trainees
+    trainer,          // Formateur
+    []                // Coûts supplémentaires (vide pour l'instant)
+  )
+  
+  // 4. Télécharger
+  const filename = `Convention_INTER_${session.reference}_${group.company_name}.pdf`
+  doc.save(filename)
+}
+
+// Pour générer émargement VIERGE
+const handleGenerateEmargementVierge = async (groupId) => {
+  // ... même chose pour récupérer group et traineesOfGroup
+  
+  const doc = generateEmargementInter(
+    session,
+    group,
+    traineesOfGroup.map(st => st.trainees),
+    trainer,
+    { isBlank: true } // VERSION VIERGE
+  )
+  
+  doc.save(`Emargement_INTER_${session.reference}_${group.company_name}_Vierge.pdf`)
+}
+
+// Pour générer émargement VALIDÉ (après formation)
+const handleGenerateEmargementValide = async (groupId) => {
+  // 1. Récupérer les présences
+  const { data: attendanceData } = await supabase
+    .from('attendance_halfdays')
+    .select('*')
+    .eq('session_id', session.id)
+    .in('trainee_id', traineesOfGroup.map(st => st.trainees.id))
+  
+  // 2. Générer avec présences
+  const doc = generateEmargementInter(
+    session,
+    group,
+    traineesOfGroup.map(st => st.trainees),
+    trainer,
+    { 
+      isBlank: false,
+      attendanceData: attendanceData // Données de présence
+    }
+  )
+  
+  doc.save(`Emargement_INTER_${session.reference}_${group.company_name}_Valide.pdf`)
 }
