@@ -461,6 +461,8 @@ export default function TraineePortalInter() {
   const proceedWithAttendance = async (date, period, newValue, isFirst) => {
     const key = `${date}_${period}`
     
+    console.log('🎯 proceedWithAttendance appelé:', { date, period, newValue, isFirst })
+    
     // Optimistic update
     const newAttendanceData = { ...attendanceData, [key]: newValue }
     setAttendanceData(newAttendanceData)
@@ -497,12 +499,29 @@ export default function TraineePortalInter() {
       
       const isComplete = presentCount === totalHalfDays && totalHalfDays > 0
       
+      console.log('🔍 CALCUL presence_complete:', {
+        presentCount,
+        totalHalfDays,
+        isComplete,
+        sessionId: session.id,
+        traineeId: trainee.id,
+        attendanceData: newAttendanceData
+      })
+      
       // Update presence_complete
-      await supabase
+      const { data: updateData, error: updateError } = await supabase
         .from('session_trainees')
         .update({ presence_complete: isComplete })
         .eq('session_id', session.id)
         .eq('trainee_id', trainee.id)
+        .select()
+      
+      if (updateError) {
+        console.error('❌ ERREUR UPDATE presence_complete:', updateError)
+        toast.error('Erreur mise à jour présence complète')
+      } else {
+        console.log('✅ UPDATE presence_complete OK:', updateData)
+      }
       
       // Check if all periods of today are checked
       const today = getTodayFormation()
