@@ -285,6 +285,7 @@ export default function SessionInterDetail() {
 function GroupCard({ group, session, onUpdate }) {
   const [expanded, setExpanded] = useState(false)
   const [showAddTraineesModal, setShowAddTraineesModal] = useState(false)
+  const [showEditGroupModal, setShowEditGroupModal] = useState(false)
   const [showSendEmailsModal, setShowSendEmailsModal] = useState(false)
   const [copiedCode, setCopiedCode] = useState(null)
   const [generatingCodeId, setGeneratingCodeId] = useState(null)
@@ -348,6 +349,54 @@ function GroupCard({ group, session, onUpdate }) {
     setCopiedCode(code)
     toast.success('Code copié !')
     setTimeout(() => setCopiedCode(null), 2000)
+  }
+
+  const handleDeleteGroup = async () => {
+    if (!confirm(`Supprimer le groupe ${group.clients?.name || 'ce groupe'} ?\n\nCela supprimera aussi tous les stagiaires inscrits dans ce groupe.`)) {
+      return
+    }
+
+    try {
+      // Supprimer d'abord les stagiaires du groupe
+      const { error: traineesError } = await supabase
+        .from('session_trainees')
+        .delete()
+        .eq('group_id', group.id)
+
+      if (traineesError) throw traineesError
+
+      // Puis supprimer le groupe
+      const { error: groupError } = await supabase
+        .from('session_groups')
+        .delete()
+        .eq('id', group.id)
+
+      if (groupError) throw groupError
+
+      toast.success('Groupe supprimé !')
+      onUpdate()
+    } catch (error) {
+      console.error('Erreur suppression groupe:', error)
+      toast.error('Erreur lors de la suppression')
+    }
+  }
+
+  const handleDeleteTrainee = async (sessionTraineeId) => {
+    if (!confirm('Supprimer ce stagiaire du groupe ?')) return
+
+    try {
+      const { error } = await supabase
+        .from('session_trainees')
+        .delete()
+        .eq('id', sessionTraineeId)
+
+      if (error) throw error
+      toast.success('Stagiaire retiré du groupe')
+      onUpdate()
+    } catch (error) {
+      console.error('Erreur suppression stagiaire:', error)
+      toast.error('Erreur lors de la suppression')
+    }
   }
 
   // === NOUVELLES FONCTIONS PDF ===
@@ -461,6 +510,20 @@ function GroupCard({ group, session, onUpdate }) {
                 Ajouter
               </button>
             )}
+            <button
+              onClick={() => setShowEditGroupModal(true)}
+              className="btn btn-secondary btn-sm flex items-center gap-1"
+              title="Modifier le groupe"
+            >
+              <Edit className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => handleDeleteGroup()}
+              className="btn btn-sm flex items-center gap-1 bg-red-600 hover:bg-red-700 text-white"
+              title="Supprimer le groupe"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
             <button
               onClick={() => setExpanded(!expanded)}
               className="btn btn-secondary btn-sm"
@@ -605,6 +668,13 @@ function GroupCard({ group, session, onUpdate }) {
                           {generatingCodeId === st.id ? 'Génération...' : 'Générer code'}
                         </button>
                       )}
+                      <button
+                        onClick={() => handleDeleteTrainee(st.id)}
+                        className="p-1.5 hover:bg-red-100 rounded transition-colors"
+                        title="Retirer du groupe"
+                      >
+                        <Trash2 className="w-4 h-4 text-red-600" />
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -636,6 +706,19 @@ function GroupCard({ group, session, onUpdate }) {
           onClose={() => setShowSendEmailsModal(false)}
           onSuccess={() => {
             setShowSendEmailsModal(false)
+            onUpdate()
+          }}
+        />
+      )}
+
+      {/* Modal édition groupe */}
+      {showEditGroupModal && (
+        <EditGroupModal
+          group={group}
+          sessionPrice={session.public_price_per_person}
+          onClose={() => setShowEditGroupModal(false)}
+          onSuccess={() => {
+            setShowEditGroupModal(false)
             onUpdate()
           }}
         />
@@ -788,6 +871,128 @@ function AddGroupModal({ sessionId, sessionPrice, onClose, onSuccess }) {
             </button>
             <button type="submit" disabled={loading} className="btn btn-primary">
               {loading ? 'Ajout...' : 'Ajouter'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+// Composant Modal Modifier un groupe
+function EditGroupModal({ group, sessionPrice, onClose, onSuccess }) {
+  const [loading, setLoading] = useState(false)
+  const [formData, setFormData] = useState({
+    nb_personnes: group.nb_personnes || 1,
+    price_per_person: group.price_per_person || sessionPrice || 350,
+    status: group.status || 'pending',
+    payment_status: group.payment_status || 'pending'
+  })
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setLoading(true)
+    try {
+      const price_total = formData.nb_personnes * formData.price_per_person
+
+      const { error } = await supabase
+        .from('session_groups')
+        .update({
+          nb_personnes: formData.nb_personnes,
+          price_per_person: formData.price_per_person,
+          price_total,
+          status: formData.status,
+          payment_status: formData.payment_status
+        })
+        .eq('id', group.id)
+
+      if (error) throw error
+      toast.success('Groupe modifié !')
+      onSuccess()
+    } catch (error) {
+      console.error('Erreur modification groupe:', error)
+      toast.error('Erreur lors de la modification')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-xl max-w-md w-full p-6">
+        <h2 className="text-xl font-bold text-gray-900 mb-4">
+          Modifier le groupe - {group.clients?.name || 'Entreprise'}
+        </h2>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Nombre de participants *
+            </label>
+            <input
+              type="number"
+              min="1"
+              value={formData.nb_personnes}
+              onChange={(e) => setFormData({ ...formData, nb_personnes: parseInt(e.target.value) })}
+              className="input"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Prix par personne *
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={formData.price_per_person}
+              onChange={(e) => setFormData({ ...formData, price_per_person: parseFloat(e.target.value) })}
+              className="input"
+              required
+            />
+            <p className="text-sm text-gray-500 mt-1">
+              Prix total : {(formData.nb_personnes * formData.price_per_person).toFixed(2)}€
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Statut
+              </label>
+              <select
+                value={formData.status}
+                onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+                className="input"
+              >
+                <option value="pending">En attente</option>
+                <option value="confirmed">Confirmé</option>
+                <option value="cancelled">Annulé</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Paiement
+              </label>
+              <select
+                value={formData.payment_status}
+                onChange={(e) => setFormData({ ...formData, payment_status: e.target.value })}
+                className="input"
+              >
+                <option value="pending">En attente</option>
+                <option value="confirmed">Payé</option>
+                <option value="partial">Acompte</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 mt-6">
+            <button type="button" onClick={onClose} className="btn btn-secondary">
+              Annuler
+            </button>
+            <button type="submit" disabled={loading} className="btn btn-primary">
+              {loading ? 'Modification...' : 'Modifier'}
             </button>
           </div>
         </form>
