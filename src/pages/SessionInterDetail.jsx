@@ -4,11 +4,12 @@ import { supabase } from '../lib/supabase'
 import { 
   ArrowLeft, Calendar, MapPin, Users, Euro, TrendingUp, 
   Plus, Edit, Trash2, Mail, FileText, AlertCircle, 
-  CheckCircle, Clock, Building2, User, Phone
+  CheckCircle, Clock, Building2, User, Phone, UserPlus
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import toast from 'react-hot-toast'
+import AddTraineesToGroup from '../components/AddTraineesToGroup'
 
 export default function SessionInterDetail() {
   const { id } = useParams()
@@ -313,6 +314,7 @@ export default function SessionInterDetail() {
 // Composant GroupCard
 function GroupCard({ group, session, onUpdate }) {
   const [expanded, setExpanded] = useState(false)
+  const [showAddTraineesModal, setShowAddTraineesModal] = useState(false)
 
   const getStatusBadge = (status) => {
     const config = {
@@ -334,102 +336,153 @@ function GroupCard({ group, session, onUpdate }) {
     return <span className={`badge badge-${color}`}>{label}</span>
   }
 
-  return (
-    <div className="border rounded-lg p-4 hover:bg-gray-50 transition-colors">
-      <div className="flex items-start justify-between gap-4">
-        {/* Infos groupe */}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-3 mb-2">
-            <h3 className="text-lg font-semibold text-gray-900">
-              {group.clients?.name || 'Entreprise'}
-            </h3>
-            {getStatusBadge(group.status)}
-            {getPaymentBadge(group.payment_status)}
-          </div>
+  const nbTraineesInscrits = group.session_trainees?.length || 0
+  const nbPlacesReservees = group.nb_personnes || 0
 
-          <div className="grid md:grid-cols-3 gap-4 text-sm">
-            <div>
-              <p className="text-gray-500">Participants</p>
-              <p className="font-medium text-gray-900">
-                {group.nb_personnes || 0} personne{(group.nb_personnes || 0) > 1 ? 's' : ''}
-              </p>
+  return (
+    <>
+      <div className="border rounded-lg p-4 hover:bg-gray-50 transition-colors">
+        <div className="flex items-start justify-between gap-4">
+          {/* Infos groupe */}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-3 mb-2">
+              <h3 className="text-lg font-semibold text-gray-900">
+                {group.clients?.name || 'Entreprise'}
+              </h3>
+              {getStatusBadge(group.status)}
+              {getPaymentBadge(group.payment_status)}
             </div>
-            <div>
-              <p className="text-gray-500">Prix total</p>
-              <p className="font-medium text-gray-900">
-                {group.price_total?.toLocaleString('fr-FR')}€
-              </p>
-            </div>
-            {group.clients?.contact_email && (
+
+            <div className="grid md:grid-cols-3 gap-4 text-sm">
               <div>
-                <p className="text-gray-500">Contact</p>
-                <p className="font-medium text-gray-900 truncate">
-                  {group.clients.contact_email}
+                <p className="text-gray-500">Participants</p>
+                <p className="font-medium text-gray-900">
+                  {group.nb_personnes || 0} personne{(group.nb_personnes || 0) > 1 ? 's' : ''}
+                </p>
+                <p className="text-xs text-gray-500">
+                  {nbTraineesInscrits} inscrit{nbTraineesInscrits > 1 ? 's' : ''}
                 </p>
               </div>
+              <div>
+                <p className="text-gray-500">Prix total</p>
+                <p className="font-medium text-gray-900">
+                  {group.price_total?.toLocaleString('fr-FR')}€
+                </p>
+              </div>
+              {group.clients?.contact_email && (
+                <div>
+                  <p className="text-gray-500">Contact</p>
+                  <p className="font-medium text-gray-900 truncate">
+                    {group.clients.contact_email}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {nbTraineesInscrits < nbPlacesReservees && (
+              <button
+                onClick={() => setShowAddTraineesModal(true)}
+                className="btn btn-primary btn-sm flex items-center gap-1"
+              >
+                <UserPlus className="w-4 h-4" />
+                Ajouter
+              </button>
             )}
+            <button
+              onClick={() => setExpanded(!expanded)}
+              className="btn btn-secondary btn-sm"
+            >
+              {expanded ? 'Masquer' : 'Voir'} ({nbTraineesInscrits})
+            </button>
           </div>
         </div>
 
-        {/* Actions */}
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <button
-            onClick={() => setExpanded(!expanded)}
-            className="btn btn-secondary btn-sm"
-          >
-            {expanded ? 'Masquer' : 'Voir'} stagiaires
-          </button>
-        </div>
-      </div>
-
-      {/* Liste des stagiaires (si expanded) */}
-      {expanded && (
-        <div className="mt-4 pt-4 border-t">
-          <h4 className="font-medium text-gray-900 mb-3">
-            Stagiaires inscrits ({group.session_trainees?.length || 0})
-          </h4>
-          {group.session_trainees?.length === 0 ? (
-            <p className="text-gray-500 text-sm">Aucun stagiaire inscrit</p>
-          ) : (
-            <div className="space-y-2">
-              {group.session_trainees.map((st) => (
-                <div key={st.id} className="flex items-center justify-between p-3 bg-white rounded-lg border">
-                  <div className="flex items-center gap-3">
-                    <User className="w-5 h-5 text-gray-400" />
-                    <div>
-                      <p className="font-medium text-gray-900">
-                        {st.trainees?.first_name} {st.trainees?.last_name}
-                      </p>
-                      {st.trainees?.email && (
-                        <p className="text-sm text-gray-500">{st.trainees.email}</p>
+        {/* Liste des stagiaires (si expanded) */}
+        {expanded && (
+          <div className="mt-4 pt-4 border-t">
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="font-medium text-gray-900">
+                Stagiaires inscrits ({nbTraineesInscrits}/{nbPlacesReservees})
+              </h4>
+              {nbTraineesInscrits < nbPlacesReservees && (
+                <button
+                  onClick={() => setShowAddTraineesModal(true)}
+                  className="text-sm text-primary-600 hover:underline flex items-center gap-1"
+                >
+                  <Plus className="w-4 h-4" />
+                  Ajouter des stagiaires
+                </button>
+              )}
+            </div>
+            {group.session_trainees?.length === 0 ? (
+              <div className="text-center py-8 bg-gray-50 rounded-lg">
+                <User className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+                <p className="text-sm text-gray-500 mb-3">Aucun stagiaire inscrit</p>
+                <button
+                  onClick={() => setShowAddTraineesModal(true)}
+                  className="btn btn-primary btn-sm inline-flex items-center gap-1"
+                >
+                  <Plus className="w-4 h-4" />
+                  Ajouter des stagiaires
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {group.session_trainees.map((st) => (
+                  <div key={st.id} className="flex items-center justify-between p-3 bg-white rounded-lg border">
+                    <div className="flex items-center gap-3">
+                      <User className="w-5 h-5 text-gray-400" />
+                      <div>
+                        <p className="font-medium text-gray-900">
+                          {st.trainees?.first_name} {st.trainees?.last_name}
+                        </p>
+                        {st.trainees?.email && (
+                          <p className="text-sm text-gray-500">{st.trainees.email}</p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {st.info_completed_at ? (
+                        <span className="badge badge-green flex items-center gap-1">
+                          <CheckCircle className="w-3 h-3" />
+                          Fiche OK
+                        </span>
+                      ) : (
+                        <span className="badge badge-orange flex items-center gap-1">
+                          <Clock className="w-3 h-3" />
+                          En attente
+                        </span>
+                      )}
+                      {st.access_code && (
+                        <span className="text-xs font-mono bg-gray-100 px-2 py-1 rounded">
+                          {st.access_code}
+                        </span>
                       )}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    {st.info_completed_at ? (
-                      <span className="badge badge-green flex items-center gap-1">
-                        <CheckCircle className="w-3 h-3" />
-                        Fiche OK
-                      </span>
-                    ) : (
-                      <span className="badge badge-orange flex items-center gap-1">
-                        <Clock className="w-3 h-3" />
-                        En attente
-                      </span>
-                    )}
-                    {st.access_code && (
-                      <span className="text-xs font-mono bg-gray-100 px-2 py-1 rounded">
-                        {st.access_code}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Modal ajout stagiaires */}
+      {showAddTraineesModal && (
+        <AddTraineesToGroup
+          group={group}
+          session={session}
+          onClose={() => setShowAddTraineesModal(false)}
+          onSuccess={() => {
+            setShowAddTraineesModal(false)
+            onUpdate()
+          }}
+        />
       )}
-    </div>
+    </>
   )
 }
 
