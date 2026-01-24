@@ -140,7 +140,7 @@ export default function TraineePortalInter() {
 
       // Charger la session inter
       const { data: sessionData, error: sessionError } = await supabase
-        .from('sessions_inter')
+        .from('sessions')
         .select(`
           *,
           courses (*)
