@@ -42,6 +42,7 @@ import PublicQuestionnaire from './pages/public/Questionnaire'
 import PublicInfoSheet from './pages/public/InfoSheet'
 import PublicHotEvaluation from './pages/public/HotEvaluation'
 import TraineePortal from './pages/public/TraineePortal'
+import TraineePortalInter from './pages/TraineePortalInter'
 import PublicReclamation from './pages/public/Reclamation'
 
 // Composant de protection des routes
@@ -107,8 +108,11 @@ export default function App() {
         {/* Formulaire de réclamation public */}
         <Route path="/reclamation" element={<PublicReclamation />} />
         
-        {/* QR Code Unifié - Portail Stagiaire */}
+        {/* QR Code Unifié - Portail Stagiaire INTRA */}
         <Route path="/portail/:token" element={<TraineePortal />} />
+        
+        {/* Portail Stagiaire INTER-ENTREPRISE */}
+        <Route path="/portail-inter/:code" element={<TraineePortalInter />} />
         
         {/* Anciennes routes (rétrocompatibilité) */}
         <Route path="/emargement/:token" element={
