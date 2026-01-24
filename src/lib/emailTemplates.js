@@ -9,7 +9,8 @@ export function generateConvocationEmail({
   course,
   accessCode,
   groupName,
-  companyName
+  companyName,
+  isViaCompanyContact = false // NOUVEAU : pour savoir si c'est envoyé au contact
 }) {
   const startDate = new Date(session.start_date).toLocaleDateString('fr-FR', {
     weekday: 'long',
@@ -57,12 +58,29 @@ export function generateConvocationEmail({
               
               <!-- Salutation -->
               <p style="font-size: 16px; color: #333333; margin: 0 0 20px 0;">
-                Bonjour <strong>${trainee.first_name} ${trainee.last_name}</strong>,
+                Bonjour${isViaCompanyContact ? '' : ` <strong>${trainee.first_name} ${trainee.last_name}</strong>`},
               </p>
 
+              ${isViaCompanyContact ? `
+              <p style="font-size: 16px; color: #555555; line-height: 1.6; margin: 0 0 20px 0;">
+                Nous vous adressons la convocation pour votre collaborateur :
+              </p>
+              
+              <div style="background-color: #f0f7ff; border: 2px solid #2196F3; border-radius: 8px; padding: 15px 20px; margin-bottom: 20px;">
+                <p style="margin: 0; font-size: 18px; color: #0d47a1;">
+                  👤 <strong>${trainee.first_name} ${trainee.last_name}</strong>
+                </p>
+              </div>
+
+              <p style="font-size: 16px; color: #555555; line-height: 1.6; margin: 0 0 30px 0;">
+                Ce collaborateur n'ayant pas d'adresse email personnelle, 
+                <strong>merci de lui transmettre ses identifiants d'accès</strong> à la formation :
+              </p>
+              ` : `
               <p style="font-size: 16px; color: #555555; line-height: 1.6; margin: 0 0 30px 0;">
                 Nous avons le plaisir de vous confirmer votre inscription à la formation suivante :
               </p>
+              `}
 
               <!-- Carte formation -->
               <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f8f9fa; border-radius: 8px; border: 2px solid #e9ecef; margin-bottom: 30px;">
@@ -153,6 +171,17 @@ export function generateConvocationEmail({
                 </tr>
               </table>
 
+              <!-- Alerte email indésirable -->
+              <div style="background-color: #e7f3ff; border-left: 4px solid #2196F3; padding: 15px 20px; margin-bottom: 20px; border-radius: 4px;">
+                <p style="margin: 0 0 10px 0; font-size: 14px; color: #0d47a1;">
+                  <strong>📬 Vérifiez vos courriers indésirables</strong>
+                </p>
+                <p style="margin: 0; font-size: 13px; color: #0d47a1; line-height: 1.5;">
+                  Cet email peut arriver dans votre dossier "Spam" ou "Courrier indésirable". 
+                  Pour ne rien manquer : ajoutez <strong>noreply@accessformation.pro</strong> à vos contacts.
+                </p>
+              </div>
+
               <!-- Instructions -->
               <div style="background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px 20px; margin-bottom: 30px; border-radius: 4px;">
                 <p style="margin: 0 0 10px 0; font-size: 14px; color: #856404;">
@@ -241,23 +270,43 @@ export function prepareEmailData(trainee, session, group) {
     throw new Error('Le stagiaire n\'a pas de code d\'accès')
   }
 
-  if (!trainee.trainees?.email) {
-    throw new Error('Le stagiaire n\'a pas d\'adresse email')
+  // Déterminer le destinataire
+  const traineeEmail = trainee.trainees?.email
+  const companyEmail = group.clients?.contact_email
+  
+  let recipientEmail = null
+  let isViaCompanyContact = false
+  
+  if (traineeEmail) {
+    // Le stagiaire a un email -> envoi direct
+    recipientEmail = traineeEmail
+    isViaCompanyContact = false
+  } else if (companyEmail) {
+    // Pas d'email stagiaire mais l'entreprise a un contact -> envoi au contact
+    recipientEmail = companyEmail
+    isViaCompanyContact = true
+  } else {
+    // Ni stagiaire ni entreprise n'ont d'email
+    throw new Error('Aucun email disponible pour le stagiaire ni pour l\'entreprise')
   }
 
+  const subject = isViaCompanyContact
+    ? `🎓 Convocation Formation - Pour ${trainee.trainees.first_name} ${trainee.trainees.last_name} (${session.courses?.title || 'Formation'})`
+    : generateEmailSubject(session.courses?.title || 'Formation', session.reference)
+
   return {
-    to: trainee.trainees.email,
-    subject: generateEmailSubject(
-      session.courses?.title || 'Formation',
-      session.reference
-    ),
+    to: recipientEmail,
+    subject: subject,
     html: generateConvocationEmail({
       trainee: trainee.trainees,
       session: session,
       course: session.courses || {},
       accessCode: trainee.access_code,
       groupName: group.group_name,
-      companyName: group.clients?.name || 'Entreprise'
-    })
+      companyName: group.clients?.name || 'Entreprise',
+      isViaCompanyContact: isViaCompanyContact
+    }),
+    isViaCompanyContact: isViaCompanyContact, // Pour l'affichage dans l'interface
+    recipientType: isViaCompanyContact ? 'company' : 'trainee'
   }
 }
