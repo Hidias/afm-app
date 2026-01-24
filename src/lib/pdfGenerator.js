@@ -2644,6 +2644,7 @@ function generatePositionnementContent(doc, session, questions, trainee) {
     doc.setTextColor(0, 0, 0)
   }
 // ============================================================
+}
 // SESSIONS INTER-ENTREPRISES - DOCUMENTS PAR GROUPE
 // À ajouter à la fin de pdfGenerator.js (avant le dernier })
 // ============================================================
