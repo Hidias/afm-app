@@ -111,9 +111,9 @@ export default function Reclamation() {
         p_reference: sessionInfo.reference,
         p_full_name: form.fullName,
         p_email: form.email,
+        p_message: form.message,
         p_phone: form.phone || null,
         p_company: form.company || null,
-        p_message: form.message,
         p_honeypot: form.honeypot
       })
       
