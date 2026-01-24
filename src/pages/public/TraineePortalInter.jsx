@@ -57,21 +57,21 @@ export default function TraineePortalInter() {
   })
   
   const [evalForm, setEvalForm] = useState({
-    q_org_documents: 0,
-    q_org_accueil: 0,
-    q_org_locaux: 0,
-    q_org_materiel: 0,
-    q_contenu_organisation: 0,
-    q_contenu_supports: 0,
-    q_contenu_duree: 0,
-    q_contenu_programme: 0,
-    q_formateur_pedagogie: 0,
-    q_formateur_expertise: 0,
-    q_formateur_progression: 0,
-    q_formateur_moyens: 0,
-    q_global_adequation: 0,
-    q_global_competences: 0,
-    would_recommend: false,
+    q_org_documents: 5,
+    q_org_accueil: 5,
+    q_org_locaux: 5,
+    q_org_materiel: 5,
+    q_contenu_organisation: 5,
+    q_contenu_supports: 5,
+    q_contenu_duree: 5,
+    q_contenu_programme: 5,
+    q_formateur_pedagogie: 5,
+    q_formateur_expertise: 5,
+    q_formateur_progression: 5,
+    q_formateur_moyens: 5,
+    q_global_adequation: 5,
+    q_global_competences: 5,
+    would_recommend: true,
     comment_general: '',
     comment_projet: ''
   })
@@ -273,9 +273,15 @@ export default function TraineePortalInter() {
   const formatSSN = (value) => {
     const digits = value.replace(/\D/g, '')
     let formatted = ''
+    // Format officiel : 1 89 10 46 102 036 44
+    // Espaces après positions : 1, 3, 5, 7, 10, 13
+    const spacePositions = [1, 3, 5, 7, 10, 13]
+    
     for (let i = 0; i < digits.length && i < 15; i++) {
-      if (i > 0 && i % 2 === 1) formatted += ' '
       formatted += digits[i]
+      if (spacePositions.includes(i + 1) && i < 14) {
+        formatted += ' '
+      }
     }
     return formatted
   }
@@ -763,7 +769,7 @@ export default function TraineePortalInter() {
                   value={infoForm.ssn}
                   onChange={(e) => setInfoForm({...infoForm, ssn: formatSSN(e.target.value)})}
                   disabled={infoForm.ssn_refused}
-                  placeholder={infoForm.ssn_refused ? 'Non communiqué' : '1 23 45 67 890 123 45'}
+                  placeholder={infoForm.ssn_refused ? 'Non communiqué' : '1 89 10 46 102 036 44'}
                   maxLength={21}
                   className={`w-full px-3 py-2 border rounded-lg text-sm font-mono ${
                     infoForm.ssn_refused ? 'bg-gray-100 text-gray-400' : ''
