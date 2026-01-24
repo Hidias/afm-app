@@ -16,6 +16,7 @@ import Trainers from './pages/Trainers'
 import Trainees from './pages/Trainees'
 import Sessions from './pages/Sessions'
 import SessionsInter from './pages/SessionsInter'
+import SessionInterNouvelle from './pages/SessionInterNouvelle'
 import SessionDetail from './pages/SessionDetail'
 import Documents from './pages/Documents'
 import DocumentsVierges from './pages/DocumentsVierges'
@@ -141,6 +142,7 @@ export default function App() {
           <Route path="sessions" element={<Sessions />} />
           <Route path="sessions/:id" element={<SessionDetail />} />
           <Route path="sessions-inter" element={<SessionsInter />} />
+          <Route path="sessions-inter/nouvelle" element={<SessionInterNouvelle />} />
           <Route path="documents" element={<Documents />} />
           <Route path="documents-vierges" element={<DocumentsVierges />} />
           <Route path="qualite" element={<QualiteEditables />} />
