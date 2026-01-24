@@ -668,7 +668,7 @@ export default function TraineePortalInter() {
                   <option value="Employés">Employés</option>
                   <option value="Ouvriers">Ouvriers</option>
                   <option value="Retraités">Retraités</option>
-                  <option value="Autres personnes sans activité professionnelle">Autres personnes sans activité professionnelle</option>
+                  <option value="Autres sans activité professionnelle">Autres sans activité professionnelle</option>
                 </select>
                 {formErrors.csp && <p className="text-xs text-red-600 mt-1">{formErrors.csp}</p>}
               </div>
