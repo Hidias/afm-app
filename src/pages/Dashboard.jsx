@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import TestInterBackend from '../components/TestInterBackend'
 import { Link, useNavigate } from 'react-router-dom'
 import { useDataStore } from '../lib/store'
 import { supabase } from '../lib/supabase'
@@ -24,7 +23,6 @@ export default function Dashboard() {
   const [coldEvaluations, setColdEvaluations] = useState([])
   const [purgeStats, setPurgeStats] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [showTestInter, setShowTestInter] = useState(false)
   
   useEffect(() => {
     loadData()
@@ -622,7 +620,7 @@ export default function Dashboard() {
       {/* Actions rapides */}
       <div className="card">
         <h2 className="text-lg font-semibold text-gray-900 mb-4">Actions rapides</h2>
-        <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-3">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <Link to="/sessions" state={{ openNew: true }} className="flex items-center gap-3 p-4 rounded-lg border-2 border-dashed border-gray-200 hover:border-primary-300 hover:bg-primary-50 transition-colors">
             <Calendar className="w-5 h-5 text-primary-600" /><span className="font-medium text-gray-700">Nouvelle session</span>
           </Link>
@@ -635,13 +633,6 @@ export default function Dashboard() {
           <Link to="/non-conformites" className="flex items-center gap-3 p-4 rounded-lg border-2 border-dashed border-gray-200 hover:border-orange-300 hover:bg-orange-50 transition-colors">
             <AlertTriangle className="w-5 h-5 text-orange-600" /><span className="font-medium text-gray-700">Non-conformités</span>
           </Link>
-          <button 
-            onClick={() => setShowTestInter(true)}
-            className="flex items-center gap-3 p-4 rounded-lg border-2 border-dashed border-blue-200 hover:border-blue-300 hover:bg-blue-50 transition-colors"
-          >
-            <FileText className="w-5 h-5 text-blue-600" />
-            <span className="font-medium text-gray-700">🧪 Test Inter</span>
-          </button>
         </div>
       </div>
       
@@ -651,11 +642,6 @@ export default function Dashboard() {
         <p>© {new Date().getFullYear()} Access Formation - Tous droits réservés</p>
         <p>Données protégées conformément au RGPD</p>
       </div>
-      
-      {/* Modale Test Inter-Entreprise */}
-      {showTestInter && (
-        <TestInterBackend onClose={() => setShowTestInter(false)} />
-      )}
     </div>
   )
 }
