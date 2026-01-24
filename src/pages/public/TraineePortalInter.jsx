@@ -114,72 +114,59 @@ export default function TraineePortalInter() {
     try {
       setLoading(true)
       
-      // Charger session_trainee par access_code
-      const { data: stData, error: stError } = await supabase
-        .from('session_trainees')
-        .select(`
-          *,
-          trainees (*),
-          session_groups (
-            *,
-            clients (*)
-          )
-        `)
-        .eq('access_code', code)
-        .single()
+      // Utiliser la fonction RPC pour contourner RLS
+      const { data: portalData, error: portalError } = await supabase
+        .rpc('get_inter_portal_data', { p_access_code: code })
 
-      if (stError || !stData) {
+      if (portalError || !portalData) {
         setError('Code d\'accès invalide ou session non trouvée')
         setLoading(false)
         return
       }
 
-      setSessionTrainee(stData)
-      setTrainee(stData.trainees)
-      setCompany(stData.session_groups?.clients)
-
-      // Charger la session inter
-      const { data: sessionData, error: sessionError } = await supabase
-        .from('sessions')
-        .select(`
-          *,
-          courses (*)
-        `)
-        .eq('id', stData.session_groups.session_id)
-        .single()
-
-      if (sessionError || !sessionData) {
-        setError('Session non trouvée')
-        setLoading(false)
-        return
-      }
-
-      setSession(sessionData)
-      setCourse(sessionData.courses)
+      setSessionTrainee({
+        id: portalData.id,
+        trainee_id: portalData.trainee_id,
+        group_id: portalData.group_id,
+        access_code: portalData.access_code,
+        info_sheet_data: portalData.info_sheet_data,
+        info_sheet_completed: portalData.info_sheet_completed,
+        attendance_day_1: portalData.attendance_day_1,
+        attendance_day_2: portalData.attendance_day_2,
+        attendance_day_3: portalData.attendance_day_3,
+        attendance_day_4: portalData.attendance_day_4,
+        attendance_day_5: portalData.attendance_day_5,
+        evaluation_data: portalData.evaluation_data,
+        evaluation_completed: portalData.evaluation_completed,
+      })
+      setTrainee(portalData.trainee)
+      setCompany(portalData.session_group.client)
+      setSession(portalData.session)
+      setCourse(portalData.course)
 
       // Calculer le nombre de jours
       const days = eachDayOfInterval({
-        start: parseISO(sessionData.start_date),
-        end: parseISO(sessionData.end_date)
+        start: parseISO(portalData.session.start_date),
+        end: parseISO(portalData.session.end_date)
       })
       setTotalDays(days.length)
 
       // Pré-remplir le formulaire si fiche déjà complétée
-      if (stData.info_sheet_data) {
-        setInfoForm(stData.info_sheet_data)
+      if (portalData.info_sheet_data) {
+        setInfoForm(portalData.info_sheet_data)
       } else {
         // Pré-remplir avec les données du stagiaire
         setInfoForm(prev => ({
           ...prev,
-          first_name: stData.trainees.first_name || '',
-          last_name: stData.trainees.last_name || '',
-          email: stData.trainees.email || '',
-          phone: stData.trainees.phone || '',
+          first_name: portalData.trainee.first_name || '',
+          last_name: portalData.trainee.last_name || '',
+          email: portalData.trainee.email || '',
+          phone: portalData.trainee.phone || '',
         }))
       }
 
       // Déterminer l'état selon timing
-      determineState(sessionData, stData, days)
+      determineState(portalData.session, portalData, days)
       
     } catch (err) {
       console.error('Erreur:', err)
@@ -188,7 +175,7 @@ export default function TraineePortalInter() {
     }
   }
 
-  const determineState = (sessionData, stData, allDays) => {
+  const determineState = (sessionData, portalData, allDays) => {
     const today = startOfDay(new Date())
     const startDate = startOfDay(parseISO(sessionData.start_date))
     const endDate = startOfDay(parseISO(sessionData.end_date))
@@ -198,13 +185,13 @@ export default function TraineePortalInter() {
     const isAfterEnd = isAfter(today, endDate)
 
     // Fiche de renseignement (avant ou pendant si pas complétée)
-    setCanFillInfoSheet(!stData.info_sheet_completed)
+    setCanFillInfoSheet(!portalData.info_sheet_completed)
     
     // Émargement (seulement pendant la session)
     setCanSign(isDuringSession)
     
     // Évaluation (seulement après la fin)
-    setCanEvaluate(isAfterEnd && !stData.evaluation_completed)
+    setCanEvaluate(isAfterEnd && !portalData.evaluation_completed)
 
     // Déterminer le jour actuel si pendant la session
     if (isDuringSession) {
@@ -217,7 +204,7 @@ export default function TraineePortalInter() {
     }
 
     // Déterminer l'étape initiale
-    if (!stData.info_sheet_completed) {
+    if (!portalData.info_sheet_completed) {
       setCurrentStep('info_sheet')
     } else {
       setCurrentStep('dashboard')
@@ -285,15 +272,12 @@ export default function TraineePortalInter() {
     setSubmitting(true)
 
     try {
-      // Sauvegarder la fiche
-      const { error: updateError } = await supabase
-        .from('session_trainees')
-        .update({
-          info_sheet_data: infoForm,
-          info_sheet_completed: true,
-          info_sheet_completed_at: new Date().toISOString()
+      // Sauvegarder la fiche via RPC
+      const { data: result, error: updateError } = await supabase
+        .rpc('save_inter_info_sheet', {
+          p_access_code: code,
+          p_data: infoForm
         })
-        .eq('id', sessionTrainee.id)
 
       if (updateError) throw updateError
 
@@ -331,7 +315,6 @@ export default function TraineePortalInter() {
 
     try {
       const signatureData = sigPadRef.current.toDataURL()
-      const attendanceKey = `attendance_day_${currentDay}`
       
       const attendanceValue = {
         signed_at: new Date().toISOString(),
@@ -339,11 +322,11 @@ export default function TraineePortalInter() {
       }
 
       const { error } = await supabase
-        .from('session_trainees')
-        .update({
-          [attendanceKey]: attendanceValue
+        .rpc('save_inter_attendance', {
+          p_access_code: code,
+          p_day: currentDay,
+          p_data: attendanceValue
         })
-        .eq('id', sessionTrainee.id)
 
       if (error) throw error
 
@@ -373,13 +356,10 @@ export default function TraineePortalInter() {
 
     try {
       const { error } = await supabase
-        .from('session_trainees')
-        .update({
-          evaluation_data: evalForm,
-          evaluation_completed: true,
-          evaluation_completed_at: new Date().toISOString()
+        .rpc('save_inter_evaluation', {
+          p_access_code: code,
+          p_data: evalForm
         })
-        .eq('id', sessionTrainee.id)
 
       if (error) throw error
 
