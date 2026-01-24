@@ -348,6 +348,11 @@ function GroupCard({ group, session, onUpdate }) {
   const traineesWithoutCode = group.session_trainees?.filter(st => !st.access_code) || []
   const traineesWithCode = group.session_trainees?.filter(st => st.access_code) || []
   const traineesWithCodeAndEmail = traineesWithCode.filter(st => st.trainees?.email) || []
+  
+  // Stagiaires "envoyables" : avec email direct OU via contact entreprise
+  const traineesWithCodeSendable = traineesWithCode.filter(st => 
+    st.trainees?.email || group.clients?.contact_email
+  ) || []
 
   // Générer tous les codes manquants
   const handleGenerateAllCodes = async () => {
@@ -479,13 +484,13 @@ function GroupCard({ group, session, onUpdate }) {
                 Stagiaires inscrits ({nbTraineesInscrits}/{nbPlacesReservees})
               </h4>
               <div className="flex items-center gap-2">
-                {traineesWithCodeAndEmail.length > 0 && (
+                {traineesWithCodeSendable.length > 0 && (
                   <button
                     onClick={() => setShowSendEmailsModal(true)}
                     className="btn btn-sm flex items-center gap-1 bg-green-600 hover:bg-green-700 text-white"
                   >
                     <Mail className="w-4 h-4" />
-                    Envoyer emails ({traineesWithCodeAndEmail.length})
+                    Envoyer emails ({traineesWithCodeSendable.length})
                   </button>
                 )}
                 {traineesWithoutCode.length > 0 && (
