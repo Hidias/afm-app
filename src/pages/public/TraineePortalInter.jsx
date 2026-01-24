@@ -147,27 +147,30 @@ export default function TraineePortalInter() {
       // Load evaluation
       const evalData = data.evaluation
       setEvaluationData(evalData)
-      if (evalData) {
+      // Only load eval data if questionnaire was already submitted
+      // Otherwise keep defaults (all 5, recommend true)
+      if (evalData && evalData.questionnaire_submitted) {
         setEvalForm({
-          q_org_documents: evalData.q_org_documents || 0,
-          q_org_accueil: evalData.q_org_accueil || 0,
-          q_org_locaux: evalData.q_org_locaux || 0,
-          q_org_materiel: evalData.q_org_materiel || 0,
-          q_contenu_organisation: evalData.q_contenu_organisation || 0,
-          q_contenu_supports: evalData.q_contenu_supports || 0,
-          q_contenu_duree: evalData.q_contenu_duree || 0,
-          q_contenu_programme: evalData.q_contenu_programme || 0,
-          q_formateur_pedagogie: evalData.q_formateur_pedagogie || 0,
-          q_formateur_expertise: evalData.q_formateur_expertise || 0,
-          q_formateur_progression: evalData.q_formateur_progression || 0,
-          q_formateur_moyens: evalData.q_formateur_moyens || 0,
-          q_global_adequation: evalData.q_global_adequation || 0,
-          q_global_competences: evalData.q_global_competences || 0,
-          would_recommend: evalData.would_recommend || false,
+          q_org_documents: evalData.q_org_documents ?? 5,
+          q_org_accueil: evalData.q_org_accueil ?? 5,
+          q_org_locaux: evalData.q_org_locaux ?? 5,
+          q_org_materiel: evalData.q_org_materiel ?? 5,
+          q_contenu_organisation: evalData.q_contenu_organisation ?? 5,
+          q_contenu_supports: evalData.q_contenu_supports ?? 5,
+          q_contenu_duree: evalData.q_contenu_duree ?? 5,
+          q_contenu_programme: evalData.q_contenu_programme ?? 5,
+          q_formateur_pedagogie: evalData.q_formateur_pedagogie ?? 5,
+          q_formateur_expertise: evalData.q_formateur_expertise ?? 5,
+          q_formateur_progression: evalData.q_formateur_progression ?? 5,
+          q_formateur_moyens: evalData.q_formateur_moyens ?? 5,
+          q_global_adequation: evalData.q_global_adequation ?? 5,
+          q_global_competences: evalData.q_global_competences ?? 5,
+          would_recommend: evalData.would_recommend ?? true,
           comment_general: evalData.comment_general || '',
           comment_projet: evalData.comment_projet || ''
         })
       }
+      // Else keep initial state (all 5, recommend true)
       
       // Determine starting step
       determineStep(data)
@@ -234,7 +237,14 @@ export default function TraineePortalInter() {
       }) || false
       
       if (allPeriodsChecked) {
-        setCurrentStep('evaluation')
+        // CRITICAL: Only allow evaluation if presence is complete
+        // This prevents evaluation without attendance (Qualiopi compliance)
+        if (data.session_trainee?.presence_complete) {
+          setCurrentStep('evaluation')
+        } else {
+          // Stay on attendance - presence_complete will be calculated after next reload
+          setCurrentStep('attendance')
+        }
       } else {
         setCurrentStep('attendance')
       }
@@ -508,7 +518,13 @@ export default function TraineePortalInter() {
           if (evaluationData && evaluationData.questionnaire_submitted) {
             setCurrentStep('thank_you')
           } else {
-            setCurrentStep('evaluation')
+            // CRITICAL: Only allow evaluation if presence is complete
+            // This prevents evaluation without full attendance (Qualiopi compliance)
+            if (isComplete) {
+              setCurrentStep('evaluation')
+            } else {
+              setCurrentStep('thank_you')
+            }
           }
         } else {
           setCurrentStep('thank_you')
