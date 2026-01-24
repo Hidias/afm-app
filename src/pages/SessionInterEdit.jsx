@@ -119,36 +119,53 @@ export default function SessionInterEdit() {
   }
 
   const handleDelete = async () => {
+    console.log('🗑️ handleDelete appelé')
+    
     if (!confirm('Êtes-vous sûr de vouloir supprimer cette session INTER ? Cette action est irréversible.')) {
+      console.log('❌ Suppression annulée par l\'utilisateur')
       return
     }
 
     try {
+      console.log('🔍 Vérification des groupes inscrits...')
+      
       // Vérifier s'il y a des groupes inscrits
-      const { count } = await supabase
+      const { count, error: countError } = await supabase
         .from('session_groups')
         .select('*', { count: 'exact', head: true })
         .eq('session_id', id)
 
+      console.log('📊 Nombre de groupes:', count)
+      if (countError) console.error('❌ Erreur count:', countError)
+
       if (count > 0) {
+        console.log('⚠️ Suppression bloquée : groupes présents')
         toast.error('Impossible de supprimer : des groupes sont inscrits à cette session')
         return
       }
 
+      console.log('🗑️ Suppression de la session...')
+      
       // Supprimer la session
       const { error } = await supabase
         .from('sessions')
         .delete()
         .eq('id', id)
 
-      if (error) throw error
+      if (error) {
+        console.error('❌ Erreur DELETE:', error)
+        throw error
+      }
 
+      console.log('✅ Session supprimée avec succès')
       toast.success('Session supprimée')
+      
+      console.log('🔀 Redirection vers /sessions-inter')
       navigate('/sessions-inter')
 
     } catch (error) {
-      console.error('Erreur suppression:', error)
-      toast.error('Erreur lors de la suppression')
+      console.error('💥 Erreur dans handleDelete:', error)
+      toast.error('Erreur lors de la suppression: ' + error.message)
     }
   }
 
