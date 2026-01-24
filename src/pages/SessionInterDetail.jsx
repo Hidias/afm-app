@@ -71,8 +71,8 @@ export default function SessionInterDetail() {
   // Calculer les stats
   const stats = {
     nb_groups: groups.length,
-    nb_participants: groups.reduce((sum, g) => sum + (g.session_trainees?.length || 0), 0),
-    nb_confirmed: groups.filter(g => g.status === 'confirmed').length,
+    nb_participants: groups.reduce((sum, g) => sum + (g.nb_personnes || 0), 0),
+    nb_confirmed: groups.filter(g => g.status === 'confirmed').reduce((sum, g) => sum + (g.nb_personnes || 0), 0),
     ca_total: groups.reduce((sum, g) => sum + (g.price_total || 0), 0),
     ca_confirmed: groups.filter(g => g.payment_status === 'confirmed').reduce((sum, g) => sum + (g.price_total || 0), 0),
     nb_infos_completed: groups.reduce((sum, g) => {
@@ -351,7 +351,7 @@ function GroupCard({ group, session, onUpdate }) {
             <div>
               <p className="text-gray-500">Participants</p>
               <p className="font-medium text-gray-900">
-                {group.session_trainees?.length || 0} personne{(group.session_trainees?.length || 0) > 1 ? 's' : ''}
+                {group.nb_personnes || 0} personne{(group.nb_personnes || 0) > 1 ? 's' : ''}
               </p>
             </div>
             <div>
@@ -463,11 +463,16 @@ function AddGroupModal({ sessionId, sessionPrice, onClose, onSuccess }) {
     try {
       const price_total = formData.nb_personnes * formData.price_per_person
 
+      // Récupérer le nom du client pour générer le group_name
+      const selectedClient = clients.find(c => c.id === formData.client_id)
+      const group_name = selectedClient ? `Groupe ${selectedClient.name}` : 'Groupe'
+
       const { error } = await supabase
         .from('session_groups')
         .insert({
           session_id: sessionId,
           client_id: formData.client_id,
+          group_name,
           nb_personnes: parseInt(formData.nb_personnes),
           price_per_person: parseFloat(formData.price_per_person),
           price_total,
