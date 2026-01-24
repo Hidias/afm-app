@@ -43,7 +43,7 @@ export default async function handler(req, res) {
 
     // Envoi de l'email
     const { data, error } = await resend.emails.send({
-      from: 'Access Formation <onboarding@resend.dev>',
+      from: 'Access Formation <noreply@accessformation.pro>',
       to: [to],
       subject: subject,
       html: html
