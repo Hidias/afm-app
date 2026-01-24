@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { X, Mail, Send, CheckCircle, AlertCircle, Eye, Loader } from 'lucide-react'
+import { X, Mail, Send, CheckCircle, AlertCircle, Eye, Loader, Building2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { prepareEmailData } from '../lib/emailTemplates'
 
@@ -10,9 +10,14 @@ export default function SendEmailsModal({ group, session, trainees, onClose, onS
   const [previewData, setPreviewData] = useState(null)
   const [sendResults, setSendResults] = useState(null)
 
-  // Filtrer les stagiaires qui ont un email ET un code d'accès
+  // Filtrer les stagiaires qui ont un code d'accès ET (un email OU un contact entreprise)
   const eligibleTrainees = trainees.filter(
-    st => st.trainees?.email && st.access_code
+    st => st.access_code && (st.trainees?.email || group.clients?.contact_email)
+  )
+
+  // Stagiaires exclus (pas de code OU (pas d'email ET pas de contact))
+  const excludedTrainees = trainees.filter(
+    st => !st.access_code || (!st.trainees?.email && !group.clients?.contact_email)
   )
 
   const toggleTrainee = (traineeId) => {
@@ -251,11 +256,36 @@ export default function SendEmailsModal({ group, session, trainees, onClose, onS
               <Mail className="w-12 h-12 text-gray-400 mx-auto mb-4" />
               <p className="text-gray-500 mb-2">Aucun stagiaire éligible</p>
               <p className="text-sm text-gray-400">
-                Les stagiaires doivent avoir un email et un code d'accès
+                Les stagiaires doivent avoir un code d'accès et un email (ou un contact entreprise)
               </p>
             </div>
           ) : (
             <div className="space-y-4">
+              {/* Alerte stagiaires exclus */}
+              {excludedTrainees.length > 0 && (
+                <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+                  <div className="flex items-start gap-3">
+                    <AlertCircle className="w-5 h-5 text-orange-600 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="font-medium text-orange-900 mb-2">
+                        {excludedTrainees.length} stagiaire(s) exclu(s) :
+                      </p>
+                      <ul className="text-sm text-orange-800 space-y-1">
+                        {excludedTrainees.map((trainee) => (
+                          <li key={trainee.id}>
+                            • {trainee.trainees?.first_name} {trainee.trainees?.last_name}
+                            {!trainee.access_code ? ' (pas de code d\'accès)' : ' (aucun email disponible)'}
+                          </li>
+                        ))}
+                      </ul>
+                      <p className="text-xs text-orange-700 mt-2">
+                        → Ajoutez un email au stagiaire ou à l'entreprise, puis générez un code si nécessaire
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Actions de sélection */}
               <div className="flex items-center justify-between pb-4 border-b">
                 <div className="flex items-center gap-2">
@@ -282,42 +312,61 @@ export default function SendEmailsModal({ group, session, trainees, onClose, onS
 
               {/* Liste des stagiaires */}
               <div className="space-y-2">
-                {eligibleTrainees.map((trainee) => (
-                  <div
-                    key={trainee.id}
-                    className={`border rounded-lg p-4 transition-colors ${
-                      selectedTrainees.includes(trainee.id)
-                        ? 'border-primary-500 bg-primary-50'
-                        : 'border-gray-200 hover:bg-gray-50'
-                    }`}
-                  >
-                    <div className="flex items-start gap-3">
-                      <input
-                        type="checkbox"
-                        checked={selectedTrainees.includes(trainee.id)}
-                        onChange={() => toggleTrainee(trainee.id)}
-                        className="mt-1 w-4 h-4"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium text-gray-900">
-                          {trainee.trainees.first_name} {trainee.trainees.last_name}
-                        </p>
-                        <p className="text-sm text-gray-500">{trainee.trainees.email}</p>
-                        <p className="text-xs text-gray-400 mt-1">
-                          Code : <span className="font-mono">{trainee.access_code}</span>
-                        </p>
+                {eligibleTrainees.map((trainee) => {
+                  const hasPersonalEmail = !!trainee.trainees?.email
+                  const companyEmail = group.clients?.contact_email
+                  const recipientEmail = hasPersonalEmail ? trainee.trainees.email : companyEmail
+                  
+                  return (
+                    <div
+                      key={trainee.id}
+                      className={`border rounded-lg p-4 transition-colors ${
+                        selectedTrainees.includes(trainee.id)
+                          ? 'border-primary-500 bg-primary-50'
+                          : 'border-gray-200 hover:bg-gray-50'
+                      }`}
+                    >
+                      <div className="flex items-start gap-3">
+                        <input
+                          type="checkbox"
+                          checked={selectedTrainees.includes(trainee.id)}
+                          onChange={() => toggleTrainee(trainee.id)}
+                          className="mt-1 w-4 h-4"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-gray-900">
+                            {trainee.trainees.first_name} {trainee.trainees.last_name}
+                          </p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <Mail className="w-3 h-3 text-gray-400 flex-shrink-0" />
+                            <p className="text-sm text-gray-600 truncate">
+                              {recipientEmail}
+                            </p>
+                          </div>
+                          {!hasPersonalEmail && (
+                            <div className="mt-2">
+                              <span className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs">
+                                <Building2 className="w-3 h-3" />
+                                Via contact entreprise - Pas d'email personnel
+                              </span>
+                            </div>
+                          )}
+                          <p className="text-xs text-gray-400 mt-1">
+                            Code : <span className="font-mono">{trainee.access_code}</span>
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => handlePreview(trainee)}
+                          className="btn btn-sm flex items-center gap-1 flex-shrink-0"
+                          title="Prévisualiser l'email"
+                        >
+                          <Eye className="w-4 h-4" />
+                          Aperçu
+                        </button>
                       </div>
-                      <button
-                        onClick={() => handlePreview(trainee)}
-                        className="btn btn-sm flex items-center gap-1"
-                        title="Prévisualiser l'email"
-                      >
-                        <Eye className="w-4 h-4" />
-                        Aperçu
-                      </button>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             </div>
           )}
@@ -325,7 +374,12 @@ export default function SendEmailsModal({ group, session, trainees, onClose, onS
 
         <div className="p-6 border-t flex items-center justify-between">
           <div className="text-sm text-gray-500">
-            {eligibleTrainees.length} stagiaire(s) éligible(s)
+            {eligibleTrainees.length} stagiaire(s) - {selectedTrainees.length} sélectionné(s)
+            {excludedTrainees.length > 0 && (
+              <span className="text-orange-600 ml-2">
+                • {excludedTrainees.length} exclu(s)
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-3">
             <button onClick={onClose} className="btn btn-secondary" disabled={sending}>
@@ -344,7 +398,7 @@ export default function SendEmailsModal({ group, session, trainees, onClose, onS
               ) : (
                 <>
                   <Send className="w-4 h-4" />
-                  Envoyer {selectedTrainees.length > 0 ? `(${selectedTrainees.length})` : ''}
+                  Envoyer {selectedTrainees.length > 0 ? `(${selectedTrainees.length} stagiaire${selectedTrainees.length > 1 ? 's' : ''})` : ''}
                 </>
               )}
             </button>
