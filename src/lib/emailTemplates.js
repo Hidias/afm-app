@@ -26,7 +26,7 @@ export function generateConvocationEmail({
     day: 'numeric'
   })
 
-  const portalUrl = `${window.location.origin}/portail/${accessCode}`
+  const portalUrl = `${window.location.origin}/portail-inter/${accessCode}`
 
   return `
 <!DOCTYPE html>
