@@ -17,6 +17,7 @@ const navItems = [
   { to: '/stagiaires', icon: Users, label: 'Stagiaires' },
   { to: '/formateurs', icon: UserCheck, label: 'Formateurs' },
   { to: '/sessions', icon: Calendar, label: 'Sessions' },
+  { to: '/sessions-inter', icon: Users, label: 'Sessions Inter' },
   { to: '/documents', icon: FileText, label: 'Documents' },
   { to: '/qualite', icon: FolderCheck, label: 'Qualité' },
   { to: '/non-conformites', icon: AlertTriangle, label: 'Non-conformités' },
