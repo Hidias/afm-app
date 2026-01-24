@@ -28,10 +28,10 @@ export default function SessionInterEdit() {
     day_type: 'full',
     location_city: '',
     location_address: '',
-    location_room: '',
+    room: '',
     min_participants: 4,
     max_participants: 12,
-    price_per_person: 0,
+    public_price_per_person: 0,
     trainer_id: '',
     status: 'planned',
     is_public: false,
@@ -62,10 +62,10 @@ export default function SessionInterEdit() {
         day_type: sessionData.day_type || 'full',
         location_city: sessionData.location_city || '',
         location_address: sessionData.location_address || '',
-        location_room: sessionData.location_room || '',
+        room: sessionData.room || '',
         min_participants: sessionData.min_participants || 4,
         max_participants: sessionData.max_participants || 12,
-        price_per_person: sessionData.price_per_person || 0,
+        public_price_per_person: sessionData.public_price_per_person || 0,
         trainer_id: sessionData.trainer_id || '',
         status: sessionData.status || 'planned',
         is_public: sessionData.is_public || false,
@@ -284,8 +284,8 @@ export default function SessionInterEdit() {
                 <label className="label">Salle</label>
                 <input
                   type="text"
-                  value={formData.location_room}
-                  onChange={(e) => setFormData({ ...formData, location_room: e.target.value })}
+                  value={formData.room}
+                  onChange={(e) => setFormData({ ...formData, room: e.target.value })}
                   className="input"
                   placeholder="Ex: Salle A"
                 />
@@ -332,8 +332,8 @@ export default function SessionInterEdit() {
               <label className="label">Prix par personne (€)</label>
               <input
                 type="number"
-                value={formData.price_per_person}
-                onChange={(e) => setFormData({ ...formData, price_per_person: parseFloat(e.target.value) || 0 })}
+                value={formData.public_price_per_person}
+                onChange={(e) => setFormData({ ...formData, public_price_per_person: parseFloat(e.target.value) || 0 })}
                 className="input"
                 min="0"
                 step="0.01"
