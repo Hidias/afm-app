@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
-import { Search, X, User, Building2, Mail, Phone, Plus, CheckCircle } from 'lucide-react'
+import { Search, X, User, Building2, Mail, Phone, Plus, CheckCircle, Filter } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 export default function AddTraineesToGroup({ group, session, onClose, onSuccess }) {
@@ -9,6 +9,8 @@ export default function AddTraineesToGroup({ group, session, onClose, onSuccess 
   const [trainees, setTrainees] = useState([])
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedTrainees, setSelectedTrainees] = useState([])
+  const [filterClientId, setFilterClientId] = useState(group.client_id || '') // Pré-sélectionner l'entreprise du groupe
+  const [clients, setClients] = useState([])
   
   // État pour nouveau stagiaire
   const [newTrainee, setNewTrainee] = useState({
@@ -22,8 +24,17 @@ export default function AddTraineesToGroup({ group, session, onClose, onSuccess 
   useEffect(() => {
     if (activeTab === 'existing') {
       loadTrainees()
+      loadClients()
     }
   }, [activeTab])
+
+  const loadClients = async () => {
+    const { data } = await supabase
+      .from('clients')
+      .select('id, name')
+      .order('name')
+    setClients(data || [])
+  }
 
   const loadTrainees = async () => {
     setLoading(true)
@@ -60,12 +71,15 @@ export default function AddTraineesToGroup({ group, session, onClose, onSuccess 
   // Filtrer les stagiaires
   const filteredTrainees = trainees.filter(trainee => {
     const search = searchTerm.toLowerCase()
-    return (
+    const matchesSearch = 
       trainee.first_name?.toLowerCase().includes(search) ||
       trainee.last_name?.toLowerCase().includes(search) ||
       trainee.email?.toLowerCase().includes(search) ||
       trainee.clients?.name?.toLowerCase().includes(search)
-    )
+
+    const matchesClient = !filterClientId || trainee.client_id === filterClientId
+
+    return matchesSearch && matchesClient
   })
 
   // Grouper par entreprise pour faciliter la navigation
@@ -159,6 +173,10 @@ export default function AddTraineesToGroup({ group, session, onClose, onSuccess 
     }
   }
 
+  const nbTraineesOfClient = filterClientId 
+    ? filteredTrainees.filter(t => t.client_id === filterClientId).length
+    : filteredTrainees.length
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
@@ -210,24 +228,72 @@ export default function AddTraineesToGroup({ group, session, onClose, onSuccess 
         <div className="flex-1 overflow-y-auto p-6">
           {activeTab === 'existing' ? (
             <div className="space-y-4">
-              {/* Recherche */}
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                <input
-                  type="text"
-                  placeholder="Rechercher un stagiaire..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="input pl-10 w-full"
-                />
+              {/* Filtres */}
+              <div className="flex gap-3">
+                {/* Recherche */}
+                <div className="flex-1">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="Rechercher un stagiaire..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="input pl-10 w-full"
+                    />
+                  </div>
+                </div>
+                
+                {/* Filtre entreprise */}
+                <div className="w-72">
+                  <div className="relative">
+                    <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                    <select
+                      value={filterClientId}
+                      onChange={(e) => setFilterClientId(e.target.value)}
+                      className="input pl-10 w-full"
+                    >
+                      <option value="">Toutes les entreprises</option>
+                      {clients.map(client => (
+                        <option key={client.id} value={client.id}>
+                          {client.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
               </div>
+
+              {/* Info filtre */}
+              {filterClientId && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Building2 className="w-5 h-5 text-blue-600" />
+                    <span className="text-sm font-medium text-blue-900">
+                      {nbTraineesOfClient} stagiaire(s) de {clients.find(c => c.id === filterClientId)?.name}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => setFilterClientId('')}
+                    className="text-sm text-blue-600 hover:underline"
+                  >
+                    Afficher tous
+                  </button>
+                </div>
+              )}
 
               {/* Info sélection */}
               {selectedTrainees.length > 0 && (
-                <div className="bg-primary-50 border border-primary-200 rounded-lg p-3">
-                  <p className="text-sm font-medium text-primary-900">
+                <div className="bg-primary-50 border border-primary-200 rounded-lg p-3 flex items-center justify-between">
+                  <span className="text-sm font-medium text-primary-900">
                     {selectedTrainees.length} stagiaire(s) sélectionné(s)
-                  </p>
+                  </span>
+                  <button
+                    onClick={() => setSelectedTrainees([])}
+                    className="text-sm text-primary-600 hover:underline"
+                  >
+                    Tout désélectionner
+                  </button>
                 </div>
               )}
 
@@ -239,7 +305,19 @@ export default function AddTraineesToGroup({ group, session, onClose, onSuccess 
               ) : Object.keys(traineesByClient).length === 0 ? (
                 <div className="text-center py-12">
                   <User className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                  <p className="text-gray-500">Aucun stagiaire disponible</p>
+                  <p className="text-gray-500">
+                    {searchTerm || filterClientId
+                      ? 'Aucun stagiaire trouvé avec ces filtres'
+                      : 'Aucun stagiaire disponible'}
+                  </p>
+                  {filterClientId && (
+                    <button
+                      onClick={() => setFilterClientId('')}
+                      className="mt-3 text-primary-600 hover:underline text-sm"
+                    >
+                      Réinitialiser les filtres
+                    </button>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-6">
@@ -271,8 +349,8 @@ export default function AddTraineesToGroup({ group, session, onClose, onSuccess 
                               </p>
                               <div className="flex items-center gap-4 text-sm text-gray-500 mt-1">
                                 {trainee.email && (
-                                  <span className="flex items-center gap-1">
-                                    <Mail className="w-3 h-3" />
+                                  <span className="flex items-center gap-1 truncate">
+                                    <Mail className="w-3 h-3 flex-shrink-0" />
                                     {trainee.email}
                                   </span>
                                 )}
@@ -285,7 +363,7 @@ export default function AddTraineesToGroup({ group, session, onClose, onSuccess 
                               </div>
                             </div>
                             {selectedTrainees.includes(trainee.id) && (
-                              <CheckCircle className="w-5 h-5 text-primary-600" />
+                              <CheckCircle className="w-5 h-5 text-primary-600 flex-shrink-0" />
                             )}
                           </label>
                         ))}
