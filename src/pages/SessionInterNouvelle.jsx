@@ -90,29 +90,54 @@ export default function SessionInterNouvelle() {
 
     setLoading(true)
     try {
-      // Générer une référence unique
+      // Générer une référence unique avec timestamp
       const courseCode = courses.find(c => c.id === formData.course_id)?.code || 'FORM'
       const dateStr = new Date(formData.start_date).toISOString().split('T')[0]
-      const reference = `${courseCode}-INTER-${dateStr}`
+      const timestamp = Date.now().toString().slice(-6)
+      const reference = `${courseCode}-INTER-${dateStr}-${timestamp}`
+
+      // Préparer les données
+      const sessionData = {
+        reference,
+        course_id: formData.course_id,
+        start_date: formData.start_date,
+        end_date: formData.end_date,
+        location_address: formData.location_address || null,
+        location_city: formData.location_city,
+        location_postal_code: formData.location_postal_code || null,
+        location_type: formData.location_type,
+        trainer_id: formData.trainer_id || null,
+        session_type: 'inter',
+        status: 'planned',
+        is_public: formData.is_public,
+        min_participants: parseInt(formData.min_participants),
+        max_participants: parseInt(formData.max_participants),
+        public_price_per_person: parseFloat(formData.public_price_per_person)
+      }
+
+      console.log('Creating session with data:', sessionData)
 
       // Créer la session
       const { data: session, error } = await supabase
         .from('sessions')
-        .insert({
-          ...formData,
-          reference,
-          status: 'planned'
-        })
+        .insert(sessionData)
         .select()
         .single()
 
-      if (error) throw error
+      if (error) {
+        console.error('Supabase error:', error)
+        throw error
+      }
 
       toast.success('Session inter-entreprise créée avec succès !')
       navigate(`/sessions-inter/${session.id}`)
     } catch (error) {
       console.error('Erreur création session:', error)
-      toast.error('Erreur lors de la création de la session')
+      if (error.message) {
+        toast.error(`Erreur: ${error.message}`)
+      } else {
+        toast.error('Erreur lors de la création de la session')
+      }
     } finally {
       setLoading(false)
     }
