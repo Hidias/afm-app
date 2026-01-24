@@ -66,16 +66,17 @@ export default function SendEmailsModal({ group, session, trainees, onClose, onS
           // Préparer les données de l'email
           const emailData = prepareEmailData(trainee, session, group)
 
-          // TODO: Appel à votre service d'envoi d'email
-          // Option 1: Resend (recommandé)
-          // Option 2: SendGrid
-          // Option 3: Votre propre service
-          
-          // Pour l'instant, simulation
-          console.log('Email à envoyer:', emailData)
-          
-          // Simuler un délai d'envoi
-          await new Promise(resolve => setTimeout(resolve, 500))
+          // Appel à l'API d'envoi d'email
+          const response = await fetch('/api/send-email', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(emailData)
+          })
+
+          if (!response.ok) {
+            const errorData = await response.json()
+            throw new Error(errorData.error || 'Erreur envoi email')
+          }
 
           results.success.push({
             traineeId,
