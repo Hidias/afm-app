@@ -2643,4 +2643,513 @@ function generatePositionnementContent(doc, session, questions, trainee) {
     doc.text('(Page intentionnellement vide)', pw / 2, ph / 2, { align: 'center' })
     doc.setTextColor(0, 0, 0)
   }
+// ============================================================
+// SESSIONS INTER-ENTREPRISES - DOCUMENTS PAR GROUPE
+// À ajouter à la fin de pdfGenerator.js (avant le dernier })
+// ============================================================
+
+function generateConventionInter(session, group, traineesOfGroup = [], trainer = null, costs = []) {
+  const doc = new jsPDF()
+  const pw = doc.internal.pageSize.getWidth()
+  const course = session?.courses || {}
+  const ref = session?.reference || ''
+  
+  const companyName = group?.clients?.name || group?.company_name || ''
+  const companyAddress = group?.clients?.address || ''
+  const companySiret = group?.clients?.siret || ''
+  const contactName = group?.clients?.contact_name || ''
+  const contactRole = group?.clients?.contact_function || ''
+  
+  let y = addHeader(doc, ref)
+  y = addTitle(doc, 'CONVENTION DE FORMATION PROFESSIONNELLE', y)
+  
+  doc.setFontSize(8)
+  doc.setFont('helvetica', 'italic')
+  doc.text('Conformément aux articles L6353-1 à L6353-9 et D6313-3-1 du Code du travail', pw / 2, y, { align: 'center' })
+  y += 3
+  doc.setFontSize(7)
+  doc.text('SESSION INTER-ENTREPRISES', pw / 2, y, { align: 'center' })
+  y += 10
+  
+  doc.setDrawColor(100, 100, 100)
+  doc.setLineWidth(0.3)
+  doc.line(20, y, pw - 20, y)
+  y += 6
+  
+  doc.setFontSize(11)
+  doc.setFont('helvetica', 'bold')
+  doc.text('ENTRE LES SOUSSIGNÉS', pw / 2, y, { align: 'center' })
+  y += 8
+  
+  doc.setFillColor(248, 250, 252)
+  doc.roundedRect(18, y - 2, pw - 36, 38, 2, 2, 'F')
+  
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(10)
+  doc.setTextColor(0, 102, 153)
+  doc.text("L'ORGANISME DE FORMATION", 22, y + 4)
+  doc.setTextColor(0, 0, 0)
+  
+  y += 10
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(9)
+  doc.text(ORG.nameFull, 22, y); y += 4
+  doc.text(`SIRET : ${ORG.siret}  |  NDA : ${ORG.nda}`, 22, y); y += 4
+  doc.text(`Siège : ${ORG.address}`, 22, y); y += 4
+  doc.text(`Représenté par : ${ORG.dirigeant}, Dirigeant`, 22, y); y += 4
+  doc.text(`Tél. : ${ORG.phone}  |  Courriel : ${ORG.email}`, 22, y); y += 4
+  doc.setFont('helvetica', 'italic')
+  doc.text('Ci-après dénommé « l\'Organisme de Formation »', 22, y)
+  y += 10
+  
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(10)
+  doc.text('ET', pw / 2, y, { align: 'center' })
+  y += 8
+  
+  const benefHeight = contactRole ? 34 : 30
+  doc.setFillColor(248, 250, 252)
+  doc.roundedRect(18, y - 2, pw - 36, benefHeight, 2, 2, 'F')
+  
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(10)
+  doc.setTextColor(0, 102, 153)
+  doc.text("LE BÉNÉFICIAIRE", 22, y + 4)
+  doc.setTextColor(0, 0, 0)
+  
+  y += 10
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(9)
+  doc.text(`Raison sociale : ${companyName}`, 22, y); y += 4
+  doc.text(`Adresse : ${companyAddress || 'Non renseignée'}`, 22, y); y += 4
+  doc.text(`Représenté par : ${contactName || 'Non renseigné'}${contactRole ? '  |  Fonction : ' + contactRole : ''}`, 22, y); y += 4
+  doc.text(`SIRET : ${companySiret || 'Non renseigné'}`, 22, y); y += 4
+  doc.setFont('helvetica', 'italic')
+  doc.text('Ci-après dénommé « le Bénéficiaire »', 22, y)
+  y += 12
+  
+  addFooter(doc, DOC_CODES.convention)
+  doc.addPage()
+  y = 25
+  
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(10)
+  doc.setTextColor(0, 51, 102)
+  doc.text('ARTICLE 1 – Objet, durée et effectif de la formation', 20, y)
+  doc.setTextColor(0, 0, 0)
+  y += 7
+  
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(9)
+  doc.text('Le Bénéficiaire souhaite faire participer une partie de son personnel à la formation suivante :', 20, y)
+  y += 7
+  
+  doc.setFont('helvetica', 'bold')
+  doc.text('Intitulé :', 20, y)
+  doc.setFont('helvetica', 'normal')
+  doc.text(course.title || '', 55, y); y += 5
+  
+  doc.setFont('helvetica', 'bold')
+  doc.text("Type d'action :", 20, y)
+  doc.setFont('helvetica', 'normal')
+  doc.text('Action de formation (session inter-entreprises)', 55, y); y += 5
+  
+  doc.setFont('helvetica', 'bold')
+  doc.text('Objectif(s) :', 20, y)
+  doc.setFont('helvetica', 'normal')
+  const objText = course.objectives || ''
+  if (objText.length > 70) {
+    const objLines = doc.splitTextToSize(objText, 135)
+    doc.text(objLines[0], 55, y); y += 4
+    for (let i = 1; i < objLines.length; i++) {
+      doc.text(objLines[i], 55, y); y += 4
+    }
+  } else {
+    doc.text(objText, 55, y); y += 5
+  }
+  y += 2
+  
+  if (traineesOfGroup.length > 0) {
+    const traineeHeight = traineesOfGroup.length * 4 + 10
+    if (y + traineeHeight > 270) {
+      addFooter(doc, DOC_CODES.convention)
+      doc.addPage()
+      y = 25
+    }
+    
+    doc.setFont('helvetica', 'bold')
+    doc.text(`Apprenants inscrits par ${companyName} :`, 20, y); y += 5
+    doc.setFont('helvetica', 'normal')
+    traineesOfGroup.forEach((t, idx) => { 
+      doc.text(`${idx + 1}. ${t.last_name?.toUpperCase() || ''} ${t.first_name || ''}`, 25, y); y += 4 
+    })
+    y += 3
+  }
+  
+  if (session.funding_type && session.funding_type !== 'none') {
+    if (y + 15 > 270) {
+      addFooter(doc, DOC_CODES.convention)
+      doc.addPage()
+      y = 25
+    }
+    
+    const fundingLabels = {
+      opco: 'OPCO', cpf: 'CPF', faf: 'FAF', region: 'Région',
+      france_travail: 'France Travail', ptp: 'PTP', fne: 'FNE',
+      direct: 'Financement direct', other: 'Autre'
+    }
+    
+    doc.setFont('helvetica', 'bold')
+    doc.text('Mode de financement :', 20, y)
+    doc.setFont('helvetica', 'normal')
+    const fundingLabel = fundingLabels[session.funding_type] || session.funding_type
+    const fundingText = session.funding_details 
+      ? `${fundingLabel} (${session.funding_details})` 
+      : fundingLabel
+    doc.text(fundingText, 55, y)
+    y += 5
+  }
+  
+  doc.setFont('helvetica', 'bold')
+  doc.text('Durée :', 20, y)
+  doc.setFont('helvetica', 'normal')
+  doc.text(`${course.duration_hours || course.duration || '7'} heures`, 55, y)
+  
+  doc.setFont('helvetica', 'bold')
+  doc.text('Effectif :', 105, y)
+  doc.setFont('helvetica', 'normal')
+  doc.text(`${traineesOfGroup.length} participant(s)`, 130, y)
+  y += 5
+  
+  doc.setFont('helvetica', 'bold')
+  doc.text('Dates :', 20, y)
+  doc.setFont('helvetica', 'normal')
+  doc.text(`Du ${formatDate(session?.start_date)} au ${formatDate(session?.end_date)}`, 55, y)
+  
+  doc.setFont('helvetica', 'bold')
+  doc.text('Horaires :', 105, y)
+  doc.setFont('helvetica', 'normal')
+  doc.text(`${session?.start_time || ''} - ${session?.end_time || ''}`, 130, y)
+  y += 5
+  
+  doc.setFont('helvetica', 'bold')
+  doc.text('Lieu :', 20, y)
+  doc.setFont('helvetica', 'normal')
+  const lieu = `${session?.location_city || ''} ${session?.room ? '- ' + session.room : ''}`
+  const lieuLines = doc.splitTextToSize(lieu || 'À définir', 135)
+  lieuLines.forEach((line, i) => { doc.text(line, 55, y + (i * 4)) })
+  y += Math.max(5, lieuLines.length * 4)
+  
+  doc.setFont('helvetica', 'bold')
+  doc.text('Public :', 20, y)
+  doc.setFont('helvetica', 'normal')
+  const publicText = course.target_audience || 'Tout public'
+  const publicLines = doc.splitTextToSize(publicText, 135)
+  publicLines.forEach((line, i) => { doc.text(line, 55, y + (i * 4)) })
+  y += Math.max(5, publicLines.length * 4)
+  
+  doc.setFont('helvetica', 'bold')
+  doc.text('Prérequis :', 20, y)
+  doc.setFont('helvetica', 'normal')
+  const prerequisText = course.prerequisites || 'Aucun'
+  const prerequisLines = doc.splitTextToSize(prerequisText, 135)
+  prerequisLines.forEach((line, i) => { doc.text(line, 55, y + (i * 4)) })
+  y += Math.max(5, prerequisLines.length * 4)
+  
+  doc.setFont('helvetica', 'bold')
+  doc.text('Formateur :', 20, y)
+  doc.setFont('helvetica', 'normal')
+  doc.text(trainer ? `${trainer.first_name} ${trainer.last_name}` : ORG.dirigeant, 55, y)
+  y += 10
+  
+  const prixParPersonne = parseFloat(session?.public_price_per_person || 0)
+  const coutFormationHT = prixParPersonne * traineesOfGroup.length
+  
+  let totalCostsSupp = 0
+  const costDetails = []
+  if (costs && costs.length > 0) {
+    costs.forEach(cost => {
+      const amount = parseFloat(cost.amount || 0)
+      const total = cost.per_trainee ? amount * traineesOfGroup.length : amount
+      totalCostsSupp += total
+      costDetails.push({ label: cost.label, amount, per_trainee: cost.per_trainee, total })
+    })
+  }
+  
+  const coutTotalHT = coutFormationHT + totalCostsSupp
+  
+  let article3Text = `Prix par participant : ${prixParPersonne.toFixed(2)} € HT\n`
+  article3Text += `Nombre de participants : ${traineesOfGroup.length}\n`
+  article3Text += `Coût de la formation : ${coutFormationHT.toFixed(2)} € HT`
+  
+  if (costDetails.length > 0) {
+    article3Text += `\n\nCoûts supplémentaires :`
+    costDetails.forEach(c => {
+      if (c.per_trainee) {
+        article3Text += `\n• ${c.label} : ${c.amount.toFixed(2)} € × ${traineesOfGroup.length} = ${c.total.toFixed(2)} € HT`
+      } else {
+        article3Text += `\n• ${c.label} : ${c.total.toFixed(2)} € HT`
+      }
+    })
+    article3Text += `\n\nCOÛT TOTAL : ${coutTotalHT.toFixed(2)} € HT`
+  } else {
+    article3Text += `\nCoût total : ${coutTotalHT.toFixed(2)} € HT`
+  }
+  
+  article3Text += `\n\nModalités de paiement : par virement bancaire à réception de facture\nIBAN : ${ORG.iban}  |  BIC : ${ORG.bic}\n\nAucun acompte ne sera demandé avant la formation.`
+  
+  const articles = [
+    { title: 'ARTICLE 2 – Engagements des parties', text: "Le Bénéficiaire s'engage à assurer la présence des stagiaires inscrits. L'Organisme de Formation s'engage à mettre en œuvre les moyens pédagogiques, techniques et d'encadrement nécessaires pour atteindre les objectifs visés." },
+    { title: 'ARTICLE 3 – Dispositions financières', text: article3Text },
+    { title: 'ARTICLE 4 – Moyens et modalités pédagogiques', text: "La formation est dispensée selon une pédagogie active et participative. Les émargements sont effectués de manière dématérialisée via QR Code individuel, ou sur feuille papier en cas d'indisponibilité du réseau." },
+    { title: "ARTICLE 5 – Modalités de suivi et d'évaluation", text: "Évaluation formative pendant la formation. Validation des acquis selon les critères du référentiel. Délivrance d'un certificat de réalisation." },
+    { title: 'ARTICLE 6 – Sanction et documents délivrés', text: "À l'issue de la formation : attestation de présence, certificat de réalisation et, le cas échéant, attestation officielle." },
+    { title: 'ARTICLE 7 – Annulation et dédommagement', text: "Désistement < 14 jours : 50%. Désistement < 7 jours : 75%." },
+    { title: 'ARTICLE 8 – Accessibilité', text: `Access Formation s'engage à favoriser l'accès pour toute personne en situation de handicap. Contact : ${ORG.email}` },
+    { title: 'ARTICLE 9 – Protection des données (RGPD)', text: "Données conservées 5 ans, accessibles sur demande." },
+    { title: 'ARTICLE 10 – Litiges', text: "En cas de différend, tribunal de commerce de Quimper." },
+  ]
+  
+  articles.forEach(art => {
+    const lines = doc.splitTextToSize(art.text, 170)
+    const articleHeight = 8 + (lines.length * 4)
+    
+    if (y + articleHeight > 265) {
+      addFooter(doc, DOC_CODES.convention)
+      doc.addPage()
+      y = 25
+    }
+    
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(10)
+    doc.setTextColor(0, 51, 102)
+    doc.text(art.title, 20, y)
+    doc.setTextColor(0, 0, 0)
+    y += 6
+    
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(9)
+    lines.forEach(l => { doc.text(l, 20, y); y += 4 })
+    y += 6
+  })
+  
+  if (y > 220) {
+    addFooter(doc, DOC_CODES.convention)
+    doc.addPage()
+    y = 25
+  }
+  
+  y += 5
+  doc.setDrawColor(100, 100, 100)
+  doc.line(20, y, pw - 20, y)
+  y += 10
+  
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(10)
+  doc.text(`Fait en deux exemplaires originaux à ${ORG.city}, le ${formatDate(new Date())}`, pw / 2, y, { align: 'center' })
+  y += 12
+  
+  const col1X = 30
+  const col2X = pw / 2 + 20
+  
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(9)
+  doc.text("Pour l'Organisme de Formation", col1X, y)
+  doc.text('Pour le Bénéficiaire', col2X, y)
+  y += 5
+  
+  doc.setFont('helvetica', 'normal')
+  doc.text(ORG.name, col1X, y)
+  doc.text(companyName || '', col2X, y)
+  y += 5
+  
+  doc.setFont('helvetica', 'italic')
+  doc.setFontSize(8)
+  doc.text('(Cachet et signature)', col1X, y)
+  doc.text('(Cachet et signature)', col2X, y)
+  y += 8
+  
+  try { doc.addImage(STAMP_BASE64, 'JPEG', col1X - 5, y, 50, 18) } catch {}
+  
+  addFooter(doc, DOC_CODES.convention)
+  return doc
+}
+
+function generateEmargementInter(session, group, traineesOfGroup = [], trainer = null, options = {}) {
+  const doc = new jsPDF('landscape')
+  const pw = doc.internal.pageSize.getWidth()
+  const course = session?.courses || {}
+  const ref = session?.reference || ''
+  
+  const { isBlank = false, attendanceData = [] } = options
+  const companyName = group?.clients?.name || group?.company_name || ''
+  
+  const logoBase64 = ORG.logo_base64
+  if (logoBase64) {
+    try {
+      const format = logoBase64.includes('image/png') ? 'PNG' : 'JPEG'
+      doc.addImage(logoBase64, format, 15, 10, 50, 12.5)
+    } catch (e) {
+      doc.setFillColor(0, 102, 204)
+      doc.rect(15, 10, 50, 12, 'F')
+      doc.setFontSize(10)
+      doc.setFont('helvetica', 'bold')
+      doc.setTextColor(255, 255, 255)
+      doc.text('ACCESS FORMATION', 20, 18)
+      doc.setTextColor(0, 0, 0)
+    }
+  } else {
+    doc.setFillColor(0, 102, 204)
+    doc.rect(15, 10, 50, 12, 'F')
+    doc.setFontSize(10)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(255, 255, 255)
+    doc.text('ACCESS FORMATION', 20, 18)
+    doc.setTextColor(0, 0, 0)
+  }
+  
+  if (isBlank) {
+    doc.setFontSize(8)
+    doc.setFont('helvetica', 'normal')
+    doc.text('N° Session : __________', pw - 55, 15)
+  } else {
+    doc.setFontSize(8)
+    doc.setTextColor(150, 150, 150)
+    doc.text(ref, pw - 15, 10, { align: 'right' })
+    doc.setTextColor(0, 0, 0)
+  }
+  
+  let y = 15
+  doc.setFontSize(14)
+  doc.setFont('helvetica', 'bold')
+  doc.text("FEUILLE D'ÉMARGEMENT - SESSION INTER-ENTREPRISES", pw / 2, y, { align: 'center' })
+  y += 10
+  
+  doc.setFontSize(9)
+  doc.setFont('helvetica', 'normal')
+  doc.text(`Formation : ${isBlank ? '________________________________________' : (course.title || '')}`, 15, y)
+  y += 5
+  
+  doc.setFont('helvetica', 'bold')
+  doc.text(`Groupe : ${isBlank ? '________________________' : companyName}`, 15, y)
+  doc.setFont('helvetica', 'normal')
+  doc.text(`Participants inscrits : ${traineesOfGroup.length}`, pw / 2, y)
+  y += 5
+  
+  if (isBlank) {
+    doc.text(`Dates : Du ___/___/______ au ___/___/______`, 15, y)
+  } else {
+    doc.text(`Dates : ${formatDate(session?.start_date)} au ${formatDate(session?.end_date)}`, 15, y)
+  }
+  
+  const lieu = isBlank ? '________________________________' : `${session?.location_city || ''} ${session?.room ? '- ' + session.room : ''}`
+  doc.text(`Lieu : ${lieu}`, pw / 2, y)
+  y += 5
+  
+  doc.text(`Formateur : ${isBlank ? '________________________________' : (trainer ? `${trainer.first_name} ${trainer.last_name}` : ORG.dirigeant)}`, 15, y)
+  y += 8
+  
+  let days = []
+  if (!isBlank && session?.start_date && session?.end_date) {
+    try { days = eachDayOfInterval({ start: parseISO(session.start_date), end: parseISO(session.end_date) }) } catch {}
+  }
+  const displayDays = isBlank ? [1, 2, 3] : (days.length > 0 ? days : [new Date()])
+  
+  const nameColW = 45
+  const secuColW = 40
+  const emailColW = 35
+  const remainingW = pw - 30 - nameColW - secuColW - emailColW
+  const dayColW = Math.min(25, remainingW / (displayDays.length * 2))
+  const startX = 15
+  
+  doc.setFillColor(240, 240, 240)
+  doc.rect(startX, y, nameColW + secuColW + emailColW + displayDays.length * dayColW * 2, 14, 'F')
+  
+  doc.setFontSize(7)
+  doc.setFont('helvetica', 'bold')
+  doc.text('Nom Prénom', startX + 2, y + 10)
+  doc.text('N° Sécurité Sociale', startX + nameColW + 2, y + 10)
+  doc.text('Email', startX + nameColW + secuColW + 2, y + 10)
+  
+  let x = startX + nameColW + secuColW + emailColW
+  displayDays.forEach((day, idx) => {
+    const dateStr = isBlank ? `J${idx + 1}` : format(day, 'dd/MM', { locale: fr })
+    const centerX = x + dayColW
+    doc.text(dateStr, centerX, y + 4, { align: 'center' })
+    doc.text('Matin', x + dayColW / 2, y + 10, { align: 'center' })
+    doc.text('A-midi', x + dayColW + dayColW / 2, y + 10, { align: 'center' })
+    x += dayColW * 2
+  })
+  y += 14
+  
+  const totalRows = Math.max(10, traineesOfGroup.length)
+  const emptyRowsNeeded = Math.max(0, totalRows - traineesOfGroup.length)
+  const rows = [...traineesOfGroup, ...Array(emptyRowsNeeded).fill({})]
+  
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(7)
+  rows.forEach(t => {
+    doc.rect(startX, y, nameColW, 10)
+    doc.rect(startX + nameColW, y, secuColW, 10)
+    doc.rect(startX + nameColW + secuColW, y, emailColW, 10)
+    
+    if (t.first_name) doc.text(`${t.last_name?.toUpperCase() || ''} ${t.first_name || ''}`, startX + 1, y + 7)
+    if (t.social_security_number) doc.text(t.social_security_number, startX + nameColW + 1, y + 7)
+    if (t.email) doc.text(t.email.substring(0, 22), startX + nameColW + secuColW + 1, y + 7)
+    
+    let xx = startX + nameColW + secuColW + emailColW
+    displayDays.forEach((day, dayIdx) => {
+      const dateStr = isBlank ? null : format(day, 'yyyy-MM-dd')
+      
+      doc.rect(xx, y, dayColW, 10)
+      doc.rect(xx + dayColW, y, dayColW, 10)
+      
+      if (!isBlank && attendanceData && t.id) {
+        const attendance = attendanceData.find(a => 
+          a.trainee_id === t.id && a.date === dateStr
+        )
+        
+        if (attendance) {
+          if (attendance.morning) {
+            doc.setFont('helvetica', 'bold')
+            doc.text('✓', xx + dayColW / 2 - 1, y + 7)
+            doc.setFont('helvetica', 'normal')
+          }
+          if (attendance.afternoon) {
+            doc.setFont('helvetica', 'bold')
+            doc.text('✓', xx + dayColW + dayColW / 2 - 1, y + 7)
+            doc.setFont('helvetica', 'normal')
+          }
+        }
+      }
+      
+      xx += dayColW * 2
+    })
+    y += 10
+  })
+  
+  y += 8
+  doc.setFontSize(9)
+  doc.text('Signature du formateur :', 15, y)
+  doc.rect(15, y + 2, 60, 18)
+  
+  addFooter(doc, DOC_CODES.emargement)
+  return doc
+}
+
+export function downloadConventionInter(session, group, traineesOfGroup, trainer, costs = []) {
+  const doc = generateConventionInter(session, group, traineesOfGroup, trainer, costs)
+  const ref = session?.reference || 'INTER'
+  const groupName = (group?.clients?.name || group?.company_name || 'Groupe').replace(/[^a-zA-Z0-9]/g, '_')
+  const filename = `Convention_INTER_${ref}_${groupName}.pdf`
+  doc.save(filename)
+}
+
+export function downloadEmargementInter(session, group, traineesOfGroup, trainer, options = {}) {
+  const doc = generateEmargementInter(session, group, traineesOfGroup, trainer, options)
+  const ref = session?.reference || 'INTER'
+  const groupName = (group?.clients?.name || group?.company_name || 'Groupe').replace(/[^a-zA-Z0-9]/g, '_')
+  const suffix = options.isBlank ? 'Vierge' : 'Signe'
+  const filename = `Emargement_INTER_${ref}_${groupName}_${suffix}.pdf`
+  doc.save(filename)
 }
