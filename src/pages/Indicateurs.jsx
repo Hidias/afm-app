@@ -321,55 +321,68 @@ export default function Indicateurs() {
   
   // Créer une non-conformité depuis une alerte
   const handleCreateNC = async (alert) => {
-    // Récupérer les infos enrichies
-    const sessionRef = alert.sessions?.reference || 'N/A'
-    const courseName = alert.sessions?.courses?.name || alert.sessions?.course?.name || ''
-    const sessionDate = alert.sessions?.start_date ? new Date(alert.sessions.start_date).toLocaleDateString('fr-FR') : ''
-    const trainerName = alert.sessions?.trainer ? `${alert.sessions.trainer.first_name || ''} ${alert.sessions.trainer.last_name || ''}`.trim() : ''
-    const traineeName = alert.trainees ? `${alert.trainees.first_name || ''} ${alert.trainees.last_name || ''}`.trim() : ''
-    
-    const ncData = {
-      title: `Note basse: ${alert.criterion_label} (${alert.score}/5)`,
-      description: `Alerte qualité détectée automatiquement.\n\nSession: ${sessionRef} - ${courseName}\nDate: ${sessionDate}\nFormateur: ${trainerName}\nStagiaire: ${traineeName}\n\nCritère: ${alert.criterion_label}\nNote: ${alert.score}/5`,
-      source: 'evaluation',
-      session_id: alert.session_id || null,
-      critere_qualiopi: 'Indicateur 32',
-      severity: alert.score === 1 ? 'major' : 'minor',
-      status: 'open',
-      cause_analysis: '',
-      corrective_action: '',
-      action_responsible: '',
-      action_deadline: null,
-      preventive_action: ''
+    try {
+      // Récupérer les infos enrichies
+      const sessionRef = alert.sessions?.reference || 'N/A'
+      const courseName = alert.sessions?.courses?.name || alert.sessions?.course?.name || ''
+      const sessionDate = alert.sessions?.start_date ? new Date(alert.sessions.start_date).toLocaleDateString('fr-FR') : ''
+      const trainerName = alert.sessions?.trainer ? `${alert.sessions.trainer.first_name || ''} ${alert.sessions.trainer.last_name || ''}`.trim() : ''
+      const traineeName = alert.trainees ? `${alert.trainees.first_name || ''} ${alert.trainees.last_name || ''}`.trim() : ''
+      
+      const ncData = {
+        title: `Note basse: ${alert.criterion_label} (${alert.score}/5)`,
+        description: `Alerte qualité détectée automatiquement.\n\nSession: ${sessionRef} - ${courseName}\nDate: ${sessionDate}\nFormateur: ${trainerName}\nStagiaire: ${traineeName}\n\nCritère: ${alert.criterion_label}\nNote: ${alert.score}/5`,
+        source: 'evaluation',
+        session_id: alert.session_id || null,
+        critere_qualiopi: 'Indicateur 32',
+        severity: alert.score === 1 ? 'major' : 'minor',
+        status: 'open',
+        cause_analysis: '',
+        corrective_action: '',
+        action_responsible: '',
+        action_deadline: null,
+        preventive_action: ''
+      }
+      
+      console.log('🔧 Création NC avec données:', ncData)
+      
+      const { data: nc, error: insertError } = await supabase
+        .from('non_conformites')
+        .insert([ncData])
+        .select()
+        .single()
+      
+      if (insertError) {
+        console.error('❌ Erreur création NC:', insertError)
+        toast.error(`Erreur création NC: ${insertError.message}`)
+        return
+      }
+      
+      console.log('✅ NC créée:', nc.id)
+      
+      // Mettre à jour l'alerte avec le lien vers la NC
+      const { error: updateError } = await supabase
+        .from('quality_alerts')
+        .update({
+          status: 'nc_created',
+          non_conformite_id: nc.id,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', alert.id)
+      
+      if (updateError) {
+        console.error('❌ Erreur update alerte:', updateError)
+        toast.error(`NC créée mais erreur liaison: ${updateError.message}`)
+      } else {
+        console.log('✅ Alerte liée à NC:', alert.id, '→', nc.id)
+        toast.success(`Non-conformité créée: ${nc.title}`)
+      }
+      
+      await reloadAlerts()
+    } catch (err) {
+      console.error('❌ Erreur inattendue handleCreateNC:', err)
+      toast.error(`Erreur inattendue: ${err.message}`)
     }
-    
-    console.log('Création NC avec données:', ncData)
-    
-    const { data: nc, error } = await supabase
-      .from('non_conformites')
-      .insert([ncData])
-      .select()
-      .single()
-    
-    if (error) {
-      console.error('Erreur création NC:', error)
-      toast.error(`Erreur: ${error.message || 'Création NC impossible'}`)
-      return
-    }
-    
-    // Mettre à jour l'alerte avec le lien vers la NC
-    await supabase
-      .from('quality_alerts')
-      .update({
-        status: 'nc_created',
-        non_conformite_id: nc.id,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', alert.id)
-    
-    toast.success('Non-conformité créée et liée')
-    
-    await reloadAlerts()
   }
   
   // Lier une alerte à une NC existante
