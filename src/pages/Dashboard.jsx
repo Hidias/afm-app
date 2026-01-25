@@ -137,24 +137,18 @@ export default function Dashboard() {
     // Charger les 5 dernières réclamations non traitées
     const { data: reclamations } = await supabase
       .from('reclamations')
-      .select('id, subject, description, created_at, session_id, trainee_id, status')
-      .in('status', ['pending', 'in_progress']) // Non traitées
+      .select('id, subject, description, created_at, session_id, status')
+      .in('status', ['open', 'in_progress']) // Non traitées
       .order('created_at', { ascending: false })
       .limit(5)
     
-    // Enrichir les réclamations avec session et stagiaire
+    // Enrichir les réclamations avec session
     if (reclamations && reclamations.length > 0) {
       const sessionIds = [...new Set(reclamations.map(r => r.session_id).filter(Boolean))]
-      const traineeIds = [...new Set(reclamations.map(r => r.trainee_id).filter(Boolean))]
       
-      const [sessionsResult, traineesResult] = await Promise.all([
-        sessionIds.length > 0 
-          ? supabase.from('sessions').select('id, reference, course_id').in('id', sessionIds)
-          : { data: [] },
-        traineeIds.length > 0
-          ? supabase.from('trainees').select('id, first_name, last_name').in('id', traineeIds)
-          : { data: [] }
-      ])
+      const sessionsResult = sessionIds.length > 0 
+        ? await supabase.from('sessions').select('id, reference, course_id').in('id', sessionIds)
+        : { data: [] }
       
       // Récupérer les noms des formations
       const courseIds = [...new Set((sessionsResult.data || []).map(s => s.course_id).filter(Boolean))]
@@ -173,13 +167,9 @@ export default function Dashboard() {
         }
       })
       
-      const traineesMap = {}
-      ;(traineesResult.data || []).forEach(t => { traineesMap[t.id] = t })
-      
       const enrichedReclamations = reclamations.map(recl => ({
         ...recl,
-        sessions: sessionsMap[recl.session_id] || null,
-        trainees: traineesMap[recl.trainee_id] || null
+        sessions: sessionsMap[recl.session_id] || null
       }))
       
       setRecentReclamations(enrichedReclamations)
