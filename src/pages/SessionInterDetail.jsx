@@ -128,7 +128,7 @@ export default function SessionInterDetail() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Link to={`/sessions/${id}/edit`} className="btn btn-secondary">
+          <Link to={`/sessions-inter/${id}/edit`} className="btn btn-secondary">
             <Edit className="w-4 h-4" />
             Modifier
           </Link>
