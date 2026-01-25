@@ -13,7 +13,7 @@ import toast from 'react-hot-toast'
 import AddTraineesToGroup from '../components/AddTraineesToGroup'
 import SendEmailsModal from '../components/SendEmailsModal'
 import { generateAccessCodeForTrainee, generateAccessCodesForTrainees } from '../lib/accessCodeGenerator'
-import { downloadConventionInter, downloadEmargementInter, downloadDocument } from '../lib/pdfGenerator'
+import { downloadConventionInter, downloadEmargementInter, downloadDocument, setOrganization } from '../lib/pdfGenerator'
 
 export default function SessionInterDetail() {
   const { id } = useParams()
@@ -64,6 +64,16 @@ export default function SessionInterDetail() {
 
       if (groupsError) throw groupsError
       setGroups(groupsData || [])
+
+      // Charger les paramètres organisation pour le logo
+      const { data: orgData, error: orgError } = await supabase
+        .from('organization_settings')
+        .select('*')
+        .single()
+
+      if (!orgError && orgData) {
+        setOrganization(orgData)
+      }
 
     } catch (error) {
       console.error('Erreur chargement session:', error)
@@ -128,7 +138,7 @@ export default function SessionInterDetail() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Link to={`/sessions-inter/${id}/edit`} className="btn btn-secondary">
+          <Link to={`/sessions/${id}/edit`} className="btn btn-secondary">
             <Edit className="w-4 h-4" />
             Modifier
           </Link>
