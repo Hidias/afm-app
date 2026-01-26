@@ -35,10 +35,10 @@ export default function CourseDocumentsList() {
 
   const loadData = async () => {
     try {
-      // Charger toutes les formations
+      // Charger toutes les formations (incluant program_url)
       const { data: coursesData, error: coursesError } = await supabase
         .from('courses')
-        .select('id, title, reference')
+        .select('id, title, reference, program_url, updated_at')
         .order('title')
 
       if (coursesError) throw coursesError
@@ -52,11 +52,36 @@ export default function CourseDocumentsList() {
 
       // Organiser docs par course_id et type
       const docsMap = {}
+      
+      // Ajouter les documents de course_documents
       docsData?.forEach(doc => {
         if (!docsMap[doc.course_id]) {
           docsMap[doc.course_id] = {}
         }
         docsMap[doc.course_id][doc.type] = doc
+      })
+
+      // Ajouter les program_url comme documents de type "programme"
+      coursesData?.forEach(course => {
+        if (course.program_url) {
+          if (!docsMap[course.id]) {
+            docsMap[course.id] = {}
+          }
+          // Si pas déjà un document programme uploadé via les boutons, ajouter le program_url
+          if (!docsMap[course.id]['programme']) {
+            docsMap[course.id]['programme'] = {
+              id: `program-url-${course.id}`,
+              course_id: course.id,
+              type: 'programme',
+              title: 'Programme PDF',
+              file_url: course.program_url,
+              file_name: 'Programme PDF',
+              file_size: null,
+              created_at: course.updated_at || new Date().toISOString(),
+              is_from_modal: true // Flag pour identifier la source
+            }
+          }
+        }
       })
 
       setCourses(coursesData || [])
@@ -172,6 +197,12 @@ export default function CourseDocumentsList() {
     }
 
     try {
+      // Si c'est un document venant de program_url (modal), empêcher la suppression
+      if (doc.is_from_modal) {
+        toast.error('Ce programme doit être supprimé depuis la modal "Modifier la formation"')
+        return
+      }
+
       // Supprimer du Storage
       const fileName = doc.file_url.split('/course-documents/')[1]
       if (fileName) {
