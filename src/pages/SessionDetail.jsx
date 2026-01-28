@@ -6,7 +6,7 @@ import {
   ArrowLeft, Calendar, MapPin, Users, Clock, FileText, QrCode, UserPlus, UserMinus,
   Download, CheckCircle, AlertCircle, Copy, ExternalLink, X, Edit, Trash2, Save,
   FileSignature, Send, Upload, Eye, Star, ThumbsUp, ClipboardCheck, UserCheck, HelpCircle, Home, Target,
-  Sun, Moon, Plus, ChevronDown, Search, LogOut, MessageSquare, CheckCircle2
+  Sun, Moon, Plus, ChevronDown, Search, LogOut, MessageSquare, CheckCircle2, FileCheck
 } from 'lucide-react'
 import { format, eachDayOfInterval, parseISO, differenceInDays } from 'date-fns'
 import { fr } from 'date-fns/locale'
@@ -16,6 +16,7 @@ import { supabase } from '../lib/supabase'
 import SessionDocumentAccess from '../components/SessionDocumentAccess'
 import SSTCertificationTab from '../components/SSTCertificationTab'
 import DateTimePickerModal from '../components/DateTimePickerModal'
+import SessionChecklist from '../components/SessionChecklist'
 
 const statusLabels = {
   draft: { label: 'Brouillon', class: 'badge-gray' },
@@ -3306,6 +3307,18 @@ ${organization?.phone || ''}`)
               onClick={() => setDocSelection({...docSelection, expandedDoc: null, selectedTrainees: []})}
             />
           )}
+        </div>
+      )}
+      
+      {/* TAB: Documents - FICHE DE CONTRÔLE */}
+      {activeTab === 'documents' && (
+        <div className="card mt-6">
+          <div className="flex items-center gap-2 mb-4">
+            <FileCheck className="w-5 h-5 text-blue-600" />
+            <h3 className="font-semibold">Fiche de contrôle formation</h3>
+            <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">Archivage papier</span>
+          </div>
+          <SessionChecklist session={session} />
         </div>
       )}
       
