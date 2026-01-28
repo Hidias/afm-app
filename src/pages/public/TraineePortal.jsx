@@ -240,12 +240,8 @@ export default function TraineePortal() {
     setCodeError('')
     setAttemptsRemaining(5 - (trainee.access_code_attempts || 0))
     
-    // Si pas de code d'accès configuré ou codes désactivés, passer directement
-    if (!trainee.access_code) {
-      loadTraineeDataDirect(trainee)
-    } else {
-      setCurrentStep('verify_code')
-    }
+    // Toujours demander le code d'accès
+    setCurrentStep('verify_code')
   }
 
   // Chargement direct sans vérification de code (fallback)
@@ -387,7 +383,7 @@ export default function TraineePortal() {
       const today = getTodayFormation()
       
       // PRIORITÉ 1 : Fiche pas remplie
-      if (!infoData || !infoData.filled_at) {
+      if (!trainee.info_sheet_completed) {
         setCurrentStep('info_sheet')
       }
       // PRIORITÉ 2 : Test de positionnement pas fait (si des questions existent)
