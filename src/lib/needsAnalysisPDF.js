@@ -13,11 +13,33 @@ export const downloadNeedsAnalysisPDF = async (session, analysisData = null, bla
   const margin = 15
   const contentWidth = pageWidth - (margin * 2)
   
-  // Utiliser les infos org passées en paramètre ou valeurs par défaut
-  const ORG = orgSettings || {
+  // Utiliser les infos org passées en paramètre (depuis organization_settings)
+  // Si pas de orgSettings, utiliser valeurs par défaut (fallback)
+  const ORG = orgSettings ? {
+    name: orgSettings.name || 'Access Formation',
+    nameFull: orgSettings.name ? `SARL ${orgSettings.name}` : 'SARL ACCESS FORMATION',
+    address: orgSettings.address && orgSettings.postal_code && orgSettings.city
+      ? `${orgSettings.address}, ${orgSettings.postal_code} ${orgSettings.city}`
+      : '24 Rue Kerbleiz, 29900 Concarneau',
+    addressFull: orgSettings.address && orgSettings.postal_code && orgSettings.city
+      ? `${orgSettings.address} - ${orgSettings.postal_code} ${orgSettings.city}`
+      : '24 Rue Kerbleiz - 29900 Concarneau',
+    phone: orgSettings.phone || '02 46 56 57 54',
+    email: orgSettings.email || 'contact@accessformation.pro',
+    siret: orgSettings.siret || '94356386600012',
+    nda: orgSettings.nda || '53291026129',
+    ndaFull: orgSettings.nda 
+      ? `${orgSettings.nda} auprès du préfet de la région Bretagne`
+      : '53291026129 auprès du préfet de la région Bretagne',
+    tva: orgSettings.tva || 'FR71943563866',
+    naf: orgSettings.naf || '8559A',
+    logo_base64: orgSettings.logo_base64 || null
+  } : {
+    // Valeurs par défaut si pas de orgSettings du tout
     name: 'Access Formation',
     nameFull: 'SARL ACCESS FORMATION',
     address: '24 Rue Kerbleiz, 29900 Concarneau',
+    addressFull: '24 Rue Kerbleiz - 29900 Concarneau',
     phone: '02 46 56 57 54',
     email: 'contact@accessformation.pro',
     siret: '94356386600012',
@@ -394,11 +416,11 @@ export const downloadNeedsAnalysisPDF = async (session, analysisData = null, bla
 
   // ============ SIGNATURES ============
   // Calculer espace restant et ajuster si nécessaire
-  const spaceForFooter = 35 // Espace réservé pour footer
-  const spaceForSignatures = 25 // Hauteur signatures
+  const spaceForFooter = 18 // Espace réservé pour footer (4 lignes de texte)
+  const spaceForSignatures = 26 // Hauteur signatures (titre + rectangles)
   const minYForSignatures = pageHeight - spaceForFooter - spaceForSignatures
   
-  // Si on dépasse, compacter un peu
+  // Si on dépasse, compacter
   if (yPos > minYForSignatures) {
     yPos = minYForSignatures
   } else {
@@ -406,24 +428,25 @@ export const downloadNeedsAnalysisPDF = async (session, analysisData = null, bla
   }
   
   doc.setFont('helvetica', 'bold')
-  doc.setFontSize(9)
-  doc.text('Signature entreprise :', margin + 5, yPos)
-  doc.text('Signature Access Formation :', pageWidth / 2 + 5, yPos)
+  doc.setFontSize(8)
+  doc.text('Signature entreprise :', margin + 2, yPos)
+  doc.text('Signature Access Formation :', pageWidth / 2 + 2, yPos)
   
   doc.setDrawColor(100, 100, 100)
-  doc.rect(margin, yPos + 2, 70, 18)
-  doc.rect(pageWidth / 2, yPos + 2, 70, 18)
+  doc.setLineWidth(0.3)
+  doc.rect(margin, yPos + 1, 68, 18)
+  doc.rect(pageWidth / 2, yPos + 1, 68, 18)
 
   // ============ FOOTER ============
-  // Position fixe en bas de page
-  const footerY = pageHeight - 12
-  doc.setFontSize(7)
-  doc.setTextColor(100, 100, 100)
+  // Position fixe en bas de page avec espace suffisant
+  const footerStartY = pageHeight - 15
+  doc.setFontSize(6.5)
+  doc.setTextColor(80, 80, 80)
   doc.setFont('helvetica', 'normal')
-  doc.text(`${safe(ORG.name)} - ${safe(ORG.address)}`, pageWidth / 2, footerY, { align: 'center' })
-  doc.text(safe(ORG.ndaFull), pageWidth / 2, footerY + 3, { align: 'center' })
-  doc.text(`SIRET: ${safe(ORG.siret)} - NAF: ${safe(ORG.naf)} - TVA: ${safe(ORG.tva)}`, pageWidth / 2, footerY + 6, { align: 'center' })
-  doc.text('AF-BESOIN-V2.5.16', pageWidth - margin, footerY + 9, { align: 'right' })
+  doc.text(`${safe(ORG.name)} - ${safe(ORG.addressFull)}`, pageWidth / 2, footerStartY, { align: 'center' })
+  doc.text(safe(ORG.ndaFull), pageWidth / 2, footerStartY + 3, { align: 'center' })
+  doc.text(`SIRET: ${safe(ORG.siret)} - NAF: ${safe(ORG.naf)} - TVA: ${safe(ORG.tva)}`, pageWidth / 2, footerStartY + 6, { align: 'center' })
+  doc.text('AF-BESOIN-V2.5.16', pageWidth - margin, footerStartY + 9, { align: 'right' })
 
   // Télécharger
   const filename = blank 
