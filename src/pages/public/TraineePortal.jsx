@@ -265,23 +265,19 @@ export default function TraineePortal() {
 
       if (error) {
         // Fallback: vérification directe si RPC n'existe pas
-        if (error.message?.includes('function') || error.code === '42883') {
-          // Charger le vrai access_code depuis la BDD
-          const { data: traineeData, error: fetchError } = await supabase
-            .from('session_trainees')
-            .select('access_code')
-            .eq('id', selectedTrainee.id)
-            .single()
+        if (error.message?.includes('function') || error.code === '42883' || error.code === '404') {
+          // Chercher le code dans la liste des trainees déjà chargés
+          const traineeInSession = trainees.find(t => t.id === selectedTrainee.id)
           
-          if (fetchError) {
-            console.error('Erreur chargement code:', fetchError)
+          if (!traineeInSession || !traineeInSession.access_code) {
+            console.error('Code non trouvé pour ce stagiaire')
             setCodeError('Erreur lors de la vérification')
             setSubmitting(false)
             return
           }
           
           // Vérification directe
-          if (accessCode === traineeData.access_code) {
+          if (accessCode === traineeInSession.access_code) {
             await loadTraineeData(selectedTrainee)
             return
           } else {
