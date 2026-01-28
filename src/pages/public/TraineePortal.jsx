@@ -321,6 +321,17 @@ export default function TraineePortal() {
       const attendanceRecords = traineeData?.attendance || []
       const evalData = traineeData?.evaluation
       
+      // Charger le statut du test de positionnement
+      const { data: testStatus } = await supabase
+        .from('session_trainees')
+        .select('positioning_test_completed, positioning_test_completed_at')
+        .eq('id', trainee.id)
+        .single()
+      
+      // Mettre à jour trainee avec le statut du test
+      trainee.positioning_test_completed = testStatus?.positioning_test_completed || false
+      trainee.positioning_test_completed_at = testStatus?.positioning_test_completed_at
+      
       setInfoSheet(infoData)
       
       let birthDateDisplay = ''
