@@ -257,27 +257,32 @@ export default function TraineePortal() {
     setCodeError('')
 
     try {
-      // Vérification via RPC si disponible, sinon vérification directe
+      // Trouver le session_trainee_id via trainee_id
+      const { data: sessionTraineeData, error: lookupError } = await supabase
+        .from('session_trainees')
+        .select('id, access_code')
+        .eq('trainee_id', selectedTrainee.id)
+        .eq('session_id', session.id)
+        .single()
+      
+      if (lookupError || !sessionTraineeData) {
+        console.error('Erreur lookup session_trainee:', lookupError)
+        setCodeError('Erreur lors de la vérification')
+        setSubmitting(false)
+        return
+      }
+      
+      // Maintenant on a le vrai session_trainee_id !
       const { data, error } = await supabase.rpc('verify_trainee_access_code', {
-        p_session_trainee_id: selectedTrainee.id,  // CORRIGÉ : utilise selectedTrainee.id
+        p_session_trainee_id: sessionTraineeData.id,  // ✅ Le bon ID !
         p_access_code: accessCode
       })
 
       if (error) {
-        // Fallback: vérification directe si RPC n'existe pas
+        // Fallback: vérification directe
         if (error.message?.includes('function') || error.code === '42883' || error.code === '404') {
-          // Chercher le code dans la liste des trainees déjà chargés
-          const traineeInSession = trainees.find(t => t.id === selectedTrainee.id)
-          
-          if (!traineeInSession || !traineeInSession.access_code) {
-            console.error('Code non trouvé pour ce stagiaire')
-            setCodeError('Erreur lors de la vérification')
-            setSubmitting(false)
-            return
-          }
-          
-          // Vérification directe
-          if (accessCode === traineeInSession.access_code) {
+          // Vérification directe avec les données déjà récupérées
+          if (accessCode === sessionTraineeData.access_code) {
             await loadTraineeData(selectedTrainee)
             return
           } else {
