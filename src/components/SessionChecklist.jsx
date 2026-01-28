@@ -37,17 +37,34 @@ export default function SessionChecklist({ session }) {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [isSST, setIsSST] = useState(false)
+  const [traineeCount, setTraineeCount] = useState(0)
 
   useEffect(() => {
     if (session) {
       loadChecklist()
       checkIfSST()
+      loadTraineeCount()
     }
   }, [session])
 
   const checkIfSST = () => {
     const title = session.courses?.title?.toLowerCase() || ''
     setIsSST(title.includes('sst') || title.includes('secouriste'))
+  }
+
+  const loadTraineeCount = async () => {
+    try {
+      const { count, error } = await supabase
+        .from('session_trainees')
+        .select('*', { count: 'exact', head: true })
+        .eq('session_id', session.id)
+
+      if (error) throw error
+      setTraineeCount(count || 0)
+    } catch (error) {
+      console.error('Erreur comptage stagiaires:', error)
+      setTraineeCount(0)
+    }
   }
 
   const loadChecklist = async () => {
@@ -159,7 +176,7 @@ export default function SessionChecklist({ session }) {
       const comment = blank ? '' : itemData.comment || ''
 
       return `
-        <div style="margin-bottom: 5px; page-break-inside: avoid; display: flex; align-items: center; font-size: 8pt; line-height: 1.2;">
+        <div style="margin-bottom: 5px; page-break-inside: avoid; display: flex; align-items: center; font-size: 8.5pt; line-height: 1.2;">
           <span style="font-size: 12px; margin-right: 4px;">${checked ? '☑' : '☐'}</span>
           <span style="font-weight: 500; min-width: 200px; max-width: 200px;">${item.label}${item.sst ? ' [SST]' : ''}</span>
           <span style="margin: 0 8px;">|</span>
@@ -202,7 +219,7 @@ export default function SessionChecklist({ session }) {
           }
           body {
             font-family: Arial, sans-serif;
-            font-size: 8pt;
+            font-size: 8.5pt;
             line-height: 1.2;
             color: #000;
           }
@@ -217,7 +234,7 @@ export default function SessionChecklist({ session }) {
             grid-template-columns: 1fr 1fr;
             gap: 2px 12px;
             margin-bottom: 8px;
-            font-size: 9px;
+            font-size: 9.5px;
           }
           .info-label {
             font-weight: bold;
@@ -226,21 +243,21 @@ export default function SessionChecklist({ session }) {
             margin-top: 8px;
             padding-top: 4px;
             border-top: 2px solid #000;
-            font-size: 8px;
+            font-size: 8.5px;
           }
         </style>
       </head>
       <body>
         <div class="header">
           <h1 style="margin: 0; font-size: 14px; font-weight: bold;">FICHE DE CONTRÔLE FORMATION</h1>
-          <p style="margin: 2px 0; font-size: 9px;">Access Formation - Archivage papier</p>
+          <p style="margin: 2px 0; font-size: 9.5px;">Access Formation - Archivage papier</p>
         </div>
 
         <div class="info-grid">
           <div><span class="info-label">Session :</span> ${session.reference}</div>
           <div><span class="info-label">Formateur :</span> ${session.trainers?.first_name} ${session.trainers?.last_name}</div>
           <div><span class="info-label">Formation :</span> ${session.courses?.title}</div>
-          <div><span class="info-label">Stagiaires :</span> ${session.trainees_count || 0}</div>
+          <div><span class="info-label">Stagiaires :</span> ${traineeCount}</div>
           <div><span class="info-label">Date :</span> ${formatDate(session.start_date)}${session.end_date && session.end_date !== session.start_date ? ' au ' + formatDate(session.end_date) : ''}</div>
           <div><span class="info-label">Lieu :</span> ${getLocation()}</div>
           <div style="grid-column: 1 / -1;"><span class="info-label">Client :</span> ${session.clients?.name || 'N/A'}</div>
