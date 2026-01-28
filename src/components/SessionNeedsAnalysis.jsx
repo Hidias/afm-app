@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
-import { FileCheck, Printer, Download, Save, AlertCircle, CheckCircle, Calendar } from 'lucide-react'
+import { FileCheck, Printer, Download, Save, AlertCircle, CheckCircle, Calendar, Eraser } from 'lucide-react'
 import toast from 'react-hot-toast'
+import SignatureCanvas from 'react-signature-canvas'
 import { downloadNeedsAnalysisPDF } from '../lib/needsAnalysisPDF'
 
 const CONTEXT_REASONS = [
@@ -49,6 +50,10 @@ export default function SessionNeedsAnalysis({ session, organization }) {
     other_constraints: ''
   })
 
+  // Refs pour les canvas de signature
+  const signatureTrainerRef = useRef(null)
+  const signatureClientRef = useRef(null)
+
   useEffect(() => {
     if (session) {
       loadAnalysis()
@@ -90,6 +95,16 @@ export default function SessionNeedsAnalysis({ session, organization }) {
           ppe_provided: data.ppe_provided,
           other_constraints: data.other_constraints || ''
         })
+
+        // Charger les signatures si elles existent
+        setTimeout(() => {
+          if (data.signature_trainer && signatureTrainerRef.current) {
+            signatureTrainerRef.current.fromDataURL(data.signature_trainer)
+          }
+          if (data.signature_client && signatureClientRef.current) {
+            signatureClientRef.current.fromDataURL(data.signature_client)
+          }
+        }, 100)
       }
     } catch (error) {
       console.error('Erreur chargement analyse:', error)
@@ -103,11 +118,23 @@ export default function SessionNeedsAnalysis({ session, organization }) {
     try {
       const { data: userData } = await supabase.auth.getUser()
       
+      // Récupérer les signatures
+      const signatureTrainer = signatureTrainerRef.current && !signatureTrainerRef.current.isEmpty()
+        ? signatureTrainerRef.current.toDataURL()
+        : null
+      
+      const signatureClient = signatureClientRef.current && !signatureClientRef.current.isEmpty()
+        ? signatureClientRef.current.toDataURL()
+        : null
+
       const dataToSave = {
         ...formData,
         session_id: session.id,
         filled_by: userData?.user?.id,
-        filled_at: new Date().toISOString()
+        filled_at: new Date().toISOString(),
+        signature_trainer: signatureTrainer,
+        signature_client: signatureClient,
+        signed_at: (signatureTrainer || signatureClient) ? new Date().toISOString() : null
       }
 
       if (analysis) {
@@ -143,6 +170,18 @@ export default function SessionNeedsAnalysis({ session, organization }) {
         ? prev[field].filter(v => v !== value)
         : [...prev[field], value]
     }))
+  }
+
+  const clearSignatureTrainer = () => {
+    if (signatureTrainerRef.current) {
+      signatureTrainerRef.current.clear()
+    }
+  }
+
+  const clearSignatureClient = () => {
+    if (signatureClientRef.current) {
+      signatureClientRef.current.clear()
+    }
   }
 
   const handlePrintBlank = () => {
@@ -556,6 +595,74 @@ export default function SessionNeedsAnalysis({ session, organization }) {
             </div>
           </div>
 
+          {/* SIGNATURES */}
+          <div className="space-y-4 bg-gradient-to-br from-blue-50 to-indigo-50 p-6 rounded-lg border-2 border-blue-200">
+            <div className="flex items-center gap-2">
+              <div className="w-1 h-6 bg-blue-600 rounded"></div>
+              <h4 className="font-semibold text-lg">Signatures (optionnel)</h4>
+            </div>
+            <p className="text-sm text-gray-700">
+              Signez directement sur l'écran. Les signatures apparaîtront sur le PDF généré.
+              <br />
+              <span className="text-blue-700 font-medium">✓ Fonctionne sur tablette tactile et souris</span>
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Signature formateur */}
+              <div className="space-y-2">
+                <label className="block text-sm font-semibold text-gray-700">
+                  🖊️ Signature formateur (vous)
+                </label>
+                <div className="border-2 border-gray-400 rounded-lg bg-white shadow-sm">
+                  <SignatureCanvas
+                    ref={signatureTrainerRef}
+                    canvasProps={{
+                      className: 'w-full',
+                      style: { width: '100%', height: '120px' }
+                    }}
+                    backgroundColor="white"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={clearSignatureTrainer}
+                  className="btn btn-xs btn-secondary flex items-center gap-1"
+                >
+                  <Eraser className="w-3 h-3" />
+                  Effacer
+                </button>
+              </div>
+
+              {/* Signature client */}
+              <div className="space-y-2">
+                <label className="block text-sm font-semibold text-gray-700">
+                  ✍️ Signature client (sur place uniquement)
+                </label>
+                <div className="border-2 border-gray-400 rounded-lg bg-white shadow-sm">
+                  <SignatureCanvas
+                    ref={signatureClientRef}
+                    canvasProps={{
+                      className: 'w-full',
+                      style: { width: '100%', height: '120px' }
+                    }}
+                    backgroundColor="white"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={clearSignatureClient}
+                  className="btn btn-xs btn-secondary flex items-center gap-1"
+                >
+                  <Eraser className="w-3 h-3" />
+                  Effacer
+                </button>
+                <p className="text-xs text-gray-600 bg-white/70 p-2 rounded border border-gray-300">
+                  💡 <strong>À distance ?</strong> Laissez vide. Vous signerez, téléchargerez le PDF, et l'enverrez au client pour signature manuelle.
+                </p>
+              </div>
+            </div>
+          </div>
+
           {/* Boutons d'action */}
           <div className="flex justify-end gap-3 pt-4 border-t">
             <button
@@ -594,6 +701,14 @@ export default function SessionNeedsAnalysis({ session, organization }) {
             <div>
               <span className="font-medium">Lieu :</span> {
                 analysis.location_type === 'client' ? 'Chez le client' : 'Access Formation'
+              }
+            </div>
+            <div>
+              <span className="font-medium">Signatures :</span> {
+                analysis.signature_trainer && analysis.signature_client ? '✓ Formateur + Client' :
+                analysis.signature_trainer ? '✓ Formateur uniquement' :
+                analysis.signature_client ? '✓ Client uniquement' :
+                'Aucune'
               }
             </div>
           </div>
