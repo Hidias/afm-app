@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
-import { FileCheck, Printer, Download, Save, AlertCircle, CheckCircle } from 'lucide-react'
+import { FileCheck, Printer, Download, Save, AlertCircle, CheckCircle, Calendar } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { downloadNeedsAnalysisPDF } from '../lib/needsAnalysisPDF'
 
@@ -26,6 +26,7 @@ export default function SessionNeedsAnalysis({ session, organization }) {
   const [saving, setSaving] = useState(false)
   const [showForm, setShowForm] = useState(false)
   const [formData, setFormData] = useState({
+    analysis_date: new Date().toISOString().split('T')[0], // Date du jour par défaut
     context_reasons: [],
     context_other: '',
     context_stakes: '',
@@ -67,6 +68,7 @@ export default function SessionNeedsAnalysis({ session, organization }) {
       if (data) {
         setAnalysis(data)
         setFormData({
+          analysis_date: data.analysis_date || new Date().toISOString().split('T')[0],
           context_reasons: data.context_reasons || [],
           context_other: data.context_other || '',
           context_stakes: data.context_stakes || '',
@@ -211,6 +213,23 @@ export default function SessionNeedsAnalysis({ session, organization }) {
       {/* Formulaire */}
       {showForm && (
         <div className="border rounded-lg p-6 space-y-6 bg-white">
+          {/* Date de l'analyse */}
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <label className="block text-sm font-medium mb-2 flex items-center gap-2">
+              <Calendar className="w-4 h-4 text-blue-600" />
+              Date de l'analyse
+            </label>
+            <input
+              type="date"
+              value={formData.analysis_date}
+              onChange={(e) => setFormData({ ...formData, analysis_date: e.target.value })}
+              className="w-full px-3 py-2 border rounded-lg"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Cette date apparaîtra sur le document PDF
+            </p>
+          </div>
+
           {/* Section 1 : Contexte et enjeux */}
           <div className="space-y-4">
             <h4 className="font-semibold text-lg border-b pb-2">1. Contexte et enjeux</h4>
@@ -562,6 +581,13 @@ export default function SessionNeedsAnalysis({ session, organization }) {
       {!showForm && analysis && (
         <div className="border rounded-lg p-4 bg-gray-50 text-sm">
           <div className="grid grid-cols-2 gap-4">
+            <div>
+              <span className="font-medium">Date de l'analyse :</span> {
+                analysis.analysis_date 
+                  ? new Date(analysis.analysis_date).toLocaleDateString('fr-FR')
+                  : 'Non définie'
+              }
+            </div>
             <div>
               <span className="font-medium">Participants :</span> {analysis.participants_count || 'N/A'}
             </div>
