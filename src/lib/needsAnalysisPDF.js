@@ -96,7 +96,7 @@ export const downloadNeedsAnalysisPDF = async (session, analysisData = null, bla
   doc.setFillColor(240, 240, 240)
   doc.rect(margin, yPos, contentWidth, 7, 'F')
   doc.text('1. CONTEXTE ET ENJEUX', margin + 2, yPos + 5)
-  yPos += 10
+  yPos += 9
   
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(9)
@@ -115,7 +115,7 @@ export const downloadNeedsAnalysisPDF = async (session, analysisData = null, bla
     if (analysisData.context_reasons?.length > 0) {
       doc.setFont('helvetica', 'bold')
       doc.text('Pourquoi cette formation maintenant ?', margin, yPos)
-      yPos += 5
+      yPos += 4
       doc.setFont('helvetica', 'normal')
       
       analysisData.context_reasons.forEach(reason => {
@@ -126,51 +126,51 @@ export const downloadNeedsAnalysisPDF = async (session, analysisData = null, bla
         }
         yPos += 4
       })
-      yPos += 2
+      yPos += 1
     }
     
     if (analysisData.context_stakes) {
       doc.setFont('helvetica', 'bold')
       doc.text('Enjeux spécifiques :', margin, yPos)
-      yPos += 5
+      yPos += 4
       doc.setFont('helvetica', 'normal')
       yPos += addText(analysisData.context_stakes, margin + 3, yPos, contentWidth - 6, 9)
-      yPos += 3
+      yPos += 2
     }
   } else {
     // VERSION VIERGE
     doc.setFont('helvetica', 'bold')
     doc.text('Pourquoi cette formation maintenant ?', margin, yPos)
-    yPos += 5
+    yPos += 4
     doc.setFont('helvetica', 'normal')
     
     const options = [
-      '☐ Réglementation / Obligations légales',
-      '☐ Suite à un accident / incident',
-      '☐ Renouvellement de certificats',
-      '☐ Nouveaux embauchés',
-      '☐ Évolution des risques',
-      '☐ Autre : ___________________________________'
+      '[ ] Réglementation / Obligations légales',
+      '[ ] Suite à un accident / incident',
+      '[ ] Renouvellement de certificats',
+      '[ ] Nouveaux embauchés',
+      '[ ] Évolution des risques',
+      '[ ] Autre : ___________________________________'
     ]
     
     options.forEach(opt => {
       doc.text(opt, margin + 3, yPos)
-      yPos += 5
+      yPos += 4
     })
     
-    yPos += 2
+    yPos += 1
     doc.setFont('helvetica', 'bold')
     doc.text('Enjeux spécifiques :', margin, yPos)
-    yPos += 5
+    yPos += 4
     doc.setFont('helvetica', 'normal')
     doc.setDrawColor(200, 200, 200)
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 2; i++) {
       doc.line(margin + 3, yPos, pageWidth - margin, yPos)
-      yPos += 5
+      yPos += 4
     }
   }
   
-  yPos += 5
+  yPos += 3
 
   // ============ SECTION 2 : OBJECTIFS ATTENDUS ============
   doc.setFont('helvetica', 'bold')
@@ -178,7 +178,7 @@ export const downloadNeedsAnalysisPDF = async (session, analysisData = null, bla
   doc.setFillColor(240, 240, 240)
   doc.rect(margin, yPos, contentWidth, 7, 'F')
   doc.text('2. OBJECTIFS ATTENDUS', margin + 2, yPos + 5)
-  yPos += 10
+  yPos += 9
   
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(9)
@@ -188,50 +188,50 @@ export const downloadNeedsAnalysisPDF = async (session, analysisData = null, bla
     if (analysisData.objectives_description) {
       doc.setFont('helvetica', 'bold')
       doc.text('Que souhaitez-vous que les stagiaires sachent faire à l\'issue ?', margin, yPos)
-      yPos += 5
+      yPos += 4
       doc.setFont('helvetica', 'normal')
       yPos += addText(analysisData.objectives_description, margin + 3, yPos, contentWidth - 6, 9)
-      yPos += 3
+      yPos += 2
     }
     
     if (analysisData.objectives_measurable) {
       doc.setFont('helvetica', 'bold')
       doc.text('Résultats mesurables attendus :', margin, yPos)
-      yPos += 5
+      yPos += 4
       doc.setFont('helvetica', 'normal')
       yPos += addText(analysisData.objectives_measurable, margin + 3, yPos, contentWidth - 6, 9)
-      yPos += 3
+      yPos += 2
     }
   } else {
     // VERSION VIERGE
     doc.setFont('helvetica', 'bold')
     doc.text('Que souhaitez-vous que les stagiaires sachent faire à l\'issue ?', margin, yPos)
-    yPos += 5
+    yPos += 4
     doc.setFont('helvetica', 'normal')
     doc.setTextColor(120, 120, 120)
     doc.setFontSize(8)
     doc.text('Ex: Être capable de porter secours, Savoir utiliser un extincteur...', margin + 3, yPos)
-    yPos += 5
+    yPos += 4
     doc.setTextColor(0, 0, 0)
     doc.setFontSize(9)
     doc.setDrawColor(200, 200, 200)
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 2; i++) {
       doc.line(margin + 3, yPos, pageWidth - margin, yPos)
-      yPos += 5
+      yPos += 4
     }
     
-    yPos += 2
+    yPos += 1
     doc.setFont('helvetica', 'bold')
     doc.text('Résultats mesurables attendus :', margin, yPos)
-    yPos += 5
+    yPos += 4
     doc.setFont('helvetica', 'normal')
     for (let i = 0; i < 2; i++) {
       doc.line(margin + 3, yPos, pageWidth - margin, yPos)
-      yPos += 5
+      yPos += 4
     }
   }
   
-  yPos += 5
+  yPos += 3
 
   // ============ SECTION 3 : PUBLIC CONCERNÉ ============
   doc.setFont('helvetica', 'bold')
@@ -239,7 +239,7 @@ export const downloadNeedsAnalysisPDF = async (session, analysisData = null, bla
   doc.setFillColor(240, 240, 240)
   doc.rect(margin, yPos, contentWidth, 7, 'F')
   doc.text('3. PUBLIC CONCERNÉ', margin + 2, yPos + 5)
-  yPos += 10
+  yPos += 9
   
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(9)
@@ -296,24 +296,24 @@ export const downloadNeedsAnalysisPDF = async (session, analysisData = null, bla
   } else {
     // VERSION VIERGE
     doc.text('Nombre de participants : _____', margin, yPos)
-    yPos += 5
-    doc.text('Profils : ☐ Administratif  ☐ Production  ☐ Terrain  ☐ Encadrement', margin, yPos)
-    yPos += 5
-    doc.text('Prérequis validés : ☐ Oui  ☐ Non', margin, yPos)
-    yPos += 5
-    doc.text('Niveau : ☐ Débutant  ☐ Intermédiaire  ☐ Avancé', margin, yPos)
-    yPos += 5
-    yPos += 2
-    doc.text('Particularités : ☐ PSH  ☐ Public non francophone  ☐ Autre', margin, yPos)
-    yPos += 5
+    yPos += 4
+    doc.text('Profils : [ ] Administratif  [ ] Production  [ ] Terrain  [ ] Encadrement', margin, yPos)
+    yPos += 4
+    doc.text('Prérequis validés : [ ] Oui  [ ] Non', margin, yPos)
+    yPos += 4
+    doc.text('Niveau : [ ] Débutant  [ ] Intermédiaire  [ ] Avancé', margin, yPos)
+    yPos += 4
+    yPos += 1
+    doc.text('Particularités : [ ] PSH  [ ] Public non francophone  [ ] Autre', margin, yPos)
+    yPos += 4
     doc.setDrawColor(200, 200, 200)
     for (let i = 0; i < 2; i++) {
       doc.line(margin + 3, yPos, pageWidth - margin, yPos)
-      yPos += 5
+      yPos += 4
     }
   }
   
-  yPos += 5
+  yPos += 3
 
   // ============ SECTION 4 : CONTRAINTES ET MOYENS ============
   doc.setFont('helvetica', 'bold')
@@ -321,7 +321,7 @@ export const downloadNeedsAnalysisPDF = async (session, analysisData = null, bla
   doc.setFillColor(240, 240, 240)
   doc.rect(margin, yPos, contentWidth, 7, 'F')
   doc.text('4. CONTRAINTES ET MOYENS', margin + 2, yPos + 5)
-  yPos += 10
+  yPos += 9
   
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(9)
@@ -370,26 +370,36 @@ export const downloadNeedsAnalysisPDF = async (session, analysisData = null, bla
     }
   } else {
     // VERSION VIERGE
-    doc.text('Lieu : ☐ Dans nos locaux  ☐ Chez le client', margin, yPos)
-    yPos += 5
+    doc.text('Lieu : [ ] Dans nos locaux  [ ] Chez le client', margin, yPos)
+    yPos += 4
     doc.text('Adresse si chez le client : ___________________________________', margin + 3, yPos)
-    yPos += 5
+    yPos += 4
     doc.text('Horaires souhaités : ___________________________________', margin, yPos)
-    yPos += 5
+    yPos += 4
     doc.text('Dates préférentielles : ___________________________________', margin, yPos)
-    yPos += 5
-    doc.text('Matériel spécifique entreprise : ☐ Oui  ☐ Non', margin, yPos)
-    yPos += 5
+    yPos += 4
+    doc.text('Matériel spécifique entreprise : [ ] Oui  [ ] Non', margin, yPos)
+    yPos += 4
     doc.text('Précisions : ___________________________________', margin + 3, yPos)
-    yPos += 5
-    doc.text('Équipements de protection fournis : ☐ Oui  ☐ Non', margin, yPos)
-    yPos += 5
+    yPos += 4
+    doc.text('Équipements de protection fournis : [ ] Oui  [ ] Non', margin, yPos)
+    yPos += 4
   }
   
-  yPos += 5
+  yPos += 3
 
   // ============ SIGNATURES ============
-  yPos = Math.max(yPos, pageHeight - 40)
+  // Calculer espace restant et ajuster si nécessaire
+  const spaceForFooter = 35 // Espace réservé pour footer
+  const spaceForSignatures = 25 // Hauteur signatures
+  const minYForSignatures = pageHeight - spaceForFooter - spaceForSignatures
+  
+  // Si on dépasse, compacter un peu
+  if (yPos > minYForSignatures) {
+    yPos = minYForSignatures
+  } else {
+    yPos += 3 // Petit espace si on a de la marge
+  }
   
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(9)
@@ -397,17 +407,19 @@ export const downloadNeedsAnalysisPDF = async (session, analysisData = null, bla
   doc.text('Signature Access Formation :', pageWidth / 2 + 5, yPos)
   
   doc.setDrawColor(100, 100, 100)
-  doc.rect(margin, yPos + 2, 70, 20)
-  doc.rect(pageWidth / 2, yPos + 2, 70, 20)
+  doc.rect(margin, yPos + 2, 70, 18)
+  doc.rect(pageWidth / 2, yPos + 2, 70, 18)
 
   // ============ FOOTER ============
+  // Position fixe en bas de page
+  const footerY = pageHeight - 12
   doc.setFontSize(7)
   doc.setTextColor(100, 100, 100)
   doc.setFont('helvetica', 'normal')
-  doc.text(`${safe(ORG.name)} - ${safe(ORG.address)}`, pageWidth / 2, pageHeight - 12, { align: 'center' })
-  doc.text(safe(ORG.ndaFull), pageWidth / 2, pageHeight - 9, { align: 'center' })
-  doc.text(`SIRET: ${safe(ORG.siret)} - NAF: ${safe(ORG.naf)} - TVA: ${safe(ORG.tva)}`, pageWidth / 2, pageHeight - 6, { align: 'center' })
-  doc.text('AF-BESOIN-V2.5.16', pageWidth - margin, pageHeight - 4, { align: 'right' })
+  doc.text(`${safe(ORG.name)} - ${safe(ORG.address)}`, pageWidth / 2, footerY, { align: 'center' })
+  doc.text(safe(ORG.ndaFull), pageWidth / 2, footerY + 3, { align: 'center' })
+  doc.text(`SIRET: ${safe(ORG.siret)} - NAF: ${safe(ORG.naf)} - TVA: ${safe(ORG.tva)}`, pageWidth / 2, footerY + 6, { align: 'center' })
+  doc.text('AF-BESOIN-V2.5.16', pageWidth - margin, footerY + 9, { align: 'right' })
 
   // Télécharger
   const filename = blank 
