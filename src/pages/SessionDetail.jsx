@@ -17,6 +17,7 @@ import SessionDocumentAccess from '../components/SessionDocumentAccess'
 import SSTCertificationTab from '../components/SSTCertificationTab'
 import DateTimePickerModal from '../components/DateTimePickerModal'
 import SessionChecklist from '../components/SessionChecklist'
+import SessionNeedsAnalysis from '../components/SessionNeedsAnalysis'
 
 const statusLabels = {
   draft: { label: 'Brouillon', class: 'badge-gray' },
@@ -2136,6 +2137,14 @@ ${organization?.phone || ''}`)
             )}
           </div>
         </div>
+      </div>
+      
+      {/* Analyse du besoin */}
+      <div className="card">
+        <SessionNeedsAnalysis 
+          session={session} 
+          organization={organization}
+        />
       </div>
       
       {/* Tabs */}
