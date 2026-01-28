@@ -15,6 +15,12 @@ export const downloadNeedsAnalysisPDF = async (session, analysisData = null, bla
   const pageWidth = doc.internal.pageSize.getWidth()
   const pageHeight = doc.internal.pageSize.getHeight()
   
+  // Helper pour sécuriser les valeurs
+  const safe = (value, defaultValue = '') => {
+    if (value === null || value === undefined) return defaultValue
+    return String(value)
+  }
+  
   // Utiliser les infos org passées en paramètre ou valeurs par défaut
   const ORG = orgSettings || {
     name: 'Access Formation',
@@ -33,7 +39,7 @@ export const downloadNeedsAnalysisPDF = async (session, analysisData = null, bla
   // Helper pour texte multiligne
   const addMultilineText = (text, x, y, maxWidth) => {
     if (!text) return 0
-    const lines = doc.splitTextToSize(text, maxWidth)
+    const lines = doc.splitTextToSize(String(text), maxWidth)
     doc.text(lines, x, y)
     return lines.length * 5
   }
@@ -53,18 +59,19 @@ export const downloadNeedsAnalysisPDF = async (session, analysisData = null, bla
   // Infos entreprise (droite)
   doc.setFontSize(9)
   doc.setFont('helvetica', 'normal')
-  doc.text(ORG.nameFull, pageWidth - 15, yPos, { align: 'right' })
+  doc.text(safe(ORG.nameFull), pageWidth - 15, yPos, { align: 'right' })
   yPos += 5
-  doc.text(ORG.address, pageWidth - 15, yPos, { align: 'right' })
+  doc.text(safe(ORG.address), pageWidth - 15, yPos, { align: 'right' })
   yPos += 5
-  doc.text(`Tél : ${ORG.phone} - Email : ${ORG.email}`, pageWidth - 15, yPos, { align: 'right' })
+  doc.text(`Tél : ${safe(ORG.phone)} - Email : ${safe(ORG.email)}`, pageWidth - 15, yPos, { align: 'right' })
   yPos += 5
-  doc.text(`SIRET : ${ORG.siret} - NDA : ${ORG.nda}`, pageWidth - 15, yPos, { align: 'right' })
+  doc.text(`SIRET : ${safe(ORG.siret)} - NDA : ${safe(ORG.nda)}`, pageWidth - 15, yPos, { align: 'right' })
   yPos += 10
   
   // N° Session (coin supérieur droit)
   doc.setFontSize(10)
-  doc.text(`N° Session : ${blank ? '__________' : session.reference || ''}`, pageWidth - 15, yPos, { align: 'right' })
+  const sessionRef = blank ? '__________' : safe(session?.reference, '__________')
+  doc.text(`N° Session : ${sessionRef}`, pageWidth - 15, yPos, { align: 'right' })
   yPos += 15
 
   // ============ TITRE ============
@@ -82,7 +89,7 @@ export const downloadNeedsAnalysisPDF = async (session, analysisData = null, bla
   doc.setFontSize(10)
 
   // Entreprise et Date
-  const clientName = blank ? '________________________' : (session.clients?.name || '')
+  const clientName = blank ? '________________________' : safe(session?.clients?.name, '________________________')
   const today = blank ? '___/___/______' : new Date().toLocaleDateString('fr-FR')
   doc.text(`Entreprise : ${clientName}`, 15, yPos)
   doc.text(`Date : ${today}`, pageWidth - 15, yPos, { align: 'right' })
@@ -204,7 +211,7 @@ export const downloadNeedsAnalysisPDF = async (session, analysisData = null, bla
   
   if (!blank && analysisData) {
     if (analysisData.participants_count) {
-      doc.text(`Nombre de participants : ${analysisData.participants_count}`, 15, yPos)
+      doc.text(`Nombre de participants : ${safe(analysisData.participants_count)}`, 15, yPos)
       yPos += 5
     }
     
@@ -212,13 +219,13 @@ export const downloadNeedsAnalysisPDF = async (session, analysisData = null, bla
       const profiles = analysisData.participants_profiles.map(p => {
         return { administratif: 'Administratif', production: 'Production', terrain: 'Terrain', encadrement: 'Encadrement' }[p] || p
       }).join(', ')
-      doc.text(`Profils : ${profiles}`, 15, yPos)
+      doc.text(`Profils : ${safe(profiles)}`, 15, yPos)
       yPos += 5
     }
     
     if (analysisData.level) {
       const levelLabel = { debutant: 'Débutant', intermediaire: 'Intermédiaire', avance: 'Avancé' }[analysisData.level] || analysisData.level
-      doc.text(`Niveau : ${levelLabel}`, 15, yPos)
+      doc.text(`Niveau : ${safe(levelLabel)}`, 15, yPos)
       yPos += 5
     }
     
@@ -226,7 +233,7 @@ export const downloadNeedsAnalysisPDF = async (session, analysisData = null, bla
       doc.text('Particularités :', 15, yPos)
       yPos += 5
       if (analysisData.particularities_psh) {
-        doc.text(`PSH : ${analysisData.particularities_psh}`, 20, yPos)
+        doc.text(`PSH : ${safe(analysisData.particularities_psh)}`, 20, yPos)
         yPos += 5
       }
       if (analysisData.particularities_non_french) {
@@ -234,7 +241,7 @@ export const downloadNeedsAnalysisPDF = async (session, analysisData = null, bla
         yPos += 5
       }
       if (analysisData.particularities_other) {
-        doc.text(`Autre : ${analysisData.particularities_other}`, 20, yPos)
+        doc.text(`Autre : ${safe(analysisData.particularities_other)}`, 20, yPos)
         yPos += 5
       }
     }
@@ -269,19 +276,19 @@ export const downloadNeedsAnalysisPDF = async (session, analysisData = null, bla
   if (!blank && analysisData) {
     if (analysisData.location_type) {
       const locationText = analysisData.location_type === 'client' 
-        ? `Chez le client (${analysisData.location_client_address || ''})`
+        ? `Chez le client (${safe(analysisData.location_client_address, '')})`
         : 'Dans nos locaux (Access Formation)'
-      doc.text(`Lieu : ${locationText}`, 15, yPos)
+      doc.text(`Lieu : ${safe(locationText)}`, 15, yPos)
       yPos += 5
     }
     
     if (analysisData.preferred_schedule) {
-      doc.text(`Horaires : ${analysisData.preferred_schedule}`, 15, yPos)
+      doc.text(`Horaires : ${safe(analysisData.preferred_schedule)}`, 15, yPos)
       yPos += 5
     }
     
     if (analysisData.company_equipment) {
-      doc.text(`Matériel entreprise : ${analysisData.company_equipment_details || 'Oui'}`, 15, yPos)
+      doc.text(`Matériel entreprise : ${safe(analysisData.company_equipment_details, 'Oui')}`, 15, yPos)
       yPos += 5
     }
     
@@ -324,14 +331,14 @@ export const downloadNeedsAnalysisPDF = async (session, analysisData = null, bla
   // ============ FOOTER ============
   doc.setFontSize(7)
   doc.setTextColor(100, 100, 100)
-  doc.text(`${ORG.name} - ${ORG.address}`, pageWidth / 2, pageHeight - 15, { align: 'center' })
-  doc.text(ORG.ndaFull, pageWidth / 2, pageHeight - 11, { align: 'center' })
-  doc.text(`SIRET: ${ORG.siret} - NAF: ${ORG.naf} - TVA: ${ORG.tva}`, pageWidth / 2, pageHeight - 7, { align: 'center' })
+  doc.text(`${safe(ORG.name)} - ${safe(ORG.address)}`, pageWidth / 2, pageHeight - 15, { align: 'center' })
+  doc.text(safe(ORG.ndaFull), pageWidth / 2, pageHeight - 11, { align: 'center' })
+  doc.text(`SIRET: ${safe(ORG.siret)} - NAF: ${safe(ORG.naf)} - TVA: ${safe(ORG.tva)}`, pageWidth / 2, pageHeight - 7, { align: 'center' })
   doc.text('AF-BESOIN-V2.5.16', pageWidth - 15, pageHeight - 5, { align: 'right' })
 
   // Télécharger
   const filename = blank 
     ? 'Analyse_Besoin_Vierge.pdf'
-    : `Analyse_Besoin_${session.reference}.pdf`
+    : `Analyse_Besoin_${safe(session?.reference, 'Session')}.pdf`
   doc.save(filename)
 }
