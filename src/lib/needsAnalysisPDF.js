@@ -416,26 +416,79 @@ export const downloadNeedsAnalysisPDF = async (session, analysisData = null, bla
 
   // ============ SIGNATURES ============
   // Calculer espace restant et ajuster si nécessaire
-  const spaceForFooter = 18 // Espace réservé pour footer (4 lignes de texte)
-  const spaceForSignatures = 26 // Hauteur signatures (titre + rectangles)
+  const spaceForFooter = 18 // Espace réservé pour footer
+  const spaceForSignatures = 26 // Hauteur signatures
   const minYForSignatures = pageHeight - spaceForFooter - spaceForSignatures
   
-  // Si on dépasse, compacter
   if (yPos > minYForSignatures) {
     yPos = minYForSignatures
   } else {
-    yPos += 3 // Petit espace si on a de la marge
+    yPos += 3
   }
   
+  // Dimensions des rectangles
+  const signatureBoxWidth = 68
+  const signatureBoxHeight = 18
+  const signatureBoxY = yPos + 1
+  
+  // Titres
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(8)
   doc.text('Signature entreprise :', margin + 2, yPos)
   doc.text('Signature Access Formation :', pageWidth / 2 + 2, yPos)
   
+  // Dessiner les rectangles
   doc.setDrawColor(100, 100, 100)
   doc.setLineWidth(0.3)
-  doc.rect(margin, yPos + 1, 68, 18)
-  doc.rect(pageWidth / 2, yPos + 1, 68, 18)
+  doc.rect(margin, signatureBoxY, signatureBoxWidth, signatureBoxHeight)
+  doc.rect(pageWidth / 2, signatureBoxY, signatureBoxWidth, signatureBoxHeight)
+  
+  // Afficher les signatures SI ELLES EXISTENT et qu'on n'est pas en mode vierge
+  if (!blank && analysisData) {
+    // Signature client (rectangle gauche)
+    if (analysisData.signature_client) {
+      try {
+        // Dimensions image : rectangle - 4px de marge interne
+        const imgWidth = signatureBoxWidth - 4
+        const imgHeight = signatureBoxHeight - 4
+        const imgX = margin + 2
+        const imgY = signatureBoxY + 2
+        
+        doc.addImage(
+          analysisData.signature_client,
+          'PNG',
+          imgX,
+          imgY,
+          imgWidth,
+          imgHeight
+        )
+      } catch (e) {
+        console.warn('Erreur signature client:', e)
+      }
+    }
+    
+    // Signature formateur (rectangle droite)
+    if (analysisData.signature_trainer) {
+      try {
+        // Dimensions image : rectangle - 4px de marge interne
+        const imgWidth = signatureBoxWidth - 4
+        const imgHeight = signatureBoxHeight - 4
+        const imgX = pageWidth / 2 + 2
+        const imgY = signatureBoxY + 2
+        
+        doc.addImage(
+          analysisData.signature_trainer,
+          'PNG',
+          imgX,
+          imgY,
+          imgWidth,
+          imgHeight
+        )
+      } catch (e) {
+        console.warn('Erreur signature formateur:', e)
+      }
+    }
+  }
 
   // ============ FOOTER ============
   // Position fixe en bas de page avec espace suffisant
