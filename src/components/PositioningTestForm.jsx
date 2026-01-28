@@ -12,7 +12,43 @@ export default function PositioningTestForm({
   const [startTime] = useState(Date.now())
   const [isSubmitting, setIsSubmitting] = useState(false)
 
+  // Protection : Vérifier que questions est valide
+  if (!questions || !Array.isArray(questions) || questions.length === 0) {
+    return (
+      <div className="text-center py-12">
+        <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+        <p className="text-gray-600 mb-4">Aucune question disponible pour cette formation</p>
+        <button
+          onClick={() => onComplete({
+            responses: [],
+            total_questions: 0,
+            correct_answers: 0,
+            critical_questions_count: 0,
+            critical_correct_count: 0,
+            score_percentage: 0,
+            level: 'debutant',
+            duration_seconds: 0
+          })}
+          className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700"
+        >
+          Continuer sans test
+        </button>
+      </div>
+    )
+  }
+
   const currentQuestion = questions[currentQuestionIndex]
+  
+  // Protection : Vérifier que la question actuelle existe
+  if (!currentQuestion) {
+    return (
+      <div className="text-center py-12">
+        <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+        <p className="text-gray-600">Erreur de chargement des questions</p>
+      </div>
+    )
+  }
+  
   const isLastQuestion = currentQuestionIndex === questions.length - 1
   const progress = ((currentQuestionIndex + 1) / questions.length) * 100
 
@@ -116,7 +152,8 @@ export default function PositioningTestForm({
 
         {/* Options de réponse */}
         <div className="space-y-3">
-          {currentQuestion.options?.map((option, index) => (
+          {(currentQuestion.options && Array.isArray(currentQuestion.options)) ? (
+            currentQuestion.options.map((option, index) => (
             <button
               key={index}
               onClick={() => handleAnswerSelect(index)}
@@ -139,7 +176,10 @@ export default function PositioningTestForm({
                 <span className="text-gray-900">{option}</span>
               </div>
             </button>
-          ))}
+          ))
+          ) : (
+            <p className="text-red-500">Options de réponse invalides</p>
+          )}
         </div>
       </div>
 
