@@ -125,6 +125,32 @@ export default function SessionChecklist({ session }) {
   const generatePrintHTML = (blank = false) => {
     const data = blank ? {} : checklistData
     const formatDate = (date) => date ? new Date(date).toLocaleDateString('fr-FR') : ''
+    
+    // Construire l'adresse complète du lieu
+    const getLocation = () => {
+      // 1. Si location_name est rempli, l'utiliser (adresse complète)
+      if (session.location_name) {
+        return session.location_name
+      }
+      
+      // 2. Sinon construire depuis location_address + postal_code + city
+      const parts = [
+        session.location_address,
+        session.location_postal_code,
+        session.location_city
+      ].filter(Boolean)
+      
+      if (parts.length > 0) {
+        return parts.join(', ')
+      }
+      
+      // 3. Fallback sur adresse client
+      if (session.clients?.address) {
+        return session.clients.address
+      }
+      
+      return 'N/A'
+    }
 
     const renderItem = (item) => {
       const itemData = data[item.code] || {}
@@ -133,25 +159,13 @@ export default function SessionChecklist({ session }) {
       const comment = blank ? '' : itemData.comment || ''
 
       return `
-        <div style="margin-bottom: 12px; page-break-inside: avoid;">
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <span style="font-size: 16px;">${checked ? '☑' : '☐'}</span>
-            <span style="flex: 1; font-weight: 500;">${item.label}${item.sst ? ' [SST]' : ''}</span>
-          </div>
-          <div style="margin-left: 24px; margin-top: 4px; display: flex; gap: 16px; font-size: 11px;">
-            <div>
-              <input type="checkbox" ${checked ? 'checked' : ''} disabled style="margin-right: 4px;">
-              <label>Oui</label>
-              <input type="checkbox" ${!checked && !blank ? 'checked' : ''} disabled style="margin-left: 8px; margin-right: 4px;">
-              <label>Non</label>
-            </div>
-            <div style="flex: 1;">
-              Date: <span style="border-bottom: 1px solid #ccc; padding: 0 8px;">${dateRealized || '___________'}</span>
-            </div>
-          </div>
-          <div style="margin-left: 24px; margin-top: 4px; font-size: 10px;">
-            Commentaire: <span style="border-bottom: 1px solid #ccc; padding: 0 8px; display: inline-block; min-width: 300px;">${comment}</span>
-          </div>
+        <div style="margin-bottom: 5px; page-break-inside: avoid; display: flex; align-items: center; font-size: 8pt; line-height: 1.2;">
+          <span style="font-size: 12px; margin-right: 4px;">${checked ? '☑' : '☐'}</span>
+          <span style="font-weight: 500; min-width: 200px; max-width: 200px;">${item.label}${item.sst ? ' [SST]' : ''}</span>
+          <span style="margin: 0 8px;">|</span>
+          <span style="min-width: 100px;">Date: ${dateRealized || '_________'}</span>
+          <span style="margin: 0 8px;">|</span>
+          <span style="flex: 1;">Commentaire: ${comment || '___________________________'}</span>
         </div>
       `
     }
@@ -161,11 +175,11 @@ export default function SessionChecklist({ session }) {
       if (filteredItems.length === 0) return ''
 
       return `
-        <div style="margin-top: 16px;">
-          <h3 style="background: #f3f4f6; padding: 6px 12px; margin: 0; font-size: 13px; font-weight: bold; border-left: 4px solid #3b82f6;">
+        <div style="margin-top: 8px;">
+          <h3 style="background: #f3f4f6; padding: 4px 8px; margin: 0; font-size: 10px; font-weight: bold; border-left: 3px solid #3b82f6;">
             ${title} (${filteredItems.length} contrôles)
           </h3>
-          <div style="padding: 8px 0;">
+          <div style="padding: 4px 0;">
             ${filteredItems.map(renderItem).join('')}
           </div>
         </div>
@@ -182,44 +196,44 @@ export default function SessionChecklist({ session }) {
           @media print {
             @page {
               size: A4 portrait;
-              margin: 1cm;
+              margin: 0.5cm;
             }
             body { margin: 0; }
           }
           body {
             font-family: Arial, sans-serif;
-            font-size: 10pt;
-            line-height: 1.3;
+            font-size: 8pt;
+            line-height: 1.2;
             color: #000;
           }
           .header {
             text-align: center;
-            border-bottom: 3px solid #000;
-            padding-bottom: 8px;
-            margin-bottom: 12px;
+            border-bottom: 2px solid #000;
+            padding-bottom: 4px;
+            margin-bottom: 8px;
           }
           .info-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 4px 16px;
-            margin-bottom: 12px;
-            font-size: 11px;
+            gap: 2px 12px;
+            margin-bottom: 8px;
+            font-size: 9px;
           }
           .info-label {
             font-weight: bold;
           }
           .footer {
-            margin-top: 16px;
-            padding-top: 8px;
+            margin-top: 8px;
+            padding-top: 4px;
             border-top: 2px solid #000;
-            font-size: 10px;
+            font-size: 8px;
           }
         </style>
       </head>
       <body>
         <div class="header">
-          <h1 style="margin: 0; font-size: 18px; font-weight: bold;">FICHE DE CONTRÔLE FORMATION</h1>
-          <p style="margin: 4px 0; font-size: 11px;">Access Formation - Archivage papier</p>
+          <h1 style="margin: 0; font-size: 14px; font-weight: bold;">FICHE DE CONTRÔLE FORMATION</h1>
+          <p style="margin: 2px 0; font-size: 9px;">Access Formation - Archivage papier</p>
         </div>
 
         <div class="info-grid">
@@ -228,7 +242,7 @@ export default function SessionChecklist({ session }) {
           <div><span class="info-label">Formation :</span> ${session.courses?.title}</div>
           <div><span class="info-label">Stagiaires :</span> ${session.trainees_count || 0}</div>
           <div><span class="info-label">Date :</span> ${formatDate(session.start_date)}${session.end_date && session.end_date !== session.start_date ? ' au ' + formatDate(session.end_date) : ''}</div>
-          <div><span class="info-label">Lieu :</span> ${session.location || 'N/A'}</div>
+          <div><span class="info-label">Lieu :</span> ${getLocation()}</div>
           <div style="grid-column: 1 / -1;"><span class="info-label">Client :</span> ${session.clients?.name || 'N/A'}</div>
         </div>
 
@@ -237,10 +251,10 @@ export default function SessionChecklist({ session }) {
         ${renderSection('APRÈS LA FORMATION', CHECKLIST_ITEMS.apres)}
 
         <div class="footer">
-          <div style="margin-bottom: 8px;">
+          <div style="margin-bottom: 4px;">
             <strong>Date d'impression :</strong> ${new Date().toLocaleDateString('fr-FR')} à ${new Date().toLocaleTimeString('fr-FR')}
           </div>
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 12px;">
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 6px;">
             <div>
               <div>Vérifié par : ___________________________</div>
             </div>
