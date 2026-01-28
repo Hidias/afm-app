@@ -1,25 +1,17 @@
 import jsPDF from 'jspdf'
 
-// ⚠️ FICHIER INDÉPENDANT - Ne modifie PAS pdfGenerator.js
-// Ce fichier IMPORTE les infos ORG depuis pdfGenerator.js via setOrganization
-
-// Fonction helper pour obtenir les infos organisation
-let ORG_INFO = null
-
-export function setNeedsAnalysisOrg(orgData) {
-  ORG_INFO = orgData
+// Helper pour sécuriser les valeurs
+const safe = (value, defaultValue = '') => {
+  if (value === null || value === undefined) return defaultValue
+  return String(value)
 }
 
 export const downloadNeedsAnalysisPDF = async (session, analysisData = null, blank = false, orgSettings = null) => {
   const doc = new jsPDF()
   const pageWidth = doc.internal.pageSize.getWidth()
   const pageHeight = doc.internal.pageSize.getHeight()
-  
-  // Helper pour sécuriser les valeurs
-  const safe = (value, defaultValue = '') => {
-    if (value === null || value === undefined) return defaultValue
-    return String(value)
-  }
+  const margin = 15
+  const contentWidth = pageWidth - (margin * 2)
   
   // Utiliser les infos org passées en paramètre ou valeurs par défaut
   const ORG = orgSettings || {
@@ -36,12 +28,13 @@ export const downloadNeedsAnalysisPDF = async (session, analysisData = null, bla
     logo_base64: null
   }
 
-  // Helper pour texte multiligne
-  const addMultilineText = (text, x, y, maxWidth) => {
+  // Helper pour texte multiligne avec retour de hauteur
+  const addText = (text, x, y, maxWidth, fontSize = 9) => {
     if (!text) return 0
+    doc.setFontSize(fontSize)
     const lines = doc.splitTextToSize(String(text), maxWidth)
     doc.text(lines, x, y)
-    return lines.length * 5
+    return lines.length * (fontSize * 0.5) // Hauteur approximative
   }
 
   // ============ HEADER ============
@@ -50,7 +43,7 @@ export const downloadNeedsAnalysisPDF = async (session, analysisData = null, bla
   // Logo (si disponible)
   if (ORG.logo_base64) {
     try {
-      doc.addImage(ORG.logo_base64, 'PNG', 15, yPos, 40, 20)
+      doc.addImage(ORG.logo_base64, 'PNG', margin, yPos, 35, 18)
     } catch (e) {
       console.warn('Logo non ajouté:', e)
     }
@@ -59,31 +52,32 @@ export const downloadNeedsAnalysisPDF = async (session, analysisData = null, bla
   // Infos entreprise (droite)
   doc.setFontSize(9)
   doc.setFont('helvetica', 'normal')
-  doc.text(safe(ORG.nameFull), pageWidth - 15, yPos, { align: 'right' })
-  yPos += 5
-  doc.text(safe(ORG.address), pageWidth - 15, yPos, { align: 'right' })
-  yPos += 5
-  doc.text(`Tél : ${safe(ORG.phone)} - Email : ${safe(ORG.email)}`, pageWidth - 15, yPos, { align: 'right' })
-  yPos += 5
-  doc.text(`SIRET : ${safe(ORG.siret)} - NDA : ${safe(ORG.nda)}`, pageWidth - 15, yPos, { align: 'right' })
+  doc.setTextColor(60, 60, 60)
+  doc.text(safe(ORG.nameFull), pageWidth - margin, yPos, { align: 'right' })
+  yPos += 4
+  doc.text(safe(ORG.address), pageWidth - margin, yPos, { align: 'right' })
+  yPos += 4
+  doc.text(`Tél : ${safe(ORG.phone)} - Email : ${safe(ORG.email)}`, pageWidth - margin, yPos, { align: 'right' })
+  yPos += 4
+  doc.text(`SIRET : ${safe(ORG.siret)} - NDA : ${safe(ORG.nda)}`, pageWidth - margin, yPos, { align: 'right' })
   yPos += 10
   
   // N° Session (coin supérieur droit)
   doc.setFontSize(10)
+  doc.setTextColor(0, 0, 0)
   const sessionRef = blank ? '__________' : safe(session?.reference, '__________')
-  doc.text(`N° Session : ${sessionRef}`, pageWidth - 15, yPos, { align: 'right' })
-  yPos += 15
+  doc.text(`N° Session : ${sessionRef}`, pageWidth - margin, yPos, { align: 'right' })
+  yPos += 12
 
   // ============ TITRE ============
-  // Bandeau bleu
-  doc.setFillColor(33, 113, 181) // Bleu Access Formation
-  doc.rect(15, yPos, pageWidth - 30, 12, 'F')
+  doc.setFillColor(33, 113, 181)
+  doc.rect(margin, yPos, contentWidth, 10, 'F')
   doc.setTextColor(255, 255, 255)
-  doc.setFontSize(14)
+  doc.setFontSize(13)
   doc.setFont('helvetica', 'bold')
-  doc.text('ANALYSE DU BESOIN DE FORMATION', pageWidth / 2, yPos + 8, { align: 'center' })
+  doc.text('ANALYSE DU BESOIN DE FORMATION', pageWidth / 2, yPos + 7, { align: 'center' })
   
-  yPos += 20
+  yPos += 15
   doc.setTextColor(0, 0, 0)
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(10)
@@ -91,250 +85,329 @@ export const downloadNeedsAnalysisPDF = async (session, analysisData = null, bla
   // Entreprise et Date
   const clientName = blank ? '________________________' : safe(session?.clients?.name, '________________________')
   const today = blank ? '___/___/______' : new Date().toLocaleDateString('fr-FR')
-  doc.text(`Entreprise : ${clientName}`, 15, yPos)
-  doc.text(`Date : ${today}`, pageWidth - 15, yPos, { align: 'right' })
+  doc.text(`Entreprise : ${clientName}`, margin, yPos)
+  doc.text(`Date : ${today}`, pageWidth - margin, yPos, { align: 'right' })
   
-  yPos += 12
+  yPos += 10
 
   // ============ SECTION 1 : CONTEXTE ET ENJEUX ============
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(11)
-  doc.text('1. CONTEXTE ET ENJEUX', 15, yPos)
-  yPos += 7
+  doc.setFillColor(240, 240, 240)
+  doc.rect(margin, yPos, contentWidth, 7, 'F')
+  doc.text('1. CONTEXTE ET ENJEUX', margin + 2, yPos + 5)
+  yPos += 10
   
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(9)
+  doc.setTextColor(0, 0, 0)
   
   if (!blank && analysisData) {
-    // Version remplie
+    // VERSION REMPLIE
     const reasonsLabels = {
-      reglementation: 'Réglementation / Obligations légales',
-      accident: 'Suite à un accident / incident',
-      renouvellement: 'Renouvellement de certificats',
-      nouveaux_embauches: 'Nouveaux embauchés',
-      evolution_risques: 'Évolution des risques'
+      reglementation: '• Réglementation / Obligations légales',
+      accident: '• Suite à un accident / incident',
+      renouvellement: '• Renouvellement de certificats',
+      nouveaux_embauches: '• Nouveaux embauchés',
+      evolution_risques: '• Évolution des risques'
     }
     
     if (analysisData.context_reasons?.length > 0) {
-      doc.text('Pourquoi cette formation maintenant ?', 15, yPos)
+      doc.setFont('helvetica', 'bold')
+      doc.text('Pourquoi cette formation maintenant ?', margin, yPos)
       yPos += 5
+      doc.setFont('helvetica', 'normal')
+      
       analysisData.context_reasons.forEach(reason => {
         if (reason === 'autre' && analysisData.context_other) {
-          doc.text(`• Autre : ${analysisData.context_other}`, 20, yPos)
+          doc.text(`• Autre : ${safe(analysisData.context_other)}`, margin + 3, yPos)
         } else if (reasonsLabels[reason]) {
-          doc.text(`• ${reasonsLabels[reason]}`, 20, yPos)
+          doc.text(reasonsLabels[reason], margin + 3, yPos)
         }
-        yPos += 5
+        yPos += 4
       })
       yPos += 2
     }
     
     if (analysisData.context_stakes) {
-      doc.text('Enjeux spécifiques :', 15, yPos)
+      doc.setFont('helvetica', 'bold')
+      doc.text('Enjeux spécifiques :', margin, yPos)
       yPos += 5
-      yPos += addMultilineText(analysisData.context_stakes, 20, yPos, pageWidth - 40)
-      yPos += 5
+      doc.setFont('helvetica', 'normal')
+      yPos += addText(analysisData.context_stakes, margin + 3, yPos, contentWidth - 6, 9)
+      yPos += 3
     }
   } else {
-    // Version vierge avec questions guidantes
-    doc.setFontSize(8)
-    doc.setTextColor(100, 100, 100)
-    doc.text('Pourquoi cette formation maintenant ? (Cochez les cases appropriées)', 15, yPos)
+    // VERSION VIERGE
+    doc.setFont('helvetica', 'bold')
+    doc.text('Pourquoi cette formation maintenant ?', margin, yPos)
     yPos += 5
-    doc.text('☐ Réglementation / Obligations légales', 20, yPos)
-    yPos += 4
-    doc.text('☐ Suite à un accident / incident', 20, yPos)
-    yPos += 4
-    doc.text('☐ Renouvellement de certificats', 20, yPos)
-    yPos += 4
-    doc.text('☐ Nouveaux embauchés', 20, yPos)
-    yPos += 4
-    doc.text('☐ Évolution des risques', 20, yPos)
-    yPos += 4
-    doc.text('☐ Autre : ___________________________', 20, yPos)
-    yPos += 7
+    doc.setFont('helvetica', 'normal')
     
-    doc.setTextColor(0, 0, 0)
-    doc.text('Enjeux spécifiques :', 15, yPos)
+    const options = [
+      '☐ Réglementation / Obligations légales',
+      '☐ Suite à un accident / incident',
+      '☐ Renouvellement de certificats',
+      '☐ Nouveaux embauchés',
+      '☐ Évolution des risques',
+      '☐ Autre : ___________________________________'
+    ]
+    
+    options.forEach(opt => {
+      doc.text(opt, margin + 3, yPos)
+      yPos += 5
+    })
+    
     yPos += 2
+    doc.setFont('helvetica', 'bold')
+    doc.text('Enjeux spécifiques :', margin, yPos)
+    yPos += 5
+    doc.setFont('helvetica', 'normal')
+    doc.setDrawColor(200, 200, 200)
+    for (let i = 0; i < 3; i++) {
+      doc.line(margin + 3, yPos, pageWidth - margin, yPos)
+      yPos += 5
+    }
   }
   
-  // Rectangle pour écriture
-  doc.setDrawColor(200, 200, 200)
-  doc.rect(15, yPos, pageWidth - 30, 25)
-  yPos += 30
+  yPos += 5
 
   // ============ SECTION 2 : OBJECTIFS ATTENDUS ============
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(11)
-  doc.text('2. OBJECTIFS ATTENDUS', 15, yPos)
-  yPos += 7
+  doc.setFillColor(240, 240, 240)
+  doc.rect(margin, yPos, contentWidth, 7, 'F')
+  doc.text('2. OBJECTIFS ATTENDUS', margin + 2, yPos + 5)
+  yPos += 10
   
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(9)
   
   if (!blank && analysisData) {
+    // VERSION REMPLIE
     if (analysisData.objectives_description) {
-      doc.text('Que souhaitez-vous que les stagiaires sachent faire à l\'issue ?', 15, yPos)
+      doc.setFont('helvetica', 'bold')
+      doc.text('Que souhaitez-vous que les stagiaires sachent faire à l\'issue ?', margin, yPos)
       yPos += 5
-      yPos += addMultilineText(analysisData.objectives_description, 20, yPos, pageWidth - 40)
+      doc.setFont('helvetica', 'normal')
+      yPos += addText(analysisData.objectives_description, margin + 3, yPos, contentWidth - 6, 9)
       yPos += 3
     }
     
     if (analysisData.objectives_measurable) {
-      doc.text('Résultats mesurables attendus :', 15, yPos)
+      doc.setFont('helvetica', 'bold')
+      doc.text('Résultats mesurables attendus :', margin, yPos)
       yPos += 5
-      yPos += addMultilineText(analysisData.objectives_measurable, 20, yPos, pageWidth - 40)
-      yPos += 5
+      doc.setFont('helvetica', 'normal')
+      yPos += addText(analysisData.objectives_measurable, margin + 3, yPos, contentWidth - 6, 9)
+      yPos += 3
     }
   } else {
+    // VERSION VIERGE
+    doc.setFont('helvetica', 'bold')
+    doc.text('Que souhaitez-vous que les stagiaires sachent faire à l\'issue ?', margin, yPos)
+    yPos += 5
+    doc.setFont('helvetica', 'normal')
+    doc.setTextColor(120, 120, 120)
     doc.setFontSize(8)
-    doc.setTextColor(100, 100, 100)
-    doc.text('Que souhaitez-vous que les stagiaires sachent faire à l\'issue ?', 15, yPos)
-    yPos += 4
-    doc.text('Ex: Être capable de porter secours, Savoir utiliser un extincteur...', 20, yPos)
-    yPos += 7
+    doc.text('Ex: Être capable de porter secours, Savoir utiliser un extincteur...', margin + 3, yPos)
+    yPos += 5
     doc.setTextColor(0, 0, 0)
+    doc.setFontSize(9)
+    doc.setDrawColor(200, 200, 200)
+    for (let i = 0; i < 3; i++) {
+      doc.line(margin + 3, yPos, pageWidth - margin, yPos)
+      yPos += 5
+    }
+    
+    yPos += 2
+    doc.setFont('helvetica', 'bold')
+    doc.text('Résultats mesurables attendus :', margin, yPos)
+    yPos += 5
+    doc.setFont('helvetica', 'normal')
+    for (let i = 0; i < 2; i++) {
+      doc.line(margin + 3, yPos, pageWidth - margin, yPos)
+      yPos += 5
+    }
   }
   
-  doc.rect(15, yPos, pageWidth - 30, 25)
-  yPos += 30
+  yPos += 5
 
   // ============ SECTION 3 : PUBLIC CONCERNÉ ============
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(11)
-  doc.text('3. PUBLIC CONCERNÉ', 15, yPos)
-  yPos += 7
+  doc.setFillColor(240, 240, 240)
+  doc.rect(margin, yPos, contentWidth, 7, 'F')
+  doc.text('3. PUBLIC CONCERNÉ', margin + 2, yPos + 5)
+  yPos += 10
   
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(9)
   
   if (!blank && analysisData) {
+    // VERSION REMPLIE - Layout structuré
+    const items = []
+    
     if (analysisData.participants_count) {
-      doc.text(`Nombre de participants : ${safe(analysisData.participants_count)}`, 15, yPos)
-      yPos += 5
+      items.push(`Nombre de participants : ${safe(analysisData.participants_count)}`)
     }
     
     if (analysisData.participants_profiles?.length > 0) {
       const profiles = analysisData.participants_profiles.map(p => {
         return { administratif: 'Administratif', production: 'Production', terrain: 'Terrain', encadrement: 'Encadrement' }[p] || p
       }).join(', ')
-      doc.text(`Profils : ${safe(profiles)}`, 15, yPos)
-      yPos += 5
+      items.push(`Profils : ${safe(profiles)}`)
     }
     
     if (analysisData.level) {
       const levelLabel = { debutant: 'Débutant', intermediaire: 'Intermédiaire', avance: 'Avancé' }[analysisData.level] || analysisData.level
-      doc.text(`Niveau : ${safe(levelLabel)}`, 15, yPos)
-      yPos += 5
+      items.push(`Niveau : ${safe(levelLabel)}`)
     }
     
-    if (analysisData.particularities_psh || analysisData.particularities_non_french || analysisData.particularities_other) {
-      doc.text('Particularités :', 15, yPos)
+    if (analysisData.prerequisites_validated !== null) {
+      items.push(`Prérequis validés : ${analysisData.prerequisites_validated ? 'Oui' : 'Non'}`)
+    }
+    
+    items.forEach(item => {
+      doc.text(item, margin, yPos)
       yPos += 5
+    })
+    
+    if (analysisData.particularities_psh || analysisData.particularities_non_french || analysisData.particularities_other) {
+      yPos += 2
+      doc.setFont('helvetica', 'bold')
+      doc.text('Particularités :', margin, yPos)
+      yPos += 5
+      doc.setFont('helvetica', 'normal')
+      
       if (analysisData.particularities_psh) {
-        doc.text(`PSH : ${safe(analysisData.particularities_psh)}`, 20, yPos)
+        doc.text(`• PSH : ${safe(analysisData.particularities_psh)}`, margin + 3, yPos)
         yPos += 5
       }
       if (analysisData.particularities_non_french) {
-        doc.text('Public non francophone', 20, yPos)
+        doc.text('• Public non francophone', margin + 3, yPos)
         yPos += 5
       }
       if (analysisData.particularities_other) {
-        doc.text(`Autre : ${safe(analysisData.particularities_other)}`, 20, yPos)
+        doc.text(`• Autre : ${safe(analysisData.particularities_other)}`, margin + 3, yPos)
         yPos += 5
       }
     }
   } else {
-    doc.setFontSize(8)
-    doc.setTextColor(100, 100, 100)
-    doc.text('Nombre de participants : _____', 15, yPos)
+    // VERSION VIERGE
+    doc.text('Nombre de participants : _____', margin, yPos)
     yPos += 5
-    doc.text('Profils : ☐ Administratif ☐ Production ☐ Terrain ☐ Encadrement', 15, yPos)
+    doc.text('Profils : ☐ Administratif  ☐ Production  ☐ Terrain  ☐ Encadrement', margin, yPos)
     yPos += 5
-    doc.text('Prérequis validés : ☐ Oui ☐ Non', 15, yPos)
+    doc.text('Prérequis validés : ☐ Oui  ☐ Non', margin, yPos)
     yPos += 5
-    doc.text('Niveau : ☐ Débutant ☐ Intermédiaire ☐ Avancé', 15, yPos)
+    doc.text('Niveau : ☐ Débutant  ☐ Intermédiaire  ☐ Avancé', margin, yPos)
     yPos += 5
-    doc.text('Particularités : ☐ PSH ☐ Public non francophone ☐ Autre', 15, yPos)
-    yPos += 7
-    doc.setTextColor(0, 0, 0)
+    yPos += 2
+    doc.text('Particularités : ☐ PSH  ☐ Public non francophone  ☐ Autre', margin, yPos)
+    yPos += 5
+    doc.setDrawColor(200, 200, 200)
+    for (let i = 0; i < 2; i++) {
+      doc.line(margin + 3, yPos, pageWidth - margin, yPos)
+      yPos += 5
+    }
   }
   
-  doc.rect(15, yPos, pageWidth - 30, 20)
-  yPos += 25
+  yPos += 5
 
   // ============ SECTION 4 : CONTRAINTES ET MOYENS ============
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(11)
-  doc.text('4. CONTRAINTES ET MOYENS', 15, yPos)
-  yPos += 7
+  doc.setFillColor(240, 240, 240)
+  doc.rect(margin, yPos, contentWidth, 7, 'F')
+  doc.text('4. CONTRAINTES ET MOYENS', margin + 2, yPos + 5)
+  yPos += 10
   
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(9)
   
   if (!blank && analysisData) {
+    // VERSION REMPLIE
     if (analysisData.location_type) {
       const locationText = analysisData.location_type === 'client' 
         ? `Chez le client (${safe(analysisData.location_client_address, '')})`
         : 'Dans nos locaux (Access Formation)'
-      doc.text(`Lieu : ${safe(locationText)}`, 15, yPos)
+      doc.text(`Lieu : ${safe(locationText)}`, margin, yPos)
       yPos += 5
     }
     
     if (analysisData.preferred_schedule) {
-      doc.text(`Horaires : ${safe(analysisData.preferred_schedule)}`, 15, yPos)
+      doc.text(`Horaires : ${safe(analysisData.preferred_schedule)}`, margin, yPos)
       yPos += 5
     }
     
-    if (analysisData.company_equipment) {
-      doc.text(`Matériel entreprise : ${safe(analysisData.company_equipment_details, 'Oui')}`, 15, yPos)
+    if (analysisData.preferred_dates) {
+      doc.text(`Dates préférentielles : ${safe(analysisData.preferred_dates)}`, margin, yPos)
+      yPos += 5
+    }
+    
+    if (analysisData.company_equipment !== null) {
+      const equipText = analysisData.company_equipment 
+        ? `Oui${analysisData.company_equipment_details ? ' (' + safe(analysisData.company_equipment_details) + ')' : ''}`
+        : 'Non'
+      doc.text(`Matériel spécifique entreprise : ${equipText}`, margin, yPos)
+      yPos += 5
+    }
+    
+    if (analysisData.ppe_provided !== null) {
+      doc.text(`Équipements de protection fournis : ${analysisData.ppe_provided ? 'Oui' : 'Non'}`, margin, yPos)
       yPos += 5
     }
     
     if (analysisData.other_constraints) {
-      doc.text('Autres contraintes :', 15, yPos)
+      yPos += 2
+      doc.setFont('helvetica', 'bold')
+      doc.text('Autres contraintes :', margin, yPos)
       yPos += 5
-      yPos += addMultilineText(analysisData.other_constraints, 20, yPos, pageWidth - 40)
-      yPos += 5
+      doc.setFont('helvetica', 'normal')
+      yPos += addText(analysisData.other_constraints, margin + 3, yPos, contentWidth - 6, 9)
+      yPos += 3
     }
   } else {
-    doc.setFontSize(8)
-    doc.setTextColor(100, 100, 100)
-    doc.text('Lieu : ☐ Dans nos locaux ☐ Chez le client (adresse : _______________)', 15, yPos)
+    // VERSION VIERGE
+    doc.text('Lieu : ☐ Dans nos locaux  ☐ Chez le client', margin, yPos)
     yPos += 5
-    doc.text('Horaires souhaités : _____', 15, yPos)
+    doc.text('Adresse si chez le client : ___________________________________', margin + 3, yPos)
     yPos += 5
-    doc.text('Dates préférentielles : _____', 15, yPos)
+    doc.text('Horaires souhaités : ___________________________________', margin, yPos)
     yPos += 5
-    doc.text('Matériel spécifique : ☐ Oui ☐ Non (préciser : _______________)', 15, yPos)
+    doc.text('Dates préférentielles : ___________________________________', margin, yPos)
     yPos += 5
-    doc.text('Équipements de protection fournis : ☐ Oui ☐ Non', 15, yPos)
-    yPos += 7
-    doc.setTextColor(0, 0, 0)
+    doc.text('Matériel spécifique entreprise : ☐ Oui  ☐ Non', margin, yPos)
+    yPos += 5
+    doc.text('Précisions : ___________________________________', margin + 3, yPos)
+    yPos += 5
+    doc.text('Équipements de protection fournis : ☐ Oui  ☐ Non', margin, yPos)
+    yPos += 5
   }
   
-  doc.rect(15, yPos, pageWidth - 30, 20)
-  yPos += 25
+  yPos += 5
 
   // ============ SIGNATURES ============
-  yPos = Math.max(yPos, pageHeight - 45) // Forcer en bas
+  yPos = Math.max(yPos, pageHeight - 40)
   
-  doc.setFont('helvetica', 'normal')
+  doc.setFont('helvetica', 'bold')
   doc.setFontSize(9)
-  doc.text('Signature entreprise :', 20, yPos)
-  doc.text('Signature Access Formation :', pageWidth / 2 + 10, yPos)
+  doc.text('Signature entreprise :', margin + 5, yPos)
+  doc.text('Signature Access Formation :', pageWidth / 2 + 5, yPos)
   
-  doc.rect(20, yPos + 3, 70, 25)
-  doc.rect(pageWidth / 2 + 10, yPos + 3, 70, 25)
+  doc.setDrawColor(100, 100, 100)
+  doc.rect(margin, yPos + 2, 70, 20)
+  doc.rect(pageWidth / 2, yPos + 2, 70, 20)
 
   // ============ FOOTER ============
   doc.setFontSize(7)
   doc.setTextColor(100, 100, 100)
-  doc.text(`${safe(ORG.name)} - ${safe(ORG.address)}`, pageWidth / 2, pageHeight - 15, { align: 'center' })
-  doc.text(safe(ORG.ndaFull), pageWidth / 2, pageHeight - 11, { align: 'center' })
-  doc.text(`SIRET: ${safe(ORG.siret)} - NAF: ${safe(ORG.naf)} - TVA: ${safe(ORG.tva)}`, pageWidth / 2, pageHeight - 7, { align: 'center' })
-  doc.text('AF-BESOIN-V2.5.16', pageWidth - 15, pageHeight - 5, { align: 'right' })
+  doc.setFont('helvetica', 'normal')
+  doc.text(`${safe(ORG.name)} - ${safe(ORG.address)}`, pageWidth / 2, pageHeight - 12, { align: 'center' })
+  doc.text(safe(ORG.ndaFull), pageWidth / 2, pageHeight - 9, { align: 'center' })
+  doc.text(`SIRET: ${safe(ORG.siret)} - NAF: ${safe(ORG.naf)} - TVA: ${safe(ORG.tva)}`, pageWidth / 2, pageHeight - 6, { align: 'center' })
+  doc.text('AF-BESOIN-V2.5.16', pageWidth - margin, pageHeight - 4, { align: 'right' })
 
   // Télécharger
   const filename = blank 
