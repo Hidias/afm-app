@@ -84,7 +84,11 @@ export const downloadNeedsAnalysisPDF = async (session, analysisData = null, bla
 
   // Entreprise et Date
   const clientName = blank ? '________________________' : safe(session?.clients?.name, '________________________')
-  const today = blank ? '___/___/______' : new Date().toLocaleDateString('fr-FR')
+  const today = blank 
+    ? '___/___/______' 
+    : (analysisData?.analysis_date 
+        ? new Date(analysisData.analysis_date).toLocaleDateString('fr-FR')
+        : new Date().toLocaleDateString('fr-FR'))
   doc.text(`Entreprise : ${clientName}`, margin, yPos)
   doc.text(`Date : ${today}`, pageWidth - margin, yPos, { align: 'right' })
   
