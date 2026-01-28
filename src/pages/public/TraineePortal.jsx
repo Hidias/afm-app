@@ -8,6 +8,7 @@ import {
 import { format, parseISO, isToday, eachDayOfInterval } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import TraineeDocuments from '../../components/TraineeDocuments'
+import PositioningTestForm from '../../components/PositioningTestForm'
 
 const evalQuestions = {
   organisation: [
@@ -83,7 +84,7 @@ export default function TraineePortal() {
   const [trainees, setTrainees] = useState([])
   const [selectedTrainee, setSelectedTrainee] = useState(null)
   
-  // Steps: 'select' | 'verify_code' | 'info_sheet' | 'attendance' | 'evaluation' | 'thank_you' | 'google_review' | 'thank_you_website'
+  // Steps: 'select' | 'verify_code' | 'info_sheet' | 'positioning_test' | 'attendance' | 'evaluation' | 'thank_you' | 'google_review' | 'thank_you_website'
   const [currentStep, setCurrentStep] = useState('select')
   const [showDocuments, setShowDocuments] = useState(false)
   
@@ -91,6 +92,10 @@ export default function TraineePortal() {
   const [accessCode, setAccessCode] = useState('')
   const [codeError, setCodeError] = useState('')
   const [attemptsRemaining, setAttemptsRemaining] = useState(5)
+  
+  // Questions de positionnement
+  const [positioningQuestions, setPositioningQuestions] = useState([])
+  const [loadingQuestions, setLoadingQuestions] = useState(false)
   
   // Data
   const [infoSheet, setInfoSheet] = useState(null)
@@ -198,6 +203,36 @@ export default function TraineePortal() {
       setLoading(false)
     }
   }
+
+  // Charger les questions de positionnement pour cette session
+  const loadPositioningQuestions = async () => {
+    if (!session?.courses?.theme_id) return
+    
+    try {
+      setLoadingQuestions(true)
+      
+      // Récupérer les questions via le theme de la formation
+      const { data: questions, error } = await supabase
+        .from('theme_questions')
+        .select('*')
+        .eq('theme_id', session.courses.theme_id)
+        .order('position')
+      
+      if (error) throw error
+      
+      setPositioningQuestions(questions || [])
+    } catch (err) {
+      console.error('Erreur chargement questions:', err)
+    } finally {
+      setLoadingQuestions(false)
+    }
+  }
+
+  useEffect(() => {
+    if (session?.courses?.theme_id) {
+      loadPositioningQuestions()
+    }
+  }, [session])
 
   const handleSelectTrainee = (trainee) => {
     setSelectedTrainee(trainee)
@@ -505,10 +540,60 @@ export default function TraineePortal() {
         rgpd_consent: infoForm.rgpd_consent,
         filled_at: new Date().toISOString() 
       })
-      setCurrentStep('attendance')
+      
+      // Si des questions existent ET que le stagiaire n'a pas déjà fait le test
+      if (positioningQuestions.length > 0 && !selectedTrainee.positioning_test_completed) {
+        setCurrentStep('positioning_test')
+      } else {
+        setCurrentStep('attendance')
+      }
     } catch (err) {
       console.error('Erreur:', err)
       alert('Erreur lors de l\'enregistrement. Veuillez réessayer.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  // Gérer la completion du test de positionnement
+  const handlePositioningTestComplete = async (testResults) => {
+    try {
+      setSubmitting(true)
+      
+      // Sauvegarder les résultats du test
+      const { error: testError } = await supabase
+        .from('trainee_positioning_tests')
+        .insert([{
+          session_trainee_id: selectedTrainee.id,
+          session_id: session.id,
+          responses: testResults.responses,
+          total_questions: testResults.total_questions,
+          correct_answers: testResults.correct_answers,
+          critical_questions_count: testResults.critical_questions_count,
+          critical_correct_count: testResults.critical_correct_count,
+          score_percentage: testResults.score_percentage,
+          level: testResults.level,
+          duration_seconds: testResults.duration_seconds
+        }])
+      
+      if (testError) throw testError
+      
+      // Marquer le test comme complété
+      const { error: updateError } = await supabase
+        .from('session_trainees')
+        .update({
+          positioning_test_completed: true,
+          positioning_test_completed_at: new Date().toISOString()
+        })
+        .eq('id', selectedTrainee.id)
+      
+      if (updateError) throw updateError
+      
+      // Passer à l'émargement
+      setCurrentStep('attendance')
+    } catch (err) {
+      console.error('Erreur sauvegarde test:', err)
+      alert('Erreur lors de l\'enregistrement du test. Veuillez réessayer.')
     } finally {
       setSubmitting(false)
     }
@@ -1214,6 +1299,51 @@ export default function TraineePortal() {
                   >
                     Confirmer
                   </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TEST DE POSITIONNEMENT */}
+          {currentStep === 'positioning_test' && selectedTrainee && (
+            <div className="max-w-4xl mx-auto p-4">
+              <div className="bg-white rounded-lg shadow-lg overflow-hidden">
+                {/* Header */}
+                <div className="bg-gradient-to-r from-purple-600 to-purple-700 text-white p-6">
+                  <h2 className="text-2xl font-bold mb-2">Test de positionnement</h2>
+                  <p className="text-purple-100">
+                    Bienvenue {selectedTrainee.first_name} ! 
+                    Quelques questions pour évaluer vos connaissances actuelles.
+                  </p>
+                  <p className="text-sm text-purple-200 mt-2">
+                    ✓ Vos réponses nous aideront à adapter la formation à votre niveau
+                  </p>
+                </div>
+
+                <div className="p-6">
+                  {loadingQuestions ? (
+                    <div className="text-center py-12">
+                      <Loader2 className="w-12 h-12 animate-spin text-purple-600 mx-auto mb-4" />
+                      <p className="text-gray-600">Chargement des questions...</p>
+                    </div>
+                  ) : positioningQuestions.length === 0 ? (
+                    <div className="text-center py-12">
+                      <AlertCircle className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                      <p className="text-gray-600 mb-4">Aucune question disponible pour cette formation</p>
+                      <button
+                        onClick={() => setCurrentStep('attendance')}
+                        className="bg-purple-600 text-white px-6 py-3 rounded-lg hover:bg-purple-700 transition-colors"
+                      >
+                        Continuer sans test
+                      </button>
+                    </div>
+                  ) : (
+                    <PositioningTestForm
+                      questions={positioningQuestions}
+                      onComplete={handlePositioningTestComplete}
+                      traineeName={`${selectedTrainee.first_name} ${selectedTrainee.last_name}`}
+                    />
+                  )}
                 </div>
               </div>
             </div>
