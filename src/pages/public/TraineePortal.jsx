@@ -321,17 +321,6 @@ export default function TraineePortal() {
       const attendanceRecords = traineeData?.attendance || []
       const evalData = traineeData?.evaluation
       
-      // Charger le statut du test de positionnement
-      const { data: testStatus } = await supabase
-        .from('session_trainees')
-        .select('positioning_test_completed, positioning_test_completed_at')
-        .eq('id', trainee.id)
-        .single()
-      
-      // Mettre à jour trainee avec le statut du test
-      trainee.positioning_test_completed = testStatus?.positioning_test_completed || false
-      trainee.positioning_test_completed_at = testStatus?.positioning_test_completed_at
-      
       setInfoSheet(infoData)
       
       let birthDateDisplay = ''
@@ -402,8 +391,39 @@ export default function TraineePortal() {
         setCurrentStep('info_sheet')
       }
       // PRIORITÉ 2 : Test de positionnement pas fait (si des questions existent)
-      else if (!trainee.positioning_test_completed && positioningQuestions.length > 0) {
-        setCurrentStep('positioning_test')
+      else if (positioningQuestions.length > 0) {
+        // Vérifier si le test a été complété
+        const { data: testCheck } = await supabase
+          .from('trainee_positioning_tests')
+          .select('id')
+          .eq('session_trainee_id', trainee.id)
+          .maybeSingle()
+        
+        if (!testCheck) {
+          setCurrentStep('positioning_test')
+        } else {
+          // Test déjà fait, passer à l'émargement
+          // Vérifier si toutes les périodes du jour sont cochées
+          const allPeriodsChecked = session.periods.every(period => {
+            const key = `${today}_${period}`
+            return attendanceMap[key] === true
+          })
+          
+          if (allPeriodsChecked) {
+            const isLastDay = session.end_date && isToday(parseISO(session.end_date))
+            if (isLastDay) {
+              if (evalData && evalData.questionnaire_submitted) {
+                setCurrentStep('thank_you')
+              } else {
+                setCurrentStep('evaluation')
+              }
+            } else {
+              setCurrentStep('thank_you')
+            }
+          } else {
+            setCurrentStep('attendance')
+          }
+        }
       }
       // PRIORITÉ 3 : Émargement et évaluation
       else {
