@@ -259,7 +259,7 @@ export default function TraineePortal() {
     try {
       // Vérification via RPC si disponible, sinon vérification directe
       const { data, error } = await supabase.rpc('verify_trainee_access_code', {
-        p_session_trainee_id: selectedTrainee.session_trainee_id,
+        p_session_trainee_id: selectedTrainee.id,  // CORRIGÉ : utilise selectedTrainee.id
         p_access_code: accessCode
       })
 
