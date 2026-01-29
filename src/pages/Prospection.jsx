@@ -50,7 +50,7 @@ export default function Prospection() {
             id,
             name,
             email,
-            phone,
+            contact_phone,
             mobile,
             proprietaire
           )
