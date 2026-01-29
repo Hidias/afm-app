@@ -1675,7 +1675,7 @@ export default function SessionDetail() {
     const traineesWithResult = session.session_trainees?.map(st => ({ 
       ...st.trainees, 
       result: st.result || traineeResults[st.trainee_id] || null,
-      access_code: st.access_code  // Code d'accès pour le portail stagiaire
+      access_code: st.access_code
     })) || []
     
     // Si on télécharge un certificat pour un stagiaire spécifique
@@ -1721,14 +1721,14 @@ export default function SessionDetail() {
     toast.success('Document généré')
   }
   
-  const handleDownloadAll = (docType) => {
+  const handleDownloadAll = async (docType) => {
     const trainer = session.trainers
     const traineesWithResult = session.session_trainees?.map(st => ({ 
       ...st.trainees, 
       result: st.result || traineeResults[st.trainee_id] || null,
-      access_code: st.access_code  // Code d'accès pour le portail stagiaire
+      access_code: st.access_code
     })) || []
-    downloadAllDocuments(docType, session, traineesWithResult, { trainer, questions })
+    await downloadAllDocuments(docType, session, traineesWithResult, { trainer, questions })
     toast.success('Documents générés')
   }
   
@@ -1819,7 +1819,7 @@ export default function SessionDetail() {
   }
   
   // Confirmer envoi email et télécharger les docs
-  const handleConfirmEmail = () => {
+  const handleConfirmEmail = async () => {
     const targetEmail = emailModalData.customEmail || emailModalData.email
     if (!targetEmail) {
       toast.error('Veuillez saisir une adresse email')
@@ -1830,7 +1830,7 @@ export default function SessionDetail() {
     const traineesWithResult = session.session_trainees?.map(st => ({ 
       ...st.trainees, 
       result: st.result || traineeResults[st.trainee_id] || null,
-      access_code: st.access_code  // Code d'accès pour le portail stagiaire
+      access_code: st.access_code
     })) || []
     const ref = session?.reference || ''
     const courseTitle = session?.courses?.title || ''
@@ -1861,7 +1861,7 @@ ${organization?.phone || ''}`)
       // Télécharger les documents
       downloadDocument('convention', session, { trainees: traineesWithResult, trainer, costs: sessionCosts })
       downloadUploadedProgramme(session.course_id) // Programme uploadé depuis course_documents
-      downloadAllDocuments('convocation', session, traineesWithResult, { trainer })
+      await downloadAllDocuments('convocation', session, traineesWithResult, { trainer })
       
       // Ouvrir le client mail
       window.location.href = `mailto:${targetEmail}?subject=${subject}&body=${body}`
@@ -1886,9 +1886,9 @@ ${organization?.name || ''}
 ${organization?.phone || ''}`)
       
       // Télécharger les documents
-      downloadAllDocuments('certificat', session, traineesWithResult, { trainer })
-      downloadAllDocuments('attestation', session, traineesWithResult, { trainer })
-      downloadAllDocuments('evaluationFroid', session, traineesWithResult, { trainer })
+      await downloadAllDocuments('certificat', session, traineesWithResult, { trainer })
+      await downloadAllDocuments('attestation', session, traineesWithResult, { trainer })
+      await downloadAllDocuments('evaluationFroid', session, traineesWithResult, { trainer })
       
       // Ouvrir le client mail
       window.location.href = `mailto:${targetEmail}?subject=${subject}&body=${body}`
