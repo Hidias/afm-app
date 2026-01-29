@@ -558,8 +558,25 @@ export default function TraineePortal() {
       console.log('✅ Test sauvegardé, maintenant setPositioningTestCompleted(true)')
       setPositioningTestCompleted(true)
       
-      console.log('🚀 Maintenant setCurrentStep("attendance")')
-      setCurrentStep('attendance')
+      // Vérifier si on est dans les dates de session
+      const today = format(new Date(), 'yyyy-MM-dd')
+      const sessionDates = session.start_date && session.end_date
+        ? eachDayOfInterval({ start: parseISO(session.start_date), end: parseISO(session.end_date) })
+        : []
+      const isWithinSessionDates = sessionDates.some(d => format(d, 'yyyy-MM-dd') === today)
+      
+      console.log('📅 Vérification date:')
+      console.log('  today:', today)
+      console.log('  sessionDates:', sessionDates.map(d => format(d, 'yyyy-MM-dd')))
+      console.log('  isWithinSessionDates:', isWithinSessionDates)
+      
+      if (isWithinSessionDates) {
+        console.log('🚀 On est dans les dates → attendance')
+        setCurrentStep('attendance')
+      } else {
+        console.log('⏰ Pas encore dans les dates → thank_you')
+        setCurrentStep('thank_you')
+      }
       
       console.log('✅ FIN handlePositioningTestComplete SANS ERREUR')
     } catch (err) {
