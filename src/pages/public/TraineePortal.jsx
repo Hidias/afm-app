@@ -660,12 +660,12 @@ export default function TraineePortal() {
         trainee: `${selectedTrainee.first_name} ${selectedTrainee.last_name}`
       })
       
-      // Mettre à jour presence_complete dans session_trainees
-      const { error: updateError } = await supabase
-        .from('session_trainees')
-        .update({ presence_complete: isComplete })
-        .eq('session_id', session.id)
-        .eq('trainee_id', selectedTrainee.id)
+      // Mettre à jour presence_complete via RPC
+      const { error: updateError } = await supabase.rpc('update_presence_complete', {
+        p_session_id: session.id,
+        p_trainee_id: selectedTrainee.id,
+        p_is_complete: isComplete
+      })
       
       if (updateError) {
         console.error('❌ Erreur update presence_complete:', updateError)
