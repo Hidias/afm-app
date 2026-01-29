@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { 
   Save, ArrowLeft, Calendar, Clock, MapPin, User, Phone, Mail,
-  Building2, FileText, Trash2
+  Building2, FileText, Trash2, Plus, X
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import ProspectNeedsAnalysis from '../components/ProspectNeedsAnalysis'
@@ -19,6 +19,25 @@ export default function ProspectRDVDetail() {
   const [contacts, setContacts] = useState([])
   const [selectedClient, setSelectedClient] = useState(null)
   const [showNeedsAnalysis, setShowNeedsAnalysis] = useState(false)
+  const [showNewClientModal, setShowNewClientModal] = useState(false)
+  const [newClientData, setNewClientData] = useState({
+    name: '',
+    address: '',
+    postal_code: '',
+    city: '',
+    contact_phone: '',
+    email: ''
+  })
+  const [showNewClientModal, setShowNewClientModal] = useState(false)
+  const [newClientData, setNewClientData] = useState({
+    name: '',
+    siret: '',
+    address: '',
+    postal_code: '',
+    city: '',
+    contact_phone: '',
+    email: ''
+  })
 
   const [formData, setFormData] = useState({
     client_id: '',
@@ -170,6 +189,48 @@ export default function ProspectRDVDetail() {
     }
   }
 
+  const handleCreateClient = async () => {
+    if (!newClientData.name) {
+      toast.error('Le nom du client est obligatoire')
+      return
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('clients')
+        .insert([{
+          name: newClientData.name.toUpperCase(),
+          siret: newClientData.siret,
+          address: newClientData.address,
+          postal_code: newClientData.postal_code,
+          city: newClientData.city,
+          contact_phone: newClientData.contact_phone,
+          email: newClientData.email
+        }])
+        .select()
+        .single()
+
+      if (error) throw error
+
+      toast.success('Client créé')
+      setClients([...clients, data])
+      setFormData({ ...formData, client_id: data.id })
+      setShowNewClientModal(false)
+      setNewClientData({
+        name: '',
+        siret: '',
+        address: '',
+        postal_code: '',
+        city: '',
+        contact_phone: '',
+        email: ''
+      })
+    } catch (error) {
+      console.error('Erreur:', error)
+      toast.error('Erreur lors de la création du client')
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -234,17 +295,27 @@ export default function ProspectRDVDetail() {
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Client *
                 </label>
-                <select
-                  value={formData.client_id}
-                  onChange={(e) => setFormData({ ...formData, client_id: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-                  required
-                >
-                  <option value="">Sélectionner un client</option>
-                  {clients.map(c => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </select>
+                <div className="space-y-2">
+                  <select
+                    value={formData.client_id}
+                    onChange={(e) => setFormData({ ...formData, client_id: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                    required
+                  >
+                    <option value="">Sélectionner un client</option>
+                    {clients.map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => setShowNewClientModal(true)}
+                    className="text-sm text-primary-600 hover:text-primary-700 flex items-center gap-1"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Créer un nouveau client
+                  </button>
+                </div>
               </div>
 
               <div>
@@ -532,6 +603,137 @@ export default function ProspectRDVDetail() {
           )}
         </div>
       </div>
+
+      {/* Modal Création client */}
+      {showNewClientModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg max-w-2xl w-full">
+            <div className="p-4 border-b flex items-center justify-between">
+              <h2 className="text-xl font-bold">Créer un nouveau client</h2>
+              <button
+                onClick={() => setShowNewClientModal(false)}
+                className="p-2 hover:bg-gray-100 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6">
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Nom de l'entreprise *
+                  </label>
+                  <input
+                    type="text"
+                    value={newClientData.name}
+                    onChange={(e) => setNewClientData({ ...newClientData, name: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                    placeholder="ENTREPRISE ABC"
+                    required
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      SIRET
+                    </label>
+                    <input
+                      type="text"
+                      value={newClientData.siret}
+                      onChange={(e) => setNewClientData({ ...newClientData, siret: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                      placeholder="12345678901234"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Téléphone
+                    </label>
+                    <input
+                      type="tel"
+                      value={newClientData.contact_phone}
+                      onChange={(e) => setNewClientData({ ...newClientData, contact_phone: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                      placeholder="02 46 56 57 54"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Email
+                  </label>
+                  <input
+                    type="email"
+                    value={newClientData.email}
+                    onChange={(e) => setNewClientData({ ...newClientData, email: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                    placeholder="contact@entreprise.fr"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Adresse
+                  </label>
+                  <input
+                    type="text"
+                    value={newClientData.address}
+                    onChange={(e) => setNewClientData({ ...newClientData, address: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                    placeholder="12 rue Example"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Code postal
+                    </label>
+                    <input
+                      type="text"
+                      value={newClientData.postal_code}
+                      onChange={(e) => setNewClientData({ ...newClientData, postal_code: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                      placeholder="29900"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Ville
+                    </label>
+                    <input
+                      type="text"
+                      value={newClientData.city}
+                      onChange={(e) => setNewClientData({ ...newClientData, city: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                      placeholder="Concarneau"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex gap-3 mt-6">
+                <button
+                  onClick={() => setShowNewClientModal(false)}
+                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+                >
+                  Annuler
+                </button>
+                <button
+                  onClick={handleCreateClient}
+                  className="flex-1 px-4 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600"
+                >
+                  Créer le client
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal Analyse des besoins */}
       {showNeedsAnalysis && formData.client_id && (
