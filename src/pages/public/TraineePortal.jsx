@@ -230,20 +230,12 @@ export default function TraineePortal() {
     setSubmitting(true)
     setCodeError('')
 
-    // DEBUG - À SUPPRIMER APRÈS
-    console.log('🔍 DEBUG VERIFY CODE')
-    console.log('selectedTrainee:', selectedTrainee)
-    console.log('selectedTrainee.id:', selectedTrainee?.id)
-    console.log('accessCode saisi:', accessCode)
-
     try {
       // Vérification via RPC si disponible, sinon vérification directe
       const { data, error } = await supabase.rpc('verify_trainee_access_code', {
-        p_session_trainee_id: selectedTrainee.id, // ID de la ligne session_trainees
+        p_session_trainee_id: selectedTrainee.session_trainee_id,
         p_access_code: accessCode
       })
-      
-      console.log('📥 Réponse RPC:', { data, error })
 
       if (error) {
         // Fallback: vérification directe si RPC n'existe pas
@@ -368,49 +360,30 @@ export default function TraineePortal() {
       // Déterminer étape
       const today = getTodayFormation()
       
-      // Vérifier si aujourd'hui est dans les dates de la session
-      const sessionDates = session.start_date && session.end_date
-        ? eachDayOfInterval({ start: parseISO(session.start_date), end: parseISO(session.end_date) })
-        : []
-      const isWithinSessionDates = sessionDates.some(d => format(d, 'yyyy-MM-dd') === today)
-      
-      // Vérifier si la session est terminée (après la date de fin)
-      const isAfterSession = session.end_date && parseISO(session.end_date) < parseISO(today)
-      
       if (infoData && infoData.filled_at) {
         // Si le test de positionnement n'est pas complété et qu'il y a des questions
         if (questions.length > 0 && !testCompleted) {
           setCurrentStep('positioning_test')
         } else {
-          // Si on est AVANT la session → Afficher merci avec date RDV
-          if (!isWithinSessionDates && !isAfterSession) {
-            setCurrentStep('thank_you')
-          }
-          // Si on est APRÈS la session → Merci final
-          else if (isAfterSession) {
-            setCurrentStep('thank_you')
-          }
-          // Si on est PENDANT la session → Émargement
-          else {
-            const allPeriodsChecked = session.periods.every(period => {
-              const key = `${today}_${period}`
-              return attendanceMap[key] === true
-            })
-            
-            if (allPeriodsChecked) {
-              const isLastDay = session.end_date && isToday(parseISO(session.end_date))
-              if (isLastDay) {
-                if (evalData && evalData.questionnaire_submitted) {
-                  setCurrentStep('thank_you')
-                } else {
-                  setCurrentStep('evaluation')
-                }
-              } else {
+          // Vérifier si toutes les périodes du jour sont cochées
+          const allPeriodsChecked = session.periods.every(period => {
+            const key = `${today}_${period}`
+            return attendanceMap[key] === true
+          })
+          
+          if (allPeriodsChecked) {
+            const isLastDay = session.end_date && isToday(parseISO(session.end_date))
+            if (isLastDay) {
+              if (evalData && evalData.questionnaire_submitted) {
                 setCurrentStep('thank_you')
+              } else {
+                setCurrentStep('evaluation')
               }
             } else {
-              setCurrentStep('attendance')
+              setCurrentStep('thank_you')
             }
+          } else {
+            setCurrentStep('attendance')
           }
         }
       } else {
@@ -1311,8 +1284,7 @@ export default function TraineePortal() {
             const todayIndex = dates.findIndex(d => format(d, 'yyyy-MM-dd') === today)
             const currentDate = todayIndex >= 0 ? dates[todayIndex] : null
 
-            // Si on est sur cet onglet, c'est que la logique de navigation a validé qu'on peut y accéder
-            // Donc pas besoin de re-vérifier ici
+            // Suppression du blocage - si on est sur cet onglet c'est qu'on doit y accéder
             const isFirst = isFirstHalfDay(today, 'morning')
             
             return (
