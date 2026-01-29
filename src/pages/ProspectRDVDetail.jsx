@@ -22,15 +22,6 @@ export default function ProspectRDVDetail() {
   const [showNewClientModal, setShowNewClientModal] = useState(false)
   const [newClientData, setNewClientData] = useState({
     name: '',
-    address: '',
-    postal_code: '',
-    city: '',
-    contact_phone: '',
-    email: ''
-  })
-  const [showNewClientModal, setShowNewClientModal] = useState(false)
-  const [newClientData, setNewClientData] = useState({
-    name: '',
     siret: '',
     address: '',
     postal_code: '',
