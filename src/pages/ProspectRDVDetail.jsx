@@ -515,10 +515,10 @@ export default function ProspectRDVDetail() {
                     </span>
                   </div>
                 )}
-                {selectedClient.phone && (
+                {selectedClient.contact_phone && (
                   <div className="flex items-center gap-2">
                     <Phone className="w-4 h-4 text-gray-400" />
-                    <span className="text-gray-600">{selectedClient.phone}</span>
+                    <span className="text-gray-600">{selectedClient.contact_phone}</span>
                   </div>
                 )}
                 {selectedClient.email && (
