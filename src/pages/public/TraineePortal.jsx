@@ -8,6 +8,7 @@ import {
 import { format, parseISO, isToday, eachDayOfInterval } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import TraineeDocuments from '../../components/TraineeDocuments'
+import PositioningTestForm from '../../components/PositioningTestForm'
 
 const evalQuestions = {
   organisation: [
@@ -83,7 +84,7 @@ export default function TraineePortal() {
   const [trainees, setTrainees] = useState([])
   const [selectedTrainee, setSelectedTrainee] = useState(null)
   
-  // Steps: 'select' | 'verify_code' | 'info_sheet' | 'attendance' | 'evaluation' | 'thank_you' | 'google_review' | 'thank_you_website'
+  // Steps: 'select' | 'verify_code' | 'info_sheet' | 'positioning_test' | 'attendance' | 'evaluation' | 'thank_you' | 'google_review' | 'thank_you_website'
   const [currentStep, setCurrentStep] = useState('select')
   const [showDocuments, setShowDocuments] = useState(false)
   
@@ -91,6 +92,10 @@ export default function TraineePortal() {
   const [accessCode, setAccessCode] = useState('')
   const [codeError, setCodeError] = useState('')
   const [attemptsRemaining, setAttemptsRemaining] = useState(5)
+  
+  // Questions de positionnement
+  const [positioningQuestions, setPositioningQuestions] = useState([])
+  const [loadingQuestions, setLoadingQuestions] = useState(false)
   
   // Data
   const [infoSheet, setInfoSheet] = useState(null)
@@ -199,18 +204,44 @@ export default function TraineePortal() {
     }
   }
 
+  // Charger les questions de positionnement pour cette session
+  const loadPositioningQuestions = async () => {
+    if (!session?.courses?.theme_id) return
+    
+    try {
+      setLoadingQuestions(true)
+      
+      // Récupérer les questions via le theme de la formation
+      const { data: questions, error } = await supabase
+        .from('theme_questions')
+        .select('*')
+        .eq('theme_id', session.courses.theme_id)
+        .order('position')
+      
+      if (error) throw error
+      
+      setPositioningQuestions(questions || [])
+    } catch (err) {
+      console.error('Erreur chargement questions:', err)
+    } finally {
+      setLoadingQuestions(false)
+    }
+  }
+
+  useEffect(() => {
+    if (session?.courses?.theme_id) {
+      loadPositioningQuestions()
+    }
+  }, [session])
+
   const handleSelectTrainee = (trainee) => {
     setSelectedTrainee(trainee)
     setAccessCode('')
     setCodeError('')
     setAttemptsRemaining(5 - (trainee.access_code_attempts || 0))
     
-    // Si pas de code d'accès configuré ou codes désactivés, passer directement
-    if (!trainee.access_code) {
-      loadTraineeDataDirect(trainee)
-    } else {
-      setCurrentStep('verify_code')
-    }
+    // Toujours demander le code d'accès
+    setCurrentStep('verify_code')
   }
 
   // Chargement direct sans vérification de code (fallback)
@@ -226,17 +257,32 @@ export default function TraineePortal() {
     setCodeError('')
 
     try {
-      // Vérification via RPC si disponible, sinon vérification directe
+      // Trouver le session_trainee_id via trainee_id
+      const { data: sessionTraineeData, error: lookupError } = await supabase
+        .from('session_trainees')
+        .select('id, access_code')
+        .eq('trainee_id', selectedTrainee.id)
+        .eq('session_id', session.id)
+        .single()
+      
+      if (lookupError || !sessionTraineeData) {
+        console.error('Erreur lookup session_trainee:', lookupError)
+        setCodeError('Erreur lors de la vérification')
+        setSubmitting(false)
+        return
+      }
+      
+      // Maintenant on a le vrai session_trainee_id !
       const { data, error } = await supabase.rpc('verify_trainee_access_code', {
-        p_session_trainee_id: selectedTrainee.session_trainee_id,
+        p_session_trainee_id: sessionTraineeData.id,  // ✅ Le bon ID !
         p_access_code: accessCode
       })
 
       if (error) {
-        // Fallback: vérification directe si RPC n'existe pas
-        if (error.message?.includes('function') || error.code === '42883') {
-          // Vérification directe
-          if (accessCode === selectedTrainee.access_code) {
+        // Fallback: vérification directe
+        if (error.message?.includes('function') || error.code === '42883' || error.code === '404') {
+          // Vérification directe avec les données déjà récupérées
+          if (accessCode === sessionTraineeData.access_code) {
             await loadTraineeData(selectedTrainee)
             return
           } else {
@@ -351,7 +397,47 @@ export default function TraineePortal() {
       // Déterminer étape
       const today = getTodayFormation()
       
-      if (infoData && infoData.filled_at) {
+      // PRIORITÉ 1 : Fiche pas remplie
+      if (!trainee.info_sheet_completed) {
+        setCurrentStep('info_sheet')
+      }
+      // PRIORITÉ 2 : Test de positionnement pas fait (si des questions existent)
+      else if (positioningQuestions.length > 0) {
+        // Vérifier si le test a été complété
+        const { data: testCheck } = await supabase
+          .from('trainee_positioning_tests')
+          .select('id')
+          .eq('session_trainee_id', trainee.id)
+          .maybeSingle()
+        
+        if (!testCheck) {
+          setCurrentStep('positioning_test')
+        } else {
+          // Test déjà fait, passer à l'émargement
+          // Vérifier si toutes les périodes du jour sont cochées
+          const allPeriodsChecked = session.periods.every(period => {
+            const key = `${today}_${period}`
+            return attendanceMap[key] === true
+          })
+          
+          if (allPeriodsChecked) {
+            const isLastDay = session.end_date && isToday(parseISO(session.end_date))
+            if (isLastDay) {
+              if (evalData && evalData.questionnaire_submitted) {
+                setCurrentStep('thank_you')
+              } else {
+                setCurrentStep('evaluation')
+              }
+            } else {
+              setCurrentStep('thank_you')
+            }
+          } else {
+            setCurrentStep('attendance')
+          }
+        }
+      }
+      // PRIORITÉ 3 : Émargement et évaluation
+      else {
         // Vérifier si toutes les périodes du jour sont cochées
         const allPeriodsChecked = session.periods.every(period => {
           const key = `${today}_${period}`
@@ -372,8 +458,6 @@ export default function TraineePortal() {
         } else {
           setCurrentStep('attendance')
         }
-      } else {
-        setCurrentStep('info_sheet')
       }
       
       setSubmitting(false)
@@ -505,10 +589,60 @@ export default function TraineePortal() {
         rgpd_consent: infoForm.rgpd_consent,
         filled_at: new Date().toISOString() 
       })
-      setCurrentStep('attendance')
+      
+      // Si des questions existent ET que le stagiaire n'a pas déjà fait le test
+      if (positioningQuestions.length > 0 && !selectedTrainee.positioning_test_completed) {
+        setCurrentStep('positioning_test')
+      } else {
+        setCurrentStep('attendance')
+      }
     } catch (err) {
       console.error('Erreur:', err)
       alert('Erreur lors de l\'enregistrement. Veuillez réessayer.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  // Gérer la completion du test de positionnement
+  const handlePositioningTestComplete = async (testResults) => {
+    try {
+      setSubmitting(true)
+      
+      // Sauvegarder les résultats du test
+      const { error: testError } = await supabase
+        .from('trainee_positioning_tests')
+        .insert([{
+          session_trainee_id: selectedTrainee.id,
+          session_id: session.id,
+          responses: testResults.responses,
+          total_questions: testResults.total_questions,
+          correct_answers: testResults.correct_answers,
+          critical_questions_count: testResults.critical_questions_count,
+          critical_correct_count: testResults.critical_correct_count,
+          score_percentage: testResults.score_percentage,
+          level: testResults.level,
+          duration_seconds: testResults.duration_seconds
+        }])
+      
+      if (testError) throw testError
+      
+      // Marquer le test comme complété
+      const { error: updateError } = await supabase
+        .from('session_trainees')
+        .update({
+          positioning_test_completed: true,
+          positioning_test_completed_at: new Date().toISOString()
+        })
+        .eq('id', selectedTrainee.id)
+      
+      if (updateError) throw updateError
+      
+      // Passer à l'émargement
+      setCurrentStep('attendance')
+    } catch (err) {
+      console.error('Erreur sauvegarde test:', err)
+      alert('Erreur lors de l\'enregistrement du test. Veuillez réessayer.')
     } finally {
       setSubmitting(false)
     }
@@ -1219,6 +1353,51 @@ export default function TraineePortal() {
             </div>
           )}
 
+          {/* TEST DE POSITIONNEMENT */}
+          {currentStep === 'positioning_test' && selectedTrainee && (
+            <div className="max-w-4xl mx-auto p-4">
+              <div className="bg-white rounded-lg shadow-lg overflow-hidden">
+                {/* Header */}
+                <div className="bg-gradient-to-r from-purple-600 to-purple-700 text-white p-6">
+                  <h2 className="text-2xl font-bold mb-2">Test de positionnement</h2>
+                  <p className="text-purple-100">
+                    Bienvenue {selectedTrainee.first_name} ! 
+                    Quelques questions pour évaluer vos connaissances actuelles.
+                  </p>
+                  <p className="text-sm text-purple-200 mt-2">
+                    ✓ Vos réponses nous aideront à adapter la formation à votre niveau
+                  </p>
+                </div>
+
+                <div className="p-6">
+                  {loadingQuestions ? (
+                    <div className="text-center py-12">
+                      <Loader2 className="w-12 h-12 animate-spin text-purple-600 mx-auto mb-4" />
+                      <p className="text-gray-600">Chargement des questions...</p>
+                    </div>
+                  ) : positioningQuestions.length === 0 ? (
+                    <div className="text-center py-12">
+                      <AlertCircle className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                      <p className="text-gray-600 mb-4">Aucune question disponible pour cette formation</p>
+                      <button
+                        onClick={() => setCurrentStep('attendance')}
+                        className="bg-purple-600 text-white px-6 py-3 rounded-lg hover:bg-purple-700 transition-colors"
+                      >
+                        Continuer sans test
+                      </button>
+                    </div>
+                  ) : (
+                    <PositioningTestForm
+                      questions={positioningQuestions}
+                      onComplete={handlePositioningTestComplete}
+                      traineeName={`${selectedTrainee.first_name} ${selectedTrainee.last_name}`}
+                    />
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           {currentStep === 'attendance' && selectedTrainee && (() => {
             const dates = session.start_date && session.end_date
               ? eachDayOfInterval({ start: parseISO(session.start_date), end: parseISO(session.end_date) })
@@ -1226,7 +1405,62 @@ export default function TraineePortal() {
             
             const todayIndex = dates.findIndex(d => format(d, 'yyyy-MM-dd') === today)
             const currentDate = todayIndex >= 0 ? dates[todayIndex] : null
+            
+            // Vérifier si on est AVANT la formation
+            const isBeforeFormation = dates.length > 0 && !currentDate && new Date(today) < new Date(dates[0])
 
+            // Si AVANT la formation : Message d'accès anticipé
+            if (isBeforeFormation) {
+              const formationStart = format(parseISO(dates[0]), 'dd/MM/yyyy', { locale: fr })
+              return (
+                <div className="max-w-2xl mx-auto p-4">
+                  <div className="bg-white rounded-lg shadow-lg overflow-hidden">
+                    <div className="bg-gradient-to-r from-green-600 to-green-700 text-white p-6">
+                      <CheckCircle className="w-16 h-16 mx-auto mb-4" />
+                      <h2 className="text-2xl font-bold text-center mb-2">
+                        Parfait {selectedTrainee.first_name} !
+                      </h2>
+                      <p className="text-green-100 text-center">
+                        Votre préparation est terminée
+                      </p>
+                    </div>
+                    
+                    <div className="p-6 space-y-4">
+                      <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                        <h3 className="font-semibold text-green-900 mb-2">✓ Votre fiche stagiaire est remplie</h3>
+                        {positioningQuestions.length > 0 && (
+                          <h3 className="font-semibold text-green-900 mb-2">✓ Votre test de positionnement est complété</h3>
+                        )}
+                      </div>
+                      
+                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                        <h3 className="font-semibold text-blue-900 mb-2 flex items-center gap-2">
+                          <Calendar className="w-5 h-5" />
+                          Rendez-vous le {formationStart}
+                        </h3>
+                        <p className="text-blue-800 text-sm">
+                          Le jour de la formation, vous n'aurez plus qu'à signer votre présence !
+                        </p>
+                      </div>
+                      
+                      <div className="text-center pt-4">
+                        <p className="text-gray-600 text-sm mb-4">
+                          Vous recevrez un rappel par email avant le début de la formation.
+                        </p>
+                        <button
+                          onClick={() => window.location.reload()}
+                          className="text-blue-600 hover:text-blue-700 text-sm font-medium"
+                        >
+                          Retour à l'accueil
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )
+            }
+
+            // Si pas aujourd'hui ET pas avant : pas de session aujourd'hui
             if (!currentDate) {
               return (
                 <div className="text-center py-8">
