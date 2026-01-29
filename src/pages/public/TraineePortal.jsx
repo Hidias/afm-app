@@ -8,6 +8,7 @@ import {
 import { format, parseISO, isToday, eachDayOfInterval } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import TraineeDocuments from '../../components/TraineeDocuments'
+import PositioningTestForm from '../../components/PositioningTestForm'
 
 const evalQuestions = {
   organisation: [
@@ -83,9 +84,13 @@ export default function TraineePortal() {
   const [trainees, setTrainees] = useState([])
   const [selectedTrainee, setSelectedTrainee] = useState(null)
   
-  // Steps: 'select' | 'verify_code' | 'info_sheet' | 'attendance' | 'evaluation' | 'thank_you' | 'google_review' | 'thank_you_website'
+  // Steps: 'select' | 'verify_code' | 'info_sheet' | 'positioning_test' | 'attendance' | 'evaluation' | 'thank_you' | 'google_review' | 'thank_you_website'
   const [currentStep, setCurrentStep] = useState('select')
   const [showDocuments, setShowDocuments] = useState(false)
+  
+  // Test de positionnement
+  const [positioningQuestions, setPositioningQuestions] = useState([])
+  const [positioningTestCompleted, setPositioningTestCompleted] = useState(false)
   
   // Code d'accès
   const [accessCode, setAccessCode] = useState('')
@@ -285,8 +290,12 @@ export default function TraineePortal() {
       const infoData = traineeData?.info_sheet
       const attendanceRecords = traineeData?.attendance || []
       const evalData = traineeData?.evaluation
+      const questions = traineeData?.positioning_questions || []
+      const testCompleted = traineeData?.positioning_test_completed || false
       
       setInfoSheet(infoData)
+      setPositioningQuestions(questions)
+      setPositioningTestCompleted(testCompleted)
       
       let birthDateDisplay = ''
       if (trainee.birth_date) {
@@ -352,25 +361,30 @@ export default function TraineePortal() {
       const today = getTodayFormation()
       
       if (infoData && infoData.filled_at) {
-        // Vérifier si toutes les périodes du jour sont cochées
-        const allPeriodsChecked = session.periods.every(period => {
-          const key = `${today}_${period}`
-          return attendanceMap[key] === true
-        })
-        
-        if (allPeriodsChecked) {
-          const isLastDay = session.end_date && isToday(parseISO(session.end_date))
-          if (isLastDay) {
-            if (evalData && evalData.questionnaire_submitted) {
-              setCurrentStep('thank_you')
+        // Si le test de positionnement n'est pas complété et qu'il y a des questions
+        if (questions.length > 0 && !testCompleted) {
+          setCurrentStep('positioning_test')
+        } else {
+          // Vérifier si toutes les périodes du jour sont cochées
+          const allPeriodsChecked = session.periods.every(period => {
+            const key = `${today}_${period}`
+            return attendanceMap[key] === true
+          })
+          
+          if (allPeriodsChecked) {
+            const isLastDay = session.end_date && isToday(parseISO(session.end_date))
+            if (isLastDay) {
+              if (evalData && evalData.questionnaire_submitted) {
+                setCurrentStep('thank_you')
+              } else {
+                setCurrentStep('evaluation')
+              }
             } else {
-              setCurrentStep('evaluation')
+              setCurrentStep('thank_you')
             }
           } else {
-            setCurrentStep('thank_you')
+            setCurrentStep('attendance')
           }
-        } else {
-          setCurrentStep('attendance')
         }
       } else {
         setCurrentStep('info_sheet')
@@ -505,10 +519,41 @@ export default function TraineePortal() {
         rgpd_consent: infoForm.rgpd_consent,
         filled_at: new Date().toISOString() 
       })
-      setCurrentStep('attendance')
+      
+      // Aller au test de positionnement si des questions existent, sinon émargement
+      if (positioningQuestions.length > 0 && !positioningTestCompleted) {
+        setCurrentStep('positioning_test')
+      } else {
+        setCurrentStep('attendance')
+      }
     } catch (err) {
       console.error('Erreur:', err)
       alert('Erreur lors de l\'enregistrement. Veuillez réessayer.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  // Handler pour complétion du test de positionnement
+  const handlePositioningTestComplete = async (answers) => {
+    setSubmitting(true)
+    try {
+      const { data, error } = await supabase.rpc('save_positioning_test_answers', {
+        p_token: token,
+        p_trainee_id: selectedTrainee.id,
+        p_answers: answers
+      })
+      
+      if (error) {
+        console.error('Erreur sauvegarde test:', error)
+        throw error
+      }
+      
+      setPositioningTestCompleted(true)
+      setCurrentStep('attendance')
+    } catch (err) {
+      console.error('Erreur:', err)
+      alert('Erreur lors de l\'enregistrement du test. Veuillez réessayer.')
     } finally {
       setSubmitting(false)
     }
@@ -836,6 +881,7 @@ export default function TraineePortal() {
   const headerColor = currentStep === 'evaluation' ? 'from-orange-500 to-orange-600' 
     : currentStep === 'info_sheet' ? 'from-blue-600 to-blue-700'
     : currentStep === 'verify_code' ? 'from-purple-600 to-purple-700'
+    : currentStep === 'positioning_test' ? 'from-indigo-600 to-indigo-700'
     : 'from-green-600 to-green-700'
 
   return (
@@ -1183,6 +1229,17 @@ export default function TraineePortal() {
                 Enregistrer et continuer
               </button>
             </form>
+          )}
+
+          {/* STEP: Test de positionnement */}
+          {currentStep === 'positioning_test' && selectedTrainee && positioningQuestions.length > 0 && (
+            <div>
+              <PositioningTestForm
+                questions={positioningQuestions}
+                traineeId={selectedTrainee.id}
+                onComplete={handlePositioningTestComplete}
+              />
+            </div>
           )}
 
           {/* STEP: Émargement - CORRIGÉ */}
