@@ -2657,8 +2657,8 @@ function generateTestPositionnementRempli(session, trainee, testData) {
   let y = margins.top
   
   // En-tête
-  addHeaderWithReference(doc, y, session, DOC_CODES.positionnement)
-  y += 35
+  y = addHeader(doc, session?.reference || "SANS-REF")
+  y += 5
   
   // Titre
   doc.setFontSize(18)
@@ -2738,7 +2738,7 @@ function generateTestPositionnementRempli(session, trainee, testData) {
       if (y > ph - 30) {
         doc.addPage()
         y = margins.top
-        addHeaderWithReference(doc, y, session, DOC_CODES.positionnement)
+        y = addHeader(doc, session?.reference || "SANS-REF")
         y += 35
       }
       
@@ -2762,7 +2762,7 @@ function generateTestPositionnementRempli(session, trainee, testData) {
       if (y > ph - 30) {
         doc.addPage()
         y = margins.top
-        addHeaderWithReference(doc, y, session, DOC_CODES.positionnement)
+        y = addHeader(doc, session?.reference || "SANS-REF")
         y += 35
       }
       
@@ -2784,7 +2784,7 @@ function generateTestPositionnementRempli(session, trainee, testData) {
     if (y > ph - 30) {
       doc.addPage()
       y = margins.top
-      addHeaderWithReference(doc, y, session, DOC_CODES.positionnement)
+      y = addHeader(doc, session?.reference || "SANS-REF")
       y += 35
     }
     
@@ -2811,7 +2811,7 @@ function generateTestPositionnementRempli(session, trainee, testData) {
   if (y > ph - 40) {
     doc.addPage()
     y = margins.top
-    addHeaderWithReference(doc, y, session, DOC_CODES.positionnement)
+    y = addHeader(doc, session?.reference || "SANS-REF")
     y += 35
   }
   
@@ -2830,7 +2830,7 @@ function generateTestPositionnementRempli(session, trainee, testData) {
     if (y > ph - 50) {
       doc.addPage()
       y = margins.top
-      addHeaderWithReference(doc, y, session, DOC_CODES.positionnement)
+      y = addHeader(doc, session?.reference || "SANS-REF")
       y += 35
     }
     
@@ -2867,7 +2867,7 @@ function generateTestPositionnementRempli(session, trainee, testData) {
         if (y > ph - 25) {
           doc.addPage()
           y = margins.top
-          addHeaderWithReference(doc, y, session, DOC_CODES.positionnement)
+          y = addHeader(doc, session?.reference || "SANS-REF")
           y += 35
         }
         
