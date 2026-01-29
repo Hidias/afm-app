@@ -1674,7 +1674,8 @@ export default function SessionDetail() {
     const trainer = session.trainers
     const traineesWithResult = session.session_trainees?.map(st => ({ 
       ...st.trainees, 
-      result: st.result || traineeResults[st.trainee_id] || null 
+      result: st.result || traineeResults[st.trainee_id] || null,
+      access_code: st.access_code  // Code d'accès pour le portail stagiaire
     })) || []
     
     // Si on télécharge un certificat pour un stagiaire spécifique
@@ -1724,7 +1725,8 @@ export default function SessionDetail() {
     const trainer = session.trainers
     const traineesWithResult = session.session_trainees?.map(st => ({ 
       ...st.trainees, 
-      result: st.result || traineeResults[st.trainee_id] || null 
+      result: st.result || traineeResults[st.trainee_id] || null,
+      access_code: st.access_code  // Code d'accès pour le portail stagiaire
     })) || []
     downloadAllDocuments(docType, session, traineesWithResult, { trainer, questions })
     toast.success('Documents générés')
@@ -1827,7 +1829,8 @@ export default function SessionDetail() {
     const trainer = session.trainers
     const traineesWithResult = session.session_trainees?.map(st => ({ 
       ...st.trainees, 
-      result: st.result || traineeResults[st.trainee_id] || null 
+      result: st.result || traineeResults[st.trainee_id] || null,
+      access_code: st.access_code  // Code d'accès pour le portail stagiaire
     })) || []
     const ref = session?.reference || ''
     const courseTitle = session?.courses?.title || ''
