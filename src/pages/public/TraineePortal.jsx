@@ -1308,15 +1308,8 @@ export default function TraineePortal() {
             const todayIndex = dates.findIndex(d => format(d, 'yyyy-MM-dd') === today)
             const currentDate = todayIndex >= 0 ? dates[todayIndex] : null
 
-            if (!currentDate) {
-              return (
-                <div className="text-center py-8">
-                  <AlertCircle className="w-12 h-12 text-yellow-500 mx-auto mb-3" />
-                  <p className="text-gray-600">Aucune session prévue aujourd'hui</p>
-                </div>
-              )
-            }
-
+            // Si on est sur cet onglet, c'est que la logique de navigation a validé qu'on peut y accéder
+            // Donc pas besoin de re-vérifier ici
             const isFirst = isFirstHalfDay(today, 'morning')
             
             return (
