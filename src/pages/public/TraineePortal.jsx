@@ -230,12 +230,20 @@ export default function TraineePortal() {
     setSubmitting(true)
     setCodeError('')
 
+    // DEBUG - À SUPPRIMER APRÈS
+    console.log('🔍 DEBUG VERIFY CODE')
+    console.log('selectedTrainee:', selectedTrainee)
+    console.log('selectedTrainee.id:', selectedTrainee?.id)
+    console.log('accessCode saisi:', accessCode)
+
     try {
       // Vérification via RPC si disponible, sinon vérification directe
       const { data, error } = await supabase.rpc('verify_trainee_access_code', {
         p_session_trainee_id: selectedTrainee.id, // ID de la ligne session_trainees
         p_access_code: accessCode
       })
+      
+      console.log('📥 Réponse RPC:', { data, error })
 
       if (error) {
         // Fallback: vérification directe si RPC n'existe pas
