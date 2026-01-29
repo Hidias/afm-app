@@ -4433,7 +4433,11 @@ ${organization?.phone || ''}`)
                 {selectedPositioningTest.test?.completed && (
                   <button 
                     onClick={() => {
-                      toast.info('Génération PDF en cours de développement')
+                      downloadDocument('testPositionnementRempli', session, { 
+                        trainee: selectedPositioningTest.trainee, 
+                        testData: selectedPositioningTest.test 
+                      })
+                      toast.success('PDF généré')
                     }}
                     className="btn btn-primary flex items-center gap-2"
                   >
