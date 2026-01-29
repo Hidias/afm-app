@@ -3,7 +3,7 @@ import { useAuthStore, useDataStore } from '../lib/store'
 import { 
   LayoutDashboard, Users, GraduationCap, Calendar, Building2, 
   Settings, LogOut, Menu, X, FileText, AlertTriangle, UserCheck, BarChart3, Award,
-  Bell, Check, ExternalLink, FolderCheck, CheckCircle
+  Bell, Check, ExternalLink, FolderCheck, CheckCircle, Briefcase
 } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
@@ -13,6 +13,7 @@ import { fr } from 'date-fns/locale'
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Tableau de bord' },
   { to: '/clients', icon: Building2, label: 'Clients' },
+  { to: '/prospection', icon: Briefcase, label: 'Prospection' },
   { to: '/formations', icon: GraduationCap, label: 'Formations' },
   { to: '/stagiaires', icon: Users, label: 'Stagiaires' },
   { to: '/formateurs', icon: UserCheck, label: 'Formateurs' },
@@ -25,7 +26,6 @@ const navItems = [
   { to: '/qualiopi', icon: Award, label: 'Qualiopi' },
   { to: '/parametres', icon: Settings, label: 'Paramètres' },
 ]
-
 export default function Layout() {
   const { user, logout } = useAuthStore()
   const navigate = useNavigate()
