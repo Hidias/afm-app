@@ -2037,10 +2037,19 @@ export async function downloadAllDocuments(docType, session, trainees, options =
   const ref = session?.reference || 'VIERGE'
   const { trainer = null, questions = [] } = options
   
+  // === DEBUG QR CODE ===
+  console.log('🔍 DEBUG CONVOCATION')
+  console.log('1. docType:', docType)
+  console.log('2. attendance_token:', session?.attendance_token)
+  console.log('3. Nombre stagiaires:', trainees.length)
+  console.log('4. Premier stagiaire:', trainees[0]?.first_name, trainees[0]?.last_name)
+  console.log('5. access_code premier:', trainees[0]?.access_code)
+  
   // Générer le QR code de la session UNE SEULE FOIS (pour convocations)
   let qrCodeDataURL = null
   if (docType === 'convocation' && session?.attendance_token) {
     const portalURL = `https://app.accessformation.pro/#/portail/${session.attendance_token}`
+    console.log('6. Génération QR pour URL:', portalURL)
     try {
       qrCodeDataURL = await QRCode.toDataURL(portalURL, {
         width: 150,
@@ -2050,9 +2059,12 @@ export async function downloadAllDocuments(docType, session, trainees, options =
           light: '#FFFFFF'
         }
       })
+      console.log('7. ✅ QR généré! Longueur:', qrCodeDataURL?.length, 'chars')
     } catch (err) {
-      console.error('Erreur génération QR code:', err)
+      console.error('8. ❌ Erreur génération QR code:', err)
     }
+  } else {
+    console.log('6. ⚠️  Pas de génération QR - Raison:', !docType ? 'pas de docType' : !session?.attendance_token ? 'pas de attendance_token' : 'autre')
   }
   
   // Créer un seul PDF pour tous les stagiaires
@@ -2288,14 +2300,21 @@ function generateConvocationContent(doc, session, trainee, trainer, qrCodeDataUR
   doc.text(`Dirigeant ${ORG.name}`, 20, y + 10)
   
   // QR Code à droite (remplace logo + tampon)
+  console.log('9. Dans generateConvocationContent pour:', trainee?.first_name, trainee?.last_name)
+  console.log('10. qrCodeDataURL présent?', qrCodeDataURL ? 'OUI (longueur: ' + qrCodeDataURL.length + ')' : 'NON')
+  console.log('11. access_code?', trainee?.access_code)
+  console.log('12. Condition OK?', (qrCodeDataURL && trainee?.access_code) ? 'OUI - QR va être ajouté' : 'NON - PAS de QR')
+  
   if (qrCodeDataURL && trainee?.access_code) {
+    console.log('13. ✅ AJOUT DU QR CODE!')
     const qrSize = 30 // 30x30mm
     const qrX = pw - 20 - qrSize // Aligné à droite avec marge 20
     
     try {
       doc.addImage(qrCodeDataURL, 'PNG', qrX, y, qrSize, qrSize)
+      console.log('14. ✅ QR ajouté au PDF à position:', qrX, y)
     } catch (err) {
-      console.error('Erreur ajout QR code:', err)
+      console.error('15. ❌ Erreur ajout QR code au PDF:', err)
     }
     
     // Texte sous le QR
