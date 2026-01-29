@@ -233,7 +233,7 @@ export default function TraineePortal() {
     try {
       // Vérification via RPC si disponible, sinon vérification directe
       const { data, error } = await supabase.rpc('verify_trainee_access_code', {
-        p_session_trainee_id: selectedTrainee.session_trainee_id,
+        p_session_trainee_id: selectedTrainee.id, // ID de la ligne session_trainees
         p_access_code: accessCode
       })
 
@@ -378,14 +378,9 @@ export default function TraineePortal() {
           if (!isWithinSessionDates && !isAfterSession) {
             setCurrentStep('thank_you')
           }
-          // Si on est APRÈS la session → Vérifier éval à froid ou merci final
+          // Si on est APRÈS la session → Merci final
           else if (isAfterSession) {
-            if (coldEvalData && coldEvalData.questionnaire_submitted) {
-              setCurrentStep('thank_you')
-            } else {
-              // TODO: Ajouter onglet évaluation à froid si disponible
-              setCurrentStep('thank_you')
-            }
+            setCurrentStep('thank_you')
           }
           // Si on est PENDANT la session → Émargement
           else {
