@@ -2022,6 +2022,7 @@ export function downloadDocument(docType, session, options = {}) {
     case 'evaluationFormateur': doc = generateEvaluationFormateur(session, isBlank); filename = isBlank ? 'Evaluation_Formateur_Vierge.pdf' : `Evaluation_Formateur_${ref}.pdf`; break
     case 'positionnement': doc = generatePositionnement(session, questions, isBlank, trainee, false); filename = isBlank ? 'Test_Positionnement_Vierge.pdf' : `Test_Positionnement_${ref}_${trainee?.last_name || ''}.pdf`; break
     case 'positionnementCorrige': doc = generatePositionnement(session, questions, false, null, true); filename = `CORRIGE_Test_Positionnement_${ref}.pdf`; break
+    case 'testPositionnementRempli': doc = generateTestPositionnementRempli(session, trainee, options.testData); filename = `Test_Positionnement_${ref}_${trainee?.last_name || ''}.pdf`; break
     case 'ficheRenseignements': doc = generateFicheRenseignements(session, trainee, isBlank, options.infoSheet || null); filename = isBlank ? 'Fiche_Renseignements_Vierge.pdf' : `Fiche_Renseignements_${ref}_${trainee?.last_name || ''}.pdf`; break
     default: console.error('Type inconnu:', docType); return
   }
@@ -2643,4 +2644,296 @@ function generatePositionnementContent(doc, session, questions, trainee) {
     doc.text('(Page intentionnellement vide)', pw / 2, ph / 2, { align: 'center' })
     doc.setTextColor(0, 0, 0)
   }
+}
+
+// ============================================
+// NOUVEAU : Test de positionnement rempli
+// ============================================
+function generateTestPositionnementRempli(session, trainee, testData) {
+  const doc = new jsPDF('p', 'mm', 'a4')
+  const pw = doc.internal.pageSize.getWidth()
+  const ph = doc.internal.pageSize.getHeight()
+  const margins = { left: 15, right: 15, top: 15, bottom: 15 }
+  let y = margins.top
+  
+  // En-tête
+  addHeaderWithReference(doc, y, session, DOC_CODES.positionnement)
+  y += 35
+  
+  // Titre
+  doc.setFontSize(18)
+  doc.setFont('helvetica', 'bold')
+  doc.setTextColor(67, 56, 202) // Indigo
+  doc.text('🎯 TEST DE POSITIONNEMENT', pw / 2, y, { align: 'center' })
+  y += 10
+  
+  // Infos stagiaire
+  doc.setFontSize(10)
+  doc.setFont('helvetica', 'normal')
+  doc.setTextColor(0, 0, 0)
+  doc.text(`Stagiaire : ${trainee.first_name} ${trainee.last_name?.toUpperCase()}`, margins.left, y)
+  y += 6
+  
+  if (testData.completed_at) {
+    doc.setFontSize(9)
+    doc.setTextColor(100, 100, 100)
+    doc.text(`Complété le : ${format(new Date(testData.completed_at), 'dd/MM/yyyy à HH:mm', { locale: fr })}`, margins.left, y)
+    y += 10
+  }
+  
+  // Ligne de séparation
+  doc.setDrawColor(200, 200, 200)
+  doc.line(margins.left, y, pw - margins.right, y)
+  y += 8
+  
+  // ============================================
+  // SYNTHÈSE INTELLIGENTE
+  // ============================================
+  const answers = testData.answers || []
+  const criticalQuestions = answers.filter(a => a.critical && a.question_type === 'single_choice')
+  const correctCritical = criticalQuestions.filter(a => a.is_correct).length
+  const totalCritical = criticalQuestions.length
+  const failedCritical = criticalQuestions.filter(a => a.is_correct === false)
+  const dontKnow = answers.filter(a => a.selected_option_index === -1)
+  
+  const percentage = totalCritical > 0 ? Math.round((correctCritical / totalCritical) * 100) : 0
+  const color = percentage >= 80 ? [34, 197, 94] : percentage >= 50 ? [234, 179, 8] : [239, 68, 68]
+  
+  // Cadre synthèse
+  doc.setFillColor(color[0], color[1], color[2], 0.1)
+  doc.roundedRect(margins.left, y, pw - margins.left - margins.right, 45, 3, 3, 'F')
+  
+  y += 8
+  doc.setFontSize(12)
+  doc.setFont('helvetica', 'bold')
+  doc.setTextColor(color[0], color[1], color[2])
+  doc.text('SYNTHÈSE', margins.left + 5, y)
+  y += 8
+  
+  // Score
+  doc.setFontSize(10)
+  doc.setFont('helvetica', 'normal')
+  doc.setTextColor(0, 0, 0)
+  doc.text('Questions critiques :', margins.left + 5, y)
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(16)
+  doc.setTextColor(color[0], color[1], color[2])
+  doc.text(`${correctCritical}/${totalCritical}`, margins.left + 50, y)
+  doc.setFontSize(10)
+  doc.text(`(${percentage}%)`, margins.left + 70, y)
+  y += 10
+  
+  // Points de vigilance
+  if (failedCritical.length > 0 || dontKnow.length > 0) {
+    doc.setFontSize(9)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(234, 88, 12) // Orange
+    doc.text('⚠️ Points de vigilance :', margins.left + 5, y)
+    y += 5
+    
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(8)
+    
+    failedCritical.forEach((q) => {
+      if (y > ph - 30) {
+        doc.addPage()
+        y = margins.top
+        addHeaderWithReference(doc, y, session, DOC_CODES.positionnement)
+        y += 35
+      }
+      
+      const options = typeof q.options === 'string' ? JSON.parse(q.options) : q.options
+      doc.setTextColor(220, 38, 38)
+      doc.text('✗', margins.left + 7, y)
+      doc.setTextColor(0, 0, 0)
+      const questionLines = doc.splitTextToSize(q.question_text, pw - margins.left - margins.right - 15)
+      doc.text(questionLines, margins.left + 12, y)
+      y += questionLines.length * 4
+      
+      doc.setTextColor(220, 38, 38)
+      doc.text(`  Réponse donnée : ${options[q.selected_option_index]}`, margins.left + 12, y)
+      y += 4
+      doc.setTextColor(34, 197, 94)
+      doc.text(`  Bonne réponse : ${options[q.correct_index]}`, margins.left + 12, y)
+      y += 5
+    })
+    
+    dontKnow.forEach((q) => {
+      if (y > ph - 30) {
+        doc.addPage()
+        y = margins.top
+        addHeaderWithReference(doc, y, session, DOC_CODES.positionnement)
+        y += 35
+      }
+      
+      doc.setTextColor(100, 100, 100)
+      doc.text('?', margins.left + 7, y)
+      const questionLines = doc.splitTextToSize(q.question_text, pw - margins.left - margins.right - 15)
+      doc.text(questionLines, margins.left + 12, y)
+      y += questionLines.length * 4
+      doc.setTextColor(100, 100, 100)
+      doc.setFont('helvetica', 'italic')
+      doc.text('  "Je ne sais pas"', margins.left + 12, y)
+      doc.setFont('helvetica', 'normal')
+      y += 5
+    })
+  }
+  
+  // Points forts
+  if (correctCritical > 0) {
+    if (y > ph - 30) {
+      doc.addPage()
+      y = margins.top
+      addHeaderWithReference(doc, y, session, DOC_CODES.positionnement)
+      y += 35
+    }
+    
+    doc.setFontSize(9)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(34, 197, 94)
+    doc.text('✅ Points forts :', margins.left + 5, y)
+    y += 5
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(8)
+    doc.setTextColor(0, 0, 0)
+    doc.text(`${correctCritical} question${correctCritical > 1 ? 's critiques maîtrisées' : ' critique maîtrisée'}`, margins.left + 12, y)
+    y += 8
+  } else {
+    y += 3
+  }
+  
+  y += 5
+  
+  // ============================================
+  // QUESTIONS / RÉPONSES DÉTAILLÉES
+  // ============================================
+  
+  if (y > ph - 40) {
+    doc.addPage()
+    y = margins.top
+    addHeaderWithReference(doc, y, session, DOC_CODES.positionnement)
+    y += 35
+  }
+  
+  doc.setDrawColor(200, 200, 200)
+  doc.line(margins.left, y, pw - margins.right, y)
+  y += 8
+  
+  doc.setFontSize(12)
+  doc.setFont('helvetica', 'bold')
+  doc.setTextColor(0, 0, 0)
+  doc.text('QUESTIONS / RÉPONSES', margins.left, y)
+  y += 8
+  
+  answers.forEach((answer, idx) => {
+    // Vérifier espace disponible
+    if (y > ph - 50) {
+      doc.addPage()
+      y = margins.top
+      addHeaderWithReference(doc, y, session, DOC_CODES.positionnement)
+      y += 35
+    }
+    
+    // Numéro + Question
+    doc.setFillColor(67, 56, 202)
+    doc.circle(margins.left + 3, y - 1, 3, 'F')
+    doc.setFontSize(8)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(255, 255, 255)
+    doc.text((idx + 1).toString(), margins.left + 3, y + 1, { align: 'center' })
+    
+    doc.setFontSize(9)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(0, 0, 0)
+    const questionLines = doc.splitTextToSize(answer.question_text, pw - margins.left - margins.right - 10)
+    doc.text(questionLines, margins.left + 8, y)
+    y += questionLines.length * 4 + 2
+    
+    // Badge question critique
+    if (answer.critical) {
+      doc.setFillColor(251, 146, 60, 0.2)
+      doc.roundedRect(margins.left + 8, y - 3, 30, 5, 1, 1, 'F')
+      doc.setFontSize(7)
+      doc.setTextColor(234, 88, 12)
+      doc.text('Question critique', margins.left + 10, y)
+      y += 6
+    }
+    
+    // QCM
+    if (answer.question_type === 'single_choice') {
+      const options = typeof answer.options === 'string' ? JSON.parse(answer.options) : (answer.options || [])
+      
+      options.forEach((opt, optIdx) => {
+        if (y > ph - 25) {
+          doc.addPage()
+          y = margins.top
+          addHeaderWithReference(doc, y, session, DOC_CODES.positionnement)
+          y += 35
+        }
+        
+        const isSelected = answer.selected_option_index === optIdx
+        const isCorrect = answer.correct_index === optIdx
+        
+        doc.setFontSize(8)
+        doc.setFont('helvetica', 'normal')
+        
+        // Couleur selon statut
+        if (isSelected && answer.is_correct) {
+          doc.setFillColor(34, 197, 94, 0.2)
+          doc.setTextColor(34, 197, 94)
+        } else if (isSelected && !answer.is_correct) {
+          doc.setFillColor(239, 68, 68, 0.2)
+          doc.setTextColor(239, 68, 68)
+        } else if (isCorrect) {
+          doc.setFillColor(34, 197, 94, 0.1)
+          doc.setTextColor(34, 197, 94)
+        } else {
+          doc.setFillColor(245, 245, 245)
+          doc.setTextColor(100, 100, 100)
+        }
+        
+        const optionText = `${isSelected ? '👉 ' : ''}${isCorrect && !isSelected ? '✓ ' : ''}${opt}`
+        const optLines = doc.splitTextToSize(optionText, pw - margins.left - margins.right - 20)
+        const boxHeight = optLines.length * 4 + 2
+        
+        doc.roundedRect(margins.left + 10, y - 3, pw - margins.left - margins.right - 10, boxHeight, 1, 1, 'F')
+        doc.text(optLines, margins.left + 12, y)
+        y += boxHeight + 1
+      })
+      
+      // "Je ne sais pas"
+      if (answer.selected_option_index === -1) {
+        doc.setFillColor(229, 229, 229)
+        doc.roundedRect(margins.left + 10, y - 3, pw - margins.left - margins.right - 10, 6, 1, 1, 'F')
+        doc.setFontSize(8)
+        doc.setFont('helvetica', 'italic')
+        doc.setTextColor(100, 100, 100)
+        doc.text('👉 Je ne sais pas', margins.left + 12, y)
+        y += 7
+      }
+    }
+    
+    // Question ouverte
+    if (answer.question_type === 'open') {
+      doc.setFillColor(250, 250, 250)
+      const textAnswer = answer.text_answer || 'Non répondu'
+      const answerLines = doc.splitTextToSize(textAnswer, pw - margins.left - margins.right - 20)
+      const boxHeight = Math.max(answerLines.length * 4 + 4, 10)
+      
+      doc.roundedRect(margins.left + 10, y - 2, pw - margins.left - margins.right - 10, boxHeight, 1, 1, 'F')
+      doc.setFontSize(8)
+      doc.setFont('helvetica', 'normal')
+      doc.setTextColor(answer.text_answer ? 0 : 150, 0, 0)
+      if (!answer.text_answer) doc.setFont('helvetica', 'italic')
+      doc.text(answerLines, margins.left + 12, y + 2)
+      y += boxHeight + 1
+    }
+    
+    y += 5
+  })
+  
+  // Footer
+  addFooter(doc, `Test de positionnement - ${trainee.first_name} ${trainee.last_name}`)
+  
+  return doc
 }
