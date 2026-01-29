@@ -1486,9 +1486,9 @@ export default function TraineePortal() {
           {currentStep === 'thank_you' && (
             <div className="text-center py-8">
               <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
-              <h2 className="text-xl font-bold text-gray-900 mb-2">Merci !</h2>
-              <p className="text-gray-600">Votre présence pour aujourd'hui est enregistrée.</p>
-              <p className="text-sm text-gray-500 mt-4">À demain pour la suite de la formation !</p>
+              <h2 className="text-xl font-bold text-gray-900 mb-2">C'est noté !</h2>
+              <p className="text-gray-600">Merci d'avoir complété le questionnaire.</p>
+              <p className="text-sm text-gray-500 mt-4">À très bientôt pour la formation !</p>
             </div>
           )}
 
