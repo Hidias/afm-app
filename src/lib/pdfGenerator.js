@@ -2,6 +2,7 @@ import jsPDF from 'jspdf'
 import 'jspdf-autotable'
 import { format, eachDayOfInterval, parseISO } from 'date-fns'
 import { fr } from 'date-fns/locale'
+import QRCode from 'qrcode'
 
 const APP_VERSION = 'V2.5.16'
 const DOC_CODES = {
@@ -2030,11 +2031,29 @@ export function downloadDocument(docType, session, options = {}) {
 }
 
 // Fonction pour générer un PDF multi-pages avec tous les stagiaires (recto-verso compatible)
-export function downloadAllDocuments(docType, session, trainees, options = {}) {
+export async function downloadAllDocuments(docType, session, trainees, options = {}) {
   if (!trainees || trainees.length === 0) return
   
   const ref = session?.reference || 'VIERGE'
   const { trainer = null, questions = [] } = options
+  
+  // Générer le QR code de la session UNE SEULE FOIS (pour convocations)
+  let qrCodeDataURL = null
+  if (docType === 'convocation' && session?.attendance_token) {
+    const portalURL = `https://app.accessformation.pro/#/portail/${session.attendance_token}`
+    try {
+      qrCodeDataURL = await QRCode.toDataURL(portalURL, {
+        width: 150,
+        margin: 1,
+        color: {
+          dark: '#000000',
+          light: '#FFFFFF'
+        }
+      })
+    } catch (err) {
+      console.error('Erreur génération QR code:', err)
+    }
+  }
   
   // Créer un seul PDF pour tous les stagiaires
   const doc = new jsPDF('p', 'mm', 'a4')
@@ -2061,7 +2080,7 @@ export function downloadAllDocuments(docType, session, trainees, options = {}) {
     // Générer le contenu selon le type de document
     switch (docType) {
       case 'certificat': generateCertificatContent(doc, session, trainee, trainer); break
-      case 'convocation': generateConvocationContent(doc, session, trainee, trainer); break
+      case 'convocation': generateConvocationContent(doc, session, trainee, trainer, qrCodeDataURL); break
       case 'attestation': generateAttestationContent(doc, session, trainee, trainer); break
       case 'evaluation': generateEvaluationContent(doc, session, trainee); break
       case 'evaluationFroid': generateEvaluationFroidContent(doc, session, trainee); break
@@ -2189,7 +2208,7 @@ function generateCertificatContent(doc, session, trainee, trainer) {
   addFooter(doc, DOC_CODES.certificat)
 }
 
-function generateConvocationContent(doc, session, trainee, trainer) {
+function generateConvocationContent(doc, session, trainee, trainer, qrCodeDataURL = null) {
   const pw = doc.internal.pageSize.getWidth()
   const course = session?.courses || {}
   const client = session?.clients || {}
@@ -2248,11 +2267,11 @@ function generateConvocationContent(doc, session, trainee, trainer) {
   
   doc.text(`Accessibilité : en cas de besoins spécifiques (mobilité, auditif, visuel...), merci de nous en informer à ${ORG.email} au moins 72 heures avant la formation.`, 20, y, { maxWidth: 170 }); y += 12
   
-  // Mention émargement QR Code
+  // Mention portail stagiaire avec QR Code
   doc.setFont('helvetica', 'bold')
-  doc.text('Émargement dématérialisé :', 20, y); y += 5
+  doc.text('Portail stagiaire :', 20, y); y += 5
   doc.setFont('helvetica', 'normal')
-  doc.text('Votre présence sera enregistrée via votre QR Code personnel (ou sur feuille papier en cas d\'indisponibilité du réseau).', 20, y, { maxWidth: 170 }); y += 10
+  doc.text('Scannez le QR Code ci-dessous pour acceder au portail stagiaire et completer votre fiche de renseignement et test de positionnement AVANT le jour de la formation.', 20, y, { maxWidth: 170 }); y += 10
   
   doc.text(`Contact Access Formation : Pour toute question, contactez-nous au ${ORG.phone} ou par mail à ${ORG.email}`, 20, y, { maxWidth: 170 }); y += 8
   
@@ -2260,17 +2279,34 @@ function generateConvocationContent(doc, session, trainee, trainer) {
     doc.text(`Contact de votre entreprise : ${client.contact_name}${client.contact_function ? ' - ' + client.contact_function : ''}`, 20, y, { maxWidth: 170 }); y += 10
   }
   
-  doc.text('Nous vous remercions pour votre ponctualité et votre participation active.', 20, y); y += 15
+  doc.text('Nous vous remercions pour votre ponctualite et votre participation active.', 20, y); y += 15
   
-  // Signature et tampon
+  // Signature à gauche
   doc.setFont('helvetica', 'normal')
-  doc.text(`Fait à ${ORG.city}, le ${new Date().toLocaleDateString('fr-FR')}`, 20, y); y += 10
-  
-  try { doc.addImage(LOGO_BASE64, 'PNG', 140, y - 5, 25, 25) } catch {}
-  try { doc.addImage(STAMP_BASE64, 'PNG', 165, y - 5, 30, 30) } catch {}
-  
+  doc.text(`Fait a ${ORG.city}, le ${new Date().toLocaleDateString('fr-FR')}`, 20, y); y += 5
   doc.text(`${ORG.dirigeant}`, 20, y + 5)
   doc.text(`Dirigeant ${ORG.name}`, 20, y + 10)
+  
+  // QR Code à droite (remplace logo + tampon)
+  if (qrCodeDataURL && trainee?.access_code) {
+    const qrSize = 30 // 30x30mm
+    const qrX = pw - 20 - qrSize // Aligné à droite avec marge 20
+    
+    try {
+      doc.addImage(qrCodeDataURL, 'PNG', qrX, y, qrSize, qrSize)
+    } catch (err) {
+      console.error('Erreur ajout QR code:', err)
+    }
+    
+    // Texte sous le QR
+    doc.setFontSize(7)
+    doc.setFont('helvetica', 'normal')
+    doc.text('Scannez pour acceder', qrX + qrSize/2, y + qrSize + 3, { align: 'center' })
+    doc.text('au portail stagiaire', qrX + qrSize/2, y + qrSize + 6, { align: 'center' })
+    doc.setFontSize(10)
+    doc.setFont('helvetica', 'bold')
+    doc.text(`Code : ${trainee.access_code}`, qrX + qrSize/2, y + qrSize + 11, { align: 'center' })
+  }
   
   addFooter(doc, DOC_CODES.convocation)
 }
