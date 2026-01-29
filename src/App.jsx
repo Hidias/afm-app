@@ -32,6 +32,9 @@ import Changelog from './pages/Changelog'
 import QualiteEditables from './pages/QualiteEditables'
 import Completude from './pages/Completude'
 import Login from './pages/Login'
+// ========== NOUVEAU : Pages Prospection ==========
+import Prospection from './pages/Prospection'
+import ProspectRDVDetail from './pages/ProspectRDVDetail'
 
 // Pages publiques (émargement, questionnaires)
 import PublicAttendance from './pages/public/Attendance'
@@ -134,6 +137,10 @@ export default function App() {
           <Route index element={<Dashboard />} />
           <Route path="clients" element={<Clients />} />
           <Route path="clients/:id" element={<ClientDetail />} />
+          {/* ========== NOUVEAU : Routes Prospection ========== */}
+          <Route path="prospection" element={<Prospection />} />
+          <Route path="prospection/:id" element={<ProspectRDVDetail />} />
+          {/* ================================================== */}
           <Route path="formations" element={<Courses />} />
           <Route path="formateurs" element={<Trainers />} />
           <Route path="stagiaires" element={<Trainees />} />
