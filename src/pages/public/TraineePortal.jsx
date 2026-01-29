@@ -324,6 +324,7 @@ export default function TraineePortal() {
       // Charger émargement
       const attendanceMap = {}
       attendanceRecords?.forEach(rec => {
+        if (!rec.date) return // Ignorer si pas de date
         const dateStr = typeof rec.date === 'string' ? rec.date.substring(0, 10) : format(new Date(rec.date), 'yyyy-MM-dd')
         if (rec.morning) {
           attendanceMap[`${dateStr}_morning`] = true
