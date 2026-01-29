@@ -539,21 +539,31 @@ export default function TraineePortal() {
   const handlePositioningTestComplete = async (answers) => {
     setSubmitting(true)
     try {
+      console.log('🎯 DÉBUT handlePositioningTestComplete')
+      console.log('answers:', answers)
+      
       const { data, error } = await supabase.rpc('save_positioning_test_answers', {
         p_token: token,
         p_trainee_id: selectedTrainee.id,
         p_answers: answers
       })
       
+      console.log('📥 Réponse save_positioning_test_answers:', { data, error })
+      
       if (error) {
         console.error('Erreur sauvegarde test:', error)
         throw error
       }
       
+      console.log('✅ Test sauvegardé, maintenant setPositioningTestCompleted(true)')
       setPositioningTestCompleted(true)
+      
+      console.log('🚀 Maintenant setCurrentStep("attendance")')
       setCurrentStep('attendance')
+      
+      console.log('✅ FIN handlePositioningTestComplete SANS ERREUR')
     } catch (err) {
-      console.error('Erreur:', err)
+      console.error('❌ ERREUR dans handlePositioningTestComplete:', err)
       alert('Erreur lors de l\'enregistrement du test. Veuillez réessayer.')
     } finally {
       setSubmitting(false)
@@ -1278,12 +1288,23 @@ export default function TraineePortal() {
           )}
 
           {currentStep === 'attendance' && selectedTrainee && (() => {
+            console.log('🔍 RENDU ATTENDANCE')
+            console.log('session:', session)
+            console.log('session.start_date:', session.start_date)
+            console.log('session.end_date:', session.end_date)
+            console.log('today:', today)
+            
             const dates = session.start_date && session.end_date
               ? eachDayOfInterval({ start: parseISO(session.start_date), end: parseISO(session.end_date) })
               : []
             
+            console.log('dates calculées:', dates)
+            
             const todayIndex = dates.findIndex(d => format(d, 'yyyy-MM-dd') === today)
             const currentDate = todayIndex >= 0 ? dates[todayIndex] : null
+
+            console.log('todayIndex:', todayIndex)
+            console.log('currentDate:', currentDate)
 
             // Suppression du blocage - si on est sur cet onglet c'est qu'on doit y accéder
             const isFirst = isFirstHalfDay(today, 'morning')
