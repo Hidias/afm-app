@@ -2649,6 +2649,7 @@ function generatePositionnementContent(doc, session, questions, trainee) {
 // ============================================
 // NOUVEAU : Test de positionnement rempli
 // ============================================
+
 function generateTestPositionnementRempli(session, trainee, testData) {
   const doc = new jsPDF('p', 'mm', 'a4')
   const pw = doc.internal.pageSize.getWidth()
@@ -2663,8 +2664,8 @@ function generateTestPositionnementRempli(session, trainee, testData) {
   // Titre
   doc.setFontSize(18)
   doc.setFont('helvetica', 'bold')
-  doc.setTextColor(67, 56, 202) // Indigo
-  doc.text('🎯 TEST DE POSITIONNEMENT', pw / 2, y, { align: 'center' })
+  doc.setTextColor(67, 56, 202)
+  doc.text('TEST DE POSITIONNEMENT', pw / 2, y, { align: 'center' })
   y += 10
   
   // Infos stagiaire
@@ -2677,7 +2678,7 @@ function generateTestPositionnementRempli(session, trainee, testData) {
   if (testData.completed_at) {
     doc.setFontSize(9)
     doc.setTextColor(100, 100, 100)
-    doc.text(`Complété le : ${format(new Date(testData.completed_at), 'dd/MM/yyyy à HH:mm', { locale: fr })}`, margins.left, y)
+    doc.text(`Complete le : ${format(new Date(testData.completed_at), 'dd/MM/yyyy a HH:mm', { locale: fr })}`, margins.left, y)
     y += 10
   }
   
@@ -2697,17 +2698,21 @@ function generateTestPositionnementRempli(session, trainee, testData) {
   const dontKnow = answers.filter(a => a.selected_option_index === -1)
   
   const percentage = totalCritical > 0 ? Math.round((correctCritical / totalCritical) * 100) : 0
-  const color = percentage >= 80 ? [34, 197, 94] : percentage >= 50 ? [234, 179, 8] : [239, 68, 68]
+  const colorBg = percentage >= 80 ? [220, 252, 231] : percentage >= 50 ? [254, 249, 195] : [254, 226, 226]
+  const colorText = percentage >= 80 ? [22, 163, 74] : percentage >= 50 ? [202, 138, 4] : [220, 38, 38]
   
-  // Cadre synthèse
-  doc.setFillColor(color[0], color[1], color[2], 0.1)
-  doc.roundedRect(margins.left, y, pw - margins.left - margins.right, 45, 3, 3, 'F')
+  // Cadre synthèse (bordure au lieu de fond foncé)
+  doc.setDrawColor(colorText[0], colorText[1], colorText[2])
+  doc.setLineWidth(0.5)
+  doc.setFillColor(colorBg[0], colorBg[1], colorBg[2])
+  doc.roundedRect(margins.left, y, pw - margins.left - margins.right, 45, 3, 3, 'FD')
+  doc.setLineWidth(0.2)
   
   y += 8
   doc.setFontSize(12)
   doc.setFont('helvetica', 'bold')
-  doc.setTextColor(color[0], color[1], color[2])
-  doc.text('SYNTHÈSE', margins.left + 5, y)
+  doc.setTextColor(colorText[0], colorText[1], colorText[2])
+  doc.text('SYNTHESE', margins.left + 5, y)
   y += 8
   
   // Score
@@ -2717,7 +2722,7 @@ function generateTestPositionnementRempli(session, trainee, testData) {
   doc.text('Questions critiques :', margins.left + 5, y)
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(16)
-  doc.setTextColor(color[0], color[1], color[2])
+  doc.setTextColor(colorText[0], colorText[1], colorText[2])
   doc.text(`${correctCritical}/${totalCritical}`, margins.left + 50, y)
   doc.setFontSize(10)
   doc.text(`(${percentage}%)`, margins.left + 70, y)
@@ -2727,8 +2732,8 @@ function generateTestPositionnementRempli(session, trainee, testData) {
   if (failedCritical.length > 0 || dontKnow.length > 0) {
     doc.setFontSize(9)
     doc.setFont('helvetica', 'bold')
-    doc.setTextColor(234, 88, 12) // Orange
-    doc.text('⚠️ Points de vigilance :', margins.left + 5, y)
+    doc.setTextColor(234, 88, 12)
+    doc.text('Points de vigilance :', margins.left + 5, y)
     y += 5
     
     doc.setFont('helvetica', 'normal')
@@ -2739,22 +2744,22 @@ function generateTestPositionnementRempli(session, trainee, testData) {
         doc.addPage()
         y = margins.top
         y = addHeader(doc, session?.reference || "SANS-REF")
-        y += 35
+        y += 5
       }
       
       const options = typeof q.options === 'string' ? JSON.parse(q.options) : q.options
       doc.setTextColor(220, 38, 38)
-      doc.text('✗', margins.left + 7, y)
+      doc.text('X', margins.left + 7, y)
       doc.setTextColor(0, 0, 0)
       const questionLines = doc.splitTextToSize(q.question_text, pw - margins.left - margins.right - 15)
       doc.text(questionLines, margins.left + 12, y)
       y += questionLines.length * 4
       
       doc.setTextColor(220, 38, 38)
-      doc.text(`  Réponse donnée : ${options[q.selected_option_index]}`, margins.left + 12, y)
+      doc.text(`  Reponse donnee : ${options[q.selected_option_index]}`, margins.left + 12, y)
       y += 4
-      doc.setTextColor(34, 197, 94)
-      doc.text(`  Bonne réponse : ${options[q.correct_index]}`, margins.left + 12, y)
+      doc.setTextColor(22, 163, 74)
+      doc.text(`  Bonne reponse : ${options[q.correct_index]}`, margins.left + 12, y)
       y += 5
     })
     
@@ -2763,7 +2768,7 @@ function generateTestPositionnementRempli(session, trainee, testData) {
         doc.addPage()
         y = margins.top
         y = addHeader(doc, session?.reference || "SANS-REF")
-        y += 35
+        y += 5
       }
       
       doc.setTextColor(100, 100, 100)
@@ -2785,18 +2790,18 @@ function generateTestPositionnementRempli(session, trainee, testData) {
       doc.addPage()
       y = margins.top
       y = addHeader(doc, session?.reference || "SANS-REF")
-      y += 35
+      y += 5
     }
     
     doc.setFontSize(9)
     doc.setFont('helvetica', 'bold')
-    doc.setTextColor(34, 197, 94)
-    doc.text('✅ Points forts :', margins.left + 5, y)
+    doc.setTextColor(22, 163, 74)
+    doc.text('Points forts :', margins.left + 5, y)
     y += 5
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(8)
     doc.setTextColor(0, 0, 0)
-    doc.text(`${correctCritical} question${correctCritical > 1 ? 's critiques maîtrisées' : ' critique maîtrisée'}`, margins.left + 12, y)
+    doc.text(`${correctCritical} question${correctCritical > 1 ? 's critiques maitrisees' : ' critique maitrisee'}`, margins.left + 12, y)
     y += 8
   } else {
     y += 3
@@ -2812,7 +2817,7 @@ function generateTestPositionnementRempli(session, trainee, testData) {
     doc.addPage()
     y = margins.top
     y = addHeader(doc, session?.reference || "SANS-REF")
-    y += 35
+    y += 5
   }
   
   doc.setDrawColor(200, 200, 200)
@@ -2822,7 +2827,7 @@ function generateTestPositionnementRempli(session, trainee, testData) {
   doc.setFontSize(12)
   doc.setFont('helvetica', 'bold')
   doc.setTextColor(0, 0, 0)
-  doc.text('QUESTIONS / RÉPONSES', margins.left, y)
+  doc.text('QUESTIONS / REPONSES', margins.left, y)
   y += 8
   
   answers.forEach((answer, idx) => {
@@ -2831,7 +2836,7 @@ function generateTestPositionnementRempli(session, trainee, testData) {
       doc.addPage()
       y = margins.top
       y = addHeader(doc, session?.reference || "SANS-REF")
-      y += 35
+      y += 5
     }
     
     // Numéro + Question
@@ -2851,7 +2856,7 @@ function generateTestPositionnementRempli(session, trainee, testData) {
     
     // Badge question critique
     if (answer.critical) {
-      doc.setFillColor(251, 146, 60, 0.2)
+      doc.setFillColor(254, 215, 170)
       doc.roundedRect(margins.left + 8, y - 3, 30, 5, 1, 1, 'F')
       doc.setFontSize(7)
       doc.setTextColor(234, 88, 12)
@@ -2868,7 +2873,7 @@ function generateTestPositionnementRempli(session, trainee, testData) {
           doc.addPage()
           y = margins.top
           y = addHeader(doc, session?.reference || "SANS-REF")
-          y += 35
+          y += 5
         }
         
         const isSelected = answer.selected_option_index === optIdx
@@ -2879,26 +2884,38 @@ function generateTestPositionnementRempli(session, trainee, testData) {
         
         // Couleur selon statut
         if (isSelected && answer.is_correct) {
-          doc.setFillColor(34, 197, 94, 0.2)
-          doc.setTextColor(34, 197, 94)
+          doc.setFillColor(220, 252, 231)
+          doc.setTextColor(22, 163, 74)
+          doc.setFont('helvetica', 'bold')
         } else if (isSelected && !answer.is_correct) {
-          doc.setFillColor(239, 68, 68, 0.2)
-          doc.setTextColor(239, 68, 68)
+          doc.setFillColor(254, 226, 226)
+          doc.setTextColor(220, 38, 38)
+          doc.setFont('helvetica', 'bold')
         } else if (isCorrect) {
-          doc.setFillColor(34, 197, 94, 0.1)
-          doc.setTextColor(34, 197, 94)
+          doc.setFillColor(240, 253, 244)
+          doc.setDrawColor(34, 197, 94)
+          doc.setTextColor(22, 163, 74)
         } else {
-          doc.setFillColor(245, 245, 245)
-          doc.setTextColor(100, 100, 100)
+          doc.setFillColor(249, 250, 251)
+          doc.setTextColor(75, 85, 99)
         }
         
-        const optionText = `${isSelected ? '👉 ' : ''}${isCorrect && !isSelected ? '✓ ' : ''}${opt}`
+        const prefix = isSelected ? '> ' : (isCorrect && !isSelected ? '(CORRECT) ' : '')
+        const optionText = `${prefix}${opt}`
         const optLines = doc.splitTextToSize(optionText, pw - margins.left - margins.right - 20)
         const boxHeight = optLines.length * 4 + 2
         
-        doc.roundedRect(margins.left + 10, y - 3, pw - margins.left - margins.right - 10, boxHeight, 1, 1, 'F')
+        if (isCorrect && !isSelected) {
+          doc.setLineWidth(0.3)
+          doc.roundedRect(margins.left + 10, y - 3, pw - margins.left - margins.right - 10, boxHeight, 1, 1, 'FD')
+          doc.setLineWidth(0.2)
+        } else {
+          doc.roundedRect(margins.left + 10, y - 3, pw - margins.left - margins.right - 10, boxHeight, 1, 1, 'F')
+        }
+        
         doc.text(optLines, margins.left + 12, y)
         y += boxHeight + 1
+        doc.setFont('helvetica', 'normal')
       })
       
       // "Je ne sais pas"
@@ -2908,7 +2925,8 @@ function generateTestPositionnementRempli(session, trainee, testData) {
         doc.setFontSize(8)
         doc.setFont('helvetica', 'italic')
         doc.setTextColor(100, 100, 100)
-        doc.text('👉 Je ne sais pas', margins.left + 12, y)
+        doc.text('> Je ne sais pas', margins.left + 12, y)
+        doc.setFont('helvetica', 'normal')
         y += 7
       }
     }
@@ -2916,7 +2934,7 @@ function generateTestPositionnementRempli(session, trainee, testData) {
     // Question ouverte
     if (answer.question_type === 'open') {
       doc.setFillColor(250, 250, 250)
-      const textAnswer = answer.text_answer || 'Non répondu'
+      const textAnswer = answer.text_answer || 'Non repondu'
       const answerLines = doc.splitTextToSize(textAnswer, pw - margins.left - margins.right - 20)
       const boxHeight = Math.max(answerLines.length * 4 + 4, 10)
       
