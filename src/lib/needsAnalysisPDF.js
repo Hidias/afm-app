@@ -105,7 +105,10 @@ export const downloadNeedsAnalysisPDF = async (session, analysisData = null, bla
   doc.setFontSize(10)
 
   // Entreprise et Date
-  const clientName = blank ? '________________________' : safe(session?.clients?.name, '________________________')
+  // Support 2 formats : session.clients.name (sessions) OU session.name (prospects)
+  const clientName = blank 
+    ? '________________________' 
+    : safe(session?.clients?.name || session?.name, '________________________')
   const today = blank 
     ? '___/___/______' 
     : (analysisData?.analysis_date 
