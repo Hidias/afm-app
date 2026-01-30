@@ -1,1002 +1,779 @@
-import { useEffect, useState } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
-import { 
-  Save, ArrowLeft, Calendar, Clock, MapPin, User, Phone, Mail,
-  Building2, FileText, Trash2, Plus, X
-} from 'lucide-react'
+import { FileCheck, Printer, Download, Save, AlertCircle, CheckCircle, Calendar, Eraser } from 'lucide-react'
 import toast from 'react-hot-toast'
-import ProspectNeedsAnalysis from '../components/ProspectNeedsAnalysis'
+import SignatureCanvas from 'react-signature-canvas'
+import { downloadNeedsAnalysisPDF } from '../lib/needsAnalysisPDF'
 
-export default function ProspectRDVDetail() {
-  const { id } = useParams()
-  const navigate = useNavigate()
-  const isNew = id === 'nouveau'
+const CONTEXT_REASONS = [
+  { value: 'reglementation', label: 'Réglementation / Obligations légales' },
+  { value: 'accident', label: 'Suite à un accident / incident' },
+  { value: 'renouvellement', label: 'Renouvellement de certificats' },
+  { value: 'nouveaux_embauches', label: 'Nouveaux embauchés' },
+  { value: 'evolution_risques', label: 'Évolution des risques' },
+  { value: 'autre', label: 'Autre (préciser)' }
+]
 
-  const [loading, setLoading] = useState(!isNew)
+const PROFILES = [
+  { value: 'administratif', label: 'Administratif' },
+  { value: 'production', label: 'Production' },
+  { value: 'terrain', label: 'Terrain' },
+  { value: 'encadrement', label: 'Encadrement' }
+]
+
+export default function ProspectNeedsAnalysis({ clientId, rdvId, onClose }) {
+  const [analysis, setAnalysis] = useState(null)
+  const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [clients, setClients] = useState([])
-  const [contacts, setContacts] = useState([])
-  const [selectedClient, setSelectedClient] = useState(null)
-  const [showNeedsAnalysis, setShowNeedsAnalysis] = useState(false)
-  const [showNewClientModal, setShowNewClientModal] = useState(false)
-  const [newClientData, setNewClientData] = useState({
-    name: '',
-    siret: '',
-    address: '',
-    postal_code: '',
-    city: '',
-    contact_phone: '',
-    email: ''
-  })
-
+  const [showForm, setShowForm] = useState(false)
+  const [organization, setOrganization] = useState(null)
+  const [client, setClient] = useState(null)
   const [formData, setFormData] = useState({
-    client_id: '',
-    rdv_date: new Date().toISOString().split('T')[0], // AUTO : date du jour
-    rdv_time: '09:00',
-    rdv_type: 'decouverte', // AUTO : découverte
-    rdv_location: 'leurs_locaux',
-    rdv_address: '',
-    contact_id: null,
-    contact_name: '',
-    contact_email: '',
-    contact_phone: '',
-    conducted_by: '', // Sera auto-rempli avec user connecté
-    status: 'prevu',
-    notes: '',
-    next_action: '',
-    next_action_date: '', // Sera auto = rdv_date + 2 jours si vide
-    // Nouveaux champs commerciaux (tous optionnels)
-    temperature: null, // 'chaud', 'tiede', 'froid'
-    source: null,
-    budget_estime: '',
-    formations_interet: [], // ['sst', 'incendie', 'r489', 'r485', 'duerp', 'habilitation']
-    concurrence: '',
-    timeline: null // 'urgent', 'court_terme', 'long_terme'
+    analysis_date: new Date().toISOString().split('T')[0], // Date du jour par défaut
+    context_reasons: [],
+    context_other: '',
+    context_stakes: '',
+    objectives_description: '',
+    objectives_measurable: '',
+    participants_count: '',
+    participants_profiles: [],
+    prerequisites_validated: null,
+    level: '',
+    particularities_psh: '',
+    particularities_non_french: false,
+    particularities_other: '',
+    location_type: '',
+    location_client_address: '',
+    preferred_schedule: '',
+    preferred_dates: '',
+    company_equipment: null,
+    company_equipment_details: '',
+    ppe_provided: null,
+    other_constraints: ''
   })
 
-  useEffect(() => {
-    loadClients()
-    if (!isNew) {
-      loadRdv()
-    } else {
-      // Auto-remplir "mené par" avec l'user connecté
-      const autoFillUser = async () => {
-        const { data: { user } } = await supabase.auth.getUser()
-        const email = user?.email
-        let conductedBy = ''
-        if (email === 'hicham.saidi@accessformation.pro') conductedBy = 'Hicham'
-        else if (email === 'maxime.langlais@accessformation.pro') conductedBy = 'Maxime'
-        setFormData(prev => ({ ...prev, conducted_by: conductedBy }))
-      }
-      autoFillUser()
-    }
-  }, [id])
+  // Refs pour les canvas de signature
+  const signatureTrainerRef = useRef(null)
+  const signatureClientRef = useRef(null)
 
   useEffect(() => {
-    if (formData.client_id) {
-      loadClientContacts(formData.client_id)
-      loadClientData(formData.client_id)
+    if (clientId) {
+      loadAnalysis()
     }
-  }, [formData.client_id])
+  }, [clientId])
 
-  // Auto-fill adresse quand on change le lieu vers "leurs_locaux"
-  useEffect(() => {
-    if (formData.rdv_location === 'leurs_locaux' && selectedClient && !formData.rdv_address) {
-      const clientAddress = [
-        selectedClient.address,
-        selectedClient.postal_code,
-        selectedClient.city
-      ].filter(Boolean).join(', ')
-      
-      if (clientAddress) {
-        setFormData(prev => ({ ...prev, rdv_address: clientAddress }))
-      }
-    }
-  }, [formData.rdv_location, selectedClient])
-
-  const loadClients = async () => {
-    const { data } = await supabase
-      .from('clients')
-      .select('*')
-      .order('name')
-    setClients(data || [])
-  }
-
-  const loadClientData = async (clientId) => {
-    const { data } = await supabase
-      .from('clients')
-      .select('*')
-      .eq('id', clientId)
-      .single()
-    setSelectedClient(data)
-    
-    // Auto-fill adresse si "leurs_locaux" et adresse vide
-    if (data && formData.rdv_location === 'leurs_locaux' && !formData.rdv_address) {
-      const clientAddress = [
-        data.address,
-        data.postal_code,
-        data.city
-      ].filter(Boolean).join(', ')
-      
-      if (clientAddress) {
-        setFormData(prev => ({ ...prev, rdv_address: clientAddress }))
-      }
-    }
-  }
-  }
-
-  const loadClientContacts = async (clientId) => {
-    const { data } = await supabase
-      .from('client_contacts')
-      .select('*')
-      .eq('client_id', clientId)
-      .order('is_primary', { ascending: false })
-    setContacts(data || [])
-  }
-
-  const loadRdv = async () => {
+  const loadAnalysis = async () => {
     try {
+      // Charger organization settings
+      const { data: orgData } = await supabase
+        .from('organization_settings')
+        .select('*')
+        .single()
+      setOrganization(orgData)
+
+      // Charger client
+      const { data: clientData } = await supabase
+        .from('clients')
+        .select('*')
+        .eq('id', clientId)
+        .single()
+      setClient(clientData)
+
       const { data, error } = await supabase
-        .from('prospect_rdv')
-        .select(`
-          *,
-          clients (*)
-        `)
-        .eq('id', id)
+        .from('prospect_needs_analysis')
+        .select('*')
+        .eq('client_id', clientId)
         .single()
 
-      if (error) throw error
+      if (error && error.code !== 'PGRST116') throw error
 
-      setFormData({
-        client_id: data.client_id,
-        rdv_date: data.rdv_date,
-        rdv_time: data.rdv_time || '09:00',
-        rdv_type: data.rdv_type || 'decouverte',
-        rdv_location: data.rdv_location || 'leurs_locaux',
-        rdv_address: data.rdv_address || '',
-        contact_id: data.contact_id,
-        contact_name: data.contact_name || '',
-        contact_email: data.contact_email || '',
-        contact_phone: data.contact_phone || '',
-        conducted_by: data.conducted_by || '',
-        status: data.status || 'prevu',
-        notes: data.notes || '',
-        next_action: data.next_action || '',
-        next_action_date: data.next_action_date || '',
-        // Nouveaux champs commerciaux
-        temperature: data.temperature || null,
-        source: data.source || null,
-        budget_estime: data.budget_estime || '',
-        formations_interet: data.formations_interet || [],
-        concurrence: data.concurrence || '',
-        timeline: data.timeline || null
-      })
-      setSelectedClient(data.clients)
+      if (data) {
+        setAnalysis(data)
+        
+        // Auto-fill adresse client si location_type = "client" et adresse vide
+        let clientAddress = data.location_client_address || ''
+        if (data.location_type === 'client' && !clientAddress && clientData) {
+          clientAddress = [
+            clientData.address,
+            clientData.postal_code,
+            clientData.city
+          ].filter(Boolean).join(', ')
+        }
+        
+        setFormData({
+          analysis_date: data.analysis_date || new Date().toISOString().split('T')[0],
+          context_reasons: data.context_reasons || [],
+          context_other: data.context_other || '',
+          context_stakes: data.context_stakes || '',
+          objectives_description: data.objectives_description || '',
+          objectives_measurable: data.objectives_measurable || '',
+          participants_count: data.participants_count || '',
+          participants_profiles: data.participants_profiles || [],
+          prerequisites_validated: data.prerequisites_validated,
+          level: data.level || '',
+          particularities_psh: data.particularities_psh || '',
+          particularities_non_french: data.particularities_non_french || false,
+          particularities_other: data.particularities_other || '',
+          location_type: data.location_type || '',
+          location_client_address: clientAddress,
+          preferred_schedule: data.preferred_schedule || '',
+          preferred_dates: data.preferred_dates || '',
+          company_equipment: data.company_equipment,
+          company_equipment_details: data.company_equipment_details || '',
+          ppe_provided: data.ppe_provided,
+          other_constraints: data.other_constraints || ''
+        })
+
+        // Charger les signatures si elles existent
+        setTimeout(() => {
+          if (data.signature_trainer && signatureTrainerRef.current) {
+            signatureTrainerRef.current.fromDataURL(data.signature_trainer)
+          }
+          if (data.signature_client && signatureClientRef.current) {
+            signatureClientRef.current.fromDataURL(data.signature_client)
+          }
+        }, 100)
+      } else {
+        // Pas d'analyse existante : auto-fill adresse si clientData disponible
+        if (clientData) {
+          const clientAddress = [
+            clientData.address,
+            clientData.postal_code,
+            clientData.city
+          ].filter(Boolean).join(', ')
+          
+          if (clientAddress) {
+            setFormData(prev => ({ ...prev, location_client_address: clientAddress }))
+          }
+        }
+      }
     } catch (error) {
-      console.error('Erreur:', error)
-      toast.error('Erreur lors du chargement')
+      console.error('Erreur chargement analyse:', error)
     } finally {
       setLoading(false)
     }
   }
 
   const handleSave = async () => {
-    if (!formData.client_id || !formData.rdv_date) {
-      toast.error('Client et date obligatoires')
-      return
-    }
-
-    // Vérifier qu'il y a au moins un email OU un téléphone
-    if (!formData.contact_email && !formData.contact_phone) {
-      toast.error('Email ou téléphone obligatoire')
-      return
-    }
-
     setSaving(true)
     try {
-      // Préparer les données : transformer "" en null pour les dates
+      const { data: userData } = await supabase.auth.getUser()
+      
+      // Récupérer les signatures
+      const signatureTrainer = signatureTrainerRef.current && !signatureTrainerRef.current.isEmpty()
+        ? signatureTrainerRef.current.toDataURL()
+        : null
+      
+      const signatureClient = signatureClientRef.current && !signatureClientRef.current.isEmpty()
+        ? signatureClientRef.current.toDataURL()
+        : null
+
       const dataToSave = {
         ...formData,
-        rdv_time: formData.rdv_time || null,
-        next_action_date: formData.next_action_date || null,
-        rdv_address: formData.rdv_address || null,
-        contact_id: formData.contact_id || null,
-        contact_name: formData.contact_name || null,
-        contact_email: formData.contact_email || null,
-        contact_phone: formData.contact_phone || null,
-        notes: formData.notes || null,
-        next_action: formData.next_action || null,
-        // Champs commerciaux
-        temperature: formData.temperature || null,
-        source: formData.source || null,
-        budget_estime: formData.budget_estime || null,
-        concurrence: formData.concurrence || null,
-        timeline: formData.timeline || null
+        client_id: clientId,
+        rdv_id: rdvId,
+        filled_by: userData?.user?.id,
+        filled_at: new Date().toISOString(),
+        signature_trainer: signatureTrainer,
+        signature_client: signatureClient,
+        signed_at: (signatureTrainer || signatureClient) ? new Date().toISOString() : null
       }
 
-      // Auto : next_action_date = rdv_date + 2 jours si vide
-      if (!dataToSave.next_action_date && dataToSave.rdv_date) {
-        const rdvDate = new Date(dataToSave.rdv_date)
-        rdvDate.setDate(rdvDate.getDate() + 2)
-        dataToSave.next_action_date = rdvDate.toISOString().split('T')[0]
-      }
-
-      if (isNew) {
-        const { data, error } = await supabase
-          .from('prospect_rdv')
-          .insert([dataToSave])
-          .select()
-          .single()
+      if (analysis) {
+        const { error } = await supabase
+          .from('prospect_needs_analysis')
+          .update(dataToSave)
+          .eq('id', analysis.id)
 
         if (error) throw error
-        toast.success('RDV créé')
-        navigate(`/prospection/${data.id}`)
       } else {
         const { error } = await supabase
-          .from('prospect_rdv')
-          .update(dataToSave)
-          .eq('id', id)
+          .from('prospect_needs_analysis')
+          .insert([dataToSave])
 
         if (error) throw error
-        toast.success('RDV mis à jour')
       }
+
+      toast.success('Analyse du besoin enregistrée')
+      await loadAnalysis()
+      setShowForm(false)
     } catch (error) {
-      console.error('Erreur:', error)
+      console.error('Erreur sauvegarde:', error)
       toast.error('Erreur lors de la sauvegarde')
     } finally {
       setSaving(false)
     }
   }
 
-  const handleDelete = async () => {
-    if (!confirm('Supprimer ce RDV ?')) return
+  const handleCheckbox = (field, value) => {
+    setFormData(prev => ({
+      ...prev,
+      [field]: prev[field].includes(value)
+        ? prev[field].filter(v => v !== value)
+        : [...prev[field], value]
+    }))
+  }
 
-    try {
-      const { error } = await supabase
-        .from('prospect_rdv')
-        .delete()
-        .eq('id', id)
+  // Auto-fill adresse client quand on change location_type vers "client"
+  useEffect(() => {
+    if (formData.location_type === 'client' && !formData.location_client_address && client) {
+      const clientAddress = [
+        client.address,
+        client.postal_code,
+        client.city
+      ].filter(Boolean).join(', ')
+      
+      if (clientAddress) {
+        setFormData(prev => ({ ...prev, location_client_address: clientAddress }))
+      }
+    }
+  }, [formData.location_type, client])
 
-      if (error) throw error
-      toast.success('RDV supprimé')
-      navigate('/prospection')
-    } catch (error) {
-      console.error('Erreur:', error)
-      toast.error('Erreur lors de la suppression')
+  const clearSignatureTrainer = () => {
+    if (signatureTrainerRef.current) {
+      signatureTrainerRef.current.clear()
     }
   }
 
-  const handleCreateClient = async () => {
-    if (!newClientData.name) {
-      toast.error('Le nom du client est obligatoire')
+  const clearSignatureClient = () => {
+    if (signatureClientRef.current) {
+      signatureClientRef.current.clear()
+    }
+  }
+
+  const handlePrintBlank = () => {
+    downloadNeedsAnalysisPDF(client || { id: clientId, reference: 'PROSPECT' }, null, true, organization)
+  }
+
+  const handlePrintFilled = () => {
+    if (!analysis) {
+      toast.error('Veuillez d\'abord remplir l\'analyse')
       return
     }
-
-    try {
-      const { data, error } = await supabase
-        .from('clients')
-        .insert([{
-          name: newClientData.name.toUpperCase(),
-          siret: newClientData.siret,
-          address: newClientData.address,
-          postal_code: newClientData.postal_code,
-          city: newClientData.city,
-          contact_phone: newClientData.contact_phone,
-          email: newClientData.email
-        }])
-        .select()
-        .single()
-
-      if (error) throw error
-
-      toast.success('Client créé')
-      setClients([...clients, data])
-      setFormData({ ...formData, client_id: data.id })
-      setShowNewClientModal(false)
-      setNewClientData({
-        name: '',
-        siret: '',
-        address: '',
-        postal_code: '',
-        city: '',
-        contact_phone: '',
-        email: ''
-      })
-    } catch (error) {
-      console.error('Erreur:', error)
-      toast.error('Erreur lors de la création du client')
-    }
+    downloadNeedsAnalysisPDF(client || { id: clientId, reference: 'PROSPECT' }, analysis, false, organization)
   }
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
-      </div>
-    )
+    return <div className="text-center py-4 text-gray-500">Chargement...</div>
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
+    <div className="space-y-4">
+      {/* Header avec boutons */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <button
-            onClick={() => navigate('/prospection')}
-            className="p-2 hover:bg-gray-100 rounded-lg"
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </button>
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">
-              {isNew ? 'Nouveau RDV' : 'Éditer RDV'}
-            </h1>
-            {selectedClient && (
-              <p className="text-gray-600 mt-1">{selectedClient.name}</p>
-            )}
-          </div>
-        </div>
         <div className="flex items-center gap-2">
-          {!isNew && (
+          <FileCheck className="w-5 h-5 text-blue-600" />
+          <h3 className="font-semibold">Analyse du besoin</h3>
+          {analysis ? (
+            <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded flex items-center gap-1">
+              <CheckCircle className="w-3 h-3" />
+              Complétée
+            </span>
+          ) : (
+            <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded flex items-center gap-1">
+              <AlertCircle className="w-3 h-3" />
+              À remplir
+            </span>
+          )}
+        </div>
+
+        <div className="flex gap-2">
+          <button
+            onClick={handlePrintBlank}
+            className="btn btn-sm btn-secondary flex items-center gap-1"
+          >
+            <Printer className="w-4 h-4" />
+            Imprimer vierge
+          </button>
+          
+          {analysis && (
             <button
-              onClick={handleDelete}
-              className="flex items-center gap-2 px-4 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200"
+              onClick={handlePrintFilled}
+              className="btn btn-sm btn-secondary flex items-center gap-1"
             >
-              <Trash2 className="w-4 h-4" />
-              Supprimer
+              <Download className="w-4 h-4" />
+              Télécharger PDF
             </button>
           )}
+
           <button
-            onClick={handleSave}
-            disabled={saving}
-            className="flex items-center gap-2 px-4 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600 disabled:opacity-50"
+            onClick={() => setShowForm(!showForm)}
+            className="btn btn-sm btn-primary flex items-center gap-1"
           >
-            <Save className="w-4 h-4" />
-            {saving ? 'Enregistrement...' : 'Enregistrer'}
+            <FileCheck className="w-4 h-4" />
+            {showForm ? 'Masquer' : analysis ? 'Modifier' : 'Remplir'}
           </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Formulaire principal */}
-        <div className="lg:col-span-2 space-y-6">
-          {/* Informations RDV */}
-          <div className="bg-white rounded-lg border border-gray-200 p-6">
-            <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-              <Calendar className="w-5 h-5 text-primary-600" />
-              Informations du RDV
-            </h2>
+      {/* Formulaire */}
+      {showForm && (
+        <div className="border rounded-lg p-6 space-y-6 bg-white">
+          {/* Date de l'analyse */}
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <label className="block text-sm font-medium mb-2 flex items-center gap-2">
+              <Calendar className="w-4 h-4 text-blue-600" />
+              Date de l'analyse
+            </label>
+            <input
+              type="date"
+              value={formData.analysis_date}
+              onChange={(e) => setFormData({ ...formData, analysis_date: e.target.value })}
+              className="w-full px-3 py-2 border rounded-lg"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Cette date apparaîtra sur le document PDF
+            </p>
+          </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Client *
-                </label>
-                <div className="space-y-2">
-                  <select
-                    value={formData.client_id}
-                    onChange={(e) => setFormData({ ...formData, client_id: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-                    required
-                  >
-                    <option value="">Sélectionner un client</option>
-                    {clients.map(c => (
-                      <option key={c.id} value={c.id}>{c.name}</option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    onClick={() => setShowNewClientModal(true)}
-                    className="text-sm text-primary-600 hover:text-primary-700 flex items-center gap-1"
-                  >
-                    <Plus className="w-4 h-4" />
-                    Créer un nouveau client
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Date *
-                </label>
-                <input
-                  type="date"
-                  value={formData.rdv_date}
-                  onChange={(e) => setFormData({ ...formData, rdv_date: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Heure
-                </label>
-                <input
-                  type="time"
-                  value={formData.rdv_time}
-                  onChange={(e) => setFormData({ ...formData, rdv_time: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Type de RDV
-                </label>
-                <select
-                  value={formData.rdv_type}
-                  onChange={(e) => setFormData({ ...formData, rdv_type: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-                >
-                  <option value="decouverte">Découverte</option>
-                  <option value="suivi">Suivi</option>
-                  <option value="signature">Signature</option>
-                  <option value="relance">Relance</option>
-                  <option value="autre">Autre</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Lieu
-                </label>
-                <select
-                  value={formData.rdv_location}
-                  onChange={(e) => setFormData({ ...formData, rdv_location: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-                >
-                  <option value="leurs_locaux">Leurs locaux</option>
-                  <option value="nos_locaux">Nos locaux</option>
-                  <option value="visio">Visio</option>
-                  <option value="telephone">Téléphone</option>
-                </select>
-              </div>
-
-              {formData.rdv_location === 'leurs_locaux' && (
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Adresse
+          {/* Section 1 : Contexte et enjeux */}
+          <div className="space-y-4">
+            <h4 className="font-semibold text-lg border-b pb-2">1. Contexte et enjeux</h4>
+            
+            <div>
+              <label className="block text-sm font-medium mb-2">
+                Pourquoi cette formation maintenant ?
+              </label>
+              <div className="space-y-2">
+                {CONTEXT_REASONS.map(reason => (
+                  <label key={reason.value} className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={formData.context_reasons.includes(reason.value)}
+                      onChange={() => handleCheckbox('context_reasons', reason.value)}
+                      className="w-4 h-4 rounded"
+                    />
+                    <span className="text-sm">{reason.label}</span>
                   </label>
-                  <input
-                    type="text"
-                    value={formData.rdv_address}
-                    onChange={(e) => setFormData({ ...formData, rdv_address: e.target.value })}
-                    placeholder={selectedClient?.address || "Adresse du RDV"}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-                  />
-                </div>
-              )}
+                ))}
+              </div>
+            </div>
+
+            {formData.context_reasons.includes('autre') && (
+              <div>
+                <label className="block text-sm font-medium mb-1">Précisez :</label>
+                <input
+                  type="text"
+                  value={formData.context_other}
+                  onChange={(e) => setFormData({ ...formData, context_other: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-lg"
+                  placeholder="Autre raison..."
+                />
+              </div>
+            )}
+
+            <div>
+              <label className="block text-sm font-medium mb-1">
+                Enjeux spécifiques
+                <span className="text-xs text-gray-500 ml-2">(Quels sont les enjeux pour l'entreprise ?)</span>
+              </label>
+              <textarea
+                value={formData.context_stakes}
+                onChange={(e) => setFormData({ ...formData, context_stakes: e.target.value })}
+                rows={4}
+                className="w-full px-3 py-2 border rounded-lg"
+                placeholder="Ex: Réduire les accidents du travail, Mise en conformité réglementaire..."
+              />
+            </div>
+          </div>
+
+          {/* Section 2 : Objectifs attendus */}
+          <div className="space-y-4">
+            <h4 className="font-semibold text-lg border-b pb-2">2. Objectifs attendus</h4>
+            
+            <div>
+              <label className="block text-sm font-medium mb-1">
+                Que souhaitez-vous que les stagiaires sachent faire à l'issue ?
+              </label>
+              <textarea
+                value={formData.objectives_description}
+                onChange={(e) => setFormData({ ...formData, objectives_description: e.target.value })}
+                rows={4}
+                className="w-full px-3 py-2 border rounded-lg"
+                placeholder="Ex: Être capable de porter secours à une victime, Savoir utiliser un extincteur..."
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-1">
+                Résultats mesurables attendus
+                <span className="text-xs text-gray-500 ml-2">(Comment mesurerez-vous l'efficacité ?)</span>
+              </label>
+              <textarea
+                value={formData.objectives_measurable}
+                onChange={(e) => setFormData({ ...formData, objectives_measurable: e.target.value })}
+                rows={3}
+                className="w-full px-3 py-2 border rounded-lg"
+                placeholder="Ex: 100% des participants certifiés, Réduction de 50% des incidents..."
+              />
+            </div>
+          </div>
+
+          {/* Section 3 : Public concerné */}
+          <div className="space-y-4">
+            <h4 className="font-semibold text-lg border-b pb-2">3. Public concerné</h4>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Nombre de participants</label>
+                <input
+                  type="number"
+                  value={formData.participants_count}
+                  onChange={(e) => setFormData({ ...formData, participants_count: parseInt(e.target.value) || '' })}
+                  className="w-full px-3 py-2 border rounded-lg"
+                  placeholder="Ex: 12"
+                />
+              </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Mené par
-                </label>
+                <label className="block text-sm font-medium mb-1">Niveau</label>
                 <select
-                  value={formData.conducted_by}
-                  onChange={(e) => setFormData({ ...formData, conducted_by: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                  value={formData.level}
+                  onChange={(e) => setFormData({ ...formData, level: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-lg"
                 >
                   <option value="">Sélectionner</option>
-                  <option value="Hicham">Hicham</option>
-                  <option value="Maxime">Maxime</option>
+                  <option value="debutant">Débutant</option>
+                  <option value="intermediaire">Intermédiaire</option>
+                  <option value="avance">Avancé</option>
                 </select>
               </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-2">Profils des participants</label>
+              <div className="grid grid-cols-2 gap-2">
+                {PROFILES.map(profile => (
+                  <label key={profile.value} className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={formData.participants_profiles.includes(profile.value)}
+                      onChange={() => handleCheckbox('participants_profiles', profile.value)}
+                      className="w-4 h-4 rounded"
+                    />
+                    <span className="text-sm">{profile.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-2">Prérequis déjà validés ?</label>
+              <div className="flex gap-4">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    checked={formData.prerequisites_validated === true}
+                    onChange={() => setFormData({ ...formData, prerequisites_validated: true })}
+                    className="w-4 h-4"
+                  />
+                  <span className="text-sm">Oui</span>
+                </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    checked={formData.prerequisites_validated === false}
+                    onChange={() => setFormData({ ...formData, prerequisites_validated: false })}
+                    className="w-4 h-4"
+                  />
+                  <span className="text-sm">Non</span>
+                </label>
+              </div>
+            </div>
+
+            <div className="space-y-3 bg-gray-50 p-4 rounded-lg">
+              <label className="block text-sm font-medium">Particularités</label>
+              
+              <div>
+                <label className="block text-xs text-gray-600 mb-1">PSH (Personnes en Situation de Handicap)</label>
+                <input
+                  type="text"
+                  value={formData.particularities_psh}
+                  onChange={(e) => setFormData({ ...formData, particularities_psh: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-lg text-sm"
+                  placeholder="Précisez les adaptations nécessaires..."
+                />
+              </div>
+
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={formData.particularities_non_french}
+                  onChange={(e) => setFormData({ ...formData, particularities_non_french: e.target.checked })}
+                  className="w-4 h-4 rounded"
+                />
+                <span className="text-sm">Public non francophone</span>
+              </label>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Statut
-                </label>
-                <select
-                  value={formData.status}
-                  onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-                >
-                  <option value="prevu">Prévu</option>
-                  <option value="realise">Réalisé</option>
-                  <option value="annule">Annulé</option>
-                  <option value="reporte">Reporté</option>
-                </select>
+                <label className="block text-xs text-gray-600 mb-1">Autres particularités</label>
+                <input
+                  type="text"
+                  value={formData.particularities_other}
+                  onChange={(e) => setFormData({ ...formData, particularities_other: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-lg text-sm"
+                  placeholder="Autres particularités..."
+                />
               </div>
             </div>
           </div>
 
-          {/* Contact */}
-          <div className="bg-white rounded-lg border border-gray-200 p-6">
-            <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-              <User className="w-5 h-5 text-primary-600" />
-              Contact rencontré
-            </h2>
+          {/* Section 4 : Contraintes et moyens */}
+          <div className="space-y-4">
+            <h4 className="font-semibold text-lg border-b pb-2">4. Contraintes et moyens</h4>
+            
+            <div>
+              <label className="block text-sm font-medium mb-2">Lieu de formation</label>
+              <div className="space-y-2">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    checked={formData.location_type === 'access_formation'}
+                    onChange={() => setFormData({ ...formData, location_type: 'access_formation' })}
+                    className="w-4 h-4"
+                  />
+                  <span className="text-sm">Dans nos locaux (Access Formation)</span>
+                </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    checked={formData.location_type === 'client'}
+                    onChange={() => setFormData({ ...formData, location_type: 'client' })}
+                    className="w-4 h-4"
+                  />
+                  <span className="text-sm">Chez le client</span>
+                </label>
+              </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {contacts.length > 0 && (
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Contact existant
-                  </label>
-                  <select
-                    value={formData.contact_id || ''}
-                    onChange={(e) => {
-                      const contact = contacts.find(c => c.id === e.target.value)
-                      if (contact) {
-                        setFormData({
-                          ...formData,
-                          contact_id: contact.id,
-                          contact_name: contact.name || '',
-                          contact_email: contact.email || '',
-                          contact_phone: contact.phone || contact.mobile || ''
-                        })
-                      } else {
-                        setFormData({
-                          ...formData,
-                          contact_id: null,
-                          contact_name: '',
-                          contact_email: '',
-                          contact_phone: ''
-                        })
-                      }
-                    }}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-                  >
-                    <option value="">-- Ou saisir manuellement --</option>
-                    {contacts.map(c => (
-                      <option key={c.id} value={c.id}>
-                        {c.name} {c.is_primary && '(Principal)'}
-                      </option>
-                    ))}
-                  </select>
+              {formData.location_type === 'client' && (
+                <div className="mt-2">
+                  <input
+                    type="text"
+                    value={formData.location_client_address}
+                    onChange={(e) => setFormData({ ...formData, location_client_address: e.target.value })}
+                    className="w-full px-3 py-2 border rounded-lg"
+                    placeholder="Adresse complète..."
+                  />
                 </div>
               )}
+            </div>
 
-              <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Nom
-                </label>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Horaires souhaités</label>
                 <input
                   type="text"
-                  value={formData.contact_name}
-                  onChange={(e) => setFormData({ ...formData, contact_name: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                  value={formData.preferred_schedule}
+                  onChange={(e) => setFormData({ ...formData, preferred_schedule: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-lg"
+                  placeholder="Ex: 9h-17h"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Email
-                </label>
+                <label className="block text-sm font-medium mb-1">Dates préférentielles</label>
                 <input
-                  type="email"
-                  value={formData.contact_email}
-                  onChange={(e) => setFormData({ ...formData, contact_email: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                  type="text"
+                  value={formData.preferred_dates}
+                  onChange={(e) => setFormData({ ...formData, preferred_dates: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-lg"
+                  placeholder="Ex: Semaine du 15/02"
                 />
               </div>
+            </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Téléphone
+            <div>
+              <label className="block text-sm font-medium mb-2">Matériel spécifique entreprise</label>
+              <div className="flex gap-4 mb-2">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    checked={formData.company_equipment === true}
+                    onChange={() => setFormData({ ...formData, company_equipment: true })}
+                    className="w-4 h-4"
+                  />
+                  <span className="text-sm">Oui</span>
                 </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    checked={formData.company_equipment === false}
+                    onChange={() => setFormData({ ...formData, company_equipment: false })}
+                    className="w-4 h-4"
+                  />
+                  <span className="text-sm">Non</span>
+                </label>
+              </div>
+
+              {formData.company_equipment && (
                 <input
-                  type="tel"
-                  value={formData.contact_phone}
-                  onChange={(e) => setFormData({ ...formData, contact_phone: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                  type="text"
+                  value={formData.company_equipment_details}
+                  onChange={(e) => setFormData({ ...formData, company_equipment_details: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-lg"
+                  placeholder="Précisez le matériel..."
                 />
+              )}
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-2">Équipements de protection fournis</label>
+              <div className="flex gap-4">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    checked={formData.ppe_provided === true}
+                    onChange={() => setFormData({ ...formData, ppe_provided: true })}
+                    className="w-4 h-4"
+                  />
+                  <span className="text-sm">Oui</span>
+                </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    checked={formData.ppe_provided === false}
+                    onChange={() => setFormData({ ...formData, ppe_provided: false })}
+                    className="w-4 h-4"
+                  />
+                  <span className="text-sm">Non</span>
+                </label>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-1">Autres contraintes</label>
+              <textarea
+                value={formData.other_constraints}
+                onChange={(e) => setFormData({ ...formData, other_constraints: e.target.value })}
+                rows={3}
+                className="w-full px-3 py-2 border rounded-lg"
+                placeholder="Ex: Contraintes d'accès, besoins spécifiques..."
+              />
+            </div>
+          </div>
+
+          {/* SIGNATURES */}
+          <div className="space-y-4 bg-gradient-to-br from-blue-50 to-indigo-50 p-6 rounded-lg border-2 border-blue-200">
+            <div className="flex items-center gap-2">
+              <div className="w-1 h-6 bg-blue-600 rounded"></div>
+              <h4 className="font-semibold text-lg">Signatures (optionnel)</h4>
+            </div>
+            <p className="text-sm text-gray-700">
+              Signez directement sur l'écran. Les signatures apparaîtront sur le PDF généré.
+              <br />
+              <span className="text-blue-700 font-medium">✓ Fonctionne sur tablette tactile et souris</span>
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Signature formateur */}
+              <div className="space-y-2">
+                <label className="block text-sm font-semibold text-gray-700">
+                  🖊️ Signature formateur (vous)
+                </label>
+                <div className="border-2 border-gray-400 rounded-lg bg-white shadow-sm">
+                  <SignatureCanvas
+                    ref={signatureTrainerRef}
+                    canvasProps={{
+                      className: 'w-full',
+                      style: { width: '100%', height: '120px' }
+                    }}
+                    backgroundColor="white"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={clearSignatureTrainer}
+                  className="btn btn-xs btn-secondary flex items-center gap-1"
+                >
+                  <Eraser className="w-3 h-3" />
+                  Effacer
+                </button>
+              </div>
+
+              {/* Signature client */}
+              <div className="space-y-2">
+                <label className="block text-sm font-semibold text-gray-700">
+                  ✍️ Signature client (sur place uniquement)
+                </label>
+                <div className="border-2 border-gray-400 rounded-lg bg-white shadow-sm">
+                  <SignatureCanvas
+                    ref={signatureClientRef}
+                    canvasProps={{
+                      className: 'w-full',
+                      style: { width: '100%', height: '120px' }
+                    }}
+                    backgroundColor="white"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={clearSignatureClient}
+                  className="btn btn-xs btn-secondary flex items-center gap-1"
+                >
+                  <Eraser className="w-3 h-3" />
+                  Effacer
+                </button>
+                <p className="text-xs text-gray-600 bg-white/70 p-2 rounded border border-gray-300">
+                  💡 <strong>À distance ?</strong> Laissez vide. Vous signerez, téléchargerez le PDF, et l'enverrez au client pour signature manuelle.
+                </p>
               </div>
             </div>
           </div>
 
-          {/* Notes */}
-          <div className="bg-white rounded-lg border border-gray-200 p-6">
-            <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-              <FileText className="w-5 h-5 text-primary-600" />
-              Notes et actions
-            </h2>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Notes du RDV
-                </label>
-                <textarea
-                  value={formData.notes}
-                  onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                  rows={4}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-                  placeholder="Notes prises pendant le RDV..."
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Prochaine action
-                </label>
-                <input
-                  type="text"
-                  value={formData.next_action}
-                  onChange={(e) => setFormData({ ...formData, next_action: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-                  placeholder="Ex: Envoyer devis SST"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Date prochaine action
-                </label>
-                <input
-                  type="date"
-                  value={formData.next_action_date}
-                  onChange={(e) => setFormData({ ...formData, next_action_date: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Infos commerciales (optionnelles, repliable) */}
-          <details className="bg-gray-50 rounded-lg border border-gray-200 p-6">
-            <summary className="cursor-pointer font-semibold text-gray-700 flex items-center gap-2 select-none">
-              <span className="text-lg">💼</span>
-              Infos commerciales (optionnel)
-            </summary>
-            
-            <div className="mt-4 space-y-4">
-              {/* Température */}
-              <div>
-                <label className="block text-sm font-medium text-gray-600 mb-2 flex items-center gap-2">
-                  <span>🌡️</span>
-                  Température du prospect
-                </label>
-                <div className="flex gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setFormData({ ...formData, temperature: 'chaud' })}
-                    className={`flex-1 px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${
-                      formData.temperature === 'chaud' 
-                        ? 'bg-red-100 border-red-500 text-red-700' 
-                        : 'border-gray-300 text-gray-600 hover:bg-gray-100'
-                    }`}
-                  >
-                    🔥 Chaud
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setFormData({ ...formData, temperature: 'tiede' })}
-                    className={`flex-1 px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${
-                      formData.temperature === 'tiede' 
-                        ? 'bg-orange-100 border-orange-500 text-orange-700' 
-                        : 'border-gray-300 text-gray-600 hover:bg-gray-100'
-                    }`}
-                  >
-                    🟠 Tiède
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setFormData({ ...formData, temperature: 'froid' })}
-                    className={`flex-1 px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${
-                      formData.temperature === 'froid' 
-                        ? 'bg-blue-100 border-blue-500 text-blue-700' 
-                        : 'border-gray-300 text-gray-600 hover:bg-gray-100'
-                    }`}
-                  >
-                    🔵 Froid
-                  </button>
-                </div>
-              </div>
-
-              {/* Source */}
-              <div>
-                <label className="block text-sm font-medium text-gray-600 mb-1 flex items-center gap-2">
-                  <span>📍</span>
-                  Source du contact
-                </label>
-                <select
-                  value={formData.source || ''}
-                  onChange={(e) => setFormData({ ...formData, source: e.target.value || null })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 text-sm"
-                >
-                  <option value="">-- Non renseigné --</option>
-                  <option value="bouche_a_oreille">Bouche-à-oreille</option>
-                  <option value="site_web">Site web</option>
-                  <option value="linkedin">LinkedIn</option>
-                  <option value="salon">Salon / Événement</option>
-                  <option value="appel_froid">Appel froid</option>
-                  <option value="prescripteur">Prescripteur</option>
-                </select>
-              </div>
-
-              {/* Timeline */}
-              <div>
-                <label className="block text-sm font-medium text-gray-600 mb-1 flex items-center gap-2">
-                  <span>📅</span>
-                  Urgence / Timeline
-                </label>
-                <select
-                  value={formData.timeline || ''}
-                  onChange={(e) => setFormData({ ...formData, timeline: e.target.value || null })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 text-sm"
-                >
-                  <option value="">-- Non renseigné --</option>
-                  <option value="urgent">Urgent (ce mois)</option>
-                  <option value="court_terme">Court terme (ce trimestre)</option>
-                  <option value="long_terme">Long terme (cette année)</option>
-                </select>
-              </div>
-
-              {/* Formations d'intérêt */}
-              <div>
-                <label className="block text-sm font-medium text-gray-600 mb-2 flex items-center gap-2">
-                  <span>📚</span>
-                  Formations d'intérêt
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  {[
-                    { value: 'sst', label: 'SST' },
-                    { value: 'incendie', label: 'Incendie' },
-                    { value: 'r489', label: 'R489 (Chariots)' },
-                    { value: 'r485', label: 'R485 (Gerbeurs)' },
-                    { value: 'habilitation_elec', label: 'Habilitation Élec B0H0V' },
-                    { value: 'duerp', label: 'DUERP' },
-                    { value: 'gestes_postures', label: 'Gestes & Postures' }
-                  ].map(formation => (
-                    <label key={formation.value} className="flex items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={formData.formations_interet.includes(formation.value)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setFormData({
-                              ...formData,
-                              formations_interet: [...formData.formations_interet, formation.value]
-                            })
-                          } else {
-                            setFormData({
-                              ...formData,
-                              formations_interet: formData.formations_interet.filter(f => f !== formation.value)
-                            })
-                          }
-                        }}
-                        className="w-4 h-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                      />
-                      <span className="text-gray-700">{formation.label}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              {/* Budget estimé */}
-              <div>
-                <label className="block text-sm font-medium text-gray-600 mb-1 flex items-center gap-2">
-                  <span>💶</span>
-                  Budget estimé
-                </label>
-                <input
-                  type="text"
-                  value={formData.budget_estime}
-                  onChange={(e) => setFormData({ ...formData, budget_estime: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 text-sm"
-                  placeholder="Ex: 2000-3000€"
-                />
-              </div>
-
-              {/* Concurrence */}
-              <div>
-                <label className="block text-sm font-medium text-gray-600 mb-1 flex items-center gap-2">
-                  <span>🏢</span>
-                  Concurrence
-                </label>
-                <input
-                  type="text"
-                  value={formData.concurrence}
-                  onChange={(e) => setFormData({ ...formData, concurrence: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 text-sm"
-                  placeholder="Ex: Travaille déjà avec XYZ"
-                />
-              </div>
-            </div>
-          </details>
-        </div>
-
-        {/* Sidebar actions */}
-        <div className="space-y-4">
-          {!isNew && formData.client_id && (
-            <div className="bg-primary-50 border border-primary-200 rounded-lg p-4">
-              <h3 className="font-semibold text-primary-900 mb-3">Analyse des besoins</h3>
-              <button
-                onClick={() => setShowNeedsAnalysis(true)}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
-              >
-                <FileText className="w-4 h-4" />
-                Remplir l'analyse
-              </button>
-            </div>
-          )}
-
-          {selectedClient && (
-            <div className="bg-white rounded-lg border border-gray-200 p-4">
-              <h3 className="font-semibold text-gray-900 mb-3">Informations client</h3>
-              <div className="space-y-2 text-sm">
-                {selectedClient.address && (
-                  <div className="flex items-start gap-2">
-                    <MapPin className="w-4 h-4 text-gray-400 mt-0.5" />
-                    <span className="text-gray-600">
-                      {selectedClient.address}<br />
-                      {selectedClient.postal_code} {selectedClient.city}
-                    </span>
-                  </div>
-                )}
-                {selectedClient.contact_phone && (
-                  <div className="flex items-center gap-2">
-                    <Phone className="w-4 h-4 text-gray-400" />
-                    <span className="text-gray-600">{selectedClient.contact_phone}</span>
-                  </div>
-                )}
-                {selectedClient.email && (
-                  <div className="flex items-center gap-2">
-                    <Mail className="w-4 h-4 text-gray-400" />
-                    <span className="text-gray-600">{selectedClient.email}</span>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Modal Création client */}
-      {showNewClientModal && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg max-w-2xl w-full">
-            <div className="p-4 border-b flex items-center justify-between">
-              <h2 className="text-xl font-bold">Créer un nouveau client</h2>
-              <button
-                onClick={() => setShowNewClientModal(false)}
-                className="p-2 hover:bg-gray-100 rounded-lg"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="p-6">
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Nom de l'entreprise *
-                  </label>
-                  <input
-                    type="text"
-                    value={newClientData.name}
-                    onChange={(e) => setNewClientData({ ...newClientData, name: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-                    placeholder="ENTREPRISE ABC"
-                    required
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      SIRET
-                    </label>
-                    <input
-                      type="text"
-                      value={newClientData.siret}
-                      onChange={(e) => setNewClientData({ ...newClientData, siret: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-                      placeholder="12345678901234"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Téléphone
-                    </label>
-                    <input
-                      type="tel"
-                      value={newClientData.contact_phone}
-                      onChange={(e) => setNewClientData({ ...newClientData, contact_phone: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-                      placeholder="02 46 56 57 54"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Email
-                  </label>
-                  <input
-                    type="email"
-                    value={newClientData.email}
-                    onChange={(e) => setNewClientData({ ...newClientData, email: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-                    placeholder="contact@entreprise.fr"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Adresse
-                  </label>
-                  <input
-                    type="text"
-                    value={newClientData.address}
-                    onChange={(e) => setNewClientData({ ...newClientData, address: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-                    placeholder="12 rue Example"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Code postal
-                    </label>
-                    <input
-                      type="text"
-                      value={newClientData.postal_code}
-                      onChange={(e) => setNewClientData({ ...newClientData, postal_code: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-                      placeholder="29900"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Ville
-                    </label>
-                    <input
-                      type="text"
-                      value={newClientData.city}
-                      onChange={(e) => setNewClientData({ ...newClientData, city: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-                      placeholder="Concarneau"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex gap-3 mt-6">
-                <button
-                  onClick={() => setShowNewClientModal(false)}
-                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
-                >
-                  Annuler
-                </button>
-                <button
-                  onClick={handleCreateClient}
-                  className="flex-1 px-4 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600"
-                >
-                  Créer le client
-                </button>
-              </div>
-            </div>
+          {/* Boutons d'action */}
+          <div className="flex justify-end gap-3 pt-4 border-t">
+            <button
+              onClick={() => setShowForm(false)}
+              className="btn btn-secondary"
+              disabled={saving}
+            >
+              Annuler
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="btn btn-primary flex items-center gap-2"
+            >
+              <Save className="w-4 h-4" />
+              {saving ? 'Enregistrement...' : 'Enregistrer'}
+            </button>
           </div>
         </div>
       )}
 
-      {/* Modal Analyse des besoins */}
-      {showNeedsAnalysis && formData.client_id && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg max-w-5xl w-full max-h-[90vh] overflow-hidden">
-            <div className="p-4 border-b flex items-center justify-between">
-              <h2 className="text-xl font-bold">Analyse des besoins</h2>
-              <button
-                onClick={() => setShowNeedsAnalysis(false)}
-                className="p-2 hover:bg-gray-100 rounded-lg"
-              >
-                <ArrowLeft className="w-5 h-5" />
-              </button>
+      {/* Résumé compact si rempli et formulaire masqué */}
+      {!showForm && analysis && (
+        <div className="border rounded-lg p-4 bg-gray-50 text-sm">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <span className="font-medium">Date de l'analyse :</span> {
+                analysis.analysis_date 
+                  ? new Date(analysis.analysis_date).toLocaleDateString('fr-FR')
+                  : 'Non définie'
+              }
             </div>
-            <div className="overflow-y-auto max-h-[calc(90vh-80px)]">
-              <ProspectNeedsAnalysis 
-                clientId={formData.client_id}
-                rdvId={id !== 'nouveau' ? id : null}
-                onClose={() => setShowNeedsAnalysis(false)}
-              />
+            <div>
+              <span className="font-medium">Participants :</span> {analysis.participants_count || 'N/A'}
+            </div>
+            <div>
+              <span className="font-medium">Lieu :</span> {
+                analysis.location_type === 'client' ? 'Chez le client' : 'Access Formation'
+              }
+            </div>
+            <div>
+              <span className="font-medium">Signatures :</span> {
+                analysis.signature_trainer && analysis.signature_client ? '✓ Formateur + Client' :
+                analysis.signature_trainer ? '✓ Formateur uniquement' :
+                analysis.signature_client ? '✓ Client uniquement' :
+                'Aucune'
+              }
             </div>
           </div>
+          {analysis.filled_at && (
+            <div className="mt-2 text-xs text-gray-500">
+              Remplie le {new Date(analysis.filled_at).toLocaleDateString('fr-FR')}
+            </div>
+          )}
         </div>
       )}
     </div>
