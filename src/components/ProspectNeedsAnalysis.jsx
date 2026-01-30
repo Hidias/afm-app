@@ -89,6 +89,17 @@ export default function ProspectNeedsAnalysis({ clientId, rdvId, onClose }) {
 
       if (data) {
         setAnalysis(data)
+        
+        // Auto-fill adresse client si location_type = "client" et adresse vide
+        let clientAddress = data.location_client_address || ''
+        if (data.location_type === 'client' && !clientAddress && clientData) {
+          clientAddress = [
+            clientData.address,
+            clientData.postal_code,
+            clientData.city
+          ].filter(Boolean).join(', ')
+        }
+        
         setFormData({
           analysis_date: data.analysis_date || new Date().toISOString().split('T')[0],
           context_reasons: data.context_reasons || [],
@@ -104,7 +115,7 @@ export default function ProspectNeedsAnalysis({ clientId, rdvId, onClose }) {
           particularities_non_french: data.particularities_non_french || false,
           particularities_other: data.particularities_other || '',
           location_type: data.location_type || '',
-          location_client_address: data.location_client_address || '',
+          location_client_address: clientAddress,
           preferred_schedule: data.preferred_schedule || '',
           preferred_dates: data.preferred_dates || '',
           company_equipment: data.company_equipment,
@@ -122,6 +133,19 @@ export default function ProspectNeedsAnalysis({ clientId, rdvId, onClose }) {
             signatureClientRef.current.fromDataURL(data.signature_client)
           }
         }, 100)
+      } else {
+        // Pas d'analyse existante : auto-fill adresse si clientData disponible
+        if (clientData) {
+          const clientAddress = [
+            clientData.address,
+            clientData.postal_code,
+            clientData.city
+          ].filter(Boolean).join(', ')
+          
+          if (clientAddress) {
+            setFormData(prev => ({ ...prev, location_client_address: clientAddress }))
+          }
+        }
       }
     } catch (error) {
       console.error('Erreur chargement analyse:', error)
@@ -189,6 +213,21 @@ export default function ProspectNeedsAnalysis({ clientId, rdvId, onClose }) {
         : [...prev[field], value]
     }))
   }
+
+  // Auto-fill adresse client quand on change location_type vers "client"
+  useEffect(() => {
+    if (formData.location_type === 'client' && !formData.location_client_address && client) {
+      const clientAddress = [
+        client.address,
+        client.postal_code,
+        client.city
+      ].filter(Boolean).join(', ')
+      
+      if (clientAddress) {
+        setFormData(prev => ({ ...prev, location_client_address: clientAddress }))
+      }
+    }
+  }, [formData.location_type, client])
 
   const clearSignatureTrainer = () => {
     if (signatureTrainerRef.current) {
