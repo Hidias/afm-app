@@ -133,12 +133,39 @@ export default function ProspectRDVDetail() {
       return
     }
 
+    // Vérifier qu'il y a au moins un email OU un téléphone
+    if (!formData.contact_email && !formData.contact_phone) {
+      toast.error('Email ou téléphone obligatoire')
+      return
+    }
+
     setSaving(true)
     try {
+      // Préparer les données : transformer "" en null pour les dates
+      const dataToSave = {
+        ...formData,
+        rdv_time: formData.rdv_time || null,
+        next_action_date: formData.next_action_date || null,
+        rdv_address: formData.rdv_address || null,
+        contact_id: formData.contact_id || null,
+        contact_name: formData.contact_name || null,
+        contact_email: formData.contact_email || null,
+        contact_phone: formData.contact_phone || null,
+        notes: formData.notes || null,
+        next_action: formData.next_action || null
+      }
+
+      // Auto : next_action_date = rdv_date + 2 jours si vide
+      if (!dataToSave.next_action_date && dataToSave.rdv_date) {
+        const rdvDate = new Date(dataToSave.rdv_date)
+        rdvDate.setDate(rdvDate.getDate() + 2)
+        dataToSave.next_action_date = rdvDate.toISOString().split('T')[0]
+      }
+
       if (isNew) {
         const { data, error } = await supabase
           .from('prospect_rdv')
-          .insert([formData])
+          .insert([dataToSave])
           .select()
           .single()
 
@@ -148,7 +175,7 @@ export default function ProspectRDVDetail() {
       } else {
         const { error } = await supabase
           .from('prospect_rdv')
-          .update(formData)
+          .update(dataToSave)
           .eq('id', id)
 
         if (error) throw error
