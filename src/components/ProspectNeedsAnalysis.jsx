@@ -413,7 +413,7 @@ export default function ProspectNeedsAnalysis({ clientId, rdvId, onClose }) {
           <div className="space-y-4">
             <h4 className="font-semibold text-lg border-b pb-2">3. Public concerné</h4>
             
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium mb-1">Nombre de participants</label>
                 <input
@@ -442,7 +442,7 @@ export default function ProspectNeedsAnalysis({ clientId, rdvId, onClose }) {
 
             <div>
               <label className="block text-sm font-medium mb-2">Profils des participants</label>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {PROFILES.map(profile => (
                   <label key={profile.value} className="flex items-center gap-2">
                     <input
@@ -558,7 +558,7 @@ export default function ProspectNeedsAnalysis({ clientId, rdvId, onClose }) {
               )}
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium mb-1">Horaires souhaités</label>
                 <input
@@ -744,7 +744,7 @@ export default function ProspectNeedsAnalysis({ clientId, rdvId, onClose }) {
       {/* Résumé compact si rempli et formulaire masqué */}
       {!showForm && analysis && (
         <div className="border rounded-lg p-4 bg-gray-50 text-sm">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <span className="font-medium">Date de l'analyse :</span> {
                 analysis.analysis_date 
