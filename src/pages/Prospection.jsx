@@ -111,14 +111,20 @@ export default function Prospection() {
   // Grouper par urgence
   const rdvsUrgents = filteredRdvs.filter(r => {
     if (r.status !== 'prevu') return false
+    // Urgent si : marqué manuel OU aujourd'hui/passé OU demain
+    if (r.is_urgent) return true
     const date = parseISO(r.rdv_date)
-    return isBefore(date, new Date()) || isToday(date)
+    return isBefore(date, new Date()) || isToday(date) || isTomorrow(date)
   })
 
   const rdvsProchains = filteredRdvs.filter(r => {
     if (r.status !== 'prevu') return false
+    // Exclure les urgents déjà affichés
+    if (r.is_urgent) return false
     const date = parseISO(r.rdv_date)
-    return (isTomorrow(date) || isThisWeek(date)) && !isToday(date)
+    if (isBefore(date, new Date()) || isToday(date) || isTomorrow(date)) return false
+    // Cette semaine (après demain)
+    return isThisWeek(date, { weekStartsOn: 1 })
   })
 
   const rdvsRealises = filteredRdvs.filter(r => r.status === 'realise')
@@ -151,6 +157,11 @@ export default function Prospection() {
             )}
           </div>
           <div className="flex items-center gap-2">
+            {rdv.is_urgent && (
+              <span className="px-2 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700 flex items-center gap-1">
+                🔴 URGENT
+              </span>
+            )}
             {rdv.rdv_type && (
               <span className={`px-2 py-1 rounded-full text-xs font-medium ${RDV_TYPES[rdv.rdv_type]?.color || 'bg-gray-100'}`}>
                 {RDV_TYPES[rdv.rdv_type]?.label || rdv.rdv_type}
