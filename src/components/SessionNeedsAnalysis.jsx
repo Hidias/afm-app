@@ -62,6 +62,7 @@ export default function SessionNeedsAnalysis({ session, organization }) {
 
   const loadAnalysis = async () => {
     try {
+      // Chercher l'analyse de session existante
       const { data, error } = await supabase
         .from('session_needs_analysis')
         .select('*')
@@ -71,6 +72,7 @@ export default function SessionNeedsAnalysis({ session, organization }) {
       if (error && error.code !== 'PGRST116') throw error
 
       if (data) {
+        // Analyse de session existe déjà
         setAnalysis(data)
         setFormData({
           analysis_date: data.analysis_date || new Date().toISOString().split('T')[0],
@@ -105,6 +107,92 @@ export default function SessionNeedsAnalysis({ session, organization }) {
             signatureClientRef.current.fromDataURL(data.signature_client)
           }
         }, 100)
+      } else {
+        // Pas d'analyse de session → Chercher une analyse prospect
+        const { data: prospectAnalysis } = await supabase
+          .from('prospect_needs_analysis')
+          .select('*')
+          .eq('client_id', session.client_id)
+          .single()
+
+        if (prospectAnalysis) {
+          // Analyse prospect trouvée → Copie automatique
+          toast.success('✅ Analyse prospect récupérée automatiquement')
+          
+          const prospectData = {
+            session_id: session.id,
+            analysis_date: prospectAnalysis.analysis_date || new Date().toISOString().split('T')[0],
+            context_reasons: prospectAnalysis.context_reasons || [],
+            context_other: prospectAnalysis.context_other || '',
+            context_stakes: prospectAnalysis.context_stakes || '',
+            objectives_description: prospectAnalysis.objectives_description || '',
+            objectives_measurable: prospectAnalysis.objectives_measurable || '',
+            participants_count: prospectAnalysis.participants_count || '',
+            participants_profiles: prospectAnalysis.participants_profiles || [],
+            prerequisites_validated: prospectAnalysis.prerequisites_validated,
+            level: prospectAnalysis.level || '',
+            particularities_psh: prospectAnalysis.particularities_psh || '',
+            particularities_non_french: prospectAnalysis.particularities_non_french || false,
+            particularities_other: prospectAnalysis.particularities_other || '',
+            location_type: prospectAnalysis.location_type || '',
+            location_client_address: prospectAnalysis.location_client_address || '',
+            preferred_schedule: prospectAnalysis.preferred_schedule || '',
+            preferred_dates: prospectAnalysis.preferred_dates || '',
+            company_equipment: prospectAnalysis.company_equipment,
+            company_equipment_details: prospectAnalysis.company_equipment_details || '',
+            ppe_provided: prospectAnalysis.ppe_provided,
+            other_constraints: prospectAnalysis.other_constraints || '',
+            signature_trainer: prospectAnalysis.signature_trainer,
+            signature_client: prospectAnalysis.signature_client,
+            signed_at: prospectAnalysis.signed_at,
+            filled_by: prospectAnalysis.filled_by,
+            filled_at: prospectAnalysis.filled_at
+          }
+
+          // Insérer dans session_needs_analysis
+          const { data: newAnalysis, error: insertError } = await supabase
+            .from('session_needs_analysis')
+            .insert([prospectData])
+            .select()
+            .single()
+
+          if (insertError) throw insertError
+
+          setAnalysis(newAnalysis)
+          setFormData({
+            analysis_date: newAnalysis.analysis_date || new Date().toISOString().split('T')[0],
+            context_reasons: newAnalysis.context_reasons || [],
+            context_other: newAnalysis.context_other || '',
+            context_stakes: newAnalysis.context_stakes || '',
+            objectives_description: newAnalysis.objectives_description || '',
+            objectives_measurable: newAnalysis.objectives_measurable || '',
+            participants_count: newAnalysis.participants_count || '',
+            participants_profiles: newAnalysis.participants_profiles || [],
+            prerequisites_validated: newAnalysis.prerequisites_validated,
+            level: newAnalysis.level || '',
+            particularities_psh: newAnalysis.particularities_psh || '',
+            particularities_non_french: newAnalysis.particularities_non_french || false,
+            particularities_other: newAnalysis.particularities_other || '',
+            location_type: newAnalysis.location_type || '',
+            location_client_address: newAnalysis.location_client_address || '',
+            preferred_schedule: newAnalysis.preferred_schedule || '',
+            preferred_dates: newAnalysis.preferred_dates || '',
+            company_equipment: newAnalysis.company_equipment,
+            company_equipment_details: newAnalysis.company_equipment_details || '',
+            ppe_provided: newAnalysis.ppe_provided,
+            other_constraints: newAnalysis.other_constraints || ''
+          })
+
+          // Charger les signatures si elles existent
+          setTimeout(() => {
+            if (newAnalysis.signature_trainer && signatureTrainerRef.current) {
+              signatureTrainerRef.current.fromDataURL(newAnalysis.signature_trainer)
+            }
+            if (newAnalysis.signature_client && signatureClientRef.current) {
+              signatureClientRef.current.fromDataURL(newAnalysis.signature_client)
+            }
+          }, 100)
+        }
       }
     } catch (error) {
       console.error('Erreur chargement analyse:', error)
