@@ -44,7 +44,8 @@ export default function ProspectRDVDetail() {
     status: 'prevu',
     notes: '',
     next_action: '',
-    next_action_date: ''
+    next_action_date: '',
+    is_urgent: false
   })
 
   useEffect(() => {
@@ -115,7 +116,8 @@ export default function ProspectRDVDetail() {
         status: data.status || 'prevu',
         notes: data.notes || '',
         next_action: data.next_action || '',
-        next_action_date: data.next_action_date || ''
+        next_action_date: data.next_action_date || '',
+        is_urgent: data.is_urgent || false
       })
       setSelectedClient(data.clients)
     } catch (error) {
@@ -391,6 +393,23 @@ export default function ProspectRDVDetail() {
                   <option value="visio">Visio</option>
                   <option value="telephone">Téléphone</option>
                 </select>
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formData.is_urgent}
+                    onChange={(e) => setFormData({ ...formData, is_urgent: e.target.checked })}
+                    className="w-4 h-4 rounded border-gray-300 text-red-600 focus:ring-red-500"
+                  />
+                  <span className="text-sm font-medium text-gray-700">
+                    🔴 Marquer comme urgent (priorité haute)
+                  </span>
+                </label>
+                <p className="text-xs text-gray-500 mt-1 ml-6">
+                  Le RDV apparaîtra dans la section "Urgents" même s'il n'est pas dans les 2 prochains jours
+                </p>
               </div>
 
               {formData.rdv_location === 'leurs_locaux' && (
