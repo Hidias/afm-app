@@ -32,26 +32,44 @@ export default function ProspectRDVDetail() {
 
   const [formData, setFormData] = useState({
     client_id: '',
-    rdv_date: new Date().toISOString().split('T')[0],
+    rdv_date: new Date().toISOString().split('T')[0], // AUTO : date du jour
     rdv_time: '09:00',
-    rdv_type: 'decouverte',
+    rdv_type: 'decouverte', // AUTO : découverte
     rdv_location: 'leurs_locaux',
     rdv_address: '',
     contact_id: null,
     contact_name: '',
     contact_email: '',
     contact_phone: '',
-    conducted_by: '',
+    conducted_by: '', // Sera auto-rempli avec user connecté
     status: 'prevu',
     notes: '',
     next_action: '',
-    next_action_date: ''
+    next_action_date: '', // Sera auto = rdv_date + 2 jours si vide
+    // Nouveaux champs commerciaux (tous optionnels)
+    temperature: null, // 'chaud', 'tiede', 'froid'
+    source: null,
+    budget_estime: '',
+    formations_interet: [], // ['sst', 'incendie', 'r489', 'r485', 'duerp', 'habilitation']
+    concurrence: '',
+    timeline: null // 'urgent', 'court_terme', 'long_terme'
   })
 
   useEffect(() => {
     loadClients()
     if (!isNew) {
       loadRdv()
+    } else {
+      // Auto-remplir "mené par" avec l'user connecté
+      const autoFillUser = async () => {
+        const { data: { user } } = await supabase.auth.getUser()
+        const email = user?.email
+        let conductedBy = ''
+        if (email === 'hicham.saidi@accessformation.pro') conductedBy = 'Hicham'
+        else if (email === 'maxime.langlais@accessformation.pro') conductedBy = 'Maxime'
+        setFormData(prev => ({ ...prev, conducted_by: conductedBy }))
+      }
+      autoFillUser()
     }
   }, [id])
 
@@ -116,7 +134,14 @@ export default function ProspectRDVDetail() {
         status: data.status || 'prevu',
         notes: data.notes || '',
         next_action: data.next_action || '',
-        next_action_date: data.next_action_date || ''
+        next_action_date: data.next_action_date || '',
+        // Nouveaux champs commerciaux
+        temperature: data.temperature || null,
+        source: data.source || null,
+        budget_estime: data.budget_estime || '',
+        formations_interet: data.formations_interet || [],
+        concurrence: data.concurrence || '',
+        timeline: data.timeline || null
       })
       setSelectedClient(data.clients)
     } catch (error) {
@@ -133,12 +158,45 @@ export default function ProspectRDVDetail() {
       return
     }
 
+    // Vérifier qu'il y a au moins un email OU un téléphone
+    if (!formData.contact_email && !formData.contact_phone) {
+      toast.error('Email ou téléphone obligatoire')
+      return
+    }
+
     setSaving(true)
     try {
+      // Préparer les données : transformer "" en null pour les dates
+      const dataToSave = {
+        ...formData,
+        rdv_time: formData.rdv_time || null,
+        next_action_date: formData.next_action_date || null,
+        rdv_address: formData.rdv_address || null,
+        contact_id: formData.contact_id || null,
+        contact_name: formData.contact_name || null,
+        contact_email: formData.contact_email || null,
+        contact_phone: formData.contact_phone || null,
+        notes: formData.notes || null,
+        next_action: formData.next_action || null,
+        // Champs commerciaux
+        temperature: formData.temperature || null,
+        source: formData.source || null,
+        budget_estime: formData.budget_estime || null,
+        concurrence: formData.concurrence || null,
+        timeline: formData.timeline || null
+      }
+
+      // Auto : next_action_date = rdv_date + 2 jours si vide
+      if (!dataToSave.next_action_date && dataToSave.rdv_date) {
+        const rdvDate = new Date(dataToSave.rdv_date)
+        rdvDate.setDate(rdvDate.getDate() + 2)
+        dataToSave.next_action_date = rdvDate.toISOString().split('T')[0]
+      }
+
       if (isNew) {
         const { data, error } = await supabase
           .from('prospect_rdv')
-          .insert([formData])
+          .insert([dataToSave])
           .select()
           .single()
 
@@ -148,7 +206,7 @@ export default function ProspectRDVDetail() {
       } else {
         const { error } = await supabase
           .from('prospect_rdv')
-          .update(formData)
+          .update(dataToSave)
           .eq('id', id)
 
         if (error) throw error
@@ -547,6 +605,169 @@ export default function ProspectRDVDetail() {
               </div>
             </div>
           </div>
+
+          {/* Infos commerciales (optionnelles, repliable) */}
+          <details className="bg-gray-50 rounded-lg border border-gray-200 p-6">
+            <summary className="cursor-pointer font-semibold text-gray-700 flex items-center gap-2 select-none">
+              <span className="text-lg">💼</span>
+              Infos commerciales (optionnel)
+            </summary>
+            
+            <div className="mt-4 space-y-4">
+              {/* Température */}
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-2 flex items-center gap-2">
+                  <span>🌡️</span>
+                  Température du prospect
+                </label>
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setFormData({ ...formData, temperature: 'chaud' })}
+                    className={`flex-1 px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${
+                      formData.temperature === 'chaud' 
+                        ? 'bg-red-100 border-red-500 text-red-700' 
+                        : 'border-gray-300 text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    🔥 Chaud
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFormData({ ...formData, temperature: 'tiede' })}
+                    className={`flex-1 px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${
+                      formData.temperature === 'tiede' 
+                        ? 'bg-orange-100 border-orange-500 text-orange-700' 
+                        : 'border-gray-300 text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    🟠 Tiède
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFormData({ ...formData, temperature: 'froid' })}
+                    className={`flex-1 px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${
+                      formData.temperature === 'froid' 
+                        ? 'bg-blue-100 border-blue-500 text-blue-700' 
+                        : 'border-gray-300 text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    🔵 Froid
+                  </button>
+                </div>
+              </div>
+
+              {/* Source */}
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1 flex items-center gap-2">
+                  <span>📍</span>
+                  Source du contact
+                </label>
+                <select
+                  value={formData.source || ''}
+                  onChange={(e) => setFormData({ ...formData, source: e.target.value || null })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 text-sm"
+                >
+                  <option value="">-- Non renseigné --</option>
+                  <option value="bouche_a_oreille">Bouche-à-oreille</option>
+                  <option value="site_web">Site web</option>
+                  <option value="linkedin">LinkedIn</option>
+                  <option value="salon">Salon / Événement</option>
+                  <option value="appel_froid">Appel froid</option>
+                  <option value="prescripteur">Prescripteur</option>
+                </select>
+              </div>
+
+              {/* Timeline */}
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1 flex items-center gap-2">
+                  <span>📅</span>
+                  Urgence / Timeline
+                </label>
+                <select
+                  value={formData.timeline || ''}
+                  onChange={(e) => setFormData({ ...formData, timeline: e.target.value || null })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 text-sm"
+                >
+                  <option value="">-- Non renseigné --</option>
+                  <option value="urgent">Urgent (ce mois)</option>
+                  <option value="court_terme">Court terme (ce trimestre)</option>
+                  <option value="long_terme">Long terme (cette année)</option>
+                </select>
+              </div>
+
+              {/* Formations d'intérêt */}
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-2 flex items-center gap-2">
+                  <span>📚</span>
+                  Formations d'intérêt
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { value: 'sst', label: 'SST' },
+                    { value: 'incendie', label: 'Incendie' },
+                    { value: 'r489', label: 'R489 (Chariots)' },
+                    { value: 'r485', label: 'R485 (Gerbeurs)' },
+                    { value: 'habilitation_elec', label: 'Habilitation Élec B0H0V' },
+                    { value: 'duerp', label: 'DUERP' },
+                    { value: 'gestes_postures', label: 'Gestes & Postures' }
+                  ].map(formation => (
+                    <label key={formation.value} className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={formData.formations_interet.includes(formation.value)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setFormData({
+                              ...formData,
+                              formations_interet: [...formData.formations_interet, formation.value]
+                            })
+                          } else {
+                            setFormData({
+                              ...formData,
+                              formations_interet: formData.formations_interet.filter(f => f !== formation.value)
+                            })
+                          }
+                        }}
+                        className="w-4 h-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                      />
+                      <span className="text-gray-700">{formation.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Budget estimé */}
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1 flex items-center gap-2">
+                  <span>💶</span>
+                  Budget estimé
+                </label>
+                <input
+                  type="text"
+                  value={formData.budget_estime}
+                  onChange={(e) => setFormData({ ...formData, budget_estime: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 text-sm"
+                  placeholder="Ex: 2000-3000€"
+                />
+              </div>
+
+              {/* Concurrence */}
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1 flex items-center gap-2">
+                  <span>🏢</span>
+                  Concurrence
+                </label>
+                <input
+                  type="text"
+                  value={formData.concurrence}
+                  onChange={(e) => setFormData({ ...formData, concurrence: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 text-sm"
+                  placeholder="Ex: Travaille déjà avec XYZ"
+                />
+              </div>
+            </div>
+          </details>
         </div>
 
         {/* Sidebar actions */}
