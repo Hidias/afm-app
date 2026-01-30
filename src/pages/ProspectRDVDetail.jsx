@@ -18,7 +18,6 @@ export default function ProspectRDVDetail() {
   const [clients, setClients] = useState([])
   const [contacts, setContacts] = useState([])
   const [selectedClient, setSelectedClient] = useState(null)
-  const [showNeedsAnalysis, setShowNeedsAnalysis] = useState(false)
   const [showNewClientModal, setShowNewClientModal] = useState(false)
   const [newClientData, setNewClientData] = useState({
     name: '',
@@ -574,23 +573,25 @@ export default function ProspectRDVDetail() {
               </div>
             </div>
           </div>
+
+          {/* Analyse des besoins inline */}
+          {formData.client_id && (
+            <div className="bg-white rounded-lg border border-gray-200 p-6">
+              <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                <FileText className="w-5 h-5 text-primary-600" />
+                Analyse des besoins
+              </h2>
+              <ProspectNeedsAnalysis 
+                clientId={formData.client_id}
+                rdvId={id !== 'nouveau' ? id : null}
+                onClose={() => {}}
+              />
+            </div>
+          )}
         </div>
 
         {/* Sidebar actions */}
         <div className="space-y-4">
-          {!isNew && formData.client_id && (
-            <div className="bg-primary-50 border border-primary-200 rounded-lg p-4">
-              <h3 className="font-semibold text-primary-900 mb-3">Analyse des besoins</h3>
-              <button
-                onClick={() => setShowNeedsAnalysis(true)}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
-              >
-                <FileText className="w-4 h-4" />
-                Remplir l'analyse
-              </button>
-            </div>
-          )}
-
           {selectedClient && (
             <div className="bg-white rounded-lg border border-gray-200 p-4">
               <h3 className="font-semibold text-gray-900 mb-3">Informations client</h3>
@@ -748,30 +749,6 @@ export default function ProspectRDVDetail() {
                   Créer le client
                 </button>
               </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal Analyse des besoins */}
-      {showNeedsAnalysis && formData.client_id && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg max-w-5xl w-full max-h-[90vh] overflow-hidden">
-            <div className="p-4 border-b flex items-center justify-between">
-              <h2 className="text-xl font-bold">Analyse des besoins</h2>
-              <button
-                onClick={() => setShowNeedsAnalysis(false)}
-                className="p-2 hover:bg-gray-100 rounded-lg"
-              >
-                <ArrowLeft className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="overflow-y-auto max-h-[calc(90vh-80px)]">
-              <ProspectNeedsAnalysis 
-                clientId={formData.client_id}
-                rdvId={id !== 'nouveau' ? id : null}
-                onClose={() => setShowNeedsAnalysis(false)}
-              />
             </div>
           </div>
         </div>
