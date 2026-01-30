@@ -80,6 +80,21 @@ export default function ProspectRDVDetail() {
     }
   }, [formData.client_id])
 
+  // Auto-fill adresse quand on change le lieu vers "leurs_locaux"
+  useEffect(() => {
+    if (formData.rdv_location === 'leurs_locaux' && selectedClient && !formData.rdv_address) {
+      const clientAddress = [
+        selectedClient.address,
+        selectedClient.postal_code,
+        selectedClient.city
+      ].filter(Boolean).join(', ')
+      
+      if (clientAddress) {
+        setFormData(prev => ({ ...prev, rdv_address: clientAddress }))
+      }
+    }
+  }, [formData.rdv_location, selectedClient])
+
   const loadClients = async () => {
     const { data } = await supabase
       .from('clients')
@@ -95,6 +110,20 @@ export default function ProspectRDVDetail() {
       .eq('id', clientId)
       .single()
     setSelectedClient(data)
+    
+    // Auto-fill adresse si "leurs_locaux" et adresse vide
+    if (data && formData.rdv_location === 'leurs_locaux' && !formData.rdv_address) {
+      const clientAddress = [
+        data.address,
+        data.postal_code,
+        data.city
+      ].filter(Boolean).join(', ')
+      
+      if (clientAddress) {
+        setFormData(prev => ({ ...prev, rdv_address: clientAddress }))
+      }
+    }
+  }
   }
 
   const loadClientContacts = async (clientId) => {
