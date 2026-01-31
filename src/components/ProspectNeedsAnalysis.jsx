@@ -55,12 +55,29 @@ export default function ProspectNeedsAnalysis({ clientId, rdvId, onClose }) {
   // Refs pour les canvas de signature
   const signatureTrainerRef = useRef(null)
   const signatureClientRef = useRef(null)
+  
+  // États pour stocker les signatures en base64 (pour les restaurer)
+  const [savedSignatureTrainer, setSavedSignatureTrainer] = useState(null)
+  const [savedSignatureClient, setSavedSignatureClient] = useState(null)
 
   useEffect(() => {
     if (clientId) {
       loadAnalysis()
     }
   }, [clientId])
+
+  // Restaurer les signatures automatiquement à chaque render
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (savedSignatureTrainer && signatureTrainerRef.current && signatureTrainerRef.current.isEmpty()) {
+        signatureTrainerRef.current.fromDataURL(savedSignatureTrainer)
+      }
+      if (savedSignatureClient && signatureClientRef.current && signatureClientRef.current.isEmpty()) {
+        signatureClientRef.current.fromDataURL(savedSignatureClient)
+      }
+    }, 50)
+    return () => clearTimeout(timer)
+  }, [savedSignatureTrainer, savedSignatureClient, showForm])
 
   const loadAnalysis = async () => {
     try {
@@ -125,6 +142,13 @@ export default function ProspectNeedsAnalysis({ clientId, rdvId, onClose }) {
         })
 
         // Charger les signatures si elles existent
+        if (data.signature_trainer) {
+          setSavedSignatureTrainer(data.signature_trainer)
+        }
+        if (data.signature_client) {
+          setSavedSignatureClient(data.signature_client)
+        }
+        
         setTimeout(() => {
           if (data.signature_trainer && signatureTrainerRef.current) {
             signatureTrainerRef.current.fromDataURL(data.signature_trainer)
@@ -232,12 +256,14 @@ export default function ProspectNeedsAnalysis({ clientId, rdvId, onClose }) {
   const clearSignatureTrainer = () => {
     if (signatureTrainerRef.current) {
       signatureTrainerRef.current.clear()
+      setSavedSignatureTrainer(null)
     }
   }
 
   const clearSignatureClient = () => {
     if (signatureClientRef.current) {
       signatureClientRef.current.clear()
+      setSavedSignatureClient(null)
     }
   }
 
