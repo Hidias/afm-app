@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { X, FileText, Send, Loader, CheckCircle, AlertCircle, Upload, Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { downloadNeedsAnalysisPDF } from '../lib/needsAnalysisPDF'
+import { downloadNeedsAnalysisPDF, getNeedsAnalysisPDFBytes } from '../lib/needsAnalysisPDF'
 
 const PROMPT_SYSTEM = `Tu es "AF Compte-rendu", assistant de rédaction de mails post-RDV pour Access Formation.
 
@@ -23,11 +23,13 @@ STRUCTURE MAIL :
 GÉNÈRE 3 OBJETS puis 1 MAIL COMPLET (sans signature)
 `
 
-export default function CompteRenduModal({ rdv, client, analysisData, onClose }) {
+export default function CompteRenduModal({ rdv, client, analysisData: analysisDataProp, onClose }) {
   const [step, setStep] = useState('notes') // 'notes', 'generating', 'preview', 'sending', 'sent'
   const [notesCRM, setNotesCRM] = useState(rdv?.notes_crm || '')
   const [attachPDF, setAttachPDF] = useState(true)
   const [uploadedFiles, setUploadedFiles] = useState([]) // Fichiers uploadés par l'utilisateur
+  const [analysisData, setAnalysisData] = useState(analysisDataProp)
+  const [organization, setOrganization] = useState(null)
   
   const [generatedEmail, setGeneratedEmail] = useState(null)
   const [emailSubject, setEmailSubject] = useState('')
@@ -42,6 +44,7 @@ export default function CompteRenduModal({ rdv, client, analysisData, onClose })
   
   useEffect(() => {
     loadUserEmail()
+    loadAnalysisAndOrg()
   }, [])
 
   const loadUserEmail = async () => {
@@ -55,6 +58,25 @@ export default function CompteRenduModal({ rdv, client, analysisData, onClose })
       .single()
     
     if (data) setUserEmail(data.email)
+  }
+
+  const loadAnalysisAndOrg = async () => {
+    // Charger organization settings
+    const { data: orgData } = await supabase
+      .from('organization_settings')
+      .select('*')
+      .single()
+    if (orgData) setOrganization(orgData)
+
+    // Charger analysisData si pas déjà passé via props
+    if (!analysisData && rdv?.client_id) {
+      const { data: analysis } = await supabase
+        .from('prospect_needs_analysis')
+        .select('*')
+        .eq('client_id', rdv.client_id)
+        .maybeSingle()
+      if (analysis) setAnalysisData(analysis)
+    }
   }
 
   // Fonction pour uploader des fichiers
@@ -170,39 +192,31 @@ export default function CompteRenduModal({ rdv, client, analysisData, onClose })
       
       // 1. PDF de l'analyse des besoins
       if (attachPDF && rdv?.client_id) {
-        // Pour l'instant désactivé car la fonction downloadNeedsAnalysisPDF a besoin d'ajustements
-        toast.error('PDF d\'analyse temporairement désactivé - Utilisez "Ajouter d\'autres fichiers" pour joindre le PDF manuellement')
-        
-        /* TODO: À réactiver quand downloadNeedsAnalysisPDF sera corrigée
         try {
-          const { data: analysis } = await supabase
-            .from('prospect_needs_analysis')
-            .select('*')
-            .eq('client_id', rdv.client_id)
-            .maybeSingle()
-          
-          if (analysis) {
-            const pdfBytes = await downloadNeedsAnalysisPDF({
-              ...analysis,
-              clients: client
-            }, false)
-            
+          if (analysisData) {
+            const pdfBytes = await getNeedsAnalysisPDFBytes(
+              client || { name: rdv?.client_name || 'Client' },
+              analysisData,
+              false,
+              organization
+            )
             const pdfBase64 = btoa(
               new Uint8Array(pdfBytes).reduce((data, byte) => data + String.fromCharCode(byte), '')
             )
-            
             attachments.push({
-              filename: `Analyse_Besoin_${client?.name?.replace(/\s/g, '_')}.pdf`,
+              filename: `Analyse_Besoin_${(client?.name || 'Client').replace(/\s/g, '_')}.pdf`,
               content: pdfBase64,
               encoding: 'base64',
-              size: pdfBytes.length
+              size: pdfBytes.byteLength
             })
+            console.log('✅ PDF analyse de besoins généré:', pdfBytes.byteLength, 'bytes')
+          } else {
+            console.log('ℹ️ Pas d\'analyse de besoins trouvée pour ce client')
           }
         } catch (pdfError) {
-          console.error('Erreur génération PDF:', pdfError)
+          console.error('Erreur génération PDF analyse:', pdfError)
           toast.error('Impossible de générer le PDF d\'analyse')
         }
-        */
       }
       
       // 2. Fichiers uploadés par l'utilisateur
@@ -306,13 +320,6 @@ Exemple :
                   📎 Documents à joindre
                 </label>
                 
-                {/* Note sur le PDF */}
-                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-3">
-                  <p className="text-xs text-yellow-800">
-                    💡 <strong>Pour joindre le PDF d'analyse des besoins</strong> : Générez-le d'abord depuis la page du RDV, 
-                    puis uploadez-le ci-dessous avec le bouton "+ Ajouter d'autres fichiers"
-                  </p>
-                </div>
                 
                 {/* Upload de fichiers */}
                 <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 mb-3">
