@@ -27,13 +27,13 @@ export default function EmailSettings() {
       setUserId(user.id)
 
       // Récupérer la config existante
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('user_email_configs')
         .select('email')
         .eq('user_id', user.id)
-        .single()
+        .maybeSingle()
 
-      if (data) {
+      if (data && !error) {
         setFormData(prev => ({ ...prev, email: data.email }))
         setHasConfig(true)
       }
