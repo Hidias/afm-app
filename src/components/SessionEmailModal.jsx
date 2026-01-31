@@ -99,29 +99,31 @@ Nous vous remercions pour votre confiance et restons à votre disposition.`)
           addLog('✅ Convention générée')
         }
 
-        // ── PROGRAMME (depuis course_documents uploadé) ──
+        // ── PROGRAMME (courses.program_url uniquement) ──
         addLog('Programme...')
         try {
-          const { data } = await supabase
-            .from('course_documents')
-            .select('*')
-            .eq('course_id', session.course_id)
-            .eq('type', 'programme')
-            .order('created_at', { ascending: false })
-            .limit(1)
+          const { data: course } = await supabase
+            .from('courses')
+            .select('program_url, title')
+            .eq('id', session.course_id)
+            .single()
 
-          if (data && data.length > 0) {
-            const response = await fetch(data[0].file_url)
+          if (course?.program_url) {
+            const response = await fetch(course.program_url)
             if (response.ok) {
               const blob = await response.blob()
               const base64 = await blobToBase64(blob)
-              files.push({ id: 'programme', name: data[0].file_name || 'Programme.pdf', base64, size: base64.length })
+              const programmeName = `Programme_${course.title || 'formation'}.pdf`
+              files.push({ id: 'programme', name: programmeName, base64, size: base64.length })
               addLog('✅ Programme récupéré')
+            } else {
+              addLog('⚠️ Erreur téléchargement programme')
             }
           } else {
-            addLog('⚠️ Programme non trouvé dans Documents de formation')
+            addLog('⚠️ Programme non trouvé — uploadez-le dans la formation')
           }
         } catch (e) {
+          console.error('Erreur récupération programme:', e)
           addLog('⚠️ Erreur récupération programme')
         }
 
