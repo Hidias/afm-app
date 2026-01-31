@@ -249,9 +249,16 @@ Nous vous remercions pour votre confiance et restons à votre disposition.`)
       const prefix = `${session.id}/${Date.now()}`
       const uploadedPaths = []
 
+      // Slugify pour le chemin storage (pas d'accents, espaces, apostrophes)
+      const slugify = (name) => name
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // accents → base
+        .replace(/[^a-zA-Z0-9._-]/g, '-')                // caractères spéciaux → tiret
+        .replace(/-+/g, '-')                              // tirets multiples → un seul
+
       for (const file of allFiles) {
         const blob = new Blob([Uint8Array.from(atob(file.base64), c => c.charCodeAt(0))], { type: 'application/pdf' })
-        const storagePath = `${prefix}/${file.name}`
+        const safeFileName = slugify(file.name)
+        const storagePath = `${prefix}/${safeFileName}`
 
         const { error: uploadError } = await supabase.storage
           .from('session-email-docs')
