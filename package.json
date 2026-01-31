@@ -24,7 +24,8 @@
     "clsx": "^2.0.0",
     "zustand": "^4.4.7",
     "xlsx": "^0.18.5",
-    "pdf-lib": "^1.17.1"
+    "pdf-lib": "^1.17.1",
+    "nodemailer": "^6.9.8"
   },
   "devDependencies": {
     "@types/react": "^18.2.37",
