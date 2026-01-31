@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
-import { X, FileText, Send, Loader, CheckCircle, AlertCircle } from 'lucide-react'
+import { X, FileText, Send, Loader, CheckCircle, AlertCircle, Upload, Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { downloadNeedsAnalysisPDF } from '../lib/needsAnalysisPDF'
 
@@ -27,7 +27,7 @@ export default function CompteRenduModal({ rdv, client, analysisData, onClose })
   const [step, setStep] = useState('notes') // 'notes', 'generating', 'preview', 'sending', 'sent'
   const [notesCRM, setNotesCRM] = useState(rdv?.notes_crm || '')
   const [attachPDF, setAttachPDF] = useState(true)
-  const [customDocs, setCustomDocs] = useState([])
+  const [uploadedFiles, setUploadedFiles] = useState([]) // Fichiers uploadés par l'utilisateur
   
   const [generatedEmail, setGeneratedEmail] = useState(null)
   const [emailSubject, setEmailSubject] = useState('')
@@ -55,6 +55,41 @@ export default function CompteRenduModal({ rdv, client, analysisData, onClose })
       .single()
     
     if (data) setUserEmail(data.email)
+  }
+
+  // Fonction pour uploader des fichiers
+  const handleFileUpload = (e) => {
+    const files = Array.from(e.target.files)
+    
+    files.forEach(file => {
+      // Vérifier la taille (max 10MB)
+      if (file.size > 10 * 1024 * 1024) {
+        toast.error(`${file.name} est trop volumineux (max 10MB)`)
+        return
+      }
+      
+      // Lire le fichier en base64
+      const reader = new FileReader()
+      reader.onload = (event) => {
+        setUploadedFiles(prev => [...prev, {
+          id: Date.now() + Math.random(),
+          name: file.name,
+          size: file.size,
+          base64: event.target.result.split(',')[1] // Enlever le préfixe data:...
+        }])
+        toast.success(`${file.name} ajouté`)
+      }
+      reader.readAsDataURL(file)
+    })
+    
+    // Reset input
+    e.target.value = ''
+  }
+
+  // Fonction pour supprimer un fichier
+  const handleRemoveFile = (fileId) => {
+    setUploadedFiles(prev => prev.filter(f => f.id !== fileId))
+    toast.success('Fichier supprimé')
   }
 
   const handleGenerate = async () => {
@@ -133,18 +168,52 @@ export default function CompteRenduModal({ rdv, client, analysisData, onClose })
       // Préparer les pièces jointes
       const attachments = []
       
-      if (attachPDF && analysisData) {
-        // Générer le PDF de l'analyse
-        const pdfBlob = await generateAnalysisPDFBlob()
-        const pdfBase64 = await blobToBase64(pdfBlob)
-        
-        attachments.push({
-          filename: `Analyse_Besoin_${client?.name?.replace(/\s/g, '_')}.pdf`,
-          content: pdfBase64.split(',')[1],
-          encoding: 'base64',
-          size: pdfBlob.size
-        })
+      // 1. PDF de l'analyse des besoins
+      if (attachPDF && rdv?.client_id) {
+        try {
+          // Charger l'analyse depuis Supabase
+          const { data: analysis } = await supabase
+            .from('prospect_needs_analysis')
+            .select('*')
+            .eq('client_id', rdv.client_id)
+            .maybeSingle()
+          
+          if (analysis) {
+            // Générer le PDF avec la fonction existante
+            const pdfBytes = await downloadNeedsAnalysisPDF({
+              ...analysis,
+              clients: client
+            }, false) // false = retourne les bytes, ne télécharge pas
+            
+            // Convertir en base64
+            const pdfBase64 = btoa(
+              new Uint8Array(pdfBytes).reduce((data, byte) => data + String.fromCharCode(byte), '')
+            )
+            
+            attachments.push({
+              filename: `Analyse_Besoin_${client?.name?.replace(/\s/g, '_')}.pdf`,
+              content: pdfBase64,
+              encoding: 'base64',
+              size: pdfBytes.length
+            })
+          } else {
+            toast.error('Analyse des besoins non trouvée')
+          }
+        } catch (pdfError) {
+          console.error('Erreur génération PDF:', pdfError)
+          toast.error('Impossible de générer le PDF d\'analyse')
+        }
       }
+      
+      // 2. Fichiers uploadés par l'utilisateur
+      uploadedFiles.forEach(file => {
+        attachments.push({
+          filename: file.name,
+          content: file.base64,
+          encoding: 'base64',
+          size: file.size
+        })
+      })
 
       // Envoyer via l'API
       const response = await fetch('/api/send-email-rdv', {
@@ -236,7 +305,9 @@ Exemple :
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   📎 Documents à joindre
                 </label>
-                <label className="flex items-center gap-2">
+                
+                {/* PDF Analyse */}
+                <label className="flex items-center gap-2 mb-3">
                   <input
                     type="checkbox"
                     checked={attachPDF}
@@ -245,6 +316,50 @@ Exemple :
                   />
                   <span className="text-sm">Analyse des besoins (PDF)</span>
                 </label>
+                
+                {/* Upload de fichiers */}
+                <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 mb-3">
+                  <label className="flex flex-col items-center cursor-pointer">
+                    <Upload className="w-8 h-8 text-gray-400 mb-2" />
+                    <span className="text-sm text-gray-600 text-center">
+                      Ajouter d'autres fichiers (INRS, brochures, devis...)
+                      <br />
+                      <span className="text-xs text-gray-500">Max 10MB par fichier • PDF, Word, Excel, Images</span>
+                    </span>
+                    <input
+                      type="file"
+                      multiple
+                      onChange={handleFileUpload}
+                      className="hidden"
+                      accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.gif"
+                    />
+                  </label>
+                </div>
+                
+                {/* Liste des fichiers uploadés */}
+                {uploadedFiles.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium text-gray-700">Fichiers ajoutés :</p>
+                    {uploadedFiles.map(file => (
+                      <div key={file.id} className="flex items-center justify-between bg-gray-50 p-2 rounded-lg">
+                        <div className="flex items-center gap-2">
+                          <FileText className="w-4 h-4 text-gray-500" />
+                          <span className="text-sm">{file.name}</span>
+                          <span className="text-xs text-gray-500">
+                            ({(file.size / 1024).toFixed(0)} KB)
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => handleRemoveFile(file.id)}
+                          className="p-1 hover:bg-gray-200 rounded"
+                          title="Supprimer"
+                        >
+                          <Trash2 className="w-4 h-4 text-red-600" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <button
@@ -296,11 +411,15 @@ Exemple :
                 />
               </div>
 
-              {attachPDF && (
+              {(attachPDF || uploadedFiles.length > 0) && (
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                  <p className="text-sm text-blue-800">
-                    📎 PJ : Analyse_Besoin_{client?.name?.replace(/\s/g, '_')}.pdf
-                  </p>
+                  <p className="text-sm font-medium text-blue-900 mb-2">📎 Pièces jointes :</p>
+                  <ul className="text-sm text-blue-800 space-y-1">
+                    {attachPDF && <li>• Analyse_Besoin_{client?.name?.replace(/\s/g, '_')}.pdf</li>}
+                    {uploadedFiles.map(file => (
+                      <li key={file.id}>• {file.name}</li>
+                    ))}
+                  </ul>
                 </div>
               )}
 
