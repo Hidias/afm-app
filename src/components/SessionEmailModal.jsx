@@ -2,15 +2,18 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { X, FileText, Send, Loader, CheckCircle, AlertCircle, Upload, Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { generatePDF, generateAllPDF } from '../lib/pdfGenerator'
 
-export default function SessionEmailModal({ session, emailType, onClose }) {
-  const [step, setStep] = useState('compose') // 'compose', 'sending', 'sent'
+export default function SessionEmailModal({ session, emailType, sessionCosts, questions, traineeResults, onClose }) {
+  const [step, setStep] = useState('generating') // 'generating', 'compose', 'sending', 'sent'
+  const [generatedFiles, setGeneratedFiles] = useState([])
   const [uploadedFiles, setUploadedFiles] = useState([])
-  
+  const [generationLog, setGenerationLog] = useState([])
+
   const [emailSubject, setEmailSubject] = useState('')
   const [emailBody, setEmailBody] = useState('')
   const [toEmail, setToEmail] = useState('')
-  
+
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [userEmail, setUserEmail] = useState(null)
@@ -18,35 +21,30 @@ export default function SessionEmailModal({ session, emailType, onClose }) {
   useEffect(() => {
     loadUserEmail()
     initializeEmail()
+    generateAllDocuments()
   }, [])
 
   const loadUserEmail = async () => {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
-    
     const { data } = await supabase
       .from('user_email_configs')
       .select('email')
       .eq('user_id', user.id)
       .maybeSingle()
-    
     if (data) setUserEmail(data.email)
   }
 
   const initializeEmail = () => {
-    // Déterminer le destinataire
     const sessionContact = session?.contact
     const primaryContact = session?.clients?.contacts?.find(c => c.is_primary)
     const firstContact = session?.clients?.contacts?.[0]
     const contactEmail = sessionContact?.email || primaryContact?.email || firstContact?.email || session?.clients?.email || ''
-    
     setToEmail(contactEmail)
 
-    // Générer le sujet et corps selon le type
     const ref = session?.reference || ''
     const courseTitle = session?.courses?.title || ''
-    const clientName = session?.clients?.name || ''
-    
+
     if (emailType === 'before') {
       setEmailSubject(`${courseTitle} - Documents de formation - ${ref}`)
       setEmailBody(`Bonjour,
@@ -75,15 +73,131 @@ Nous vous remercions pour votre confiance et restons à votre disposition.`)
     }
   }
 
+  // ─── Génération automatique de tous les documents ───
+  const generateAllDocuments = async () => {
+    const trainer = session?.trainers || null
+    const traineesWithResult = session?.session_trainees?.map(st => ({
+      ...st.trainees,
+      result: st.result || (traineeResults && traineeResults[st.trainee_id]) || null,
+      access_code: st.access_code
+    })) || []
+
+    const files = []
+    const addLog = (msg) => setGenerationLog(prev => [...prev, msg])
+
+    try {
+      if (emailType === 'before') {
+        // ── CONVENTION ──
+        addLog('Convention...')
+        const convention = generatePDF('convention', session, {
+          trainees: traineesWithResult,
+          trainer,
+          costs: sessionCosts || []
+        })
+        if (convention) {
+          files.push({ id: 'convention', name: convention.filename, base64: convention.base64, size: convention.size })
+          addLog('✅ Convention générée')
+        }
+
+        // ── PROGRAMME (depuis course_documents uploadé) ──
+        addLog('Programme...')
+        try {
+          const { data } = await supabase
+            .from('course_documents')
+            .select('*')
+            .eq('course_id', session.course_id)
+            .eq('type', 'programme')
+            .order('created_at', { ascending: false })
+            .limit(1)
+
+          if (data && data.length > 0) {
+            const response = await fetch(data[0].file_url)
+            if (response.ok) {
+              const blob = await response.blob()
+              const base64 = await blobToBase64(blob)
+              files.push({ id: 'programme', name: data[0].file_name || 'Programme.pdf', base64, size: base64.length })
+              addLog('✅ Programme récupéré')
+            }
+          } else {
+            addLog('⚠️ Programme non trouvé dans Documents de formation')
+          }
+        } catch (e) {
+          addLog('⚠️ Erreur récupération programme')
+        }
+
+        // ── CONVOCATIONS (tous les stagiaires en un seul PDF) ──
+        addLog(`Convocations (${traineesWithResult.length} stagiaires)...`)
+        const convocations = await generateAllPDF('convocation', session, traineesWithResult, { trainer })
+        if (convocations) {
+          files.push({ id: 'convocations', name: convocations.filename, base64: convocations.base64, size: convocations.size })
+          addLog('✅ Convocations générées')
+        }
+
+      } else {
+        // ── CERTIFICATS ──
+        addLog(`Certificats (${traineesWithResult.length} stagiaires)...`)
+        const certificats = await generateAllPDF('certificat', session, traineesWithResult, { trainer })
+        if (certificats) {
+          files.push({ id: 'certificats', name: certificats.filename, base64: certificats.base64, size: certificats.size })
+          addLog('✅ Certificats générés')
+        }
+
+        // ── ATTESTATIONS ──
+        addLog(`Attestations (${traineesWithResult.length} stagiaires)...`)
+        const attestations = await generateAllPDF('attestation', session, traineesWithResult, { trainer })
+        if (attestations) {
+          files.push({ id: 'attestations', name: attestations.filename, base64: attestations.base64, size: attestations.size })
+          addLog('✅ Attestations générées')
+        }
+
+        // ── EMARGEMENT ──
+        addLog('Feuille d\'émargement...')
+        const emargement = generatePDF('emargement', session, {
+          trainees: traineesWithResult,
+          trainer
+        })
+        if (emargement) {
+          files.push({ id: 'emargement', name: emargement.filename, base64: emargement.base64, size: emargement.size })
+          addLog('✅ Émargement généré')
+        }
+
+        // ── EVALUATIONS À FROID ──
+        addLog(`Évaluations à froid (${traineesWithResult.length} stagiaires)...`)
+        const evaluationsFroid = await generateAllPDF('evaluationFroid', session, traineesWithResult, { trainer })
+        if (evaluationsFroid) {
+          files.push({ id: 'evaluationsFroid', name: evaluationsFroid.filename, base64: evaluationsFroid.base64, size: evaluationsFroid.size })
+          addLog('✅ Évaluations à froid générées')
+        }
+      }
+
+      setGeneratedFiles(files)
+      setStep('compose')
+
+    } catch (err) {
+      console.error('Erreur génération documents:', err)
+      setError('Erreur lors de la génération : ' + err.message)
+      setGeneratedFiles(files)
+      setStep('compose')
+    }
+  }
+
+  const blobToBase64 = (blob) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onloadend = () => resolve(reader.result.split(',')[1])
+      reader.onerror = reject
+      reader.readAsDataURL(blob)
+    })
+  }
+
+  // ─── Upload manuel supplémentaire ───
   const handleFileUpload = (e) => {
     const files = Array.from(e.target.files)
-    
     files.forEach(file => {
       if (file.size > 10 * 1024 * 1024) {
         toast.error(`${file.name} est trop volumineux (max 10MB)`)
         return
       }
-      
       const reader = new FileReader()
       reader.onload = (event) => {
         setUploadedFiles(prev => [...prev, {
@@ -92,27 +206,34 @@ Nous vous remercions pour votre confiance et restons à votre disposition.`)
           size: file.size,
           base64: event.target.result.split(',')[1]
         }])
-        toast.success(`${file.name} ajouté`)
       }
       reader.readAsDataURL(file)
     })
-    
     e.target.value = ''
   }
 
-  const handleRemoveFile = (fileId) => {
-    setUploadedFiles(prev => prev.filter(f => f.id !== fileId))
-    toast.success('Fichier supprimé')
+  const handleRemoveFile = (fileId, isGenerated) => {
+    if (isGenerated) {
+      setGeneratedFiles(prev => prev.filter(f => f.id !== fileId))
+    } else {
+      setUploadedFiles(prev => prev.filter(f => f.id !== fileId))
+    }
   }
 
+  // ─── Envoi ───
   const handleSend = async () => {
     if (!toEmail || !emailSubject || !emailBody) {
       toast.error('Email, objet et corps obligatoires')
       return
     }
-
     if (!userEmail) {
       toast.error('Configurez votre email dans Paramètres')
+      return
+    }
+
+    const allFiles = [...generatedFiles, ...uploadedFiles]
+    if (allFiles.length === 0) {
+      toast.error('Aucun document à envoyer')
       return
     }
 
@@ -121,16 +242,14 @@ Nous vous remercions pour votre confiance et restons à votre disposition.`)
 
     try {
       const { data: { user } } = await supabase.auth.getUser()
-      
-      // Préparer les pièces jointes
-      const attachments = uploadedFiles.map(file => ({
+
+      const attachments = allFiles.map(file => ({
         filename: file.name,
         content: file.base64,
         encoding: 'base64',
         size: file.size
       }))
 
-      // Envoyer via l'API
       const response = await fetch('/api/send-email-session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -146,130 +265,167 @@ Nous vous remercions pour votre confiance et restons à votre disposition.`)
       })
 
       const result = await response.json()
-
-      if (!response.ok) throw new Error(result.error)
+      if (!response.ok) throw new Error(result.error || result.details)
 
       setStep('sent')
       toast.success('Email envoyé avec succès !')
-
-      setTimeout(() => {
-        onClose()
-      }, 2000)
+      setTimeout(() => onClose(), 2000)
 
     } catch (err) {
       console.error('Erreur envoi:', err)
       setError(err.message)
-      toast.error('Erreur lors de l\'envoi')
+      toast.error('Erreur lors de l\'envoi : ' + err.message)
       setStep('compose')
     } finally {
       setLoading(false)
     }
   }
 
-  const typeLabels = {
-    before: { icon: '📤', title: 'Documents avant formation', color: 'blue' },
-    after: { icon: '📥', title: 'Documents après formation', color: 'green' }
-  }
+  // ─── Render ───
+  const isBefore = emailType === 'before'
+  const headerBg = isBefore ? 'bg-blue-600' : 'bg-green-600'
+  const btnBg = isBefore ? 'bg-blue-600 hover:bg-blue-700' : 'bg-green-600 hover:bg-green-700'
+  const icon = isBefore ? '📤' : '📥'
+  const title = isBefore ? 'Documents avant formation' : 'Documents après formation'
+  const totalFiles = generatedFiles.length + uploadedFiles.length
 
-  const currentType = typeLabels[emailType]
+  const formatSize = (size) => {
+    if (size > 1024 * 1024) return (size / (1024 * 1024)).toFixed(1) + ' MB'
+    return (size / 1024).toFixed(0) + ' KB'
+  }
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-hidden">
+      <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden shadow-xl">
+
         {/* Header */}
-        <div className={`p-4 border-b flex items-center justify-between bg-${currentType.color}-600 text-white`}>
-          <h2 className="text-xl font-bold flex items-center gap-2">
-            <span>{currentType.icon}</span>
-            {currentType.title}
+        <div className={`${headerBg} text-white p-4 flex items-center justify-between flex-shrink-0`}>
+          <h2 className="text-lg font-bold flex items-center gap-2">
+            <span>{icon}</span> {title}
           </h2>
-          <button onClick={onClose} className={`p-1 hover:bg-${currentType.color}-700 rounded`}>
+          <button onClick={onClose} className="p-1 hover:bg-white/20 rounded">
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Content */}
-        <div className="p-6 overflow-y-auto max-h-[calc(90vh-140px)]">
+        {/* Body — scrollable */}
+        <div className="p-5 overflow-y-auto flex-1">
+
+          {/* ── GÉNÉRATION EN COURS ── */}
+          {step === 'generating' && (
+            <div className="flex flex-col items-center justify-center py-10 space-y-4">
+              <Loader className="w-12 h-12 text-blue-600 animate-spin" />
+              <p className="text-lg font-semibold text-gray-800">Génération des documents…</p>
+              <div className="w-full max-w-sm bg-gray-50 rounded-lg border border-gray-200 p-3 space-y-1">
+                {generationLog.map((msg, i) => (
+                  <p key={i} className={`text-sm ${msg.startsWith('✅') ? 'text-green-700' : msg.startsWith('⚠️') ? 'text-amber-600' : 'text-gray-500'}`}>
+                    {msg}
+                  </p>
+                ))}
+                {generationLog.length === 0 && <p className="text-sm text-gray-400 italic">En attente…</p>}
+              </div>
+            </div>
+          )}
+
+          {/* ── COMPOSITION ── */}
           {step === 'compose' && (
             <div className="space-y-4">
+              {/* Destinataire */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Destinataire</label>
                 <input
                   type="email"
                   value={toEmail}
                   onChange={(e) => setToEmail(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
                   placeholder="email@exemple.fr"
                 />
               </div>
 
+              {/* Objet */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Objet</label>
                 <input
                   type="text"
                   value={emailSubject}
                   onChange={(e) => setEmailSubject(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
                 />
               </div>
 
+              {/* Corps */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Message</label>
                 <textarea
                   value={emailBody}
                   onChange={(e) => setEmailBody(e.target.value)}
-                  className="w-full h-64 px-3 py-2 border border-gray-300 rounded-lg"
+                  rows={6}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm resize-none"
                 />
               </div>
 
-              {/* Upload de fichiers */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  📎 Documents à joindre
-                </label>
-                
-                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-3">
-                  <p className="text-xs text-yellow-800">
-                    💡 <strong>Documents {emailType === 'before' ? 'avant' : 'après'} formation</strong> : 
-                    Générez-les depuis la page de la session, puis uploadez-les ci-dessous.
+              {/* Documents générés */}
+              {generatedFiles.length > 0 && (
+                <div>
+                  <p className="text-sm font-medium text-gray-700 mb-2">
+                    📎 Documents générés ({generatedFiles.length})
+                  </p>
+                  <div className="bg-green-50 border border-green-200 rounded-lg divide-y divide-green-200">
+                    {generatedFiles.map(file => (
+                      <div key={file.id} className="flex items-center justify-between px-3 py-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <CheckCircle className="w-4 h-4 text-green-600 flex-shrink-0" />
+                          <span className="text-sm text-gray-800 truncate">{file.name}</span>
+                          <span className="text-xs text-gray-400 flex-shrink-0">{formatSize(file.size)}</span>
+                        </div>
+                        <button onClick={() => handleRemoveFile(file.id, true)} className="p-1 hover:bg-green-100 rounded flex-shrink-0">
+                          <Trash2 className="w-4 h-4 text-red-500" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Avertissement programme manquant */}
+              {isBefore && generatedFiles.every(f => f.id !== 'programme') && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                  <p className="text-xs text-amber-700">
+                    Le programme n'a pas été trouvé dans <strong>Documents de formation</strong>. 
+                    Uploadez-le manuellement ci-dessous ou dans la page du cours.
                   </p>
                 </div>
-                
-                <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 mb-3">
-                  <label className="flex flex-col items-center cursor-pointer">
-                    <Upload className="w-8 h-8 text-gray-400 mb-2" />
-                    <span className="text-sm text-gray-600 text-center">
-                      Ajouter des fichiers (PDF, Word, Excel, Images)
-                      <br />
-                      <span className="text-xs text-gray-500">Max 10MB par fichier</span>
-                    </span>
-                    <input
-                      type="file"
-                      multiple
-                      onChange={handleFileUpload}
-                      className="hidden"
-                      accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.gif"
-                    />
-                  </label>
-                </div>
-                
+              )}
+
+              {/* Upload supplémentaire */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Ajouter des fichiers supplémentaires
+                </label>
+                <label className="flex items-center justify-center gap-2 border-2 border-dashed border-gray-300 rounded-lg p-3 cursor-pointer hover:border-gray-400 hover:bg-gray-50 transition-colors">
+                  <Upload className="w-5 h-5 text-gray-400" />
+                  <span className="text-sm text-gray-500">Choisir des fichiers</span>
+                  <input
+                    type="file"
+                    multiple
+                    onChange={handleFileUpload}
+                    className="hidden"
+                    accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png"
+                  />
+                </label>
+
                 {uploadedFiles.length > 0 && (
-                  <div className="space-y-2">
-                    <p className="text-xs font-medium text-gray-700">Fichiers ajoutés ({uploadedFiles.length}) :</p>
+                  <div className="mt-2 bg-gray-50 border border-gray-200 rounded-lg divide-y divide-gray-200">
                     {uploadedFiles.map(file => (
-                      <div key={file.id} className="flex items-center justify-between bg-gray-50 p-2 rounded-lg">
-                        <div className="flex items-center gap-2">
-                          <FileText className="w-4 h-4 text-gray-500" />
-                          <span className="text-sm">{file.name}</span>
-                          <span className="text-xs text-gray-500">
-                            ({(file.size / 1024).toFixed(0)} KB)
-                          </span>
+                      <div key={file.id} className="flex items-center justify-between px-3 py-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <FileText className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                          <span className="text-sm text-gray-800 truncate">{file.name}</span>
+                          <span className="text-xs text-gray-400 flex-shrink-0">{formatSize(file.size)}</span>
                         </div>
-                        <button
-                          onClick={() => handleRemoveFile(file.id)}
-                          className="p-1 hover:bg-gray-200 rounded"
-                          title="Supprimer"
-                        >
-                          <Trash2 className="w-4 h-4 text-red-600" />
+                        <button onClick={() => handleRemoveFile(file.id, false)} className="p-1 hover:bg-gray-200 rounded flex-shrink-0">
+                          <Trash2 className="w-4 h-4 text-red-500" />
                         </button>
                       </div>
                     ))}
@@ -277,50 +433,50 @@ Nous vous remercions pour votre confiance et restons à votre disposition.`)
                 )}
               </div>
 
-              <div className="flex gap-3 pt-4">
-                <button
-                  onClick={onClose}
-                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
-                >
-                  Annuler
-                </button>
-                <button
-                  onClick={handleSend}
-                  disabled={loading || uploadedFiles.length === 0}
-                  className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-${currentType.color}-600 text-white rounded-lg hover:bg-${currentType.color}-700 disabled:opacity-50`}
-                >
-                  {loading ? <Loader className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
-                  Envoyer
-                </button>
-              </div>
+              {/* Erreur */}
+              {error && (
+                <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
+                  <p className="text-xs text-red-700">{error}</p>
+                </div>
+              )}
             </div>
           )}
 
+          {/* ── ENVOI EN COURS ── */}
           {step === 'sending' && (
-            <div className="flex flex-col items-center justify-center py-12">
-              <Loader className={`w-12 h-12 text-${currentType.color}-600 animate-spin mb-4`} />
-              <p className="text-gray-600">Envoi en cours...</p>
+            <div className="flex flex-col items-center justify-center py-12 space-y-3">
+              <Loader className="w-10 h-10 text-blue-600 animate-spin" />
+              <p className="text-gray-600">Envoi de l'email avec {totalFiles} document(s)…</p>
             </div>
           )}
 
+          {/* ── ENVOYÉ ── */}
           {step === 'sent' && (
-            <div className="flex flex-col items-center justify-center py-12">
-              <CheckCircle className="w-16 h-16 text-green-600 mb-4" />
-              <p className="text-xl font-semibold text-gray-900 mb-2">Email envoyé !</p>
-              <p className="text-gray-600">L'email apparaîtra dans vos messages envoyés</p>
-            </div>
-          )}
-
-          {error && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-start gap-2">
-              <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
-              <div>
-                <p className="text-sm font-medium text-red-800">Erreur</p>
-                <p className="text-sm text-red-700">{error}</p>
-              </div>
+            <div className="flex flex-col items-center justify-center py-12 space-y-2">
+              <CheckCircle className="w-14 h-14 text-green-600" />
+              <p className="text-lg font-semibold text-gray-900">Email envoyé !</p>
+              <p className="text-sm text-gray-500">Il apparaîtra dans vos messages envoyés.</p>
             </div>
           )}
         </div>
+
+        {/* Footer — boutons fixes en bas */}
+        {step === 'compose' && (
+          <div className="px-5 py-3 border-t bg-gray-50 flex justify-end gap-3 flex-shrink-0">
+            <button onClick={onClose} className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg text-sm hover:bg-gray-100">
+              Annuler
+            </button>
+            <button
+              onClick={handleSend}
+              disabled={totalFiles === 0}
+              className={`${btnBg} text-white px-5 py-2 rounded-lg text-sm font-medium flex items-center gap-2 disabled:opacity-40`}
+            >
+              <Send className="w-4 h-4" />
+              Envoyer · {totalFiles} doc{totalFiles !== 1 ? 's' : ''}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )
