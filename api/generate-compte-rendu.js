@@ -48,7 +48,7 @@ STRUCTURE MAIL :
 1) Intro complète avec remerciement
 2) "Voici le récapitulatif..." (5-9 puces)
 3) "Prochaines étapes :" (De mon côté / De ton côté)
-4) Clôture style Hicham : "Encore merci pour le temps accordé et pour ta confiance. À très bientôt,"
+4) Clôture style Hicham : "Encore merci pour le temps accordé et pour ta confiance."
 
 GÉNÈRE 3 OBJETS puis 1 MAIL COMPLET (sans signature)`
 
