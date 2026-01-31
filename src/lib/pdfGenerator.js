@@ -2126,6 +2126,89 @@ export async function downloadAllDocuments(docType, session, trainees, options =
   doc.save(`${docNames[docType] || 'Documents'}_${ref}_Tous.pdf`)
 }
 
+// Même chose que downloadDocument mais retourne { base64, filename } au lieu de télécharger
+export function generatePDF(docType, session, options = {}) {
+  const { trainees = [], trainee = null, trainer = null, isBlank = false, questions = [], costs = [] } = options
+  const ref = session?.reference || 'VIERGE'
+  let doc, filename
+  
+  switch (docType) {
+    case 'convention': doc = generateConvention(session, trainees, trainer, costs); filename = `Convention_${ref}.pdf`; break
+    case 'certificat': doc = generateCertificat(session, trainee, trainer); filename = `Certificat_${ref}_${trainee?.last_name || ''}.pdf`; break
+    case 'emargement': doc = generateEmargement(session, trainees, trainer, isBlank); filename = isBlank ? 'Emargement_Vierge.pdf' : `Emargement_${ref}.pdf`; break
+    case 'convocation': doc = generateConvocation(session, trainee, trainer); filename = `Convocation_${ref}_${trainee?.last_name || ''}.pdf`; break
+    case 'attestation': doc = generateAttestation(session, trainee, trainer); filename = `Attestation_${ref}_${trainee?.last_name || ''}.pdf`; break
+    case 'programme': doc = generateProgramme(session, trainer); filename = `Programme_${ref}.pdf`; break
+    case 'evaluation': doc = generateEvaluation(session, trainee, isBlank); filename = isBlank ? 'Evaluation_Vierge.pdf' : `Evaluation_${ref}.pdf`; break
+    case 'evaluationFroid': doc = generateEvaluationFroid(session, trainee, isBlank); filename = isBlank ? 'EvaluationFroid_Vierge.pdf' : `EvaluationFroid_${ref}.pdf`; break
+    default: console.error('Type inconnu:', docType); return null
+  }
+  if (!doc) return null
+  const base64 = doc.output('datauristring').split(',')[1]
+  return { base64, filename, size: base64.length }
+}
+
+// Même chose que downloadAllDocuments mais retourne { base64, filename } au lieu de télécharger
+export async function generateAllPDF(docType, session, trainees, options = {}) {
+  if (!trainees || trainees.length === 0) return null
+  
+  const ref = session?.reference || 'VIERGE'
+  const { trainer = null, questions = [] } = options
+  
+  let qrCodeDataURL = null
+  if (docType === 'convocation' && session?.attendance_token) {
+    const portalURL = `https://app.accessformation.pro/#/portail/${session.attendance_token}`
+    try {
+      qrCodeDataURL = await QRCode.toDataURL(portalURL, {
+        width: 150,
+        margin: 1,
+        color: { dark: '#000000', light: '#FFFFFF' }
+      })
+    } catch (err) {
+      console.error('Erreur génération QR code:', err)
+    }
+  }
+  
+  const doc = new jsPDF('p', 'mm', 'a4')
+  const ph = doc.internal.pageSize.getHeight()
+  const pw = doc.internal.pageSize.getWidth()
+  
+  trainees.forEach((trainee, idx) => {
+    if (idx > 0) {
+      const currentPage = doc.internal.getNumberOfPages()
+      if (docType === 'positionnement' && currentPage % 2 !== 0) {
+        doc.addPage()
+        doc.setFontSize(8)
+        doc.setTextColor(200, 200, 200)
+        doc.text('(Page intentionnellement vide)', pw / 2, ph / 2, { align: 'center' })
+        doc.setTextColor(0, 0, 0)
+      }
+      doc.addPage()
+    }
+    
+    switch (docType) {
+      case 'certificat': generateCertificatContent(doc, session, trainee, trainer); break
+      case 'convocation': generateConvocationContent(doc, session, trainee, trainer, qrCodeDataURL); break
+      case 'attestation': generateAttestationContent(doc, session, trainee, trainer); break
+      case 'evaluation': generateEvaluationContent(doc, session, trainee); break
+      case 'evaluationFroid': generateEvaluationFroidContent(doc, session, trainee); break
+      default: return
+    }
+  })
+  
+  const docNames = {
+    certificat: 'Certificats',
+    convocation: 'Convocations', 
+    attestation: 'Attestations',
+    evaluation: 'Evaluations',
+    evaluationFroid: 'Evaluations_Froid',
+  }
+  
+  const filename = `${docNames[docType] || 'Documents'}_${ref}_Tous.pdf`
+  const base64 = doc.output('datauristring').split(',')[1]
+  return { base64, filename, size: base64.length }
+}
+
 // ============================================================
 // CONTENT GENERATORS FOR MULTI-PAGE PDFs
 // ============================================================
