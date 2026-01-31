@@ -3,154 +3,166 @@ import { Link } from 'react-router-dom'
 
 const versions = [
   {
-    version: '2.7.0',
+    version: '2.0.0',
+    date: '31/01/2026',
+    type: 'major',
+    changes: [
+      { type: 'new', text: 'Envoi individuel documents stagiaires (certificat, attestation, éval à froid) avec sélection par checkbox' },
+      { type: 'new', text: 'Upload vers Supabase Storage avant envoi SMTP — contourne la limite 1MB Vercel' },
+      { type: 'new', text: 'Nettoyage automatique du storage après envoi réussi' },
+      { type: 'new', text: 'Émargement électronique avec signatures visuelles sur les PDF (checkmarks couleur-codées)' },
+      { type: 'new', text: 'Signatures en temps réel : vert = stagiaire signé, bleu = validation manuelle' },
+      { type: 'new', text: 'Timestamps de signature affichés sur les émargements' },
+      { type: 'new', text: 'Prospection complète avec module analyse de besoins et PDF auto-attaché' },
+      { type: 'new', text: 'Certification SST avec templates officiels INRS (FI, MAC)' },
+      { type: 'new', text: 'Tests de positionnement avec génération PDF résultats' },
+      { type: 'new', text: 'Email RDV compte-rendu avec analyse de besoins auto-attachée' },
+      { type: 'new', text: 'Email session post-formation avec tous les documents' },
+      { type: 'new', text: 'BCC automatique contact@accessformation.pro sur tous les emails' },
+      { type: 'new', text: 'Noms de fichiers storage slugifiés (accents supprimés) avec noms originaux préservés en PJ' },
+      { type: 'improve', text: 'Conformité RGPD : chaque stagiaire ne reçoit que ses propres documents' },
+      { type: 'improve', text: 'Délai de 1.5s entre les envois SMTP pour éviter le rate limiting IONOS' },
+      { type: 'fix', text: 'Nettoyage des versions incohérentes : package.json, pdfGenerator, TraineePortal, Changelog — tout aligné en 2.0.0' },
+      { type: 'fix', text: 'Suppression des fichiers inutiles (logo.png, logo-access.png, stamp.png, .gitkeep, sstCompetencesConfig racine, VersionHistory.jsx)' },
+    ]
+  },
+  {
+    version: '1.9.0',
+    date: '18/01/2026',
+    type: 'major',
+    changes: [
+      { type: 'new', text: 'Widget statistiques Qualiopi temps réel sur site web public (Indicateur 2)' },
+      { type: 'new', text: '4 indicateurs publics : Satisfaction 4.96/5, Réussite 100%, Présence 98%, 48 stagiaires' },
+      { type: 'new', text: 'Connexion directe Supabase, mise à jour automatique, design Access Campus' },
+      { type: 'new', text: 'Module Documents de Formation : ressources pédagogiques par formation (Ind. 19-20)' },
+      { type: 'new', text: 'Upload multi-formats (PDF, PPT, Word, Excel), catégories (Support/Exercices/Évaluation)' },
+      { type: 'new', text: 'Diffusion automatique via portail stagiaire QR Code, téléchargements trackés' },
+      { type: 'new', text: 'Module Développement Formateurs : formations suivies + entretiens (Ind. 22-23)' },
+      { type: 'new', text: 'Tables trainer_trainings et trainer_interviews, upload certificats' },
+      { type: 'new', text: 'Données pré-remplies 2023-2025, prêt pour audit immédiat' },
+      { type: 'new', text: 'Remédiation individualisée par objectif dans session_trainees' },
+      { type: 'new', text: 'Alertes réclamations sur dashboard avec emails automatiques responsable qualité' },
+      { type: 'new', text: 'Numéro Sécurité Sociale obligatoire : 13 chiffres + clé de contrôle (2 chiffres)' },
+      { type: 'new', text: 'Émargement QR sécurisé : certification présence + signature + blocage temporel' },
+      { type: 'new', text: 'Conformité Qualiopi : 90% (28/32 indicateurs) avec guide audit complet' },
+      { type: 'fix', text: 'Corrections : RPC p_gender, dates PDF, permissions Supabase, RLS widget' },
+    ]
+  },
+  {
+    version: '1.8.0',
     date: '17/01/2026',
     type: 'major',
     changes: [
-      { type: 'new', text: '📊 Page "Profil des Stagiaires" pour statistiques OPCO/BPF (RGPD-compliant)' },
-      { type: 'new', text: 'Répartition par genre : Hommes / Femmes / Non-binaire' },
-      { type: 'new', text: 'Répartition par tranche d\'âge (5 tranches : <26, 26-35, 36-45, 46-55, 55+)' },
-      { type: 'new', text: 'Répartition par CSP (Catégorie Socio-Professionnelle)' },
-      { type: 'new', text: 'Statistiques situation de handicap (nombre et pourcentage)' },
-      { type: 'new', text: 'Top 10 des postes/fonctions les plus représentés' },
-      { type: 'new', text: 'Filtres : période, client, formation, type de financement (tous cumulables)' },
-      { type: 'new', text: 'Exports Excel (5 feuilles) et CSV pour rapports OPCO/BPF' },
-      { type: 'new', text: 'Protection RGPD : seuil 5 personnes minimum, statistiques masquées si < 5' },
-      { type: 'new', text: '👤 Champ Genre pour stagiaires (male/female/non_binary)' },
-      { type: 'new', text: 'Accords grammaticaux dans PDF : Madame/Monsieur, Salarié/Salariée/Salarié·e' },
-      { type: 'new', text: '💰 Type de financement pour sessions (10 types : OPCO, CPF, FAF, Région, etc.)' },
-      { type: 'new', text: 'Mention automatique du financement dans les conventions' },
-      { type: 'new', text: '📄 Suivi conventions : statut envoyée/signée avec dates automatiques' },
-      { type: 'new', text: 'Upload PDF convention signée dans Supabase Storage' },
-      { type: 'new', text: 'Téléchargement convention signée depuis SessionDetail' },
-      { type: 'new', text: '📝 Mentions émargement QR Code dans conventions et convocations' },
-      { type: 'improve', text: 'Correction RPC save_trainee_with_ssn pour inclure paramètre p_gender' },
-      { type: 'improve', text: 'Bucket Supabase Storage signed-conventions avec RLS' },
-      { type: 'improve', text: 'Validation upload PDF : max 10MB, type PDF uniquement' },
+      { type: 'new', text: 'Page Profil des Stagiaires avec statistiques démographiques RGPD-compliant (genre, âge, CSP, handicap, postes)' },
+      { type: 'new', text: 'Filtres puissants (période, client, formation, financement) + exports Excel/CSV' },
+      { type: 'new', text: 'Protection RGPD : seuil 5 personnes minimum pour affichage statistiques' },
+      { type: 'new', text: 'Mentions émargement QR Code dans conventions et convocations' },
+      { type: 'new', text: 'Champ Genre pour stagiaires (male/female/non_binary)' },
+      { type: 'new', text: 'Accords grammaticaux automatiques dans tous les PDF (Madame/Monsieur, Salarié/Salariée)' },
+      { type: 'new', text: 'Type de financement sessions : 10 types (OPCO, CPF, FAF, Région, France Travail, etc.)' },
+      { type: 'new', text: 'Suivi conventions : statuts Envoyée/Signée, upload PDF signée' },
+      { type: 'new', text: 'Stockage Supabase : bucket signed-conventions avec RLS' },
+      { type: 'fix', text: 'Corrections : RPC save_trainee_with_ssn, apostrophes SQL, Store.js' },
     ]
   },
   {
-    version: '2.6.1',
+    version: '1.7.1',
     date: '17/01/2026',
-    type: 'fix',
+    type: 'patch',
     changes: [
-      { type: 'fix', text: 'Correction portail stagiaire : émargements enregistrés dans attendance_halfdays (morning/afternoon)' },
-      { type: 'fix', text: 'Correction évaluations à chaud : questionnaire_submitted et submitted_at correctement renseignés' },
-      { type: 'fix', text: 'Correction formulaire réclamations : vérification de session fonctionnelle' },
-      { type: 'fix', text: 'Restauration design formulaire réclamations (logo Access Campus, couleurs, champ téléphone)' },
-      { type: 'fix', text: 'Configuration variables environnement Vercel pour accès anonyme Supabase' },
-      { type: 'improve', text: 'Requêtes Supabase optimisées avec maybeSingle() au lieu de single()' },
+      { type: 'fix', text: 'Portail Stagiaire : émargements dans attendance_halfdays (morning/afternoon)' },
+      { type: 'fix', text: 'Évaluations à chaud : questionnaire_submitted, submitted_at, submitted_online correctement renseignés' },
+      { type: 'fix', text: 'Optimisation requêtes Supabase avec maybeSingle() au lieu de single()' },
+      { type: 'fix', text: 'Formulaire Réclamations : design complet restauré (logo, couleurs, téléphone)' },
+      { type: 'fix', text: 'RLS policies corrigées pour accès anonyme aux tables sessions et courses' },
     ]
   },
   {
-    version: '2.6.0',
+    version: '1.7.0',
     date: '17/01/2026',
     type: 'major',
     changes: [
-      { type: 'new', text: '🔒 Codes d\'accès à 6 chiffres par stagiaire pour sécuriser le portail QR' },
-      { type: 'new', text: '🔒 Verrouillage automatique après 5 tentatives échouées (15 min)' },
-      { type: 'new', text: '🔒 Protection anti-bruteforce avec compteur de tentatives' },
-      { type: 'new', text: 'Onglet "Portail QR" dans SessionDetail pour gérer les codes d\'accès' },
-      { type: 'new', text: 'Génération et régénération de codes par l\'administrateur' },
-      { type: 'new', text: 'Envoi des codes par email aux stagiaires' },
-      { type: 'new', text: 'Affichage QR Code + codes d\'accès pour impression' },
-      { type: 'new', text: '🔒 Protection honeypot anti-spam sur formulaire réclamations' },
-      { type: 'new', text: 'Vérification de référence session obligatoire avant réclamation' },
-      { type: 'improve', text: 'Architecture RPC sécurisée (SECURITY DEFINER)' },
-      { type: 'improve', text: 'Nouvelles colonnes : access_code, access_code_attempts, access_code_locked' },
+      { type: 'new', text: 'Portail QR sécurisé : codes d\'accès à 6 chiffres par stagiaire' },
+      { type: 'new', text: 'Verrouillage après 5 tentatives échouées (15 min), régénération par admin' },
+      { type: 'new', text: 'Protection anti-bruteforce avec compteur' },
+      { type: 'new', text: 'Système de réclamations : honeypot anti-spam, vérification référence session' },
+      { type: 'new', text: 'Onglet Portail QR dans SessionDetail avec gestion des codes' },
+      { type: 'new', text: 'Envoi codes par email aux stagiaires, affichage QR + codes pour impression' },
+      { type: 'new', text: '8 nouvelles fonctions RPC SECURITY DEFINER, triggers génération automatique codes' },
     ]
   },
   {
-    version: '2.5.25',
+    version: '1.6.1',
     date: '15/01/2026',
-    type: 'fix',
+    type: 'patch',
     changes: [
-      { type: 'fix', text: 'Calcul résultats sessions demi-journées corrigé' },
+      { type: 'fix', text: 'Calcul résultats sessions demi-journées' },
       { type: 'fix', text: 'Sauvegarde champs CSP et job_title dans fiche stagiaire' },
       { type: 'fix', text: 'Filtres RGPD statistiques fonctionnels' },
     ]
   },
   {
-    version: '2.5.24',
+    version: '1.6.0',
     date: '10/01/2026',
-    type: 'new',
+    type: 'major',
     changes: [
-      { type: 'new', text: 'Module Réclamations intégré dans Non-conformités avec source, canal, délais AR/clôture' },
-      { type: 'new', text: 'Alertes visuelles pour réclamations en retard (AR 48h, clôture 5j ouvrés)' },
-      { type: 'new', text: 'Référence automatique réclamations (REC-YYYY-NNN)' },
-      { type: 'new', text: 'Documents sous-traitance éditables : Contrat, Charte qualité, NDA' },
-      { type: 'new', text: 'Plan d\'actions avec responsable, échéance, statut, priorité' },
-      { type: 'new', text: 'Procédures complètes : Besoin, Conception, Réalisation, Évaluation, Handicap, RGPD' },
-      { type: 'fix', text: 'RDD : comptage sessions et stagiaires corrigé (8/10, 60 stagiaires)' },
-      { type: 'fix', text: 'RDD : score satisfaction calculé depuis évaluations à chaud (colonnes q_*)' },
-      { type: 'fix', text: 'RDD : taux de recommandation depuis would_recommend' },
-      { type: 'fix', text: 'Filtres Audit RGPD fonctionnels (requêtes directes)' },
-      { type: 'fix', text: 'Création réclamations : gestion session_id null' },
-      { type: 'improve', text: 'Affichage satisfaction : message clair si aucune évaluation' },
+      { type: 'new', text: 'Module Réclamations intégré dans Non-conformités (source, canal, délais AR/clôture)' },
+      { type: 'new', text: 'Alertes visuelles réclamations en retard (AR 48h orange, clôture 5j rouge)' },
+      { type: 'new', text: 'Référence automatique REC-YYYY-NNN' },
+      { type: 'new', text: 'Documents sous-traitance éditables' },
+      { type: 'new', text: 'Plan d\'actions avec responsable, échéance, statut' },
+      { type: 'fix', text: 'RDD : comptage sessions et stagiaires' },
+      { type: 'fix', text: 'RDD : score satisfaction depuis évaluations à chaud' },
+      { type: 'fix', text: 'Filtres Audit RGPD' },
     ]
   },
   {
-    version: '2.5.23',
+    version: '1.5.0',
     date: '09/01/2026',
-    type: 'new',
+    type: 'major',
     changes: [
       { type: 'new', text: 'Module Qualité complet : Documents, Registres, Revue Direction' },
-      { type: 'new', text: 'Documents éditables : bouton "Éditer" sur désignations, procédures, checklists' },
-      { type: 'new', text: 'Logigrammes format tableau : Acteur | Étape | Délai | Output' },
-      { type: 'new', text: 'Pack Qualité : 40 documents avec pieds de page complets' },
-      { type: 'improve', text: 'Menu réorganisé : Documents + Docs vierges, Tests dans Formations' },
-      { type: 'fix', text: 'Correction alerte J+90 (table evaluations_cold)' },
+      { type: 'new', text: 'Documents éditables avec bouton Éditer' },
+      { type: 'new', text: 'Logigrammes format tableau' },
+      { type: 'new', text: 'Pack Qualité : 40 documents pré-fournis' },
     ]
   },
   {
-    version: '2.5.22',
+    version: '1.4.0',
     date: '09/01/2026',
-    type: 'new',
+    type: 'major',
     changes: [
-      { type: 'new', text: 'Système de notifications avec rappels hebdomadaires automatiques' },
-      { type: 'new', text: 'Rappels : veille (lundi), matériel (samedi), audit interne (1er juillet)' },
-      { type: 'new', text: 'Alertes anniversaires certifications formateurs (J-30)' },
-      { type: 'new', text: 'Upload documents réclamations depuis le portail public' },
-      { type: 'new', text: 'Cloche de notification dans le header avec badge' },
-      { type: 'fix', text: 'Correction upload fichiers sur réclamations' },
-      { type: 'fix', text: 'Correction doublons alertes qualité (contrainte unique)' },
+      { type: 'new', text: 'Système de notifications automatiques' },
+      { type: 'new', text: 'Rappels hebdomadaires (veille, matériel, audit)' },
+      { type: 'new', text: 'Alertes anniversaires certifications formateurs' },
+      { type: 'new', text: 'Cloche de notification avec badge compteur' },
     ]
   },
   {
-    version: '2.5.21',
+    version: '1.3.0',
     date: '06/01/2026',
-    type: 'new',
+    type: 'major',
     changes: [
-      { type: 'new', text: 'Module Process : éditeur visuel de logigrammes avec drag & drop' },
-      { type: 'new', text: 'Formes logigramme : Début/Fin, Action, Décision, Document, Sous-process' },
-      { type: 'new', text: 'Connexions automatiques entre étapes avec flèches' },
-      { type: 'new', text: 'Propriétés des étapes : responsable, document lié, délai, outil, catégorie' },
-      { type: 'new', text: 'Liens entre process (sous-process)' },
-      { type: 'new', text: 'Versioning des process avec historique' },
-      { type: 'new', text: 'Export PNG avec code et version (PR-XXX-V1)' },
-      { type: 'new', text: 'Gestion des catégories et responsables' },
-      { type: 'new', text: '3 process pré-créés : Formation standard, NC, Réclamations' },
-      { type: 'improve', text: 'Nouvel onglet Process dans Qualiopi (entre Documents et Veille)' },
+      { type: 'new', text: 'Module Process : éditeur visuel de logigrammes' },
+      { type: 'new', text: 'Formes : Début/Fin, Action, Décision, Document' },
+      { type: 'new', text: 'Export PNG avec code et version' },
+      { type: 'new', text: '3 process pré-créés' },
     ]
   },
   {
-    version: '2.5.20',
+    version: '1.2.3',
     date: '06/01/2026',
-    type: 'fix',
+    type: 'patch',
     changes: [
-      { type: 'fix', text: 'Correction portail stagiaire : redirection vers Google avant signature complète' },
-      { type: 'fix', text: 'Correction logique de détermination d\'étape (vérifier présences avant évaluation)' },
-      { type: 'fix', text: 'Correction état asynchrone attendanceData lors du chargement initial' },
-      { type: 'new', text: 'Support des sessions demi-journée (1 seul émargement par jour)' },
-      { type: 'new', text: 'Nouveau champ "Type de journée" dans le formulaire de session' },
-      { type: 'improve', text: 'Labels neutres : "1ère/2ème demi-journée" au lieu de "Matin/Après-midi"' },
-      { type: 'improve', text: 'Ajout de logs détaillés pour le debugging du portail stagiaire' },
+      { type: 'fix', text: 'Portail stagiaire : redirection Google corrigée' },
+      { type: 'fix', text: 'Support sessions demi-journée' },
+      { type: 'new', text: 'Nouveau champ Type de journée' },
     ]
   },
   {
-    version: '2.5.19',
+    version: '1.2.2',
     date: '06/01/2026',
-    type: 'minor',
+    type: 'patch',
     changes: [
       { type: 'fix', text: 'Correction affichage complet alertes qualité (Formation, Date, Formateur, Stagiaire)' },
       { type: 'fix', text: 'Correction création de non-conformité depuis une alerte (tous champs requis)' },
@@ -160,21 +172,21 @@ const versions = [
     ]
   },
   {
-    version: '2.5.18',
+    version: '1.2.1',
     date: '06/01/2026',
-    type: 'minor',
+    type: 'patch',
     changes: [
       { type: 'new', text: 'Alertes Qualité automatiques pour notes 1-3/5 avec détail (session, stagiaire, critère)' },
       { type: 'new', text: 'Traitement des alertes avec commentaire, date et utilisateur' },
       { type: 'new', text: 'Création/liaison de non-conformités depuis les alertes' },
-      { type: 'new', text: 'Section Alertes Qualité dans le Dashboard (remplace Terminé Récemment)' },
+      { type: 'new', text: 'Section Alertes Qualité dans le Dashboard' },
       { type: 'new', text: 'Texte explicatif calcul des indicateurs (page Indicateurs)' },
       { type: 'new', text: 'Texte explicatif référentiel Qualiopi (page Qualiopi)' },
       { type: 'improve', text: 'Clic sur alerte → navigation vers la session concernée' },
     ]
   },
   {
-    version: '2.5.17',
+    version: '1.2.0',
     date: '06/01/2026',
     type: 'minor',
     changes: [
@@ -188,7 +200,7 @@ const versions = [
     ]
   },
   {
-    version: '2.5.16',
+    version: '1.1.0',
     date: '04/01/2026',
     type: 'minor',
     changes: [
@@ -196,15 +208,15 @@ const versions = [
       { type: 'new', text: 'Widget HTML indicateurs Qualiopi intégrable sur site web' },
       { type: 'new', text: '8 documents PDF professionnels (Politique Qualité, Charte Déontologie, Procédures, CGV, Règlement, Livret)' },
       { type: 'new', text: 'Préparation audit Qualiopi 67 questions' },
-      { type: 'fix', text: 'Statut session automatique "Terminée" à J+1' },
+      { type: 'fix', text: 'Statut session automatique Terminée à J+1' },
       { type: 'fix', text: 'Calcul taux de recommandation corrigé' },
       { type: 'fix', text: 'Affichage documents HTML (détection automatique)' },
     ]
   },
   {
-    version: '2.5.15',
+    version: '1.0.5',
     date: '04/01/2026',
-    type: 'minor',
+    type: 'patch',
     changes: [
       { type: 'new', text: 'Gestion du matériel de formation' },
       { type: 'new', text: 'Renommage CACES → Conduite (R485, R489)' },
@@ -213,20 +225,20 @@ const versions = [
     ]
   },
   {
-    version: '2.5.14',
+    version: '1.0.4',
     date: '03/01/2026',
-    type: 'minor',
+    type: 'patch',
     changes: [
       { type: 'new', text: 'Évaluations à chaud avec 14 critères détaillés (Organisation, Contenu, Formateur, Perception)' },
-      { type: 'new', text: 'Bouton "Recommanderiez-vous cette formation ?"' },
+      { type: 'new', text: 'Bouton Recommanderiez-vous cette formation ?' },
       { type: 'new', text: 'Commentaires généraux et projet de formation' },
       { type: 'fix', text: 'Sauvegarde des évaluations manuelles' },
     ]
   },
   {
-    version: '2.5',
+    version: '1.0.3',
     date: '01/01/2026',
-    type: 'major',
+    type: 'patch',
     changes: [
       { type: 'new', text: 'Thèmes de formation (SST, Incendie, Ergonomie, Habilitation Électrique, Conduite R489, Conduite R485)' },
       { type: 'new', text: 'Tests de positionnement par thème (page dédiée)' },
@@ -236,18 +248,18 @@ const versions = [
       { type: 'new', text: 'Case Intra-entreprise avec adresse automatique' },
       { type: 'new', text: 'Logo personnalisable sur tous les documents PDF' },
       { type: 'fix', text: 'Indicateurs à 0% quand aucune donnée' },
-      { type: 'fix', text: 'Tous documents : ☐/☑/○ au lieu de &' },
+      { type: 'fix', text: 'Tous documents : cases à cocher correctement affichées' },
     ]
   },
   {
-    version: '2.3',
+    version: '1.0.2',
     date: '31/12/2025',
-    type: 'major',
+    type: 'patch',
     changes: [
       { type: 'new', text: 'Dashboard avec 4 indicateurs (satisfaction, recommandation, présence, réponse)' },
       { type: 'new', text: 'Indicateur Complétude cliquable avec rapport téléchargeable' },
       { type: 'new', text: 'Indicateur Qualiopi cliquable avec rapport non-conformités' },
-      { type: 'new', text: 'Onglet "Suivi & Évaluations" dans les sessions' },
+      { type: 'new', text: 'Onglet Suivi & Évaluations dans les sessions' },
       { type: 'new', text: 'Présence par journée (tableau stagiaires × dates)' },
       { type: 'new', text: 'Évaluations stagiaires (questionnaire reçu, note /5, recommandation)' },
       { type: 'new', text: 'Évaluation formateur (6 critères /5)' },
@@ -258,9 +270,9 @@ const versions = [
     ]
   },
   {
-    version: '2.2',
+    version: '1.0.1',
     date: '30/12/2025',
-    type: 'minor',
+    type: 'patch',
     changes: [
       { type: 'new', text: 'Gestion des non-conformités Qualiopi' },
       { type: 'new', text: 'Certificats formateurs avec dates expiration' },
@@ -269,9 +281,9 @@ const versions = [
     ]
   },
   {
-    version: '2.1',
+    version: '1.0.0',
     date: '29/12/2025',
-    type: 'minor',
+    type: 'major',
     changes: [
       { type: 'new', text: 'Génération Convention de formation' },
       { type: 'new', text: 'Génération Émargement' },
@@ -279,132 +291,90 @@ const versions = [
       { type: 'new', text: 'Génération Attestation de présence' },
       { type: 'new', text: 'Génération Programme' },
       { type: 'new', text: 'QR Code émargement numérique' },
-      { type: 'improve', text: 'Référence session automatique (SES-YYYY-XXX)' },
-    ]
-  },
-  {
-    version: '2.0',
-    date: '28/12/2025',
-    type: 'major',
-    changes: [
-      { type: 'new', text: 'Refonte complète de l\'interface' },
+      { type: 'new', text: 'Référence session automatique (SES-YYYY-XXX)' },
       { type: 'new', text: 'Gestion des stagiaires' },
       { type: 'new', text: 'Gestion des formateurs' },
       { type: 'new', text: 'Gestion des sessions de formation' },
       { type: 'new', text: 'Inscription stagiaires aux sessions' },
       { type: 'new', text: 'Assignation formateurs aux sessions' },
-      { type: 'improve', text: 'Interface responsive mobile' },
-    ]
-  },
-  {
-    version: '1.0',
-    date: '27/12/2025',
-    type: 'major',
-    changes: [
-      { type: 'new', text: 'Création de l\'application' },
       { type: 'new', text: 'Gestion des clients' },
       { type: 'new', text: 'Gestion des formations (catalogue)' },
       { type: 'new', text: 'Authentification sécurisée' },
       { type: 'new', text: 'Tableau de bord basique' },
+      { type: 'new', text: 'Interface responsive mobile' },
     ]
   },
 ]
 
-const getTypeIcon = (type) => {
-  switch (type) {
-    case 'new': return <Plus className="w-4 h-4 text-green-600" />
-    case 'improve': return <Sparkles className="w-4 h-4 text-blue-600" />
-    case 'fix': return <Wrench className="w-4 h-4 text-orange-600" />
-    case 'warning': return <AlertTriangle className="w-4 h-4 text-red-600" />
-    case 'security': return <Shield className="w-4 h-4 text-purple-600" />
-    default: return <CheckCircle className="w-4 h-4 text-gray-600" />
-  }
+const typeLabels = {
+  major: { label: 'Version majeure', color: 'bg-purple-100 text-purple-800' },
+  minor: { label: 'Mise à jour', color: 'bg-blue-100 text-blue-800' },
+  patch: { label: 'Correction', color: 'bg-gray-100 text-gray-700' },
 }
 
-const getTypeLabel = (type) => {
-  switch (type) {
-    case 'new': return 'Nouveau'
-    case 'improve': return 'Amélioration'
-    case 'fix': return 'Correction'
-    case 'warning': return 'Important'
-    case 'security': return 'Sécurité'
-    default: return 'Autre'
-  }
-}
-
-const getVersionBadge = (type) => {
-  switch (type) {
-    case 'major': return 'bg-primary-100 text-primary-700'
-    case 'minor': return 'bg-gray-100 text-gray-700'
-    case 'fix': return 'bg-orange-100 text-orange-700'
-    default: return 'bg-gray-100 text-gray-700'
-  }
+const changeIcons = {
+  new: <Plus className="w-4 h-4 text-green-600" />,
+  fix: <Wrench className="w-4 h-4 text-amber-600" />,
+  improve: <Sparkles className="w-4 h-4 text-blue-600" />,
+  security: <Shield className="w-4 h-4 text-red-600" />,
 }
 
 export default function Changelog() {
   return (
-    <div className="space-y-6">
-      <div className="flex items-center gap-4">
-        <Link to="/parametres" className="p-2 hover:bg-gray-100 rounded-lg">
+    <div className="max-w-3xl mx-auto p-6">
+      <div className="flex items-center gap-3 mb-8">
+        <Link to="/settings" className="text-gray-500 hover:text-gray-700">
           <ArrowLeft className="w-5 h-5" />
         </Link>
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Historique des versions</h1>
-          <p className="text-gray-500">Évolutions et améliorations de l'application</p>
+          <p className="text-sm text-gray-500">Access Campus — v{versions[0].version}</p>
         </div>
       </div>
-      
-      <div className="relative">
-        {/* Timeline line */}
-        <div className="absolute left-8 top-0 bottom-0 w-0.5 bg-gray-200" />
-        
-        <div className="space-y-8">
-          {versions.map((v, idx) => (
-            <div key={v.version} className="relative pl-20">
-              {/* Version badge on timeline */}
-              <div className={`absolute left-0 w-16 h-16 rounded-full flex items-center justify-center ${idx === 0 ? 'bg-primary-600 text-white' : 'bg-white border-2 border-gray-200 text-gray-700'}`}>
-                <span className="text-lg font-bold">V{v.version}</span>
+
+      <div className="space-y-6">
+        {versions.map((v, idx) => (
+          <div key={v.version} className="border border-gray-200 rounded-xl overflow-hidden">
+            {/* Header version */}
+            <div className={`px-5 py-3 flex items-center justify-between ${idx === 0 ? 'bg-primary-50 border-b border-primary-200' : 'bg-gray-50 border-b border-gray-200'}`}>
+              <div className="flex items-center gap-3">
+                <span className={`text-lg font-bold ${idx === 0 ? 'text-primary-700' : 'text-gray-800'}`}>
+                  v{v.version}
+                </span>
+                <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${typeLabels[v.type]?.color}`}>
+                  {typeLabels[v.type]?.label}
+                </span>
+                {idx === 0 && (
+                  <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700">
+                    CURRENT
+                  </span>
+                )}
               </div>
-              
-              <div className="card">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-3">
-                    <h2 className="text-xl font-semibold">Version {v.version}</h2>
-                    <span className={`text-xs px-2 py-1 rounded-full font-medium ${getVersionBadge(v.type)}`}>
-                      {v.type === 'major' ? 'Majeure' : v.type === 'fix' ? 'Correctif' : 'Mineure'}
-                    </span>
-                  </div>
-                  <span className="text-sm text-gray-500">{v.date}</span>
-                </div>
-                
-                <div className="space-y-2">
-                  {v.changes.map((change, cidx) => (
-                    <div key={cidx} className="flex items-start gap-3 p-2 rounded-lg hover:bg-gray-50">
-                      {getTypeIcon(change.type)}
-                      <div className="flex-1">
-                        <span className="text-sm">{change.text}</span>
-                      </div>
-                      <span className={`text-xs px-2 py-0.5 rounded ${
-                        change.type === 'new' ? 'bg-green-100 text-green-700' :
-                        change.type === 'improve' ? 'bg-blue-100 text-blue-700' :
-                        change.type === 'fix' ? 'bg-orange-100 text-orange-700' :
-                        change.type === 'security' ? 'bg-purple-100 text-purple-700' :
-                        'bg-gray-100 text-gray-700'
-                      }`}>
-                        {getTypeLabel(change.type)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <span className="text-xs text-gray-500">{v.date}</span>
             </div>
-          ))}
-        </div>
+
+            {/* Changes */}
+            <div className="px-5 py-3 space-y-1.5">
+              {v.changes.map((c, i) => (
+                <div key={i} className="flex items-start gap-2.5">
+                  <span className="mt-0.5 flex-shrink-0">{changeIcons[c.type] || changeIcons.new}</span>
+                  <span className="text-sm text-gray-700">{c.text}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
       </div>
-      
-      <div className="text-center py-8 text-gray-500">
-        <p className="text-sm">Access Formation © 2024-2026</p>
-        <p className="text-xs mt-1">Développé avec ❤️ pour la qualité de vos formations</p>
+
+      {/* Légende */}
+      <div className="mt-8 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+        <p className="text-xs font-semibold text-gray-600 mb-2">Légende</p>
+        <div className="flex flex-wrap gap-4">
+          <div className="flex items-center gap-1.5"><Plus className="w-3.5 h-3.5 text-green-600" /><span className="text-xs text-gray-600">Nouvelle fonctionnalité</span></div>
+          <div className="flex items-center gap-1.5"><Wrench className="w-3.5 h-3.5 text-amber-600" /><span className="text-xs text-gray-600">Correction</span></div>
+          <div className="flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5 text-blue-600" /><span className="text-xs text-gray-600">Amélioration</span></div>
+          <div className="flex items-center gap-1.5"><Shield className="w-3.5 h-3.5 text-red-600" /><span className="text-xs text-gray-600">Sécurité</span></div>
+        </div>
       </div>
     </div>
   )
