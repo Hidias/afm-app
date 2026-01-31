@@ -100,9 +100,9 @@ export default function ProspectNeedsAnalysis({ clientId, rdvId, onClose }) {
         .from('prospect_needs_analysis')
         .select('*')
         .eq('client_id', clientId)
-        .single()
+        .maybeSingle()
 
-      if (error && error.code !== 'PGRST116') throw error
+      if (error) throw error
 
       if (data) {
         setAnalysis(data)
