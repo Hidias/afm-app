@@ -122,13 +122,21 @@ export default async function handler(req, res) {
       encoding: att.encoding || 'base64'
     }))
 
-    // 5. Préparer les options du mail
+    // 5. Préparer le corps avec signature si présente
+    let htmlBody = body.replace(/\n/g, '<br>')
+    
+    if (emailConfig.signature_image) {
+      // Ajouter la signature en fin d'email
+      htmlBody += '<br><br>'
+      htmlBody += `<img src="${emailConfig.signature_image}" alt="Signature" style="max-width: 400px; height: auto;" />`
+    }
+    
     const mailOptions = {
       from: `"${emailConfig.email.split('@')[0]}" <${emailConfig.email}>`,
       to: to,
       subject: subject,
       text: body,
-      html: body.replace(/\n/g, '<br>'),
+      html: htmlBody,
       attachments: mailAttachments
     }
 
