@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import ProspectNeedsAnalysis from '../components/ProspectNeedsAnalysis'
+import CompteRenduModal from '../components/CompteRenduModal'
 
 export default function ProspectRDVDetail() {
   const { id } = useParams()
@@ -19,6 +20,7 @@ export default function ProspectRDVDetail() {
   const [contacts, setContacts] = useState([])
   const [selectedClient, setSelectedClient] = useState(null)
   const [showNewClientModal, setShowNewClientModal] = useState(false)
+  const [showCompteRendu, setShowCompteRendu] = useState(false)
   const [newClientData, setNewClientData] = useState({
     name: '',
     siret: '',
@@ -607,6 +609,19 @@ export default function ProspectRDVDetail() {
               />
             </div>
           )}
+
+          {/* Bouton Compte-Rendu */}
+          {formData.client_id && (
+            <div className="bg-white rounded-lg border border-gray-200 p-6">
+              <button
+                onClick={() => setShowCompteRendu(true)}
+                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700"
+              >
+                <Mail className="w-5 h-5" />
+                💬 Générer Compte-Rendu
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Sidebar actions */}
@@ -771,6 +786,16 @@ export default function ProspectRDVDetail() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Modal Compte-Rendu */}
+      {showCompteRendu && (
+        <CompteRenduModal
+          rdv={formData}
+          client={selectedClient}
+          analysisData={null}
+          onClose={() => setShowCompteRendu(false)}
+        />
       )}
     </div>
   )
