@@ -56,7 +56,7 @@ export default async function handler(req, res) {
 
     // POST : Créer ou mettre à jour la config
     if (method === 'POST') {
-      const { userId, email, password, testConnection } = req.body
+      const { userId, email, password, signatureImage, testConnection } = req.body
 
       // Si testConnection = true, on teste juste la connexion
       if (testConnection) {
@@ -93,6 +93,7 @@ export default async function handler(req, res) {
           .update({
             email,
             smtp_password_encrypted: encryptedPassword,
+            signature_image: signatureImage || null,
             is_active: true,
             last_tested_at: new Date().toISOString()
           })
@@ -107,6 +108,7 @@ export default async function handler(req, res) {
             user_id: userId,
             email,
             smtp_password_encrypted: encryptedPassword,
+            signature_image: signatureImage || null,
             smtp_host: 'smtp.exchange.ionos.eu',
             smtp_port: 587,
             smtp_secure: false,
