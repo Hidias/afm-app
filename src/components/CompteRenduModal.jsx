@@ -76,69 +76,29 @@ export default function CompteRenduModal({ rdv, client, analysisData, onClose })
         notes: notesCRM,
         analysis: analysisData ? {
           context_stakes: analysisData.context_stakes,
-          objectives: analysisData.objectives_description,
-          participants: analysisData.participants_count,
-          location: analysisData.location_type
+          objectives_description: analysisData.objectives_description,
+          participants_count: analysisData.participants_count
         } : null
       }
 
-      // Appeler l'API Claude
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
+      // Appeler l'API backend (pas directement Claude)
+      const response = await fetch('/api/generate-compte-rendu', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': import.meta.env.VITE_ANTHROPIC_API_KEY,
-          'anthropic-version': '2023-06-01'
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 2000,
-          system: PROMPT_SYSTEM,
-          messages: [{
-            role: 'user',
-            content: `Génère un compte-rendu de RDV basé sur ces infos :
-
-Client : ${context.client}
-Contact : ${context.contact}
-Date : ${context.date || 'non précisée'}
-
-NOTES CRM :
-${context.notes}
-
-${context.analysis ? `ANALYSE DES BESOINS :
-- Enjeux : ${context.analysis.context_stakes}
-- Objectifs : ${context.analysis.objectives}
-- Participants : ${context.analysis.participants}
-` : ''}
-
-FORMAT DE SORTIE :
-OBJETS:
-1. [objet 1]
-2. [objet 2]
-3. [objet 3]
-
-MAIL:
-[corps du mail complet]`
-          }]
-        })
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(context)
       })
 
-      if (!response.ok) throw new Error('Erreur API Claude')
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Erreur API')
+      }
 
       const data = await response.json()
-      const fullText = data.content[0].text
 
-      // Parser la réponse
-      const objetsMatch = fullText.match(/OBJETS?:(.*?)MAIL:/s)
-      const mailMatch = fullText.match(/MAIL:(.*)/s)
-
-      if (objetsMatch && mailMatch) {
-        const objets = objetsMatch[1].trim().split('\n').filter(l => l.trim())
-        const mail = mailMatch[1].trim()
-
-        setGeneratedEmail({ objets, mail })
-        setEmailSubject(objets[0].replace(/^\d+\.\s*/, ''))
-        setEmailBody(mail)
+      if (data.objets && data.mail) {
+        setGeneratedEmail({ objets: data.objets, mail: data.mail })
+        setEmailSubject(data.objets[0].replace(/^\d+\.\s*/, ''))
+        setEmailBody(data.mail)
         setStep('preview')
       } else {
         throw new Error('Format de réponse inattendu')
