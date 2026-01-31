@@ -58,44 +58,42 @@ Access Formation`
     setEmailBody(buildTemplate('[Prénom]'))
   }, [courseTitle, ref, buildTemplate])
 
-  // Générer les PJ pour un stagiaire
-  const generateAttachments = (trainee) => {
-    const attachments = []
+  // Générer les PJ pour un stagiaire et les uploader en storage
+  const uploadAttachments = async (trainee) => {
+    const uploads = []
+    const basePath = `stagiaire-emails/${session.id}/${trainee.id}`
 
     // Certificat
     const cert = generatePDF('certificat', session, { trainee, trainer })
     if (cert) {
-      attachments.push({
-        filename: `Certificat_${ref}_${trainee.last_name}.pdf`,
-        content: cert.base64,
-        encoding: 'base64',
-        size: cert.size
-      })
+      const filename = `Certificat_${ref}_${trainee.last_name}.pdf`
+      const path = `${basePath}/${filename}`
+      const bytes = Uint8Array.from(atob(cert.base64), c => c.charCodeAt(0))
+      await supabase.storage.from('documents').upload(path, bytes, { contentType: 'application/pdf', upsert: true })
+      uploads.push({ path, filename })
     }
 
     // Attestation
     const att = generatePDF('attestation', session, { trainee, trainer })
     if (att) {
-      attachments.push({
-        filename: `Attestation_${ref}_${trainee.last_name}.pdf`,
-        content: att.base64,
-        encoding: 'base64',
-        size: att.size
-      })
+      const filename = `Attestation_${ref}_${trainee.last_name}.pdf`
+      const path = `${basePath}/${filename}`
+      const bytes = Uint8Array.from(atob(att.base64), c => c.charCodeAt(0))
+      await supabase.storage.from('documents').upload(path, bytes, { contentType: 'application/pdf', upsert: true })
+      uploads.push({ path, filename })
     }
 
     // Évaluation à froid
     const evalF = generatePDF('evaluationFroid', session, { trainee })
     if (evalF) {
-      attachments.push({
-        filename: `EvaluationFroid_${ref}_${trainee.last_name}.pdf`,
-        content: evalF.base64,
-        encoding: 'base64',
-        size: evalF.size
-      })
+      const filename = `EvaluationFroid_${ref}_${trainee.last_name}.pdf`
+      const path = `${basePath}/${filename}`
+      const bytes = Uint8Array.from(atob(evalF.base64), c => c.charCodeAt(0))
+      await supabase.storage.from('documents').upload(path, bytes, { contentType: 'application/pdf', upsert: true })
+      uploads.push({ path, filename })
     }
 
-    return attachments
+    return uploads
   }
 
   // Envoyer tous les emails
@@ -126,10 +124,10 @@ Access Formation`
         // Personnaliser le body avec le prénom de ce stagiaire
         const personalizedBody = emailBody.replace(/\[Prénom\]/g, t.first_name)
 
-        // Générer les PJ
-        const attachments = generateAttachments(t)
+        // Générer les PDFs et les uploader en storage
+        const attachmentPaths = await uploadAttachments(t)
 
-        // Envoyer
+        // Envoyer — on passe les paths, l'API télécharge depuis storage
         const response = await fetch('/api/send-email-stagiaire', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -138,7 +136,7 @@ Access Formation`
             to: t.email,
             subject: emailSubject,
             body: personalizedBody,
-            attachments,
+            attachmentPaths,
             sessionId: session.id,
             traineeId: t.id
           })
