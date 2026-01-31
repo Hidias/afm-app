@@ -1669,7 +1669,7 @@ export default function SessionDetail() {
     }
   }
   
-  const handleDownload = (docType, trainee = null) => {
+  const handleDownload = async (docType, trainee = null) => {
     const trainer = session.trainers
     const traineesWithResult = session.session_trainees?.map(st => ({ 
       ...st.trainees, 
