@@ -245,13 +245,27 @@ Nous vous remercions pour votre confiance et restons à votre disposition.`)
     try {
       const { data: { user } } = await supabase.auth.getUser()
 
-      const attachments = allFiles.map(file => ({
-        filename: file.name,
-        content: file.base64,
-        encoding: 'base64',
-        size: file.size
-      }))
+      // 1) Upload chaque fichier dans Supabase Storage
+      const prefix = `${session.id}/${Date.now()}`
+      const uploadedPaths = []
 
+      for (const file of allFiles) {
+        const blob = new Blob([Uint8Array.from(atob(file.base64), c => c.charCodeAt(0))], { type: 'application/pdf' })
+        const storagePath = `${prefix}/${file.name}`
+
+        const { error: uploadError } = await supabase.storage
+          .from('session-email-docs')
+          .upload(storagePath, blob, { upsert: true })
+
+        if (uploadError) {
+          console.error('Upload échoué pour', file.name, uploadError)
+          throw new Error(`Erreur upload : ${file.name}`)
+        }
+
+        uploadedPaths.push({ path: storagePath, filename: file.name })
+      }
+
+      // 2) Appeler l'API avec les chemins (léger)
       const response = await fetch('/api/send-email-session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -260,7 +274,7 @@ Nous vous remercions pour votre confiance et restons à votre disposition.`)
           to: toEmail,
           subject: emailSubject,
           body: emailBody,
-          attachments,
+          attachmentPaths: uploadedPaths,
           sessionId: session.id,
           emailType
         })
