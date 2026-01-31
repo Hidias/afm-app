@@ -122,14 +122,36 @@ export default async function handler(req, res) {
       encoding: att.encoding || 'base64'
     }))
 
-    // 5. Préparer le corps avec signature si présente
+    // 5. Préparer le corps avec signature texte
     let htmlBody = body.replace(/\n/g, '<br>')
     
-    if (emailConfig.signature_image) {
-      // Ajouter la signature en fin d'email
-      htmlBody += '<br><br>'
-      htmlBody += `<img src="${emailConfig.signature_image}" alt="Signature" style="max-width: 400px; height: auto;" />`
+    // Ajouter la signature texte selon l'utilisateur
+    const signatures = {
+      'hicham.saidi@accessformation.pro': `
+<br><br>
+À très bientôt.<br>
+Bien cordialement,<br>
+<br>
+<strong>Hicham</strong><br>
+Access Formation<br>
+06 35 20 04 28<br>
+<a href="mailto:hicham.saidi@accessformation.pro">hicham.saidi@accessformation.pro</a>
+      `,
+      'maxime.langlais@accessformation.pro': `
+<br><br>
+À très bientôt.<br>
+Bien cordialement,<br>
+<br>
+<strong>Maxime</strong><br>
+Access Formation<br>
+07 83 51 17 95<br>
+<a href="mailto:maxime.langlais@accessformation.pro">maxime.langlais@accessformation.pro</a>
+      `
     }
+    
+    // Ajouter la signature appropriée
+    const signature = signatures[emailConfig.email] || ''
+    htmlBody += signature
     
     const mailOptions = {
       from: `"${emailConfig.email.split('@')[0]}" <${emailConfig.email}>`,
