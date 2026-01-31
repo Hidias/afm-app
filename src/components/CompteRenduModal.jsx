@@ -170,8 +170,11 @@ export default function CompteRenduModal({ rdv, client, analysisData, onClose })
       
       // 1. PDF de l'analyse des besoins
       if (attachPDF && rdv?.client_id) {
+        // Pour l'instant désactivé car la fonction downloadNeedsAnalysisPDF a besoin d'ajustements
+        toast.error('PDF d\'analyse temporairement désactivé - Utilisez "Ajouter d\'autres fichiers" pour joindre le PDF manuellement')
+        
+        /* TODO: À réactiver quand downloadNeedsAnalysisPDF sera corrigée
         try {
-          // Charger l'analyse depuis Supabase
           const { data: analysis } = await supabase
             .from('prospect_needs_analysis')
             .select('*')
@@ -179,13 +182,11 @@ export default function CompteRenduModal({ rdv, client, analysisData, onClose })
             .maybeSingle()
           
           if (analysis) {
-            // Générer le PDF avec la fonction existante
             const pdfBytes = await downloadNeedsAnalysisPDF({
               ...analysis,
               clients: client
-            }, false) // false = retourne les bytes, ne télécharge pas
+            }, false)
             
-            // Convertir en base64
             const pdfBase64 = btoa(
               new Uint8Array(pdfBytes).reduce((data, byte) => data + String.fromCharCode(byte), '')
             )
@@ -196,13 +197,12 @@ export default function CompteRenduModal({ rdv, client, analysisData, onClose })
               encoding: 'base64',
               size: pdfBytes.length
             })
-          } else {
-            toast.error('Analyse des besoins non trouvée')
           }
         } catch (pdfError) {
           console.error('Erreur génération PDF:', pdfError)
           toast.error('Impossible de générer le PDF d\'analyse')
         }
+        */
       }
       
       // 2. Fichiers uploadés par l'utilisateur
@@ -306,23 +306,20 @@ Exemple :
                   📎 Documents à joindre
                 </label>
                 
-                {/* PDF Analyse */}
-                <label className="flex items-center gap-2 mb-3">
-                  <input
-                    type="checkbox"
-                    checked={attachPDF}
-                    onChange={(e) => setAttachPDF(e.target.checked)}
-                    className="w-4 h-4 rounded border-gray-300 text-primary-600"
-                  />
-                  <span className="text-sm">Analyse des besoins (PDF)</span>
-                </label>
+                {/* Note sur le PDF */}
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-3">
+                  <p className="text-xs text-yellow-800">
+                    💡 <strong>Pour joindre le PDF d'analyse des besoins</strong> : Générez-le d'abord depuis la page du RDV, 
+                    puis uploadez-le ci-dessous avec le bouton "+ Ajouter d'autres fichiers"
+                  </p>
+                </div>
                 
                 {/* Upload de fichiers */}
                 <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 mb-3">
                   <label className="flex flex-col items-center cursor-pointer">
                     <Upload className="w-8 h-8 text-gray-400 mb-2" />
                     <span className="text-sm text-gray-600 text-center">
-                      Ajouter d'autres fichiers (INRS, brochures, devis...)
+                      Ajouter des fichiers (analyse PDF, INRS, brochures, devis...)
                       <br />
                       <span className="text-xs text-gray-500">Max 10MB par fichier • PDF, Word, Excel, Images</span>
                     </span>
@@ -411,11 +408,10 @@ Exemple :
                 />
               </div>
 
-              {(attachPDF || uploadedFiles.length > 0) && (
+              {uploadedFiles.length > 0 && (
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                  <p className="text-sm font-medium text-blue-900 mb-2">📎 Pièces jointes :</p>
+                  <p className="text-sm font-medium text-blue-900 mb-2">📎 Pièces jointes ({uploadedFiles.length}) :</p>
                   <ul className="text-sm text-blue-800 space-y-1">
-                    {attachPDF && <li>• Analyse_Besoin_{client?.name?.replace(/\s/g, '_')}.pdf</li>}
                     {uploadedFiles.map(file => (
                       <li key={file.id}>• {file.name}</li>
                     ))}
