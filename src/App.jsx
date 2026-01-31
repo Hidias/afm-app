@@ -35,6 +35,8 @@ import Login from './pages/Login'
 // ========== NOUVEAU : Pages Prospection ==========
 import Prospection from './pages/Prospection'
 import ProspectRDVDetail from './pages/ProspectRDVDetail'
+// ========== NOUVEAU : Configuration Email ==========
+import EmailSettings from './pages/EmailSettings'
 
 // Pages publiques (émargement, questionnaires)
 import PublicAttendance from './pages/public/Attendance'
@@ -159,6 +161,9 @@ export default function App() {
           <Route path="veille-qualiopi" element={<VeilleQualiopi />} />
           <Route path="audit-logs" element={<AuditLogs />} />
           <Route path="parametres" element={<Settings />} />
+          {/* ========== NOUVEAU : Configuration Email ========== */}
+          <Route path="settings/email" element={<EmailSettings />} />
+          {/* ================================================== */}
           <Route path="versions" element={<VersionHistory />} />
           <Route path="changelog" element={<Changelog />} />
         </Route>
