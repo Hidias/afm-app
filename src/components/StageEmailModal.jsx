@@ -6,6 +6,7 @@ import { generatePDF } from '../lib/pdfGenerator'
 
 export default function StageEmailModal({ session, onClose }) {
   const [trainees, setTrainees] = useState([])        // tous les stagiaires de la session
+  const [selectedIds, setSelectedIds] = useState(new Set()) // stagiaires sélectionnés pour l'envoi
   const [emailBody, setEmailBody] = useState('')
   const [emailSubject, setEmailSubject] = useState('')
   const [step, setStep] = useState('preview')         // 'preview' | 'sending' | 'done'
@@ -26,6 +27,8 @@ export default function StageEmailModal({ session, onClose }) {
       result: st.result || null
     })) || []
     setTrainees(list)
+    // Sélectionner par défaut tous les stagiaires avec un email
+    setSelectedIds(new Set(list.filter(t => t.email).map(t => t.id)))
   }, [session])
 
   // Template du mail
@@ -109,16 +112,18 @@ Access Formation`
       return
     }
 
-    const initialResults = trainees.map(t => ({
+    // On n'envoie qu'aux stagiaires sélectionnés
+    const targets = trainees.filter(t => selectedIds.has(t.id))
+
+    const initialResults = targets.map(t => ({
       trainee: t,
-      status: t.email ? 'pending' : 'skipped',
-      error: t.email ? null : 'Pas d\'email'
+      status: 'pending',
+      error: null
     }))
     setResults(initialResults)
 
-    for (let i = 0; i < trainees.length; i++) {
-      const t = trainees[i]
-      if (!t.email) continue
+    for (let i = 0; i < targets.length; i++) {
+      const t = targets[i]
 
       try {
         // Personnaliser le body avec le prénom de ce stagiaire
@@ -159,7 +164,7 @@ Access Formation`
         }
 
         // Petit délai entre les envois pour éviter de surcharger le SMTP
-        if (i < trainees.length - 1) await new Promise(r => setTimeout(r, 1500))
+        if (i < targets.length - 1) await new Promise(r => setTimeout(r, 1500))
 
       } catch (err) {
         console.error(`Erreur pour ${t.first_name}:`, err)
@@ -174,8 +179,7 @@ Access Formation`
   }
 
   // Compteurs pour le résumé
-  const withEmail = trainees.filter(t => t.email).length
-  const withoutEmail = trainees.filter(t => !t.email).length
+  const selectedCount = selectedIds.size
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
@@ -200,26 +204,52 @@ Access Formation`
 
               {/* Résumé destinataires */}
               <div className="bg-gray-50 border rounded-lg p-4">
-                <p className="text-sm font-semibold text-gray-700 mb-2">Destinataires ({trainees.length} stagiaires)</p>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-sm font-semibold text-gray-700">
+                    Destinataires — {selectedIds.size} sélectionné{selectedIds.size > 1 ? 's' : ''} / {trainees.length}
+                  </p>
+                  <button
+                    onClick={() => {
+                      const allWithEmail = new Set(trainees.filter(t => t.email).map(t => t.id))
+                      const allSelected = trainees.filter(t => t.email).every(t => selectedIds.has(t.id))
+                      setSelectedIds(allSelected ? new Set() : allWithEmail)
+                    }}
+                    className="text-xs text-primary-600 hover:underline"
+                  >
+                    {trainees.filter(t => t.email).every(t => selectedIds.has(t.id)) ? 'Tout désélectionner' : 'Tout sélectionner'}
+                  </button>
+                </div>
+                <div className="space-y-1.5">
                   {trainees.map(t => (
-                    <span
+                    <label
                       key={t.id}
-                      className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
-                        t.email ? 'bg-green-100 text-green-800' : 'bg-gray-200 text-gray-600'
+                      className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-colors ${
+                        !t.email ? 'opacity-50 cursor-not-allowed' :
+                        selectedIds.has(t.id) ? 'bg-green-50 border border-green-200' : 'bg-white border border-gray-200 hover:bg-gray-50'
                       }`}
                     >
-                      {t.email ? <CheckCircle className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
-                      {t.first_name} {t.last_name}
-                      {!t.email && <span className="ml-1 italic">(pas d'email)</span>}
-                    </span>
+                      <input
+                        type="checkbox"
+                        checked={t.email ? selectedIds.has(t.id) : false}
+                        disabled={!t.email}
+                        onChange={() => {
+                          if (!t.email) return
+                          setSelectedIds(prev => {
+                            const next = new Set(prev)
+                            next.has(t.id) ? next.delete(t.id) : next.add(t.id)
+                            return next
+                          })
+                        }}
+                        className="w-4 h-4 rounded accent-green-600"
+                      />
+                      <span className="text-sm font-medium text-gray-800">{t.first_name} {t.last_name}</span>
+                      {t.email
+                        ? <span className="text-xs text-gray-400 ml-auto">{t.email}</span>
+                        : <span className="text-xs text-amber-600 italic ml-auto">pas d'email</span>
+                      }
+                    </label>
                   ))}
                 </div>
-                {withoutEmail > 0 && (
-                  <p className="text-xs text-amber-700 mt-2">
-                    ⚠ {withoutEmail} stagiaire{withoutEmail > 1 ? 's' : ''} sans email — ils ne recevront pas de mail.
-                  </p>
-                )}
               </div>
 
               {/* Objet */}
@@ -263,11 +293,11 @@ Access Formation`
               {/* Bouton envoyer */}
               <button
                 onClick={handleSend}
-                disabled={withEmail === 0}
+                disabled={selectedCount === 0}
                 className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <Send className="w-5 h-5" />
-                Envoyer à {withEmail} stagiaire{withEmail > 1 ? 's' : ''}
+                Envoyer à {selectedCount} stagiaire{selectedCount > 1 ? 's' : ''}
               </button>
             </div>
           )}
