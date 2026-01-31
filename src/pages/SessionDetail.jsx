@@ -6,7 +6,7 @@ import {
   ArrowLeft, Calendar, MapPin, Users, Clock, FileText, QrCode, UserPlus, UserMinus,
   Download, CheckCircle, AlertCircle, Copy, ExternalLink, X, Edit, Trash2, Save,
   FileSignature, Send, Upload, Eye, Star, ThumbsUp, ClipboardCheck, UserCheck, HelpCircle, Home, Target,
-  Sun, Moon, Plus, ChevronDown, Search, LogOut, MessageSquare, CheckCircle2, FileCheck
+  Sun, Moon, Plus, ChevronDown, Search, LogOut, MessageSquare, CheckCircle2, FileCheck, Mail
 } from 'lucide-react'
 import { format, eachDayOfInterval, parseISO, differenceInDays } from 'date-fns'
 import { fr } from 'date-fns/locale'
@@ -19,6 +19,7 @@ import DateTimePickerModal from '../components/DateTimePickerModal'
 import SessionChecklist from '../components/SessionChecklist'
 import SessionNeedsAnalysis from '../components/SessionNeedsAnalysis'
 import SessionEmailModal from '../components/SessionEmailModal'
+import StageEmailModal from '../components/StageEmailModal'
 
 const statusLabels = {
   draft: { label: 'Brouillon', class: 'badge-gray' },
@@ -73,6 +74,7 @@ export default function SessionDetail() {
   const [showAddTrainee, setShowAddTrainee] = useState(false)
   const [showEdit, setShowEdit] = useState(false)
   const [showSessionEmailModal, setShowSessionEmailModal] = useState(false)
+  const [showStageEmailModal, setShowStageEmailModal] = useState(false)
   const [sessionEmailType, setSessionEmailType] = useState(null) // 'before' ou 'after'
   const [qrCodeUrl, setQrCodeUrl] = useState('')
   const [traineeFilterClient, setTraineeFilterClient] = useState('')
@@ -1723,7 +1725,6 @@ export default function SessionDetail() {
         supabase.from('attendance_halfdays').select('*').eq('session_id', session.id)
       ])
       options.attendanceData = { signatures: signatures || [], halfdays: halfDays || [] }
-      console.log('attendanceData pour émargement:', options.attendanceData)
     }
 
     downloadDocument(docType, session, options)
@@ -1927,6 +1928,9 @@ export default function SessionDetail() {
           </button>
           <button onClick={() => handleSendEmailAfter()} className="btn btn-secondary flex items-center gap-2 text-green-600 border-green-200 hover:bg-green-50">
             <Send className="w-4 h-4" />Après formation
+          </button>
+          <button onClick={() => setShowStageEmailModal(true)} className="btn btn-secondary flex items-center gap-2 text-purple-600 border-purple-200 hover:bg-purple-50">
+            <Mail className="w-4 h-4" />Aux stagiaires
           </button>
           <button onClick={() => setShowEdit(true)} className="btn btn-secondary flex items-center gap-2"><Edit className="w-4 h-4" />Modifier</button>
           <button onClick={handleDelete} className="btn btn-danger"><Trash2 className="w-4 h-4" /></button>
@@ -4472,6 +4476,13 @@ export default function SessionDetail() {
             setShowSessionEmailModal(false)
             setSessionEmailType(null)
           }}
+        />
+      )}
+
+      {showStageEmailModal && (
+        <StageEmailModal
+          session={session}
+          onClose={() => setShowStageEmailModal(false)}
         />
       )}
     </div>
