@@ -4455,6 +4455,9 @@ export default function SessionDetail() {
         <SessionEmailModal 
           session={session}
           emailType={sessionEmailType}
+          sessionCosts={sessionCosts}
+          questions={questions}
+          traineeResults={traineeResults}
           onClose={() => {
             setShowSessionEmailModal(false)
             setSessionEmailType(null)
