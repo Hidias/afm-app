@@ -907,8 +907,9 @@ function generateEmargement(session, trainees = [], trainer = null, isBlank = fa
         const hh = d ? String(d.getHours()).padStart(2, '0') : '--'
         const min = d ? String(d.getMinutes()).padStart(2, '0') : '--'
 
-        // Couleur : vert si signature num, bleu si validé manuellement
-        const color = sig ? [0, 120, 0] : [0, 80, 160]
+        // Couleur : vert si signature num OU stagiaire a signé (signed_morning/afternoon_at), bleu si validé formateur uniquement
+        const hdSigned = hd && (period === 'morning' ? hd.signed_morning_at : hd.signed_afternoon_at)
+        const color = (sig || hdSigned) ? [0, 120, 0] : [0, 80, 160]
 
         // Dessiner la coche
         drawCheckmark(cellX + 1.5, y + 1.5, 4.5, color)
@@ -940,7 +941,7 @@ function generateEmargement(session, trainees = [], trainer = null, isBlank = fa
     doc.setFillColor(0, 120, 0)
     doc.rect(15, y - 3.5, 3.5, 3.5, 'F')
     doc.setTextColor(0, 0, 0)
-    doc.text('Émargement électronique (via QR code)', 20, y)
+    doc.text('Émargement signé par le stagiaire', 20, y)
 
     // Carré bleu + texte
     doc.setFillColor(0, 80, 160)
