@@ -19,17 +19,14 @@ export default function StageEmailModal({ session, onClose }) {
   const endDate = session?.end_date ? new Date(session.end_date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }) : ''
   const formateur = trainer ? `${trainer.first_name} ${trainer.last_name}` : 'Access Formation'
 
-  // Charger les stagiaires
+  // Extraire les stagiaires depuis session.session_trainees (déjà chargés par le store)
   useEffect(() => {
-    const load = async () => {
-      const { data } = await supabase
-        .from('session_trainees')
-        .select('trainees.*, result')
-        .eq('session_id', session.id)
-      setTrainees(data || [])
-    }
-    load()
-  }, [session.id])
+    const list = session?.session_trainees?.map(st => ({
+      ...st.trainees,
+      result: st.result || null
+    })) || []
+    setTrainees(list)
+  }, [session])
 
   // Template du mail
   const buildTemplate = useCallback((prenom) => {
@@ -44,7 +41,7 @@ Veuillez trouver ci-joint les documents suivants :
 - Attestation de présence
 - Évaluation à froid
 
-Concernant l'évaluation à froid ci-jointe, nous vous invitons à la compléter après quelques semaines de pratique et à nous la renvoyer à cette adresse. Cela nous permettra de mesurer les apports concrets de cette formation pour vous.
+Concernant l'évaluation à froid ci-jointe, nous vous invitons à la compléter après quelques semaines de pratique et à nous la renvoyer à l'adresse contact@accessformation.pro. Cela nous permettra de mesurer les apports concrets de cette formation pour vous.
 
 Par ailleurs, n'hésitez pas à visiter notre site www.accessformation.pro pour découvrir l'ensemble de nos formations disponibles.
 
