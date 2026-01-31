@@ -1716,6 +1716,16 @@ export default function SessionDetail() {
       console.log('options.infoSheet final:', options.infoSheet)
     }
     
+    // Ajouter les données d'émargement pour le PDF émargement
+    if (docType === 'emargement') {
+      const [{ data: signatures }, { data: halfDays }] = await Promise.all([
+        supabase.from('attendances').select('*').eq('session_id', session.id),
+        supabase.from('attendance_halfdays').select('*').eq('session_id', session.id)
+      ])
+      options.attendanceData = { signatures: signatures || [], halfdays: halfDays || [] }
+      console.log('attendanceData pour émargement:', options.attendanceData)
+    }
+
     downloadDocument(docType, session, options)
     toast.success('Document généré')
   }
