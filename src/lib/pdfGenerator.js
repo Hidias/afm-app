@@ -694,24 +694,59 @@ function generateConvocation(session, trainee, trainer = null) {
 // ============================================================
 // ÉMARGEMENT - AVEC N° SÉCU, SANS SIGNATURE FORMATEUR
 // ============================================================
-function generateEmargement(session, trainees = [], trainer = null, isBlank = false) {
+// attendanceData = { signatures: [...], halfdays: [...] } passé depuis SessionDetail
+function generateEmargement(session, trainees = [], trainer = null, isBlank = false, attendanceData = null) {
   const doc = new jsPDF('landscape')
   const pw = doc.internal.pageSize.getWidth()
+  const ph = doc.internal.pageSize.getHeight()
   const course = session?.courses || {}
   const ref = session?.reference || ''
   const lieu = isBlank ? '________________________________' : getLocation(session)
-  
-  // Pour documents vierges : logo + rectangle N° Session
+
+  const signatures = attendanceData?.signatures || []   // table "attendances"
+  const halfdays = attendanceData?.halfdays || []       // table "attendance_halfdays"
+
+  // Helper : trouver une signature électronique pour un stagiaire + date + période
+  const getSignature = (traineeId, dateStr, period) => {
+    // period ici = 'morning' ou 'afternoon'
+    // dans "attendances", period = 'am' | 'pm' | 'full'
+    const periodMap = { morning: 'am', afternoon: 'pm' }
+    const target = periodMap[period]
+    return signatures.find(s =>
+      s.trainee_id === traineeId &&
+      s.date === dateStr &&
+      (s.period === target || s.period === 'full')
+    )
+  }
+
+  // Helper : trouver une validation manuelle pour un stagiaire + date + période
+  const getHalfday = (traineeId, dateStr, period) => {
+    const hd = halfdays.find(h => h.trainee_id === traineeId && h.date === dateStr)
+    if (!hd) return null
+    const isPresent = period === 'morning' ? hd.morning : hd.afternoon
+    return isPresent ? hd : null
+  }
+
+  // Helper : formater un timestamp en "JJ/MM/AAAA à XXhXX"
+  const formatSignedAt = (timestamp) => {
+    if (!timestamp) return ''
+    const d = new Date(timestamp)
+    const dd = String(d.getDate()).padStart(2, '0')
+    const mm = String(d.getMonth() + 1).padStart(2, '0')
+    const yyyy = d.getFullYear()
+    const hh = String(d.getHours()).padStart(2, '0')
+    const min = String(d.getMinutes()).padStart(2, '0')
+    return `${dd}/${mm}/${yyyy} à ${hh}h${min}`
+  }
+
+  // ============ HEADER ============
   if (isBlank) {
-    // Logo en haut à gauche
     const logoBase64 = ORG.logo_base64
     if (logoBase64) {
       try {
-        const format = logoBase64.includes('image/png') ? 'PNG' : 'JPEG'
-        doc.addImage(logoBase64, format, 15, 10, 50, 12.5)
+        const fmt = logoBase64.includes('image/png') ? 'PNG' : 'JPEG'
+        doc.addImage(logoBase64, fmt, 15, 10, 50, 12.5)
       } catch (e) {
-        console.warn('Erreur chargement logo:', e)
-        // Fallback: rectangle bleu
         doc.setFillColor(0, 102, 204)
         doc.rect(15, 10, 50, 12, 'F')
         doc.setFontSize(10)
@@ -729,8 +764,6 @@ function generateEmargement(session, trainees = [], trainer = null, isBlank = fa
       doc.text('ACCESS FORMATION', 20, 18)
       doc.setTextColor(0, 0, 0)
     }
-    
-    // Rectangle N° Session en haut à droite
     doc.setFontSize(8)
     doc.setFont('helvetica', 'normal')
     doc.setTextColor(0, 0, 0)
@@ -741,19 +774,18 @@ function generateEmargement(session, trainees = [], trainer = null, isBlank = fa
     doc.text(ref, pw - 15, 10, { align: 'right' })
     doc.setTextColor(0, 0, 0)
   }
-  
+
   let y = 15
   doc.setFontSize(14)
   doc.setFont('helvetica', 'bold')
   doc.text("FEUILLE D'ÉMARGEMENT", pw / 2, y, { align: 'center' })
   y += 10
-  
+
   doc.setFontSize(9)
   doc.setFont('helvetica', 'normal')
   doc.text(`Formation : ${isBlank ? '________________________________________' : (course.title || '')}`, 15, y)
   doc.text(`Client : ${isBlank ? '________________________' : (session?.clients?.name || '')}`, pw / 2, y); y += 5
-  
-  // Pour documents vierges : pas de dates pré-remplies
+
   if (isBlank) {
     doc.text(`Dates : Du ___/___/______ au ___/___/______`, 15, y)
   } else {
@@ -761,31 +793,35 @@ function generateEmargement(session, trainees = [], trainer = null, isBlank = fa
   }
   doc.text(`Lieu : ${lieu}`, pw / 2, y); y += 5
   doc.text(`Formateur : ${isBlank ? '________________________________' : (trainer ? `${trainer.first_name} ${trainer.last_name}` : ORG.dirigeant)}`, 15, y); y += 8
-  
-  // Pour les documents vierges, créer des colonnes pour 3 jours génériques
+
+  // ============ JOURS ============
   let days = []
   if (!isBlank && session?.start_date && session?.end_date) {
     try { days = eachDayOfInterval({ start: parseISO(session.start_date), end: parseISO(session.end_date) }) } catch {}
   }
-  // Pour les documents vierges, utiliser 3 jours vides
   const displayDays = isBlank ? [1, 2, 3] : (days.length > 0 ? days : [new Date()])
-  
+
+  // Largeurs des colonnes
   const nameColW = 45
   const secuColW = 40
   const emailColW = 35
   const remainingW = pw - 30 - nameColW - secuColW - emailColW
   const dayColW = Math.min(25, remainingW / (displayDays.length * 2))
   const startX = 15
-  
+
+  // Hauteur des lignes selon le mode
+  const rowH = isBlank ? 10 : 22  // plus haut en mode rempli pour la signature + texte
+
+  // ============ EN-TÊTE TABLEAU ============
   doc.setFillColor(240, 240, 240)
   doc.rect(startX, y, nameColW + secuColW + emailColW + displayDays.length * dayColW * 2, 14, 'F')
-  
+
   doc.setFontSize(7)
   doc.setFont('helvetica', 'bold')
   doc.text('Nom Prénom', startX + 2, y + 10)
   doc.text('N° Sécurité Sociale', startX + nameColW + 2, y + 10)
   doc.text('Email', startX + nameColW + secuColW + 2, y + 10)
-  
+
   let x = startX + nameColW + secuColW + emailColW
   displayDays.forEach((day, idx) => {
     const dateStr = isBlank ? `J${idx + 1}` : format(day, 'dd/MM', { locale: fr })
@@ -796,37 +832,117 @@ function generateEmargement(session, trainees = [], trainer = null, isBlank = fa
     x += dayColW * 2
   })
   y += 14
-  
-  // TOUJOURS 10 lignes : stagiaires remplis + lignes vides
-  const totalRows = 10
-  const emptyRowsNeeded = Math.max(0, totalRows - trainees.length)
+
+  // ============ LIGNES STAGIAIRES ============
+  const totalRows = isBlank ? 10 : trainees.length
+  const emptyRowsNeeded = isBlank ? Math.max(0, 10 - trainees.length) : 0
   const rows = [...trainees, ...Array(emptyRowsNeeded).fill({})]
-  
+
   doc.setFont('helvetica', 'normal')
-  doc.setFontSize(7)
+
   rows.forEach(t => {
-    doc.rect(startX, y, nameColW, 10)
-    doc.rect(startX + nameColW, y, secuColW, 10)
-    doc.rect(startX + nameColW + secuColW, y, emailColW, 10)
-    
-    if (t.first_name) doc.text(`${t.last_name?.toUpperCase() || ''} ${t.first_name || ''}`, startX + 1, y + 7)
-    if (t.social_security_number) doc.text(t.social_security_number, startX + nameColW + 1, y + 7)
-    if (t.email) doc.text(t.email.substring(0, 22), startX + nameColW + secuColW + 1, y + 7)
-    
+    // Vérifier si on dépasse la page
+    if (y + rowH > ph - 18) {
+      doc.addPage('landscape')
+      y = 10
+    }
+
+    // Colonnes info stagiaire
+    doc.setFontSize(7)
+    doc.rect(startX, y, nameColW, rowH)
+    doc.rect(startX + nameColW, y, secuColW, rowH)
+    doc.rect(startX + nameColW + secuColW, y, emailColW, rowH)
+
+    if (t.first_name) doc.text(`${t.last_name?.toUpperCase() || ''} ${t.first_name || ''}`, startX + 1, y + 5)
+    if (t.social_security_number) doc.text(t.social_security_number, startX + nameColW + 1, y + 5)
+    if (t.email) doc.text(t.email.substring(0, 22), startX + nameColW + secuColW + 1, y + 5)
+
+    // Colonnes demi-journées
     let xx = startX + nameColW + secuColW + emailColW
-    displayDays.forEach(() => {
-      doc.rect(xx, y, dayColW, 10)
-      doc.rect(xx + dayColW, y, dayColW, 10)
+    displayDays.forEach((day, idx) => {
+      const dateStr = isBlank ? null : format(day, 'yyyy-MM-dd')
+
+      // Case Matin
+      doc.rect(xx, y, dayColW, rowH)
+      if (!isBlank && t.id && dateStr) {
+        const sig = getSignature(t.id, dateStr, 'morning')
+        const hd = getHalfday(t.id, dateStr, 'morning')
+
+        if (sig) {
+          // Signature électronique existe
+          if (sig.signature) {
+            try {
+              doc.addImage(sig.signature, 'PNG', xx + 1, y + 1, dayColW - 2, 10)
+            } catch (e) { /* signature corrompue, on ignore */ }
+          }
+          doc.setFontSize(4.5)
+          doc.setTextColor(0, 100, 0)
+          doc.setFont('helvetica', 'bold')
+          doc.text('✓ Signé num.', xx + 1, y + 14)
+          doc.setFont('helvetica', 'normal')
+          doc.text(formatSignedAt(sig.signed_at || sig.created_at), xx + 1, y + 18)
+          doc.setTextColor(0, 0, 0)
+        } else if (hd) {
+          // Présence validée manuellement par le formateur
+          doc.setFontSize(4.5)
+          doc.setTextColor(0, 80, 160)
+          doc.setFont('helvetica', 'bold')
+          doc.text('✓ Validé man.', xx + 1, y + 9)
+          doc.setFont('helvetica', 'normal')
+          doc.text(`Par ${hd.validated_by || 'formateur'}`, xx + 1, y + 13)
+          doc.text(formatSignedAt(hd.validated_at), xx + 1, y + 18)
+          doc.setTextColor(0, 0, 0)
+        }
+      }
+
+      // Case Après-midi
+      doc.rect(xx + dayColW, y, dayColW, rowH)
+      if (!isBlank && t.id && dateStr) {
+        const sig = getSignature(t.id, dateStr, 'afternoon')
+        const hd = getHalfday(t.id, dateStr, 'afternoon')
+
+        if (sig) {
+          if (sig.signature) {
+            try {
+              doc.addImage(sig.signature, 'PNG', xx + dayColW + 1, y + 1, dayColW - 2, 10)
+            } catch (e) {}
+          }
+          doc.setFontSize(4.5)
+          doc.setTextColor(0, 100, 0)
+          doc.setFont('helvetica', 'bold')
+          doc.text('✓ Signé num.', xx + dayColW + 1, y + 14)
+          doc.setFont('helvetica', 'normal')
+          doc.text(formatSignedAt(sig.signed_at || sig.created_at), xx + dayColW + 1, y + 18)
+          doc.setTextColor(0, 0, 0)
+        } else if (hd) {
+          doc.setFontSize(4.5)
+          doc.setTextColor(0, 80, 160)
+          doc.setFont('helvetica', 'bold')
+          doc.text('✓ Validé man.', xx + dayColW + 1, y + 9)
+          doc.setFont('helvetica', 'normal')
+          doc.text(`Par ${hd.validated_by || 'formateur'}`, xx + dayColW + 1, y + 13)
+          doc.text(formatSignedAt(hd.validated_at), xx + dayColW + 1, y + 18)
+          doc.setTextColor(0, 0, 0)
+        }
+      }
+
       xx += dayColW * 2
     })
-    y += 10
+    y += rowH
   })
-  
+
+  // ============ SIGNATURE FORMATEUR ============
   y += 8
+  if (y + 22 > ph - 18) {
+    doc.addPage('landscape')
+    y = 10
+  }
   doc.setFontSize(9)
+  doc.setFont('helvetica', 'normal')
+  doc.setTextColor(0, 0, 0)
   doc.text('Signature du formateur :', 15, y)
   doc.rect(15, y + 2, 60, 18)
-  
+
   addFooter(doc, DOC_CODES.emargement)
   return doc
 }
@@ -2004,14 +2120,14 @@ function generateFicheRenseignements(session, trainee = null, isBlank = false, i
 // EXPORT
 // ============================================================
 export function downloadDocument(docType, session, options = {}) {
-  const { trainees = [], trainee = null, trainer = null, isBlank = false, questions = [], costs = [] } = options
+  const { trainees = [], trainee = null, trainer = null, isBlank = false, questions = [], costs = [], attendanceData = null } = options
   const ref = session?.reference || 'VIERGE'
   let doc, filename
   
   switch (docType) {
     case 'convention': doc = generateConvention(session, trainees, trainer, costs); filename = `Convention_${ref}.pdf`; break
     case 'certificat': doc = generateCertificat(session, trainee, trainer); filename = `Certificat_${ref}_${trainee?.last_name || ''}.pdf`; break
-    case 'emargement': doc = generateEmargement(session, trainees, trainer, isBlank); filename = isBlank ? 'Emargement_Vierge.pdf' : `Emargement_${ref}.pdf`; break
+    case 'emargement': doc = generateEmargement(session, trainees, trainer, isBlank, attendanceData); filename = isBlank ? 'Emargement_Vierge.pdf' : `Emargement_${ref}.pdf`; break
     case 'convocation': doc = generateConvocation(session, trainee, trainer); filename = `Convocation_${ref}_${trainee?.last_name || ''}.pdf`; break
     case 'attestation': doc = generateAttestation(session, trainee, trainer); filename = `Attestation_${ref}_${trainee?.last_name || ''}.pdf`; break
     case 'programme': doc = generateProgramme(session, trainer); filename = `Programme_${ref}.pdf`; break
@@ -2128,14 +2244,14 @@ export async function downloadAllDocuments(docType, session, trainees, options =
 
 // Même chose que downloadDocument mais retourne { base64, filename } au lieu de télécharger
 export function generatePDF(docType, session, options = {}) {
-  const { trainees = [], trainee = null, trainer = null, isBlank = false, questions = [], costs = [] } = options
+  const { trainees = [], trainee = null, trainer = null, isBlank = false, questions = [], costs = [], attendanceData = null } = options
   const ref = session?.reference || 'VIERGE'
   let doc, filename
   
   switch (docType) {
     case 'convention': doc = generateConvention(session, trainees, trainer, costs); filename = `Convention_${ref}.pdf`; break
     case 'certificat': doc = generateCertificat(session, trainee, trainer); filename = `Certificat_${ref}_${trainee?.last_name || ''}.pdf`; break
-    case 'emargement': doc = generateEmargement(session, trainees, trainer, isBlank); filename = isBlank ? 'Emargement_Vierge.pdf' : `Emargement_${ref}.pdf`; break
+    case 'emargement': doc = generateEmargement(session, trainees, trainer, isBlank, attendanceData); filename = isBlank ? 'Emargement_Vierge.pdf' : `Emargement_${ref}.pdf`; break
     case 'convocation': doc = generateConvocation(session, trainee, trainer); filename = `Convocation_${ref}_${trainee?.last_name || ''}.pdf`; break
     case 'attestation': doc = generateAttestation(session, trainee, trainer); filename = `Attestation_${ref}_${trainee?.last_name || ''}.pdf`; break
     case 'programme': doc = generateProgramme(session, trainer); filename = `Programme_${ref}.pdf`; break
