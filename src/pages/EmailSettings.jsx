@@ -11,9 +11,11 @@ export default function EmailSettings() {
   const [userId, setUserId] = useState(null)
   const [formData, setFormData] = useState({
     email: '',
-    password: ''
+    password: '',
+    signatureImage: null // Image de signature en base64
   })
   const [hasConfig, setHasConfig] = useState(false)
+  const [signaturePreview, setSignaturePreview] = useState(null)
 
   useEffect(() => {
     loadConfig()
@@ -29,12 +31,17 @@ export default function EmailSettings() {
       // Récupérer la config existante
       const { data, error } = await supabase
         .from('user_email_configs')
-        .select('email')
+        .select('email, signature_image')
         .eq('user_id', user.id)
         .maybeSingle()
 
       if (data && !error) {
-        setFormData(prev => ({ ...prev, email: data.email }))
+        setFormData(prev => ({ 
+          ...prev, 
+          email: data.email,
+          signatureImage: data.signature_image 
+        }))
+        setSignaturePreview(data.signature_image)
         setHasConfig(true)
       }
     } catch (error) {
@@ -78,6 +85,39 @@ export default function EmailSettings() {
     }
   }
 
+  const handleSignatureUpload = (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    
+    // Vérifier que c'est une image
+    if (!file.type.startsWith('image/')) {
+      toast.error('Le fichier doit être une image')
+      return
+    }
+    
+    // Vérifier la taille (max 1MB)
+    if (file.size > 1024 * 1024) {
+      toast.error('Image trop volumineuse (max 1MB)')
+      return
+    }
+    
+    // Lire l'image en base64
+    const reader = new FileReader()
+    reader.onload = (event) => {
+      const base64 = event.target.result
+      setFormData(prev => ({ ...prev, signatureImage: base64 }))
+      setSignaturePreview(base64)
+      toast.success('Signature ajoutée')
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const handleRemoveSignature = () => {
+    setFormData(prev => ({ ...prev, signatureImage: null }))
+    setSignaturePreview(null)
+    toast.success('Signature supprimée')
+  }
+
   const handleSave = async () => {
     if (!formData.email || !formData.password) {
       toast.error('Email et mot de passe obligatoires')
@@ -94,6 +134,7 @@ export default function EmailSettings() {
           userId,
           email: formData.email,
           password: formData.password,
+          signatureImage: formData.signatureImage,
           testConnection: false
         })
       })
@@ -169,6 +210,49 @@ export default function EmailSettings() {
               <p>• Port : 587 (STARTTLS)</p>
               <p>• Les emails apparaîtront dans vos "Envoyés"</p>
             </div>
+          </div>
+
+          {/* Signature */}
+          <div className="border-t border-gray-200 pt-4">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              ✍️ Signature email (optionnel)
+            </label>
+            
+            {signaturePreview ? (
+              <div className="space-y-2">
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                  <img 
+                    src={signaturePreview} 
+                    alt="Signature" 
+                    className="max-w-full h-auto"
+                    style={{ maxHeight: '150px' }}
+                  />
+                </div>
+                <button
+                  onClick={handleRemoveSignature}
+                  className="text-sm text-red-600 hover:text-red-700"
+                >
+                  Supprimer la signature
+                </button>
+              </div>
+            ) : (
+              <div className="border-2 border-dashed border-gray-300 rounded-lg p-6">
+                <label className="flex flex-col items-center cursor-pointer">
+                  <Mail className="w-8 h-8 text-gray-400 mb-2" />
+                  <span className="text-sm text-gray-600">Ajouter une image de signature</span>
+                  <span className="text-xs text-gray-500 mt-1">PNG, JPG (max 1MB)</span>
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/jpg"
+                    onChange={handleSignatureUpload}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+            )}
+            <p className="text-xs text-gray-500 mt-2">
+              Cette signature sera automatiquement ajoutée à la fin de vos emails
+            </p>
           </div>
 
           {hasConfig && (
