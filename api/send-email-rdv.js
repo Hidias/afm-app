@@ -1,5 +1,5 @@
 // api/send-email-rdv.js
-// Envoie un email de compte-rendu via SMTP IONOS
+// Envoie un email de compte-rendu via SMTP IONOS avec retry
 
 import nodemailer from 'nodemailer'
 import { createClient } from '@supabase/supabase-js'
@@ -22,13 +22,63 @@ function decrypt(encryptedText) {
   return decrypted
 }
 
+// Fonction pour attendre (pour les retry)
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
+
+// Fonction d'envoi avec retry
+async function sendEmailWithRetry(transporter, mailOptions, maxRetries = 3) {
+  let lastError = null
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      console.log(`Tentative d'envoi ${attempt}/${maxRetries}`)
+      
+      // Vérifier la connexion
+      await transporter.verify()
+      
+      // Envoyer l'email
+      const info = await transporter.sendMail(mailOptions)
+      
+      console.log('Email envoyé avec succès:', info.messageId)
+      return info
+      
+    } catch (error) {
+      lastError = error
+      console.error(`Tentative ${attempt} échouée:`, error.message)
+      
+      // Fermer la connexion en cas d'erreur
+      try {
+        transporter.close()
+      } catch (e) {
+        // Ignore
+      }
+      
+      // Si c'est pas la dernière tentative, attendre avant de retry
+      if (attempt < maxRetries) {
+        const waitTime = attempt * 2000 // 2s, 4s, 6s
+        console.log(`Attente de ${waitTime}ms avant nouvelle tentative...`)
+        await sleep(waitTime)
+      }
+    }
+  }
+  
+  // Toutes les tentatives ont échoué
+  throw lastError
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' })
   }
 
+  let transporter = null
+
   try {
     const { userId, to, subject, body, attachments = [], rdvId } = req.body
+
+    if (!userId || !to || !subject || !body) {
+      return res.status(400).json({ error: 'Paramètres manquants' })
+    }
 
     // 1. Récupérer la config SMTP de l'utilisateur
     const { data: emailConfig, error: configError } = await supabase
@@ -45,8 +95,8 @@ export default async function handler(req, res) {
     // 2. Déchiffrer le mot de passe
     const smtpPassword = decrypt(emailConfig.smtp_password_encrypted)
 
-    // 3. Créer le transporteur SMTP
-    const transporter = nodemailer.createTransport({
+    // 3. Créer le transporteur SMTP avec timeouts plus longs
+    transporter = nodemailer.createTransport({
       host: emailConfig.smtp_host,
       port: emailConfig.smtp_port,
       secure: emailConfig.smtp_secure, // false pour STARTTLS (587)
@@ -55,18 +105,24 @@ export default async function handler(req, res) {
         pass: smtpPassword
       },
       tls: {
-        rejectUnauthorized: false // Pour IONOS
-      }
+        rejectUnauthorized: false
+      },
+      connectionTimeout: 10000, // 10 secondes
+      greetingTimeout: 10000, // 10 secondes
+      socketTimeout: 30000, // 30 secondes
+      pool: false, // Pas de pool pour éviter les connexions concurrentes
+      maxConnections: 1,
+      maxMessages: 1
     })
 
     // 4. Préparer les pièces jointes
     const mailAttachments = attachments.map(att => ({
       filename: att.filename,
-      content: att.content, // Base64 ou Buffer
+      content: att.content,
       encoding: att.encoding || 'base64'
     }))
 
-    // 5. Envoyer l'email
+    // 5. Préparer les options du mail
     const mailOptions = {
       from: `"${emailConfig.email.split('@')[0]}" <${emailConfig.email}>`,
       to: to,
@@ -76,9 +132,10 @@ export default async function handler(req, res) {
       attachments: mailAttachments
     }
 
-    const info = await transporter.sendMail(mailOptions)
+    // 6. Envoyer avec retry
+    const info = await sendEmailWithRetry(transporter, mailOptions, 3)
 
-    // 6. Sauvegarder dans l'historique
+    // 7. Sauvegarder dans l'historique
     const { error: historyError } = await supabase
       .from('rdv_emails_sent')
       .insert([{
@@ -88,13 +145,18 @@ export default async function handler(req, res) {
         subject: subject,
         body: body,
         resend_email_id: info.messageId,
-        attachments: attachments.map(a => ({ name: a.filename, size: a.size })),
+        attachments: attachments.map(a => ({ name: a.filename, size: a.size || 0 })),
         status: 'sent',
         created_by: userId
       }])
 
     if (historyError) {
       console.error('Erreur sauvegarde historique:', historyError)
+    }
+
+    // 8. Fermer la connexion proprement
+    if (transporter) {
+      transporter.close()
     }
 
     return res.status(200).json({
@@ -105,6 +167,16 @@ export default async function handler(req, res) {
 
   } catch (error) {
     console.error('Erreur envoi email:', error)
+    
+    // Fermer la connexion en cas d'erreur
+    if (transporter) {
+      try {
+        transporter.close()
+      } catch (e) {
+        // Ignore
+      }
+    }
+    
     return res.status(500).json({
       error: 'Erreur lors de l\'envoi de l\'email',
       details: error.message
