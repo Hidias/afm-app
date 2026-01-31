@@ -6,7 +6,7 @@ import {
   Building2, Users, Filter, ChevronDown
 } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { format, parseISO, isBefore, isToday, isTomorrow, isThisWeek } from 'date-fns'
+import { format, parseISO, isBefore, isToday, isTomorrow } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import { useNavigate } from 'react-router-dom'
 
@@ -123,8 +123,8 @@ export default function Prospection() {
     if (r.is_urgent) return false
     const date = parseISO(r.rdv_date)
     if (isBefore(date, new Date()) || isToday(date) || isTomorrow(date)) return false
-    // Cette semaine (après demain)
-    return isThisWeek(date, { weekStartsOn: 1 })
+    // Tous les RDVs futurs
+    return true
   })
 
   const rdvsRealises = filteredRdvs.filter(r => r.status === 'realise')
