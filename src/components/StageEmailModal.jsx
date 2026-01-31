@@ -148,6 +148,12 @@ Access Formation`
           idx === i ? { ...r, status: response.ok ? 'sent' : 'error', error: response.ok ? null : result.error } : r
         ))
 
+        // Nettoyer les fichiers du storage après envoi réussi
+        if (response.ok && attachmentPaths.length > 0) {
+          const paths = attachmentPaths.map(a => a.path)
+          await supabase.storage.from('documents').remove(paths)
+        }
+
         if (!response.ok) {
           console.error(`Erreur envoi à ${t.first_name} ${t.last_name}:`, result.error)
         }
