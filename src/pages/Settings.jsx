@@ -744,7 +744,7 @@ $$;`}
             <p className="text-primary-600 font-bold">Access Campus</p>
             <p className="text-sm text-gray-500">Version 2.7.0</p>
           </div>
-          <Link to="/versions" className="btn btn-outline btn-sm flex items-center gap-2">
+          <Link to="/changelog" className="btn btn-outline btn-sm flex items-center gap-2">
             <History className="w-4 h-4" />
             Historique des versions
           </Link>
