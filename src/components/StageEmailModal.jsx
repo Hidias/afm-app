@@ -44,9 +44,10 @@ Veuillez trouver ci-joint les documents suivants :
 - Attestation de présence
 - Évaluation à froid
 
-Concernant l'évaluation à froid ci-jointe, nous vous invitons à la compléter après quelques semaines de pratique et à nous la renvoyer à l'adresse contact@accessformation.pro. Cela nous permettra de mesurer les apports concrets de cette formation pour vous.
+Concernant l'évaluation à froid ci-jointe, nous vous invitons à la compléter et à nous la renvoyer à l'adresse contact@accessformation.pro.
+Cela nous permettra de mesurer les apports concrets de cette formation pour vous.
 
-Par ailleurs, n'hésitez pas à visiter notre site www.accessformation.pro pour découvrir l'ensemble de nos formations disponibles.
+Par ailleurs, vous pouvez également visiter notre site www.accessformation.pro pour découvrir l'ensemble de nos formations disponibles.
 
 N'hésitez pas à nous contacter si vous avez des questions.
 
