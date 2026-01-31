@@ -4,7 +4,7 @@ import { format, eachDayOfInterval, parseISO } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import QRCode from 'qrcode'
 
-const APP_VERSION = 'V2.5.16'
+const APP_VERSION = 'V2.0.0'
 const DOC_CODES = {
   convention: 'AF-CONV', convocation: 'AF-CONVOC', attestation: 'AF-ATTP',
   certificat: 'AF-CERT', emargement: 'AF-EMARG', programme: 'AF-PROG',
