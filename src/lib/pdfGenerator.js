@@ -863,6 +863,25 @@ function generateEmargement(session, trainees = [], trainer = null, isBlank = fa
       const dateStr = isBlank ? null : format(day, 'yyyy-MM-dd')
       const dateDisplay = isBlank ? null : format(day, 'dd/MM', { locale: fr })
 
+      // Helper : dessiner une coche (checkmark) à la position donnée
+      const drawCheckmark = (cx, cy, size, color) => {
+        doc.setDrawColor(color[0], color[1], color[2])
+        doc.setLineWidth(0.6)
+        // Petit carré arrondi rempli
+        doc.setFillColor(color[0], color[1], color[2])
+        doc.roundedRect(cx, cy, size, size, 0.8, 0.8, 'F')
+        // Trait de la coche en blanc
+        doc.setDrawColor(255, 255, 255)
+        doc.setLineWidth(0.7)
+        // Branche courte (bas gauche vers centre bas)
+        doc.line(cx + size * 0.25, cy + size * 0.58, cx + size * 0.45, cy + size * 0.78)
+        // Branche longue (centre bas vers haut droite)
+        doc.line(cx + size * 0.45, cy + size * 0.78, cx + size * 0.8, cy + size * 0.3)
+        // Reset
+        doc.setDrawColor(0, 0, 0)
+        doc.setLineWidth(0.2)
+      }
+
       // Helper : dessiner le contenu d'une case
       const drawCell = (cellX, period) => {
         doc.rect(cellX, y, dayColW, rowH)
@@ -870,30 +889,36 @@ function generateEmargement(session, trainees = [], trainer = null, isBlank = fa
 
         const sig = getSignature(t.id, dateStr, period)
         const hd = getHalfday(t.id, dateStr, period)
-        const timestamp = sig ? (sig.signed_at || sig.created_at) : (hd ? hd.validated_at : null)
 
         if (!sig && !hd) return  // case vide
+
+        // Déterminer le timestamp à afficher
+        let timestamp = null
+        if (sig) {
+          timestamp = sig.signed_at || sig.created_at
+        } else if (hd) {
+          // On lit signed_morning_at ou signed_afternoon_at selon la période
+          timestamp = period === 'morning' ? hd.signed_morning_at : hd.signed_afternoon_at
+          // Fallback sur validated_at si pas encore backfillé
+          if (!timestamp) timestamp = hd.validated_at
+        }
 
         const d = timestamp ? new Date(timestamp) : null
         const hh = d ? String(d.getHours()).padStart(2, '0') : '--'
         const min = d ? String(d.getMinutes()).padStart(2, '0') : '--'
 
         // Couleur : vert si signature num, bleu si validé manuellement
-        if (sig) {
-          doc.setTextColor(0, 120, 0)  // vert
-        } else {
-          doc.setTextColor(0, 80, 160)  // bleu
-        }
+        const color = sig ? [0, 120, 0] : [0, 80, 160]
 
-        doc.setFont('helvetica', 'bold')
-        doc.setFontSize(7)
-        doc.text('✓', cellX + dayColW / 2, y + 4.5, { align: 'center' })
+        // Dessiner la coche
+        drawCheckmark(cellX + 1.5, y + 1.5, 4.5, color)
 
-        doc.setFont('helvetica', 'normal')
+        // Date + heure à droite de la coche
         doc.setFontSize(5)
-        doc.text(dateDisplay, cellX + dayColW / 2, y + 8.5, { align: 'center' })
-        doc.text(`${hh}h${min}`, cellX + dayColW / 2, y + 12, { align: 'center' })
-
+        doc.setFont('helvetica', 'normal')
+        doc.setTextColor(color[0], color[1], color[2])
+        doc.text(`${dateDisplay}`, cellX + 7.5, y + 4.5)
+        doc.text(`${hh}h${min}`, cellX + 7.5, y + 9)
         doc.setTextColor(0, 0, 0)
       }
 
@@ -907,17 +932,21 @@ function generateEmargement(session, trainees = [], trainer = null, isBlank = fa
 
   // ============ LÉGENDE ============
   if (!isBlank) {
-    y += 3
+    y += 4
     doc.setFontSize(6)
     doc.setFont('helvetica', 'normal')
-    doc.setTextColor(0, 120, 0)
-    doc.text('■', 15, y)
+
+    // Carré vert + texte
+    doc.setFillColor(0, 120, 0)
+    doc.rect(15, y - 3.5, 3.5, 3.5, 'F')
     doc.setTextColor(0, 0, 0)
     doc.text('Émargement électronique (via QR code)', 20, y)
-    doc.setTextColor(0, 80, 160)
-    doc.text('■', 120, y)
+
+    // Carré bleu + texte
+    doc.setFillColor(0, 80, 160)
+    doc.rect(115, y - 3.5, 3.5, 3.5, 'F')
     doc.setTextColor(0, 0, 0)
-    doc.text('Présence validée manuellement par le formateur', 125, y)
+    doc.text('Présence validée manuellement par le formateur', 120, y)
     y += 5
   }
 
