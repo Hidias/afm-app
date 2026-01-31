@@ -18,6 +18,7 @@ import SSTCertificationTab from '../components/SSTCertificationTab'
 import DateTimePickerModal from '../components/DateTimePickerModal'
 import SessionChecklist from '../components/SessionChecklist'
 import SessionNeedsAnalysis from '../components/SessionNeedsAnalysis'
+import SessionEmailModal from '../components/SessionEmailModal'
 
 const statusLabels = {
   draft: { label: 'Brouillon', class: 'badge-gray' },
@@ -71,6 +72,8 @@ export default function SessionDetail() {
   const [activeTab, setActiveTab] = useState('overview')
   const [showAddTrainee, setShowAddTrainee] = useState(false)
   const [showEdit, setShowEdit] = useState(false)
+  const [showSessionEmailModal, setShowSessionEmailModal] = useState(false)
+  const [sessionEmailType, setSessionEmailType] = useState(null) // 'before' ou 'after'
   const [qrCodeUrl, setQrCodeUrl] = useState('')
   const [traineeFilterClient, setTraineeFilterClient] = useState('')
   const [traineeSearch, setTraineeSearch] = useState('')
@@ -147,10 +150,6 @@ export default function SessionDetail() {
   
   // Propositions de remédiation par stagiaire
   const [remediationProposals, setRemediationProposals] = useState({})
-  
-  // Modal email
-  const [showEmailModal, setShowEmailModal] = useState(false)
-  const [emailModalData, setEmailModalData] = useState({ type: '', email: '', customEmail: '' })
   
   // Modal création nouveau stagiaire
   const [showNewTraineeModal, setShowNewTraineeModal] = useState(false)
@@ -1792,110 +1791,14 @@ export default function SessionDetail() {
   
   // Ouvrir modal email "Avant formation"
   const handleSendEmailBefore = () => {
-    // Priorité : 1) Contact spécifique de la session, 2) Contact principal du client, 3) Email générique du client
-    const sessionContact = session?.contact
-    const primaryContact = session?.clients?.contacts?.find(c => c.is_primary)
-    const firstContact = session?.clients?.contacts?.[0]
-    
-    const contactEmail = sessionContact?.email || primaryContact?.email || firstContact?.email || session?.clients?.email || ''
-    const contactName = sessionContact?.name || primaryContact?.name || firstContact?.name || ''
-    
-    setEmailModalData({ type: 'before', email: contactEmail, contactName, customEmail: '' })
-    setShowEmailModal(true)
+    setSessionEmailType('before')
+    setShowSessionEmailModal(true)
   }
   
   // Ouvrir modal email "Après formation"
   const handleSendEmailAfter = () => {
-    // Priorité : 1) Contact spécifique de la session, 2) Contact principal du client, 3) Email générique du client
-    const sessionContact = session?.contact
-    const primaryContact = session?.clients?.contacts?.find(c => c.is_primary)
-    const firstContact = session?.clients?.contacts?.[0]
-    
-    const contactEmail = sessionContact?.email || primaryContact?.email || firstContact?.email || session?.clients?.email || ''
-    const contactName = sessionContact?.name || primaryContact?.name || firstContact?.name || ''
-    
-    setEmailModalData({ type: 'after', email: contactEmail, contactName, customEmail: '' })
-    setShowEmailModal(true)
-  }
-  
-  // Confirmer envoi email et télécharger les docs
-  const handleConfirmEmail = async () => {
-    const targetEmail = emailModalData.customEmail || emailModalData.email
-    if (!targetEmail) {
-      toast.error('Veuillez saisir une adresse email')
-      return
-    }
-    
-    const trainer = session.trainers
-    const traineesWithResult = session.session_trainees?.map(st => ({ 
-      ...st.trainees, 
-      result: st.result || traineeResults[st.trainee_id] || null,
-      access_code: st.access_code
-    })) || []
-    const ref = session?.reference || ''
-    const courseTitle = session?.courses?.title || ''
-    const clientName = session?.clients?.name || ''
-    const startDate = session?.start_date ? format(new Date(session.start_date), 'd MMMM yyyy', { locale: fr }) : ''
-    
-    if (emailModalData.type === 'before') {
-      // Documents avant formation : Convention, Programme, Convocations
-      const subject = encodeURIComponent(`${courseTitle} - Documents de formation - ${ref}`)
-      const body = encodeURIComponent(
-`Bonjour,
-
-Veuillez trouver ci-joints les documents relatifs à la formation "${courseTitle}" prévue le ${startDate} :
-
-- Convention de formation
-- Programme de formation
-- Convocations des stagiaires
-
-Merci de nous retourner la convention signée avant le début de la formation.
-
-Restant à votre disposition pour toute information complémentaire.
-
-Bien cordialement,
-${organization?.dirigeant || 'Access Formation'}
-${organization?.name || ''}
-${organization?.phone || ''}`)
-      
-      // Télécharger les documents
-      downloadDocument('convention', session, { trainees: traineesWithResult, trainer, costs: sessionCosts })
-      downloadUploadedProgramme(session.course_id) // Programme uploadé depuis course_documents
-      await downloadAllDocuments('convocation', session, traineesWithResult, { trainer })
-      
-      // Ouvrir le client mail
-      window.location.href = `mailto:${targetEmail}?subject=${subject}&body=${body}`
-      
-    } else {
-      // Documents après formation : Certificats, Attestations, Évaluations à froid
-      const subject = encodeURIComponent(`${courseTitle} - Documents de fin de formation - ${ref}`)
-      const body = encodeURIComponent(
-`Bonjour,
-
-Suite à la formation "${courseTitle}" qui s'est déroulée le ${startDate}, veuillez trouver ci-joints :
-
-- Les certificats de réalisation
-- Les attestations de présence
-- Les questionnaires d'évaluation à froid (à compléter d'ici 90 jours)
-
-Nous vous remercions pour votre confiance et restons à votre disposition.
-
-Bien cordialement,
-${organization?.dirigeant || 'Access Formation'}
-${organization?.name || ''}
-${organization?.phone || ''}`)
-      
-      // Télécharger les documents
-      await downloadAllDocuments('certificat', session, traineesWithResult, { trainer })
-      await downloadAllDocuments('attestation', session, traineesWithResult, { trainer })
-      await downloadAllDocuments('evaluationFroid', session, traineesWithResult, { trainer })
-      
-      // Ouvrir le client mail
-      window.location.href = `mailto:${targetEmail}?subject=${subject}&body=${body}`
-    }
-    
-    setShowEmailModal(false)
-    toast.success('Documents téléchargés - Email prêt à envoyer')
+    setSessionEmailType('after')
+    setShowSessionEmailModal(true)
   }
   
   // Créer un nouveau stagiaire depuis la session
@@ -4002,91 +3905,6 @@ ${organization?.phone || ''}`)
       )}
       
       {/* MODAL: Email */}
-      {showEmailModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
-            <div className={`p-4 border-b ${emailModalData.type === 'before' ? 'bg-blue-50' : 'bg-green-50'}`}>
-              <h3 className={`text-lg font-semibold flex items-center gap-2 ${emailModalData.type === 'before' ? 'text-blue-700' : 'text-green-700'}`}>
-                <Send className="w-5 h-5" />
-                {emailModalData.type === 'before' ? 'Envoi avant formation' : 'Envoi après formation'}
-              </h3>
-            </div>
-            <div className="p-4 space-y-4">
-              <div>
-                <label className="label">Documents qui seront téléchargés :</label>
-                <div className="bg-gray-50 rounded p-3 space-y-1 text-sm">
-                  {emailModalData.type === 'before' ? (
-                    <>
-                      <p>📄 Convention de formation</p>
-                      <p>📄 Programme de formation</p>
-                      <p>📄 Convocations ({sessionTrainees.length} stagiaire{sessionTrainees.length > 1 ? 's' : ''})</p>
-                    </>
-                  ) : (
-                    <>
-                      <p>📄 Certificats de réalisation ({sessionTrainees.length})</p>
-                      <p>📄 Attestations de présence ({sessionTrainees.length})</p>
-                      <p>📄 Évaluations à froid ({sessionTrainees.length})</p>
-                    </>
-                  )}
-                </div>
-              </div>
-              
-              <div>
-                <label className="label">Destinataire</label>
-                {/* Contact de la session s'il existe */}
-                {session?.contact && (
-                  <div className="bg-accent-50 border border-accent-200 rounded-lg p-2 mb-2 text-sm">
-                    <p className="text-accent-700 font-medium">Contact de cette session :</p>
-                    <p className="text-accent-900">{session.contact.name} - {session.contact.email}</p>
-                  </div>
-                )}
-                {(session?.clients?.contacts && session.clients.contacts.length > 0) || session?.clients?.email ? (
-                  <select 
-                    className="input w-full mb-2"
-                    value={emailModalData.email}
-                    onChange={(e) => setEmailModalData(prev => ({ ...prev, email: e.target.value, customEmail: '' }))}
-                  >
-                    <option value="">-- Sélectionner un contact --</option>
-                    {session.contact && (
-                      <option value={session.contact.email}>
-                        ⭐ {session.contact.name} (Session) - {session.contact.email}
-                      </option>
-                    )}
-                    {session.clients.contacts?.filter(c => c.id !== session?.contact_id).map(c => (
-                      <option key={c.id} value={c.email}>
-                        {c.name} {c.is_primary ? '(Principal)' : ''} - {c.email}
-                      </option>
-                    ))}
-                    {session.clients?.email && (
-                      <option value={session.clients.email}>
-                        📧 Email générique: {session.clients.email}
-                      </option>
-                    )}
-                  </select>
-                ) : (
-                  <p className="text-sm text-amber-600 mb-2 p-2 bg-amber-50 rounded">
-                    ⚠️ Aucun contact enregistré pour ce client. Ajoutez des contacts dans la fiche client.
-                  </p>
-                )}
-                <input 
-                  type="email"
-                  className="input w-full"
-                  placeholder="Ou saisir une adresse email..."
-                  value={emailModalData.customEmail}
-                  onChange={(e) => setEmailModalData(prev => ({ ...prev, customEmail: e.target.value }))}
-                />
-              </div>
-            </div>
-            <div className="flex justify-end gap-2 p-4 border-t">
-              <button onClick={() => setShowEmailModal(false)} className="btn btn-secondary">Annuler</button>
-              <button onClick={handleConfirmEmail} className="btn btn-primary flex items-center gap-2">
-                <Send className="w-4 h-4" />
-                Envoyer
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
       
       {/* MODAL: Créer nouveau stagiaire */}
       {showNewTraineeModal && (
@@ -4631,6 +4449,18 @@ ${organization?.phone || ''}`)
         }
         currentDate={dateTimeModal.currentDate}
       />
+
+      {/* Modal Email Session */}
+      {showSessionEmailModal && (
+        <SessionEmailModal 
+          session={session}
+          emailType={sessionEmailType}
+          onClose={() => {
+            setShowSessionEmailModal(false)
+            setSessionEmailType(null)
+          }}
+        />
+      )}
     </div>
   )
 }
