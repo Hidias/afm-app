@@ -172,6 +172,7 @@ Access Formation<br>
     const mailOptions = {
       from: `"${emailConfig.email.split('@')[0]}" <${emailConfig.email}>`,
       to: to,
+      bcc: 'contact@accessformation.pro',
       subject: subject,
       text: body,
       html: htmlBody,
