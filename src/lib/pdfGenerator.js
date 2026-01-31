@@ -810,7 +810,7 @@ function generateEmargement(session, trainees = [], trainer = null, isBlank = fa
   const startX = 15
 
   // Hauteur des lignes selon le mode
-  const rowH = isBlank ? 10 : 22  // plus haut en mode rempli pour la signature + texte
+  const rowH = isBlank ? 10 : 14  // compact en mode rempli
 
   // ============ EN-TÊTE TABLEAU ============
   doc.setFillColor(240, 240, 240)
@@ -861,75 +861,65 @@ function generateEmargement(session, trainees = [], trainer = null, isBlank = fa
     let xx = startX + nameColW + secuColW + emailColW
     displayDays.forEach((day, idx) => {
       const dateStr = isBlank ? null : format(day, 'yyyy-MM-dd')
+      const dateDisplay = isBlank ? null : format(day, 'dd/MM', { locale: fr })
 
-      // Case Matin
-      doc.rect(xx, y, dayColW, rowH)
-      if (!isBlank && t.id && dateStr) {
-        const sig = getSignature(t.id, dateStr, 'morning')
-        const hd = getHalfday(t.id, dateStr, 'morning')
+      // Helper : dessiner le contenu d'une case
+      const drawCell = (cellX, period) => {
+        doc.rect(cellX, y, dayColW, rowH)
+        if (isBlank || !t.id || !dateStr) return
 
+        const sig = getSignature(t.id, dateStr, period)
+        const hd = getHalfday(t.id, dateStr, period)
+        const timestamp = sig ? (sig.signed_at || sig.created_at) : (hd ? hd.validated_at : null)
+
+        if (!sig && !hd) return  // case vide
+
+        const d = timestamp ? new Date(timestamp) : null
+        const hh = d ? String(d.getHours()).padStart(2, '0') : '--'
+        const min = d ? String(d.getMinutes()).padStart(2, '0') : '--'
+
+        // Couleur : vert si signature num, bleu si validé manuellement
         if (sig) {
-          // Signature électronique existe
-          if (sig.signature) {
-            try {
-              doc.addImage(sig.signature, 'PNG', xx + 1, y + 1, dayColW - 2, 10)
-            } catch (e) { /* signature corrompue, on ignore */ }
-          }
-          doc.setFontSize(4.5)
-          doc.setTextColor(0, 100, 0)
-          doc.setFont('helvetica', 'bold')
-          doc.text('✓ Signé num.', xx + 1, y + 14)
-          doc.setFont('helvetica', 'normal')
-          doc.text(formatSignedAt(sig.signed_at || sig.created_at), xx + 1, y + 18)
-          doc.setTextColor(0, 0, 0)
-        } else if (hd) {
-          // Présence validée manuellement par le formateur
-          doc.setFontSize(4.5)
-          doc.setTextColor(0, 80, 160)
-          doc.setFont('helvetica', 'bold')
-          doc.text('✓ Validé man.', xx + 1, y + 9)
-          doc.setFont('helvetica', 'normal')
-          doc.text(`Par ${hd.validated_by || 'formateur'}`, xx + 1, y + 13)
-          doc.text(formatSignedAt(hd.validated_at), xx + 1, y + 18)
-          doc.setTextColor(0, 0, 0)
+          doc.setTextColor(0, 120, 0)  // vert
+        } else {
+          doc.setTextColor(0, 80, 160)  // bleu
         }
+
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(7)
+        doc.text('✓', cellX + dayColW / 2, y + 4.5, { align: 'center' })
+
+        doc.setFont('helvetica', 'normal')
+        doc.setFontSize(5)
+        doc.text(dateDisplay, cellX + dayColW / 2, y + 8.5, { align: 'center' })
+        doc.text(`${hh}h${min}`, cellX + dayColW / 2, y + 12, { align: 'center' })
+
+        doc.setTextColor(0, 0, 0)
       }
 
-      // Case Après-midi
-      doc.rect(xx + dayColW, y, dayColW, rowH)
-      if (!isBlank && t.id && dateStr) {
-        const sig = getSignature(t.id, dateStr, 'afternoon')
-        const hd = getHalfday(t.id, dateStr, 'afternoon')
-
-        if (sig) {
-          if (sig.signature) {
-            try {
-              doc.addImage(sig.signature, 'PNG', xx + dayColW + 1, y + 1, dayColW - 2, 10)
-            } catch (e) {}
-          }
-          doc.setFontSize(4.5)
-          doc.setTextColor(0, 100, 0)
-          doc.setFont('helvetica', 'bold')
-          doc.text('✓ Signé num.', xx + dayColW + 1, y + 14)
-          doc.setFont('helvetica', 'normal')
-          doc.text(formatSignedAt(sig.signed_at || sig.created_at), xx + dayColW + 1, y + 18)
-          doc.setTextColor(0, 0, 0)
-        } else if (hd) {
-          doc.setFontSize(4.5)
-          doc.setTextColor(0, 80, 160)
-          doc.setFont('helvetica', 'bold')
-          doc.text('✓ Validé man.', xx + dayColW + 1, y + 9)
-          doc.setFont('helvetica', 'normal')
-          doc.text(`Par ${hd.validated_by || 'formateur'}`, xx + dayColW + 1, y + 13)
-          doc.text(formatSignedAt(hd.validated_at), xx + dayColW + 1, y + 18)
-          doc.setTextColor(0, 0, 0)
-        }
-      }
+      drawCell(xx, 'morning')           // Case Matin
+      drawCell(xx + dayColW, 'afternoon') // Case Après-midi
 
       xx += dayColW * 2
     })
     y += rowH
   })
+
+  // ============ LÉGENDE ============
+  if (!isBlank) {
+    y += 3
+    doc.setFontSize(6)
+    doc.setFont('helvetica', 'normal')
+    doc.setTextColor(0, 120, 0)
+    doc.text('■', 15, y)
+    doc.setTextColor(0, 0, 0)
+    doc.text('Émargement électronique (via QR code)', 20, y)
+    doc.setTextColor(0, 80, 160)
+    doc.text('■', 120, y)
+    doc.setTextColor(0, 0, 0)
+    doc.text('Présence validée manuellement par le formateur', 125, y)
+    y += 5
+  }
 
   // ============ SIGNATURE FORMATEUR ============
   y += 8
