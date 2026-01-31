@@ -101,13 +101,39 @@ export default function EmailSettings() {
       return
     }
     
-    // Lire l'image en base64
+    // Lire et compresser l'image
     const reader = new FileReader()
     reader.onload = (event) => {
-      const base64 = event.target.result
-      setFormData(prev => ({ ...prev, signatureImage: base64 }))
-      setSignaturePreview(base64)
-      toast.success('Signature ajoutée')
+      const img = new Image()
+      img.onload = () => {
+        // Créer un canvas pour redimensionner
+        const canvas = document.createElement('canvas')
+        const ctx = canvas.getContext('2d')
+        
+        // Limiter la largeur max à 600px
+        const maxWidth = 600
+        let width = img.width
+        let height = img.height
+        
+        if (width > maxWidth) {
+          height = (height * maxWidth) / width
+          width = maxWidth
+        }
+        
+        canvas.width = width
+        canvas.height = height
+        
+        // Dessiner l'image redimensionnée
+        ctx.drawImage(img, 0, 0, width, height)
+        
+        // Convertir en base64 avec compression
+        const compressedBase64 = canvas.toDataURL('image/jpeg', 0.8)
+        
+        setFormData(prev => ({ ...prev, signatureImage: compressedBase64 }))
+        setSignaturePreview(compressedBase64)
+        toast.success('Signature ajoutée et compressée')
+      }
+      img.src = event.target.result
     }
     reader.readAsDataURL(file)
   }
