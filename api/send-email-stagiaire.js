@@ -5,15 +5,6 @@ import nodemailer from 'nodemailer'
 import { createClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
 
-// Augmenter la limite bodyParser pour recevoir les PJ PDF en base64
-export const config = {
-  api: {
-    bodyParser: {
-      sizeLimit: '10mb'
-    }
-  }
-}
-
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -63,7 +54,7 @@ export default async function handler(req, res) {
   let transporter = null
 
   try {
-    const { userId, to, subject, body, attachments = [], sessionId, traineeId } = req.body
+    const { userId, to, subject, body, attachmentPaths = [], sessionId, traineeId } = req.body
 
     if (!userId || !to || !subject || !body) {
       return res.status(400).json({ error: 'Paramètres manquants' })
@@ -102,12 +93,31 @@ export default async function handler(req, res) {
       maxMessages: 1
     })
 
-    // 4. PJ
-    const mailAttachments = attachments.map(att => ({
-      filename: att.filename,
-      content: att.content,
-      encoding: att.encoding || 'base64'
-    }))
+    // 4. Télécharger les PJ depuis Supabase Storage via signed URLs
+    const mailAttachments = []
+    for (const att of attachmentPaths) {
+      const { data: signedUrlData, error: urlError } = await supabase
+        .storage.from('documents')
+        .createSignedUrl(att.path, 300) // 5 min
+
+      if (urlError || !signedUrlData?.signedUrl) {
+        console.error(`Erreur signed URL pour ${att.path}:`, urlError)
+        continue
+      }
+
+      const fileResponse = await fetch(signedUrlData.signedUrl)
+      if (!fileResponse.ok) {
+        console.error(`Erreur téléchargement ${att.path}: ${fileResponse.status}`)
+        continue
+      }
+
+      const fileBuffer = await fileResponse.arrayBuffer()
+      mailAttachments.push({
+        filename: att.filename,
+        content: Buffer.from(fileBuffer),
+        contentType: 'application/pdf'
+      })
+    }
 
     // 5. Signature
     let htmlBody = body.replace(/\n/g, '<br>')
@@ -141,7 +151,7 @@ export default async function handler(req, res) {
         subject: subject,
         body: body,
         resend_email_id: info.messageId,
-        attachments: attachments.map(a => ({ name: a.filename, size: a.size || 0 })),
+        attachments: attachmentPaths.map(a => ({ name: a.filename })),
         status: 'sent',
         created_by: userId,
         email_type: 'stagiaire'
