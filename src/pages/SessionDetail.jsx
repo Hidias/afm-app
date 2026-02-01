@@ -1933,6 +1933,20 @@ export default function SessionDetail() {
         if (mergedTests) zip.file(`Test_Positionnement_${ref}.pdf`, mergedTests, { base64: true })
       }
 
+      // 12. Scans uploadés
+      if (sessionDocs.length > 0) {
+        for (const doc of sessionDocs) {
+          if (!doc.file_url) continue
+          try {
+            const res = await fetch(doc.file_url)
+            if (res.ok) {
+              const cleanName = doc.file_name?.replace(/^\d+_/, '') || `scan_${doc.id}.pdf`
+              zip.file(`Scans/${cleanName}`, await res.blob())
+            }
+          } catch { /* skip ce doc */ }
+        }
+      }
+
       // Télécharger le ZIP
       const content = await zip.generateAsync({ type: 'blob' })
       const url = window.URL.createObjectURL(content)
