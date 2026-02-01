@@ -67,9 +67,9 @@ export default function SessionNeedsAnalysis({ session, organization }) {
         .from('session_needs_analysis')
         .select('*')
         .eq('session_id', session.id)
-        .single()
+        .maybeSingle()
 
-      if (error && error.code !== 'PGRST116') throw error
+      if (error) throw error
 
       if (data) {
         // Analyse de session existe déjà
@@ -113,7 +113,7 @@ export default function SessionNeedsAnalysis({ session, organization }) {
           .from('prospect_needs_analysis')
           .select('*')
           .eq('client_id', session.client_id)
-          .single()
+          .maybeSingle()
 
         if (prospectAnalysis) {
           // Analyse prospect trouvée → Copie automatique
