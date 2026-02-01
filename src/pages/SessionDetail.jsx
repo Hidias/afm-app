@@ -1699,37 +1699,25 @@ export default function SessionDetail() {
     
     // Pour le programme : utiliser le fichier uploadé sur la formation si disponible
     if (docType === 'programme') {
-      const courseId = session?.courses?.id
-      if (courseId) {
-        const { data } = await supabase
-          .from('course_documents')
-          .select('*')
-          .eq('course_id', courseId)
-          .eq('type', 'programme')
-          .order('created_at', { ascending: false })
-          .limit(1)
-        
-        if (data && data.length > 0) {
-          // Programme uploadé trouvé — on le télécharge
-          const programme = data[0]
-          try {
-            const response = await fetch(programme.file_url)
-            if (!response.ok) throw new Error('Erreur réseau')
-            const blob = await response.blob()
-            const blobUrl = window.URL.createObjectURL(blob)
-            const link = document.createElement('a')
-            link.href = blobUrl
-            link.download = programme.file_name || 'programme.pdf'
-            document.body.appendChild(link)
-            link.click()
-            document.body.removeChild(link)
-            setTimeout(() => window.URL.revokeObjectURL(blobUrl), 100)
-            toast.success('Programme téléchargé')
-          } catch {
-            window.open(programme.file_url, '_blank')
-          }
-          return
+      const programUrl = session?.courses?.program_url
+      if (programUrl) {
+        try {
+          const response = await fetch(programUrl)
+          if (!response.ok) throw new Error('Erreur réseau')
+          const blob = await response.blob()
+          const blobUrl = window.URL.createObjectURL(blob)
+          const link = document.createElement('a')
+          link.href = blobUrl
+          link.download = `Programme_${session?.reference || 'formation'}.pdf`
+          document.body.appendChild(link)
+          link.click()
+          document.body.removeChild(link)
+          setTimeout(() => window.URL.revokeObjectURL(blobUrl), 100)
+          toast.success('Programme téléchargé')
+        } catch {
+          window.open(programUrl, '_blank')
         }
+        return
       }
       // Aucun programme uploadé → on fall back sur la génération pdfGenerator
     }
