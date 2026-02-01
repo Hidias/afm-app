@@ -131,8 +131,12 @@ export default function ProspectRDVDetail() {
   }
 
   const handleSave = async () => {
-    if (!formData.client_id || !formData.rdv_date) {
-      toast.error('Client et date obligatoires')
+    if (!formData.client_id) {
+      toast.error('Client obligatoire')
+      return
+    }
+    if (formData.status !== 'a_prendre' && !formData.rdv_date) {
+      toast.error('Date obligatoire (ou choisir "À prendre")')
       return
     }
 
@@ -147,7 +151,8 @@ export default function ProspectRDVDetail() {
       // Préparer les données : transformer "" en null pour les dates
       const dataToSave = {
         ...formData,
-        rdv_time: formData.rdv_time || null,
+        rdv_date: formData.status === 'a_prendre' ? null : formData.rdv_date,
+        rdv_time: formData.status === 'a_prendre' ? null : (formData.rdv_time || null),
         next_action_date: formData.next_action_date || null,
         rdv_address: formData.rdv_address || null,
         contact_id: formData.contact_id || null,
@@ -155,7 +160,8 @@ export default function ProspectRDVDetail() {
         contact_email: formData.contact_email || null,
         contact_phone: formData.contact_phone || null,
         notes: formData.notes || null,
-        next_action: formData.next_action || null
+        next_action: formData.next_action || null,
+        is_urgent: formData.status === 'a_prendre' ? true : formData.is_urgent
       }
 
       // Auto : next_action_date = rdv_date + 2 jours si vide
@@ -339,80 +345,143 @@ export default function ProspectRDVDetail() {
                 </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Date *
-                </label>
-                <input
-                  type="date"
-                  value={formData.rdv_date}
-                  onChange={(e) => setFormData({ ...formData, rdv_date: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Heure
-                </label>
-                <input
-                  type="time"
-                  value={formData.rdv_time}
-                  onChange={(e) => setFormData({ ...formData, rdv_time: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Type de RDV
-                </label>
-                <select
-                  value={formData.rdv_type}
-                  onChange={(e) => setFormData({ ...formData, rdv_type: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-                >
-                  <option value="decouverte">Découverte</option>
-                  <option value="suivi">Suivi</option>
-                  <option value="signature">Signature</option>
-                  <option value="relance">Relance</option>
-                  <option value="autre">Autre</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Lieu
-                </label>
-                <select
-                  value={formData.rdv_location}
-                  onChange={(e) => setFormData({ ...formData, rdv_location: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-                >
-                  <option value="leurs_locaux">Leurs locaux</option>
-                  <option value="nos_locaux">Nos locaux</option>
-                  <option value="visio">Visio</option>
-                  <option value="telephone">Téléphone</option>
-                </select>
-              </div>
-
+              {/* Statut : à prendre vs prévu — en haut pour guider le flux */}
               <div className="md:col-span-2">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={formData.is_urgent}
-                    onChange={(e) => setFormData({ ...formData, is_urgent: e.target.checked })}
-                    className="w-4 h-4 rounded border-gray-300 text-red-600 focus:ring-red-500"
-                  />
-                  <span className="text-sm font-medium text-gray-700">
-                    🔴 Marquer comme urgent (priorité haute)
-                  </span>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Statut du RDV
                 </label>
-                <p className="text-xs text-gray-500 mt-1 ml-6">
-                  Le RDV apparaîtra dans la section "Urgents" même s'il n'est pas dans les 2 prochains jours
-                </p>
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setFormData({ ...formData, status: 'a_prendre', rdv_date: '', rdv_time: '', is_urgent: true })}
+                    className={`flex-1 px-4 py-2.5 rounded-lg border text-sm font-medium transition-colors ${
+                      formData.status === 'a_prendre'
+                        ? 'bg-red-50 border-red-400 text-red-700'
+                        : 'bg-white border-gray-300 text-gray-700 hover:border-gray-400'
+                    }`}
+                  >
+                    🔴 À prendre
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFormData({ ...formData, status: 'prevu', rdv_date: formData.rdv_date || new Date().toISOString().split('T')[0], rdv_time: formData.rdv_time || '09:00' })}
+                    className={`flex-1 px-4 py-2.5 rounded-lg border text-sm font-medium transition-colors ${
+                      formData.status === 'prevu'
+                        ? 'bg-blue-50 border-blue-400 text-blue-700'
+                        : 'bg-white border-gray-300 text-gray-700 hover:border-gray-400'
+                    }`}
+                  >
+                    📅 Prévu
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFormData({ ...formData, status: 'realise' })}
+                    className={`flex-1 px-4 py-2.5 rounded-lg border text-sm font-medium transition-colors ${
+                      formData.status === 'realise'
+                        ? 'bg-green-50 border-green-400 text-green-700'
+                        : 'bg-white border-gray-300 text-gray-700 hover:border-gray-400'
+                    }`}
+                  >
+                    ✅ Réalisé
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFormData({ ...formData, status: 'annule' })}
+                    className={`flex-1 px-4 py-2.5 rounded-lg border text-sm font-medium transition-colors ${
+                      formData.status === 'annule'
+                        ? 'bg-gray-100 border-gray-400 text-gray-700'
+                        : 'bg-white border-gray-300 text-gray-700 hover:border-gray-400'
+                    }`}
+                  >
+                    ❌ Annulé
+                  </button>
+                </div>
+                {formData.status === 'a_prendre' && (
+                  <p className="text-xs text-red-600 mt-2">
+                    Ce RDV apparaîtra dans le bloc "À prendre" du dashboard jusqu'à ce qu'une date soit fixée.
+                  </p>
+                )}
               </div>
+
+              {/* Date / Heure / Type / Lieu — cachés si à prendre */}
+              {formData.status !== 'a_prendre' && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Date *
+                    </label>
+                    <input
+                      type="date"
+                      value={formData.rdv_date}
+                      onChange={(e) => setFormData({ ...formData, rdv_date: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Heure
+                    </label>
+                    <input
+                      type="time"
+                      value={formData.rdv_time}
+                      onChange={(e) => setFormData({ ...formData, rdv_time: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Type de RDV
+                    </label>
+                    <select
+                      value={formData.rdv_type}
+                      onChange={(e) => setFormData({ ...formData, rdv_type: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                    >
+                      <option value="decouverte">Découverte</option>
+                      <option value="suivi">Suivi</option>
+                      <option value="signature">Signature</option>
+                      <option value="relance">Relance</option>
+                      <option value="autre">Autre</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Lieu
+                    </label>
+                    <select
+                      value={formData.rdv_location}
+                      onChange={(e) => setFormData({ ...formData, rdv_location: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                    >
+                      <option value="leurs_locaux">Leurs locaux</option>
+                      <option value="nos_locaux">Nos locaux</option>
+                      <option value="visio">Visio</option>
+                      <option value="telephone">Téléphone</option>
+                    </select>
+                  </div>
+
+                  <div className="md:col-span-2">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={formData.is_urgent}
+                        onChange={(e) => setFormData({ ...formData, is_urgent: e.target.checked })}
+                        className="w-4 h-4 rounded border-gray-300 text-red-600 focus:ring-red-500"
+                      />
+                      <span className="text-sm font-medium text-gray-700">
+                        🔴 Marquer comme urgent (priorité haute)
+                      </span>
+                    </label>
+                    <p className="text-xs text-gray-500 mt-1 ml-6">
+                      Le RDV apparaîtra dans la section "Urgents" même s'il n'est pas dans les 2 prochains jours
+                    </p>
+                  </div>
+                </>
+              )}
 
               {formData.rdv_location === 'leurs_locaux' && (
                 <div className="md:col-span-2">
@@ -441,22 +510,6 @@ export default function ProspectRDVDetail() {
                   <option value="">Sélectionner</option>
                   <option value="Hicham">Hicham</option>
                   <option value="Maxime">Maxime</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Statut
-                </label>
-                <select
-                  value={formData.status}
-                  onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-                >
-                  <option value="prevu">Prévu</option>
-                  <option value="realise">Réalisé</option>
-                  <option value="annule">Annulé</option>
-                  <option value="reporte">Reporté</option>
                 </select>
               </div>
             </div>
