@@ -152,7 +152,12 @@ Nous vous remercions pour votre confiance et restons à votre disposition.`)
           }
           const analyseBytes = await getNeedsAnalysisPDFBytes(session, analysisData, false, null)
           if (analyseBytes) {
-            const base64 = btoa(String.fromCharCode(...new Uint8Array(analyseBytes)))
+            const uint8 = new Uint8Array(analyseBytes)
+            let base64 = ''
+            const chunkSize = 8192
+            for (let i = 0; i < uint8.length; i += chunkSize) {
+              base64 += btoa(String.fromCharCode(...uint8.slice(i, i + chunkSize)))
+            }
             files.push({ id: 'analyseBesoin', name: `Analyse_Besoin_${session?.reference || 'session'}.pdf`, base64, size: base64.length })
             addLog('✅ Analyse du besoin générée')
           }
