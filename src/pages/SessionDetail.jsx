@@ -20,6 +20,7 @@ import SessionChecklist from '../components/SessionChecklist'
 import SessionNeedsAnalysis from '../components/SessionNeedsAnalysis'
 import SessionEmailModal from '../components/SessionEmailModal'
 import StageEmailModal from '../components/StageEmailModal'
+import { getNeedsAnalysisPDFBytes } from '../lib/needsAnalysisPDF'
 
 const statusLabels = {
   draft: { label: 'Brouillon', class: 'badge-gray' },
@@ -1810,9 +1811,19 @@ export default function SessionDetail() {
         access_code: st.access_code
       })) || []
 
-      // 1. Convention
-      const convention = generatePDF('convention', session, { trainees: traineesWithResult, trainer, costs: sessionCosts })
-      if (convention) zip.file(`Convention_${ref}.pdf`, convention.base64, { base64: true })
+      // 1. Convention — signée si uploadée, sinon générée
+      if (session.convention_signed_file_url) {
+        try {
+          const { data: convBlob, error: convErr } = await supabase.storage
+            .from('signed-conventions')
+            .download(session.convention_signed_file_url)
+          if (!convErr && convBlob) { zip.file(`Convention_${ref}.pdf`, convBlob) }
+        } catch { /* fallback */ }
+      }
+      if (!zip.file(`Convention_${ref}.pdf`)) {
+        const convention = generatePDF('convention', session, { trainees: traineesWithResult, trainer, costs: sessionCosts })
+        if (convention) zip.file(`Convention_${ref}.pdf`, convention.base64, { base64: true })
+      }
 
       // 2. Programme — fichier uploadé en priorité, sinon pdfGenerator
       let programmeAdded = false
@@ -1873,11 +1884,32 @@ export default function SessionDetail() {
       const evalFroid = generatePDF('evaluationFroid', session, { isBlank: true })
       if (evalFroid) zip.file(`Eval_Froid_${ref}.pdf`, evalFroid.base64, { base64: true })
 
-      // 8. Analyse de besoins
-      const analyseBesoin = generatePDF('analyseBesoin', session, { isBlank: false })
-      if (analyseBesoin) zip.file(`Analyse_Besoin_${ref}.pdf`, analyseBesoin.base64, { base64: true })
+      // 8. Analyse de besoins — remplie si existe dans session_needs_analysis, sinon générée
+      try {
+        const { data: analysisData } = await supabase
+          .from('session_needs_analysis')
+          .select('*')
+          .eq('session_id', session.id)
+          .single()
+        if (analysisData) {
+          const analyseBytes = await getNeedsAnalysisPDFBytes(session, analysisData, false, organization)
+          if (analyseBytes) zip.file(`Analyse_Besoin_${ref}.pdf`, analyseBytes)
+        }
+      } catch { /* fallback */ }
+      if (!zip.file(`Analyse_Besoin_${ref}.pdf`)) {
+        const analyseBesoin = generatePDF('analyseBesoin', session, { isBlank: false })
+        if (analyseBesoin) zip.file(`Analyse_Besoin_${ref}.pdf`, analyseBesoin.base64, { base64: true })
+      }
 
-      // 9. Tests de positionnement — rempli si fait, sinon vierge
+      // 9. Certificats de réalisation
+      const certificats = await generateAllPDF('certificat', session, traineesWithResult, { trainer })
+      if (certificats) zip.file(`Certificats_${ref}.pdf`, certificats.base64, { base64: true })
+
+      // 10. Attestations de présence
+      const attestations = await generateAllPDF('attestation', session, traineesWithResult, { trainer })
+      if (attestations) zip.file(`Attestations_${ref}.pdf`, attestations.base64, { base64: true })
+
+      // 11. Tests de positionnement — rempli si fait, sinon vierge
       const testParts = []
       for (const trainee of traineesWithResult) {
         const stData = session.session_trainees?.find(st => st.trainee_id === trainee.id)
