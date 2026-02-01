@@ -141,12 +141,12 @@ export const downloadNeedsAnalysisPDF = async (session, analysisData = null, bla
       evolution_risques: '• Évolution des risques'
     }
     
+    doc.setFont('helvetica', 'bold')
+    doc.text('Pourquoi cette formation maintenant ?', margin, yPos)
+    yPos += 5
+    doc.setFont('helvetica', 'normal')
+    
     if (analysisData.context_reasons?.length > 0) {
-      doc.setFont('helvetica', 'bold')
-      doc.text('Pourquoi cette formation maintenant ?', margin, yPos)
-      yPos += 4
-      doc.setFont('helvetica', 'normal')
-      
       analysisData.context_reasons.forEach(reason => {
         if (reason === 'autre' && analysisData.context_other) {
           doc.text(`• Autre : ${safe(analysisData.context_other)}`, margin + 3, yPos)
@@ -155,16 +155,27 @@ export const downloadNeedsAnalysisPDF = async (session, analysisData = null, bla
         }
         yPos += 4
       })
-      yPos += 1
+    } else {
+      doc.setDrawColor(200, 200, 200)
+      for (let i = 0; i < 3; i++) {
+        doc.line(margin + 3, yPos, pageWidth - margin, yPos)
+        yPos += 5
+      }
     }
+    yPos += 3
     
+    doc.setFont('helvetica', 'bold')
+    doc.text('Enjeux spécifiques :', margin, yPos)
+    yPos += 5
+    doc.setFont('helvetica', 'normal')
     if (analysisData.context_stakes) {
-      doc.setFont('helvetica', 'bold')
-      doc.text('Enjeux spécifiques :', margin, yPos)
-      yPos += 4
-      doc.setFont('helvetica', 'normal')
       yPos += addText(analysisData.context_stakes, margin + 3, yPos, contentWidth - 6, 9)
-      yPos += 2
+    } else {
+      doc.setDrawColor(200, 200, 200)
+      for (let i = 0; i < 3; i++) {
+        doc.line(margin + 3, yPos, pageWidth - margin, yPos)
+        yPos += 5
+      }
     }
   } else {
     // VERSION VIERGE
@@ -214,22 +225,33 @@ export const downloadNeedsAnalysisPDF = async (session, analysisData = null, bla
   
   if (!blank && analysisData) {
     // VERSION REMPLIE
+    doc.setFont('helvetica', 'bold')
+    doc.text('Que souhaitez-vous que les stagiaires sachent faire à l\'issue ?', margin, yPos)
+    yPos += 5
+    doc.setFont('helvetica', 'normal')
     if (analysisData.objectives_description) {
-      doc.setFont('helvetica', 'bold')
-      doc.text('Que souhaitez-vous que les stagiaires sachent faire à l\'issue ?', margin, yPos)
-      yPos += 4
-      doc.setFont('helvetica', 'normal')
       yPos += addText(analysisData.objectives_description, margin + 3, yPos, contentWidth - 6, 9)
-      yPos += 2
+    } else {
+      doc.setDrawColor(200, 200, 200)
+      for (let i = 0; i < 3; i++) {
+        doc.line(margin + 3, yPos, pageWidth - margin, yPos)
+        yPos += 5
+      }
     }
+    yPos += 3
     
+    doc.setFont('helvetica', 'bold')
+    doc.text('Résultats mesurables attendus :', margin, yPos)
+    yPos += 5
+    doc.setFont('helvetica', 'normal')
     if (analysisData.objectives_measurable) {
-      doc.setFont('helvetica', 'bold')
-      doc.text('Résultats mesurables attendus :', margin, yPos)
-      yPos += 4
-      doc.setFont('helvetica', 'normal')
       yPos += addText(analysisData.objectives_measurable, margin + 3, yPos, contentWidth - 6, 9)
-      yPos += 2
+    } else {
+      doc.setDrawColor(200, 200, 200)
+      for (let i = 0; i < 3; i++) {
+        doc.line(margin + 3, yPos, pageWidth - margin, yPos)
+        yPos += 5
+      }
     }
   } else {
     // VERSION VIERGE
@@ -293,22 +315,26 @@ export const downloadNeedsAnalysisPDF = async (session, analysisData = null, bla
       items.push(`Niveau : ${safe(levelLabel)}`)
     }
     
-    if (analysisData.prerequisites_validated !== null) {
-      items.push(`Prérequis validés : ${analysisData.prerequisites_validated ? 'Oui' : 'Non'}`)
+    if (items.length > 0) {
+      items.forEach(item => {
+        doc.text(item, margin, yPos)
+        yPos += 5
+      })
+    } else {
+      doc.text('Nombre de participants : ___', margin, yPos)
+      yPos += 5
+      doc.text('Profils : ___________________________', margin, yPos)
+      yPos += 5
+      doc.text('Niveau : ___________________________', margin, yPos)
+      yPos += 5
     }
     
-    items.forEach(item => {
-      doc.text(item, margin, yPos)
-      yPos += 5
-    })
-    
+    yPos += 2
+    doc.setFont('helvetica', 'bold')
+    doc.text('Particularités :', margin, yPos)
+    yPos += 5
+    doc.setFont('helvetica', 'normal')
     if (analysisData.particularities_psh || analysisData.particularities_non_french || analysisData.particularities_other) {
-      yPos += 2
-      doc.setFont('helvetica', 'bold')
-      doc.text('Particularités :', margin, yPos)
-      yPos += 5
-      doc.setFont('helvetica', 'normal')
-      
       if (analysisData.particularities_psh) {
         doc.text(`• PSH : ${safe(analysisData.particularities_psh)}`, margin + 3, yPos)
         yPos += 5
@@ -319,6 +345,12 @@ export const downloadNeedsAnalysisPDF = async (session, analysisData = null, bla
       }
       if (analysisData.particularities_other) {
         doc.text(`• Autre : ${safe(analysisData.particularities_other)}`, margin + 3, yPos)
+        yPos += 5
+      }
+    } else {
+      doc.setDrawColor(200, 200, 200)
+      for (let i = 0; i < 2; i++) {
+        doc.line(margin + 3, yPos, pageWidth - margin, yPos)
         yPos += 5
       }
     }
@@ -362,40 +394,55 @@ export const downloadNeedsAnalysisPDF = async (session, analysisData = null, bla
         ? `Chez le client (${safe(analysisData.location_client_address, '')})`
         : 'Dans nos locaux (Access Formation)'
       doc.text(`Lieu : ${safe(locationText)}`, margin, yPos)
-      yPos += 5
+    } else {
+      doc.text('Lieu : ___________________________________', margin, yPos)
     }
+    yPos += 5
     
     if (analysisData.preferred_schedule) {
       doc.text(`Horaires : ${safe(analysisData.preferred_schedule)}`, margin, yPos)
-      yPos += 5
+    } else {
+      doc.text('Horaires : ___________________________________', margin, yPos)
     }
+    yPos += 5
     
     if (analysisData.preferred_dates) {
       doc.text(`Dates préférentielles : ${safe(analysisData.preferred_dates)}`, margin, yPos)
-      yPos += 5
+    } else {
+      doc.text('Dates préférentielles : ___________________________________', margin, yPos)
     }
+    yPos += 5
     
     if (analysisData.company_equipment !== null) {
       const equipText = analysisData.company_equipment 
         ? `Oui${analysisData.company_equipment_details ? ' (' + safe(analysisData.company_equipment_details) + ')' : ''}`
         : 'Non'
       doc.text(`Matériel spécifique entreprise : ${equipText}`, margin, yPos)
-      yPos += 5
+    } else {
+      doc.text('Matériel spécifique entreprise : ___________', margin, yPos)
     }
+    yPos += 5
     
     if (analysisData.ppe_provided !== null) {
       doc.text(`Équipements de protection fournis : ${analysisData.ppe_provided ? 'Oui' : 'Non'}`, margin, yPos)
-      yPos += 5
+    } else {
+      doc.text('Équipements de protection fournis : ___________', margin, yPos)
     }
+    yPos += 5
     
+    yPos += 2
+    doc.setFont('helvetica', 'bold')
+    doc.text('Autres contraintes :', margin, yPos)
+    yPos += 5
+    doc.setFont('helvetica', 'normal')
     if (analysisData.other_constraints) {
-      yPos += 2
-      doc.setFont('helvetica', 'bold')
-      doc.text('Autres contraintes :', margin, yPos)
-      yPos += 5
-      doc.setFont('helvetica', 'normal')
       yPos += addText(analysisData.other_constraints, margin + 3, yPos, contentWidth - 6, 9)
-      yPos += 3
+    } else {
+      doc.setDrawColor(200, 200, 200)
+      for (let i = 0; i < 2; i++) {
+        doc.line(margin + 3, yPos, pageWidth - margin, yPos)
+        yPos += 5
+      }
     }
   } else {
     // VERSION VIERGE
@@ -636,11 +683,13 @@ export const getNeedsAnalysisPDFBytes = async (session, analysisData = null, bla
       nouveaux_embauches: '• Nouveaux embauchés',
       evolution_risques: '• Évolution des risques'
     }
+    
+    doc.setFont('helvetica', 'bold')
+    doc.text('Pourquoi cette formation maintenant ?', margin, yPos)
+    yPos += 5
+    doc.setFont('helvetica', 'normal')
+    
     if (analysisData.context_reasons?.length > 0) {
-      doc.setFont('helvetica', 'bold')
-      doc.text('Pourquoi cette formation maintenant ?', margin, yPos)
-      yPos += 4
-      doc.setFont('helvetica', 'normal')
       analysisData.context_reasons.forEach(reason => {
         if (reason === 'autre' && analysisData.context_other) {
           doc.text(`• Autre : ${safe(analysisData.context_other)}`, margin + 3, yPos)
@@ -649,15 +698,27 @@ export const getNeedsAnalysisPDFBytes = async (session, analysisData = null, bla
         }
         yPos += 4
       })
-      yPos += 1
+    } else {
+      doc.setDrawColor(200, 200, 200)
+      for (let i = 0; i < 3; i++) {
+        doc.line(margin + 3, yPos, pageWidth - margin, yPos)
+        yPos += 5
+      }
     }
+    yPos += 3
+    
+    doc.setFont('helvetica', 'bold')
+    doc.text('Enjeux spécifiques :', margin, yPos)
+    yPos += 5
+    doc.setFont('helvetica', 'normal')
     if (analysisData.context_stakes) {
-      doc.setFont('helvetica', 'bold')
-      doc.text('Enjeux spécifiques :', margin, yPos)
-      yPos += 4
-      doc.setFont('helvetica', 'normal')
       yPos += addText(analysisData.context_stakes, margin + 3, yPos, contentWidth - 6, 9)
-      yPos += 2
+    } else {
+      doc.setDrawColor(200, 200, 200)
+      for (let i = 0; i < 3; i++) {
+        doc.line(margin + 3, yPos, pageWidth - margin, yPos)
+        yPos += 5
+      }
     }
   }
   yPos += 3
@@ -673,21 +734,33 @@ export const getNeedsAnalysisPDFBytes = async (session, analysisData = null, bla
   doc.setFontSize(9)
 
   if (!blank && analysisData) {
+    doc.setFont('helvetica', 'bold')
+    doc.text('Que souhaitez-vous que les stagiaires sachent faire à l\'issue ?', margin, yPos)
+    yPos += 5
+    doc.setFont('helvetica', 'normal')
     if (analysisData.objectives_description) {
-      doc.setFont('helvetica', 'bold')
-      doc.text('Que souhaitez-vous que les stagiaires sachent faire à l\'issue ?', margin, yPos)
-      yPos += 4
-      doc.setFont('helvetica', 'normal')
       yPos += addText(analysisData.objectives_description, margin + 3, yPos, contentWidth - 6, 9)
-      yPos += 2
+    } else {
+      doc.setDrawColor(200, 200, 200)
+      for (let i = 0; i < 3; i++) {
+        doc.line(margin + 3, yPos, pageWidth - margin, yPos)
+        yPos += 5
+      }
     }
+    yPos += 3
+    
+    doc.setFont('helvetica', 'bold')
+    doc.text('Résultats mesurables attendus :', margin, yPos)
+    yPos += 5
+    doc.setFont('helvetica', 'normal')
     if (analysisData.objectives_measurable) {
-      doc.setFont('helvetica', 'bold')
-      doc.text('Résultats mesurables attendus :', margin, yPos)
-      yPos += 4
-      doc.setFont('helvetica', 'normal')
       yPos += addText(analysisData.objectives_measurable, margin + 3, yPos, contentWidth - 6, 9)
-      yPos += 2
+    } else {
+      doc.setDrawColor(200, 200, 200)
+      for (let i = 0; i < 3; i++) {
+        doc.line(margin + 3, yPos, pageWidth - margin, yPos)
+        yPos += 5
+      }
     }
   }
   yPos += 3
@@ -715,20 +788,33 @@ export const getNeedsAnalysisPDFBytes = async (session, analysisData = null, bla
       const levelLabel = { debutant: 'Débutant', intermediaire: 'Intermédiaire', avance: 'Avancé' }[analysisData.level] || analysisData.level
       items.push(`Niveau : ${safe(levelLabel)}`)
     }
-    if (analysisData.prerequisites_validated !== null) {
-      items.push(`Prérequis validés : ${analysisData.prerequisites_validated ? 'Oui' : 'Non'}`)
-    }
-    items.forEach(item => { doc.text(item, margin, yPos); yPos += 5 })
-
-    if (analysisData.particularities_psh || analysisData.particularities_non_french || analysisData.particularities_other) {
-      yPos += 2
-      doc.setFont('helvetica', 'bold')
-      doc.text('Particularités :', margin, yPos)
+    
+    if (items.length > 0) {
+      items.forEach(item => { doc.text(item, margin, yPos); yPos += 5 })
+    } else {
+      doc.text('Nombre de participants : ___', margin, yPos)
       yPos += 5
-      doc.setFont('helvetica', 'normal')
+      doc.text('Profils : ___________________________', margin, yPos)
+      yPos += 5
+      doc.text('Niveau : ___________________________', margin, yPos)
+      yPos += 5
+    }
+    
+    yPos += 2
+    doc.setFont('helvetica', 'bold')
+    doc.text('Particularités :', margin, yPos)
+    yPos += 5
+    doc.setFont('helvetica', 'normal')
+    if (analysisData.particularities_psh || analysisData.particularities_non_french || analysisData.particularities_other) {
       if (analysisData.particularities_psh) { doc.text(`• PSH : ${safe(analysisData.particularities_psh)}`, margin + 3, yPos); yPos += 5 }
       if (analysisData.particularities_non_french) { doc.text('• Public non francophone', margin + 3, yPos); yPos += 5 }
       if (analysisData.particularities_other) { doc.text(`• Autre : ${safe(analysisData.particularities_other)}`, margin + 3, yPos); yPos += 5 }
+    } else {
+      doc.setDrawColor(200, 200, 200)
+      for (let i = 0; i < 2; i++) {
+        doc.line(margin + 3, yPos, pageWidth - margin, yPos)
+        yPos += 5
+      }
     }
   }
   yPos += 3
@@ -748,24 +834,56 @@ export const getNeedsAnalysisPDFBytes = async (session, analysisData = null, bla
       const locationText = analysisData.location_type === 'client' 
         ? `Chez le client (${safe(analysisData.location_client_address, '')})` 
         : 'Dans nos locaux (Access Formation)'
-      doc.text(`Lieu : ${safe(locationText)}`, margin, yPos); yPos += 5
+      doc.text(`Lieu : ${safe(locationText)}`, margin, yPos)
+    } else {
+      doc.text('Lieu : ___________________________________', margin, yPos)
     }
-    if (analysisData.preferred_schedule) { doc.text(`Horaires : ${safe(analysisData.preferred_schedule)}`, margin, yPos); yPos += 5 }
-    if (analysisData.preferred_dates) { doc.text(`Dates préférentielles : ${safe(analysisData.preferred_dates)}`, margin, yPos); yPos += 5 }
+    yPos += 5
+    
+    if (analysisData.preferred_schedule) {
+      doc.text(`Horaires : ${safe(analysisData.preferred_schedule)}`, margin, yPos)
+    } else {
+      doc.text('Horaires : ___________________________________', margin, yPos)
+    }
+    yPos += 5
+    
+    if (analysisData.preferred_dates) {
+      doc.text(`Dates préférentielles : ${safe(analysisData.preferred_dates)}`, margin, yPos)
+    } else {
+      doc.text('Dates préférentielles : ___________________________________', margin, yPos)
+    }
+    yPos += 5
+    
     if (analysisData.company_equipment !== null) {
       const equipText = analysisData.company_equipment 
         ? `Oui${analysisData.company_equipment_details ? ' (' + safe(analysisData.company_equipment_details) + ')' : ''}` 
         : 'Non'
-      doc.text(`Matériel spécifique entreprise : ${equipText}`, margin, yPos); yPos += 5
+      doc.text(`Matériel spécifique entreprise : ${equipText}`, margin, yPos)
+    } else {
+      doc.text('Matériel spécifique entreprise : ___________', margin, yPos)
     }
-    if (analysisData.ppe_provided !== null) { doc.text(`Équipements de protection fournis : ${analysisData.ppe_provided ? 'Oui' : 'Non'}`, margin, yPos); yPos += 5 }
+    yPos += 5
+    
+    if (analysisData.ppe_provided !== null) {
+      doc.text(`Équipements de protection fournis : ${analysisData.ppe_provided ? 'Oui' : 'Non'}`, margin, yPos)
+    } else {
+      doc.text('Équipements de protection fournis : ___________', margin, yPos)
+    }
+    yPos += 5
+    
+    yPos += 2
+    doc.setFont('helvetica', 'bold')
+    doc.text('Autres contraintes :', margin, yPos)
+    yPos += 5
+    doc.setFont('helvetica', 'normal')
     if (analysisData.other_constraints) {
-      yPos += 2
-      doc.setFont('helvetica', 'bold')
-      doc.text('Autres contraintes :', margin, yPos); yPos += 5
-      doc.setFont('helvetica', 'normal')
       yPos += addText(analysisData.other_constraints, margin + 3, yPos, contentWidth - 6, 9)
-      yPos += 3
+    } else {
+      doc.setDrawColor(200, 200, 200)
+      for (let i = 0; i < 2; i++) {
+        doc.line(margin + 3, yPos, pageWidth - margin, yPos)
+        yPos += 5
+      }
     }
   }
   yPos += 3
