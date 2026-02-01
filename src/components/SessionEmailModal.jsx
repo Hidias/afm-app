@@ -498,18 +498,14 @@ Le compte rendu doit :
 Réponds uniquement avec le texte du compte rendu, sans titre ni introduction.`
 
     try {
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
+      const response = await fetch('/api/generate-compte-rendu-formation', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 1000,
-          messages: [{ role: 'user', content: prompt }]
-        })
+        body: JSON.stringify({ prompt })
       })
       const data = await response.json()
-      const text = data.content?.[0]?.text || ''
-      setCompteRendu(text)
+      if (!response.ok) throw new Error(data.error || 'Erreur génération')
+      setCompteRendu(data.text || '')
     } catch (e) {
       console.error('Erreur génération compte rendu:', e)
       setCrError('Erreur lors de la génération. Réessaie.')
