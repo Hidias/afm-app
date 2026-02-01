@@ -123,6 +123,7 @@ const ConfirmModal = ({ show, onConfirm, onCancel, message }) => {
 export default function Clients() {
   const { clients, fetchClients, createClient, updateClient, deleteClient } = useDataStore()
   const [search, setSearch] = useState('')
+  const [filterStatus, setFilterStatus] = useState('all')
   const [showForm, setShowForm] = useState(false)
   const [showPreview, setShowPreview] = useState(false)
   const [selectedClient, setSelectedClient] = useState(null)
@@ -132,14 +133,16 @@ export default function Clients() {
   const [importPreview, setImportPreview] = useState(null)
   const fileInputRef = useRef(null)
   const [form, setForm] = useState({
-    name: '', siret: '', address: '', email: '', phone: '', contact_name: '', contact_function: '', notes: ''
+    name: '', siret: '', address: '', email: '', phone: '', contact_name: '', contact_function: '', notes: '', status: 'prospect'
   })
   
   useEffect(() => { fetchClients() }, [])
   
   const filtered = clients.filter(c => {
     const searchFields = `${c.name || ''} ${c.siret || ''} ${c.contact_name || ''} ${c.address || ''} ${c.email || ''} ${c.contact_email || ''}`.toLowerCase()
-    return !search || searchFields.includes(search.toLowerCase())
+    const matchSearch = !search || searchFields.includes(search.toLowerCase())
+    const matchStatus = filterStatus === 'all' || c.status === filterStatus
+    return matchSearch && matchStatus
   })
   
   const openForm = (client = null) => {
@@ -153,10 +156,11 @@ export default function Clients() {
         contact_name: client.contact_name || '',
         contact_function: client.contact_function || '',
         notes: client.notes || '',
+        status: client.status || 'prospect',
       })
       setSelectedClient(client)
     } else {
-      setForm({ name: '', siret: '', address: '', email: '', phone: '', contact_name: '', contact_function: '', notes: '' })
+      setForm({ name: '', siret: '', address: '', email: '', phone: '', contact_name: '', contact_function: '', notes: '', status: 'prospect' })
       setSelectedClient(null)
     }
     setShowForm(true)
@@ -339,9 +343,28 @@ export default function Clients() {
         </div>
       </div>
       
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-        <input type="text" placeholder="Rechercher..." className="input pl-10 w-full max-w-md" value={search} onChange={(e) => setSearch(e.target.value)} />
+      <div className="flex flex-col sm:flex-row gap-3">
+        <div className="relative flex-1 max-w-md">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <input type="text" placeholder="Rechercher..." className="input pl-10 w-full" value={search} onChange={(e) => setSearch(e.target.value)} />
+        </div>
+        <div className="flex gap-2">
+          {['all', 'prospect', 'en_discussion', 'actif'].map(status => {
+            const labels = { all: 'Tous', prospect: 'Prospects', en_discussion: 'En discussion', actif: 'Actifs' }
+            const styles = {
+              all: filterStatus === 'all' ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200',
+              prospect: filterStatus === 'prospect' ? 'bg-orange-500 text-white' : 'bg-orange-50 text-orange-700 hover:bg-orange-100',
+              en_discussion: filterStatus === 'en_discussion' ? 'bg-blue-500 text-white' : 'bg-blue-50 text-blue-700 hover:bg-blue-100',
+              actif: filterStatus === 'actif' ? 'bg-green-500 text-white' : 'bg-green-50 text-green-700 hover:bg-green-100',
+            }
+            const counts = { all: clients.length, prospect: clients.filter(c => c.status === 'prospect').length, en_discussion: clients.filter(c => c.status === 'en_discussion').length, actif: clients.filter(c => c.status === 'actif').length }
+            return (
+              <button key={status} onClick={() => setFilterStatus(status)} className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${styles[status]}`}>
+                {labels[status]} <span className="opacity-70">({counts[status]})</span>
+              </button>
+            )
+          })}
+        </div>
       </div>
       
       <div className="card overflow-hidden">
@@ -363,6 +386,13 @@ export default function Clients() {
                   <button onClick={() => openPreview(client)} className="font-medium text-primary-600 hover:underline flex items-center gap-2">
                     <Building2 className="w-4 h-4" />{client.name}
                   </button>
+                  <span className={`inline-block mt-1 text-xs font-medium px-2 py-0.5 rounded-full ${
+                    client.status === 'actif' ? 'bg-green-100 text-green-700' :
+                    client.status === 'en_discussion' ? 'bg-blue-100 text-blue-700' :
+                    'bg-orange-100 text-orange-700'
+                  }`}>
+                    {client.status === 'actif' ? '✓ Actif' : client.status === 'en_discussion' ? '💬 En discussion' : '🎯 Prospect'}
+                  </span>
                 </td>
                 <td className="py-3 px-4 text-gray-600">{client.siret || '-'}</td>
                 <td className="py-3 px-4 text-gray-600">
@@ -403,6 +433,13 @@ export default function Clients() {
                   </div>
                   <h3 className="text-xl font-bold">{selectedClient.name}</h3>
                   {selectedClient.siret && <p className="text-sm text-gray-500">SIRET: {selectedClient.siret}</p>}
+                  <span className={`inline-block mt-2 text-xs font-medium px-2.5 py-1 rounded-full ${
+                    selectedClient.status === 'actif' ? 'bg-green-100 text-green-700' :
+                    selectedClient.status === 'en_discussion' ? 'bg-blue-100 text-blue-700' :
+                    'bg-orange-100 text-orange-700'
+                  }`}>
+                    {selectedClient.status === 'actif' ? '✓ Actif' : selectedClient.status === 'en_discussion' ? '💬 En discussion' : '🎯 Prospect'}
+                  </span>
                 </div>
                 
                 {/* Adresse */}
@@ -556,6 +593,21 @@ export default function Clients() {
                   </div>
                 </div>
                 
+                <div className="border-t pt-4">
+                  <h4 className="font-medium text-gray-700 mb-3">Statut</h4>
+                  <div className="flex gap-2">
+                    {[{ value: 'prospect', label: '🎯 Prospect', active: 'bg-orange-500 text-white', inactive: 'bg-orange-50 text-orange-700 hover:bg-orange-100' },
+                      { value: 'en_discussion', label: '💬 En discussion', active: 'bg-blue-500 text-white', inactive: 'bg-blue-50 text-blue-700 hover:bg-blue-100' },
+                      { value: 'actif', label: '✓ Actif', active: 'bg-green-500 text-white', inactive: 'bg-green-50 text-green-700 hover:bg-green-100' }
+                    ].map(s => (
+                      <button key={s.value} type="button" onClick={() => setForm({...form, status: s.value})}
+                        className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${form.status === s.value ? s.active : s.inactive}`}>
+                        {s.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 <div>
                   <label className="label">Notes</label>
                   <textarea className="input" rows={2} value={form.notes} onChange={(e) => setForm({...form, notes: e.target.value})} />
