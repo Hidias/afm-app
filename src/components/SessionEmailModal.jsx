@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { X, FileText, Send, Loader, CheckCircle, AlertCircle, Upload, Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { generatePDF, generateAllPDF } from '../lib/pdfGenerator'
+import { getNeedsAnalysisPDFBytes } from '../lib/needsAnalysisPDF'
 
 export default function SessionEmailModal({ session, emailType, sessionCosts, questions, traineeResults, onClose }) {
   const [step, setStep] = useState('generating') // 'generating', 'compose', 'sending', 'sent'
@@ -133,6 +134,28 @@ Nous vous remercions pour votre confiance et restons à votre disposition.`)
         if (convocations) {
           files.push({ id: 'convocations', name: convocations.filename, base64: convocations.base64, size: convocations.size })
           addLog('✅ Convocations générées')
+        }
+
+        // ── ANALYSE DU BESOIN (préfillée) ──
+        addLog('Analyse du besoin...')
+        try {
+          const startDate = session?.start_date ? new Date(session.start_date).toLocaleDateString('fr-FR') : ''
+          const endDate = session?.end_date ? new Date(session.end_date).toLocaleDateString('fr-FR') : ''
+          const analysisData = {
+            analysis_date: new Date().toISOString().split('T')[0],
+            location_type: session?.is_intra ? 'client' : 'nos_locaux',
+            location_client_address: session?.is_intra ? (session?.clients?.address || '') : '',
+            preferred_dates: startDate === endDate ? startDate : `${startDate} au ${endDate}`
+          }
+          const analyseBytes = await getNeedsAnalysisPDFBytes(session, analysisData, false, null)
+          if (analyseBytes) {
+            const base64 = btoa(String.fromCharCode(...new Uint8Array(analyseBytes)))
+            files.push({ id: 'analyseBesoin', name: `Analyse_Besoin_${session?.reference || 'session'}.pdf`, base64, size: base64.length })
+            addLog('✅ Analyse du besoin générée')
+          }
+        } catch (e) {
+          console.error('Erreur génération analyse besoin:', e)
+          addLog('⚠️ Erreur génération analyse du besoin')
         }
 
       } else {
