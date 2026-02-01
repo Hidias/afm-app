@@ -26,32 +26,29 @@ export default function SessionEmailModal({ session, emailType, sessionCosts, qu
   const [crGenerating, setCrGenerating] = useState(false)
   const [crError, setCrError] = useState(null)
 
-  // ── Nombre réel de stagiaires (requête séparée pour éviter stale data du parent) ──
-  const [totalTrainees, setTotalTrainees] = useState(0)
-
-  useEffect(() => {
-    if (emailType === 'after' && session?.id) {
-      supabase
-        .from('session_trainees')
-        .select('id')
-        .eq('session_id', session.id)
-        .then(({ data }) => setTotalTrainees(data?.length || 0))
-    }
-  }, [session?.id])
-
   useEffect(() => {
     loadUserEmail()
     initializeEmail()
     generateAllDocuments()
     // Charger les évals à chaud uniquement pour « après formation »
     if (emailType === 'after' && session?.id) {
+      // D'abord récupérer les trainee_id valides de la session
       supabase
-        .from('trainee_evaluations')
-        .select('*')
+        .from('session_trainees')
+        .select('trainee_id')
         .eq('session_id', session.id)
-        .then(({ data }) => {
-          setEvals(data || [])
-          setEvalsLoaded(true)
+        .then(({ data: stData }) => {
+          const validIds = (stData || []).map(st => st.trainee_id)
+          // Puis charger les évals et filtrer sur ces IDs uniquement
+          supabase
+            .from('trainee_evaluations')
+            .select('*')
+            .eq('session_id', session.id)
+            .then(({ data }) => {
+              const filtered = (data || []).filter(e => validIds.includes(e.trainee_id))
+              setEvals(filtered)
+              setEvalsLoaded(true)
+            })
         })
     }
   }, [])
@@ -461,8 +458,7 @@ Nous vous remercions pour votre confiance et restons à votre disposition.`)
       if (TEST_WORDS.includes(c.toLowerCase())) return false
       return true
     })
-    const totalTr = session?.session_trainees?.length || 0
-    return { scores, globalScore, tauxReco, comments, total: evals.length, totalTrainees: totalTr }
+    return { scores, globalScore, tauxReco, comments, total: evals.length }
   }
 
   const generateCompteRendu = async () => {
@@ -494,7 +490,7 @@ Formation : ${courseTitle}
 Référence : ${ref}
 Dates : du ${startDate} au ${endDate}
 Formateur : ${formateur}
-Stagiaires ayant répondu : ${evalData.total} sur ${totalTrainees}
+Stagiaires ayant répondu : ${evalData.total} sur ${evalData.total}
 Score moyen global : ${evalData.globalScore}/5
 Taux de recommandation : ${evalData.tauxReco !== null ? evalData.tauxReco + '%' : 'non calculé'}
 
@@ -626,7 +622,7 @@ Réponds uniquement avec le texte du compte rendu, sans titre ni introduction.`
                         <p className="text-sm font-semibold text-purple-800">📋 Compte rendu de formation</p>
                         <p className="text-xs text-purple-600 mt-0.5">
                           {evals.length > 0
-                            ? `${evals.length} évaluation${evals.length > 1 ? 's' : ''} à chaud — Score moyen : ${evalData?.globalScore || '—'}/5 — Recommandation : ${evalData?.tauxReco !== null ? evalData.tauxReco + '%' : '—'}`
+                            ? `${evals.length} stagiaire${evals.length > 1 ? 's' : ''} — Score moyen : ${evalData?.globalScore || '—'}/5 — Recommandation : ${evalData?.tauxReco !== null ? evalData.tauxReco + '%' : '—'}`
                             : 'Aucune évaluation à chaud pour cette session'
                           }
                         </p>
