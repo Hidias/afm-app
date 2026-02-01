@@ -438,11 +438,16 @@ Nous vous remercions pour votre confiance et restons à votre disposition.`)
     const globalScore = allScores.length ? (allScores.reduce((a, b) => a + b, 0) / allScores.length).toFixed(2) : null
     const withReco = evals.filter(e => e.would_recommend !== null && e.would_recommend !== undefined)
     const tauxReco = withReco.length ? Math.round((withReco.filter(e => e.would_recommend === true).length / withReco.length) * 100) : null
+    const TEST_WORDS = ['test', 'test123', 'aaa', 'bbb', 'ccc', 'xxx', 'asdf', 'qwerty', 'blah', 'ok', 'oui', 'non']
     const comments = evals.flatMap(e => [
       (e.comments || '').trim(),
       (e.comment_general || '').trim(),
       (e.comment_projet || '').trim()
-    ]).filter(c => c.length > 0)
+    ]).filter(c => {
+      if (c.length < 15) return false
+      if (TEST_WORDS.includes(c.toLowerCase())) return false
+      return true
+    })
     const totalTrainees = session?.session_trainees?.length || 0
     return { scores, globalScore, tauxReco, comments, total: evals.length, totalTrainees }
   }
@@ -488,11 +493,12 @@ ${commentsText}
 
 Écris un compte rendu professionnel et synthétique de cette session de formation.
 Le compte rendu doit :
+- Être écrit en première personne (« j'ai animé », « les stagiaires ont bien accueilli », etc.) comme si c'est le formateur lui-même qui écrivait
+- Rester modeste : éviter les supérlatifs sur le formateur, ne pas se vanter
 - Reprendre les points forts identifiés grâce aux scores (les dimensions avec les meilleurs résultats)
 - Mentionner les points à améliorer si des scores sont nettement plus bas (< 3.5)
-- Intégrer naturellement les commentaires des stagiaires (sans les citer mot pour mot, mais en reflétant leur teneur)
-- Être écrit en français, en style professionnel mais accessible
-- Être concis : entre 80 et 150 mots
+- Refléter la teneur des commentaires des stagiaires de façon naturelle, sans les citer mot pour mot
+- Être concis et direct : entre 80 et 120 mots, pas de remplissage
 - Ne pas mentionner les chiffres bruts sauf le score global et le taux de recommandation
 
 Réponds uniquement avec le texte du compte rendu, sans titre ni introduction.`
