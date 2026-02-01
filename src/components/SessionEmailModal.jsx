@@ -217,6 +217,51 @@ Nous vous remercions pour votre confiance et restons à votre disposition.`)
     })
   }
 
+  // ─── Mise à jour automatique checklist après envoi ───
+  const updateChecklistItems = async (codes) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      const now = new Date().toISOString()
+      const today = now.split('T')[0]
+
+      for (const code of codes) {
+        const { data: existing } = await supabase
+          .from('session_checklists')
+          .select('id', 'is_checked')
+          .eq('session_id', session.id)
+          .eq('item_code', code)
+          .maybeSingle()
+
+        if (existing) {
+          if (!existing.is_checked) {
+            await supabase
+              .from('session_checklists')
+              .update({
+                is_checked: true,
+                checked_at: now,
+                checked_by: user?.id,
+                date_realized: today
+              })
+              .eq('id', existing.id)
+          }
+        } else {
+          await supabase
+            .from('session_checklists')
+            .insert({
+              session_id: session.id,
+              item_code: code,
+              is_checked: true,
+              checked_at: now,
+              checked_by: user?.id,
+              date_realized: today
+            })
+        }
+      }
+    } catch (err) {
+      console.error('Erreur mise à jour checklist:', err)
+    }
+  }
+
   // ─── Upload manuel supplémentaire ───
   const handleFileUpload = (e) => {
     const files = Array.from(e.target.files)
@@ -316,6 +361,12 @@ Nous vous remercions pour votre confiance et restons à votre disposition.`)
 
       const result = await response.json()
       if (!response.ok) throw new Error(result.error || result.details)
+
+      // 3) Mise à jour automatique checklist
+      const checklistCodes = emailType === 'before'
+        ? ['convention_envoyee', 'convocations_envoyees']
+        : ['certificats_envoyes']
+      await updateChecklistItems(checklistCodes)
 
       setStep('sent')
       toast.success('Email envoyé avec succès !')
