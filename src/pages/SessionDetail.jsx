@@ -1716,12 +1716,12 @@ export default function SessionDetail() {
       const convocations = await generateAllPDF('convocation', session, traineesWithResult, { trainer })
       if (convocations) zip.file(`Convocations_${ref}.pdf`, convocations.base64, { base64: true })
 
-      // 4. Fiches de renseignements — tous stagiaires mergés en un seul PDF
+      // 4. Fiches de renseignements — titre rempli, juste nom/prénom, reste vierge
       const mergedFiches = await mergeMultiplePDFs(
         traineesWithResult.map(trainee => {
           const fiche = generatePDF('ficheRenseignements', session, {
-            trainee,
-            isBlank: true,
+            trainee: { last_name: trainee.last_name, first_name: trainee.first_name },
+            isBlank: false,
             infoSheet: null
           })
           return fiche?.base64 || null
@@ -1729,11 +1729,11 @@ export default function SessionDetail() {
       )
       if (mergedFiches) zip.file(`Fiches_Renseignements_${ref}.pdf`, mergedFiches, { base64: true })
 
-      // 5. Émargement — vierge avec juste les noms des stagiaires
+      // 5. Émargement — cartouche rempli, cases vierges (pas de attendanceData)
       const emargement = generatePDF('emargement', session, {
         trainees: traineesWithResult,
         trainer,
-        isBlank: true,
+        isBlank: false,
         attendanceData: null
       })
       if (emargement) zip.file(`Emargement_${ref}.pdf`, emargement.base64, { base64: true })
