@@ -36,7 +36,6 @@ export default function SessionEmailModal({ session, emailType, sessionCosts, qu
         .from('trainee_evaluations')
         .select('*')
         .eq('session_id', session.id)
-        .eq('eval_type', 'chaud')
         .then(({ data }) => {
           setEvals(data || [])
           setEvalsLoaded(true)
@@ -439,7 +438,11 @@ Nous vous remercions pour votre confiance et restons à votre disposition.`)
     const globalScore = allScores.length ? (allScores.reduce((a, b) => a + b, 0) / allScores.length).toFixed(2) : null
     const withReco = evals.filter(e => e.would_recommend !== null && e.would_recommend !== undefined)
     const tauxReco = withReco.length ? Math.round((withReco.filter(e => e.would_recommend === true).length / withReco.length) * 100) : null
-    const comments = evals.map(e => (e.comments || e.comment || '').trim()).filter(c => c.length > 0)
+    const comments = evals.flatMap(e => [
+      (e.comments || '').trim(),
+      (e.comment_general || '').trim(),
+      (e.comment_projet || '').trim()
+    ]).filter(c => c.length > 0)
     const totalTrainees = session?.session_trainees?.length || 0
     return { scores, globalScore, tauxReco, comments, total: evals.length, totalTrainees }
   }
