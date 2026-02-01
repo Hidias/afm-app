@@ -21,6 +21,7 @@ const navItems = [
   { to: '/documents', icon: FileText, label: 'Documents' },
   { to: '/qualite', icon: FolderCheck, label: 'Qualité' },
   { to: '/non-conformites', icon: AlertTriangle, label: 'Non-conformités' },
+  { to: '/registre-psh', icon: Users, label: 'Registre PSH' },
   { to: '/indicateurs', icon: BarChart3, label: 'Indicateurs' },
   { to: '/profil-stagiaires', icon: Users, label: 'Profil Stagiaires' },
   { to: '/qualiopi', icon: Award, label: 'Qualiopi' },
