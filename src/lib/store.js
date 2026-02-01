@@ -90,6 +90,7 @@ export const useDataStore = create((set, get) => ({
       contact_email: client.contact_email || client.email || null,
       contact_phone: client.contact_phone || client.phone || null,
       notes: client.notes || null,
+      status: client.status || 'prospect',
     }
     console.log('Creating client:', validClient)
     const { data, error } = await supabase
@@ -119,6 +120,7 @@ export const useDataStore = create((set, get) => ({
     if (updates.contact_phone !== undefined) validUpdates.contact_phone = updates.contact_phone
     if (updates.phone !== undefined) validUpdates.contact_phone = updates.phone
     if (updates.notes !== undefined) validUpdates.notes = updates.notes
+    if (updates.status !== undefined) validUpdates.status = updates.status
     
     console.log('Updating client:', id, validUpdates)
     const { data, error } = await supabase
