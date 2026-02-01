@@ -1865,8 +1865,8 @@ export default function SessionDetail() {
       })
       if (emargement) zip.file(`Emargement_${ref}.pdf`, emargement.base64, { base64: true })
 
-      // 6. Éval à chaud
-      const evalChaud = await generateAllPDF('evaluation', session, traineesWithResult, { trainer })
+      // 6. Éval à chaud — avec réponses des stagiaires
+      const evalChaud = await generateAllPDF('evaluation', session, traineesWithResult, { trainer, evaluationsData })
       if (evalChaud) zip.file(`Eval_Chaud_${ref}.pdf`, evalChaud.base64, { base64: true })
 
       // 7. Éval à froid — vierge (pas de données disponibles)
