@@ -49,6 +49,7 @@ const QUALITY_DOCS = {
     { id: 'reg-rgpd', name: 'Registre traitements RGPD', code: 'AF-REGRGPD', table: 'rgpd_traitements' },
     { id: 'reg-audit', name: 'Registre audits internes', code: 'AF-REGAUD', table: 'audits_internes' },
     { id: 'reg-programmes', name: 'Programmes de formation', code: 'AF-REGPROG', table: 'programme_versions' },
+    { id: 'reg-psh', name: 'Registre PSH (Ind. 26)', code: 'AF-REGPSH', table: 'psh_requests' },
   ]},
   checklists: { name: 'Checklists', icon: CheckSquare, color: 'orange', docs: [
     { id: 'ck-audit', name: 'Checklist audit interne', code: 'AF-CKAUD', editable: true },
@@ -584,6 +585,23 @@ export default function QualiteEditables() {
         doc.setFontSize(9); doc.text(`Export ${d} - ${tableData.length} enregistrement(s)`, 20, y); y += 8
         
         if (tableData.length > 0) {
+          if (docInfo.table === 'psh_requests') {
+            // Rendu spécifique PSH
+            doc.setFillColor(240, 240, 240); doc.rect(20, y, w - 40, 7, 'F')
+            doc.setFont(undefined, 'bold'); doc.setFontSize(8)
+            doc.text('Réf.', 22, y + 5); doc.text('Besoin fonctionnel', 50, y + 5); doc.text('Décision', 130, y + 5); doc.text('Statut', 155, y + 5)
+            y += 9; doc.setFont(undefined, 'normal')
+            
+            const pshDL = { a_analyser: 'À analyser', adapte: 'Adaptée', partiel: 'Partielle', oriente: 'Orientée', refuse: 'Refusée' }
+            const pshSL = { open: 'Ouverte', in_review: 'En analyse', awaiting_info: 'Info manq.', decided: 'Décidée', implemented: 'Mise en œuvre', closed: 'Clôturé' }
+            tableData.slice(0, 25).forEach(item => {
+              doc.text(item.reference || '-', 22, y)
+              doc.text((item.besoin_fonctionnel || '-').substring(0, 50), 50, y)
+              doc.text(pshDL[item.decision] || '-', 130, y)
+              doc.text(pshSL[item.status] || '-', 155, y)
+              y += 5
+            })
+          } else {
           doc.setFillColor(240, 240, 240); doc.rect(20, y, w - 40, 7, 'F')
           doc.setFont(undefined, 'bold'); doc.setFontSize(8)
           doc.text('Date', 22, y + 5); doc.text('Description', 50, y + 5); doc.text('Statut', 150, y + 5)
@@ -595,6 +613,7 @@ export default function QualiteEditables() {
             doc.text(item.status || '-', 150, y)
             y += 5
           })
+          }
         } else { doc.text('Aucun enregistrement.', 20, y) }
         
       } else {
@@ -1007,6 +1026,40 @@ export default function QualiteEditables() {
                                   <td className="px-3 py-2.5 text-center text-gray-600">{format(new Date(item.date_maj + 'T00:00:00'), 'dd/MM/yyyy')}</td>
                                   <td className="px-3 py-2.5 text-gray-700">{item.valide_par}</td>
                                   <td className="px-3 py-2.5 text-gray-600 italic">{item.raison_changement}</td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : reg.table === 'psh_requests' ? (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead className="bg-gray-800 text-white">
+                            <tr>
+                              <th className="text-left px-3 py-2.5 font-semibold">Réf.</th>
+                              <th className="text-left px-3 py-2.5 font-semibold">Besoin fonctionnel</th>
+                              <th className="text-left px-3 py-2.5 font-semibold">Décision</th>
+                              <th className="text-left px-3 py-2.5 font-semibold">Statut</th>
+                              <th className="text-left px-3 py-2.5 font-semibold">Date</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y">
+                            {registreData[reg.table].map((item, i) => {
+                              const pshDecisionClass = { a_analyser: 'bg-gray-100 text-gray-700', adapte: 'bg-green-100 text-green-700', partiel: 'bg-blue-100 text-blue-700', oriente: 'bg-purple-100 text-purple-700', refuse: 'bg-red-100 text-red-700' }
+                              const pshDecisionLabel = { a_analyser: 'À analyser', adapte: 'Adaptée', partiel: 'Partielle', oriente: 'Orientée', refuse: 'Refusée' }
+                              const pshStatusClass = { open: 'bg-red-100 text-red-700', in_review: 'bg-yellow-100 text-yellow-700', awaiting_info: 'bg-orange-100 text-orange-700', decided: 'bg-blue-100 text-blue-700', implemented: 'bg-purple-100 text-purple-700', closed: 'bg-green-100 text-green-700' }
+                              const pshStatusLabel = { open: 'Ouverte', in_review: 'En analyse', awaiting_info: 'Info manquante', decided: 'Décidée', implemented: 'Mise en œuvre', closed: 'Clôturé' }
+                              return (
+                                <tr key={i} className={item.is_test ? 'bg-yellow-50' : 'bg-white hover:bg-gray-50'}>
+                                  <td className="px-3 py-2.5">
+                                    <span className="font-mono text-xs bg-gray-100 px-1.5 py-0.5 rounded">{item.reference}</span>
+                                    {item.is_test && <span className="ml-1.5 text-xs bg-yellow-200 text-yellow-800 px-1 py-0.5 rounded">test</span>}
+                                  </td>
+                                  <td className="px-3 py-2.5 text-gray-800">{(item.besoin_fonctionnel || '-').substring(0, 45)}</td>
+                                  <td className="px-3 py-2.5"><span className={`text-xs px-2 py-0.5 rounded ${pshDecisionClass[item.decision] || 'bg-gray-100 text-gray-700'}`}>{pshDecisionLabel[item.decision] || item.decision}</span></td>
+                                  <td className="px-3 py-2.5"><span className={`text-xs px-2 py-0.5 rounded ${pshStatusClass[item.status] || 'bg-gray-100 text-gray-700'}`}>{pshStatusLabel[item.status] || item.status}</span></td>
+                                  <td className="px-3 py-2.5 text-gray-600">{format(new Date(item.created_at), 'dd/MM/yyyy')}</td>
                                 </tr>
                               )
                             })}
