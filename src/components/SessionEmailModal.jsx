@@ -33,9 +33,9 @@ export default function SessionEmailModal({ session, emailType, sessionCosts, qu
     if (emailType === 'after' && session?.id) {
       supabase
         .from('session_trainees')
-        .select('id', { count: 'exact', head: true })
+        .select('id')
         .eq('session_id', session.id)
-        .then(({ count }) => setTotalTrainees(count || 0))
+        .then(({ data }) => setTotalTrainees(data?.length || 0))
     }
   }, [session?.id])
 
