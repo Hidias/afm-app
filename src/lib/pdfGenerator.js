@@ -13,6 +13,18 @@ const DOC_CODES = {
   positionnement: 'AF-POS',
 }
 
+// Masque le NSS pour impression : garde sexe + année + mois (5 premiers chiffres), masque le reste
+// Ex: 1 89 10 75 056 433 67 → 1 89 10 ** *** *** **
+const maskSSN = (ssn) => {
+  if (!ssn) return ''
+  const digits = String(ssn).replace(/\s/g, '')
+  const visible = digits.slice(0, 5)
+  const masked = digits.slice(5).replace(/./g, '*')
+  const full = visible + masked
+  // Reformat : 1 XX XX XX XXX XXX XX
+  return [full.slice(0,1), full.slice(1,3), full.slice(3,5), full.slice(5,7), full.slice(7,10), full.slice(10,13), full.slice(13,15)].join(' ')
+}
+
 // Organisation par défaut (peut être surchargée par setOrganization)
 let ORG = {
   name: 'Access Formation', nameFull: 'SARL Access Formation',
@@ -854,7 +866,7 @@ function generateEmargement(session, trainees = [], trainer = null, isBlank = fa
     doc.rect(startX + nameColW + secuColW, y, emailColW, rowH)
 
     if (t.first_name) doc.text(`${t.last_name?.toUpperCase() || ''} ${t.first_name || ''}`, startX + 1, y + 5)
-    if (t.social_security_number) doc.text(t.social_security_number, startX + nameColW + 1, y + 5)
+    if (t.social_security_number) doc.text(maskSSN(t.social_security_number), startX + nameColW + 1, y + 5)
     if (t.email) doc.text(t.email.substring(0, 22), startX + nameColW + secuColW + 1, y + 5)
 
     // Colonnes demi-journées
@@ -1985,9 +1997,9 @@ function generateFicheRenseignements(session, trainee = null, isBlank = false, i
     doc.rect(x, y - 3, caseWidth, 4)
   }
   
-  // Remplir les cases si on a un SSN
+  // Remplir les cases si on a un SSN (masqué pour impression)
   if (!isBlank && trainee?.social_security_number) {
-    const ssn = String(trainee.social_security_number).replace(/\s/g, '') // Enlever les espaces
+    const ssn = maskSSN(trainee.social_security_number).replace(/\s/g, '') // masqué puis espaces enlevés pour les cases
     doc.setFont('helvetica', 'bold')
     for (let i = 0; i < Math.min(ssn.length, 15); i++) {
       const x = ssnStartX + i * (caseWidth + caseSpacing) + 1
