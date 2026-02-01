@@ -19,6 +19,7 @@ const RDV_TYPES = {
 }
 
 const RDV_STATUS = {
+  a_prendre: { label: 'À prendre', icon: Clock, color: 'text-red-600' },
   prevu: { label: 'Prévu', icon: Clock, color: 'text-blue-600' },
   realise: { label: 'Réalisé', icon: CheckCircle, color: 'text-green-600' },
   annule: { label: 'Annulé', icon: XCircle, color: 'text-red-600' },
@@ -109,6 +110,8 @@ export default function Prospection() {
   })
 
   // Grouper par urgence
+  const rdvsAPrendre = filteredRdvs.filter(r => r.status === 'a_prendre')
+
   const rdvsUrgents = filteredRdvs.filter(r => {
     if (r.status !== 'prevu') return false
     // Urgent si : marqué manuel OU aujourd'hui/passé OU demain
@@ -174,8 +177,14 @@ export default function Prospection() {
         <div className="space-y-2 mb-3">
           <div className="flex items-center gap-2 text-sm text-gray-600">
             <Calendar className="w-4 h-4" />
-            <span className="font-medium">{getDateLabel(rdv.rdv_date)}</span>
-            {rdv.rdv_time && <span>à {rdv.rdv_time.slice(0, 5)}</span>}
+            {rdv.rdv_date ? (
+              <>
+                <span className="font-medium">{getDateLabel(rdv.rdv_date)}</span>
+                {rdv.rdv_time && <span>à {rdv.rdv_time.slice(0, 5)}</span>}
+              </>
+            ) : (
+              <span className="italic text-red-500">Date à définir</span>
+            )}
           </div>
 
           {rdv.rdv_location && (
@@ -330,6 +339,7 @@ export default function Prospection() {
             className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
           >
             <option value="all">Tous les statuts</option>
+            <option value="a_prendre">À prendre</option>
             <option value="prevu">Prévus</option>
             <option value="realise">Réalisés</option>
             <option value="annule">Annulés</option>
@@ -362,6 +372,19 @@ export default function Prospection() {
         </div>
       ) : (
         <div className="space-y-6">
+          {/* RDV à prendre */}
+          {rdvsAPrendre.length > 0 && (
+            <div>
+              <h2 className="text-lg font-semibold text-red-700 mb-3 flex items-center gap-2">
+                <Clock className="w-5 h-5" />
+                🔴 À prendre ({rdvsAPrendre.length})
+              </h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {rdvsAPrendre.map(rdv => <RdvCard key={rdv.id} rdv={rdv} />)}
+              </div>
+            </div>
+          )}
+
           {/* RDV urgents */}
           {rdvsUrgents.length > 0 && (
             <div>
