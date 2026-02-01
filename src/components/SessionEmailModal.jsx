@@ -152,13 +152,7 @@ Nous vous remercions pour votre confiance et restons à votre disposition.`)
           }
           const analyseBytes = await getNeedsAnalysisPDFBytes(session, analysisData, false, null)
           if (analyseBytes) {
-            const uint8 = new Uint8Array(analyseBytes)
-            let base64 = ''
-            const chunkSize = 8192
-            for (let i = 0; i < uint8.length; i += chunkSize) {
-              base64 += btoa(String.fromCharCode(...uint8.slice(i, i + chunkSize)))
-            }
-            files.push({ id: 'analyseBesoin', name: `Analyse_Besoin_${session?.reference || 'session'}.pdf`, base64, size: base64.length })
+            files.push({ id: 'analyseBesoin', name: `Analyse_Besoin_${session?.reference || 'session'}.pdf`, arrayBuffer: analyseBytes, size: analyseBytes.byteLength })
             addLog('✅ Analyse du besoin générée')
           }
         } catch (e) {
@@ -287,7 +281,9 @@ Nous vous remercions pour votre confiance et restons à votre disposition.`)
         .replace(/-+/g, '-')                              // tirets multiples → un seul
 
       for (const file of allFiles) {
-        const blob = new Blob([Uint8Array.from(atob(file.base64), c => c.charCodeAt(0))], { type: 'application/pdf' })
+        const blob = file.arrayBuffer
+          ? new Blob([file.arrayBuffer], { type: 'application/pdf' })
+          : new Blob([Uint8Array.from(atob(file.base64), c => c.charCodeAt(0))], { type: 'application/pdf' })
         const safeFileName = slugify(file.name)
         const storagePath = `${prefix}/${safeFileName}`
 
