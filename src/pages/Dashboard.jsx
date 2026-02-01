@@ -22,6 +22,7 @@ export default function Dashboard() {
   const [recentReclamations, setRecentReclamations] = useState([])
   const [coldEvaluations, setColdEvaluations] = useState([])
   const [purgeStats, setPurgeStats] = useState(null)
+  const [rdvsAPrendre, setRdvsAPrendre] = useState([])
   const [loading, setLoading] = useState(true)
   
   useEffect(() => {
@@ -186,6 +187,14 @@ export default function Dashboard() {
     } catch (e) {
       console.warn('Purge stats not available:', e)
     }
+
+    // Charger les RDV à prendre
+    const { data: rdvs } = await supabase
+      .from('prospect_rdv')
+      .select('*, clients(name)')
+      .eq('status', 'a_prendre')
+      .order('created_at', { ascending: false })
+    setRdvsAPrendre(rdvs || [])
     
     setLoading(false)
   }
@@ -355,7 +364,7 @@ export default function Dashboard() {
       </div>
       
       {/* Alertes prioritaires */}
-      {(sessionsWithoutTrainer.length > 0 || nonConformites.length > 0 || sessionsInProgress.length > 0 || (purgeStats && purgeStats.trainees_to_purge > 0) || sessionsJ90.length > 0) && (
+      {(sessionsWithoutTrainer.length > 0 || nonConformites.length > 0 || sessionsInProgress.length > 0 || (purgeStats && purgeStats.trainees_to_purge > 0) || sessionsJ90.length > 0 || rdvsAPrendre.length > 0) && (
         <div className="grid md:grid-cols-3 gap-4">
           {sessionsWithoutTrainer.length > 0 && (
             <div className="card bg-red-50 border-red-200 border p-4">
@@ -456,6 +465,32 @@ export default function Dashboard() {
               </p>
               <Link to="/stagiaires" className="mt-2 inline-flex items-center gap-1 text-sm text-purple-700 hover:underline">
                 Voir la liste <ArrowRight className="w-3 h-3" />
+              </Link>
+            </div>
+          )}
+
+          {rdvsAPrendre.length > 0 && (
+            <div className="card bg-red-50 border-red-200 border p-4">
+              <div className="flex items-center gap-3">
+                <Clock className="w-8 h-8 text-red-500" />
+                <div>
+                  <p className="font-semibold text-red-700">🔴 RDV à prendre</p>
+                  <p className="text-2xl font-bold text-red-600">{rdvsAPrendre.length}</p>
+                </div>
+              </div>
+              <div className="mt-3 space-y-1">
+                {rdvsAPrendre.slice(0, 3).map(rdv => (
+                  <Link key={rdv.id} to={`/prospection/${rdv.id}`} className="block text-sm text-red-700 hover:underline">
+                    • {rdv.clients?.name || 'Client inconnu'}
+                    {rdv.next_action && <span className="text-red-500 ml-1">— {rdv.next_action}</span>}
+                  </Link>
+                ))}
+                {rdvsAPrendre.length > 3 && (
+                  <p className="text-xs text-red-500">+ {rdvsAPrendre.length - 3} autres...</p>
+                )}
+              </div>
+              <Link to="/prospection" className="mt-2 inline-flex items-center gap-1 text-sm text-red-700 hover:underline">
+                Voir tous <ArrowRight className="w-3 h-3" />
               </Link>
             </div>
           )}
