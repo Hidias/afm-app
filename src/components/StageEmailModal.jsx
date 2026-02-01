@@ -42,6 +42,24 @@ export default function StageEmailModal({ session, onClose }) {
     load()
   }, [session?.id])
 
+  // Charger le document stagiaire de la formation
+  const [docStagiaire, setDocStagiaire] = useState(null)
+
+  useEffect(() => {
+    const load = async () => {
+      if (!session?.course_id) return
+      const { data } = await supabase
+        .from('course_documents')
+        .select('*')
+        .eq('course_id', session.course_id)
+        .eq('type', 'document_stagiaire')
+        .order('created_at', { ascending: false })
+        .limit(1)
+      if (data?.length) setDocStagiaire(data[0])
+    }
+    load()
+  }, [session?.course_id])
+
   // Extraire les stagiaires depuis session.session_trainees (déjà chargés par le store)
   useEffect(() => {
     const list = session?.session_trainees?.map(st => ({
@@ -64,7 +82,7 @@ Nous espérons que cette formation vous a été bénéfique et vous a permis d'a
 Veuillez trouver ci-joint les documents suivants :
 - Certificat de réalisation
 - Attestation de présence
-- Évaluation à froid
+- Évaluation à froid${docStagiaire ? `\n- ${docStagiaire.title}` : ''}
 
 Concernant l'évaluation à froid ci-jointe, nous vous invitons à la compléter et à nous la renvoyer à l'adresse contact@accessformation.pro.
 Cela nous permettra de mesurer les apports concrets de cette formation pour vous.
@@ -76,7 +94,7 @@ N'hésitez pas à nous contacter si vous avez des questions.
 Cordialement,
 ${formateur}
 Access Formation`
-  }, [courseTitle, startDate, endDate, formateur])
+  }, [courseTitle, startDate, endDate, formateur, docStagiaire])
 
   // Init subject + body avec le premier prénom dispo (template générique)
   useEffect(() => {
@@ -117,6 +135,21 @@ Access Formation`
       const bytes = Uint8Array.from(atob(evalF.base64), c => c.charCodeAt(0))
       await supabase.storage.from('documents').upload(path, bytes, { contentType: 'application/pdf', upsert: true })
       uploads.push({ path, filename })
+    }
+
+    // Document stagiaire depuis la formation
+    if (docStagiaire) {
+      try {
+        const response = await fetch(docStagiaire.file_url)
+        if (response.ok) {
+          const blob = await response.blob()
+          const path = `${basePath}/${docStagiaire.file_name}`
+          await supabase.storage.from('documents').upload(path, blob, { contentType: blob.type || 'application/pdf', upsert: true })
+          uploads.push({ path, filename: docStagiaire.file_name })
+        }
+      } catch (e) {
+        console.error('Erreur téléchargement document stagiaire:', e)
+      }
     }
 
     return uploads
@@ -422,6 +455,9 @@ Réponds uniquement avec le texte du compte rendu, sans titre ni introduction.`
                   <li>Certificat de réalisation — <em>Certificat_{ref}_[Nom].pdf</em></li>
                   <li>Attestation de présence — <em>Attestation_{ref}_[Nom].pdf</em></li>
                   <li>Évaluation à froid — <em>EvaluationFroid_{ref}_[Nom].pdf</em></li>
+                  {docStagiaire && (
+                    <li>{docStagiaire.title} — <em>{docStagiaire.file_name}</em></li>
+                  )}
                 </ul>
               </div>
 
