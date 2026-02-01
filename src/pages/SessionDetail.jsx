@@ -1794,6 +1794,133 @@ export default function SessionDetail() {
     }
   }
 
+  // ZIP rempli — tous les documents avec les données complètes
+  const handleDownloadZipFilled = async () => {
+    setGeneratingZip(true)
+    setShowZipDropdown(false)
+    const toastId = toast.loading('Génération du ZIP en cours...')
+    try {
+      const { default: JSZip } = await import('jszip')
+      const zip = new JSZip()
+      const ref = session?.reference || 'SESSION'
+      const trainer = session.trainers
+      const traineesWithResult = session.session_trainees?.map(st => ({
+        ...st.trainees,
+        result: st.result || traineeResults[st.trainee_id] || null,
+        access_code: st.access_code
+      })) || []
+
+      // 1. Convention
+      const convention = generatePDF('convention', session, { trainees: traineesWithResult, trainer, costs: sessionCosts })
+      if (convention) zip.file(`Convention_${ref}.pdf`, convention.base64, { base64: true })
+
+      // 2. Programme — fichier uploadé en priorité, sinon pdfGenerator
+      let programmeAdded = false
+      const programUrl = session?.courses?.program_url
+      if (programUrl) {
+        try {
+          const res = await fetch(programUrl)
+          if (res.ok) {
+            const blob = await res.blob()
+            zip.file(`Programme_${ref}.pdf`, blob)
+            programmeAdded = true
+          }
+        } catch { /* fallback pdfGenerator */ }
+      }
+      if (!programmeAdded) {
+        const programme = generatePDF('programme', session, { trainer })
+        if (programme) zip.file(`Programme_${ref}.pdf`, programme.base64, { base64: true })
+      }
+
+      // 3. Convocations
+      const convocations = await generateAllPDF('convocation', session, traineesWithResult, { trainer })
+      if (convocations) zip.file(`Convocations_${ref}.pdf`, convocations.base64, { base64: true })
+
+      // 4. Fiches de renseignements — remplies avec infoSheet
+      const fichesParts = []
+      for (const trainee of traineesWithResult) {
+        const fiche = generatePDF('ficheRenseignements', session, {
+          trainee,
+          isBlank: false,
+          infoSheet: infoSheets[trainee.id] || null
+        })
+        if (fiche) fichesParts.push(fiche.base64)
+      }
+      if (fichesParts.length > 0) {
+        const mergedFiches = await mergeMultiplePDFs(fichesParts)
+        if (mergedFiches) zip.file(`Fiches_Renseignements_${ref}.pdf`, mergedFiches, { base64: true })
+      }
+
+      // 5. Émargement — rempli avec données de présence
+      const [{ data: signatures }, { data: halfDays }] = await Promise.all([
+        supabase.from('attendances').select('*').eq('session_id', session.id),
+        supabase.from('attendance_halfdays').select('*').eq('session_id', session.id)
+      ])
+      const hasAttendance = (signatures && signatures.length > 0) || (halfDays && halfDays.length > 0)
+      const emargement = generatePDF('emargement', session, {
+        trainees: traineesWithResult,
+        trainer,
+        isBlank: !hasAttendance,
+        attendanceData: hasAttendance ? { signatures: signatures || [], halfdays: halfDays || [] } : null
+      })
+      if (emargement) zip.file(`Emargement_${ref}.pdf`, emargement.base64, { base64: true })
+
+      // 6. Éval à chaud
+      const evalChaud = await generateAllPDF('evaluation', session, traineesWithResult, { trainer })
+      if (evalChaud) zip.file(`Eval_Chaud_${ref}.pdf`, evalChaud.base64, { base64: true })
+
+      // 7. Éval à froid — vierge (pas de données disponibles)
+      const evalFroid = generatePDF('evaluationFroid', session, { isBlank: true })
+      if (evalFroid) zip.file(`Eval_Froid_${ref}.pdf`, evalFroid.base64, { base64: true })
+
+      // 8. Analyse de besoins
+      const analyseBesoin = generatePDF('analyseBesoin', session, { isBlank: false })
+      if (analyseBesoin) zip.file(`Analyse_Besoin_${ref}.pdf`, analyseBesoin.base64, { base64: true })
+
+      // 9. Tests de positionnement — rempli si fait, sinon vierge
+      const testParts = []
+      for (const trainee of traineesWithResult) {
+        const stData = session.session_trainees?.find(st => st.trainee_id === trainee.id)
+        if (stData?.positioning_test_completed) {
+          try {
+            const { data: testData } = await supabase.rpc('get_trainee_positioning_test', {
+              p_session_id: session.id,
+              p_trainee_id: trainee.id
+            })
+            if (testData) {
+              const testPdf = generatePDF('testPositionnementRempli', session, { trainee, testData })
+              if (testPdf) { testParts.push(testPdf.base64); continue }
+            }
+          } catch { /* fallback vierge */ }
+        }
+        const testVierge = generatePDF('positionnement', session, { trainee, isBlank: true, questions })
+        if (testVierge) testParts.push(testVierge.base64)
+      }
+      if (testParts.length > 0) {
+        const mergedTests = await mergeMultiplePDFs(testParts)
+        if (mergedTests) zip.file(`Test_Positionnement_${ref}.pdf`, mergedTests, { base64: true })
+      }
+
+      // Télécharger le ZIP
+      const content = await zip.generateAsync({ type: 'blob' })
+      const url = window.URL.createObjectURL(content)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `Documents_Remplis_${ref}.zip`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      setTimeout(() => window.URL.revokeObjectURL(url), 100)
+
+      toast.success('ZIP rempli téléchargé avec succès !', { id: toastId })
+    } catch (err) {
+      console.error('Erreur génération ZIP rempli:', err)
+      toast.error('Erreur lors de la génération du ZIP', { id: toastId })
+    } finally {
+      setGeneratingZip(false)
+    }
+  }
+
   // Helper : merger plusieurs PDFs base64 en un seul via pdf-lib
   const mergeMultiplePDFs = async (base64Array) => {
     try {
@@ -3361,8 +3488,16 @@ export default function SessionDetail() {
                       onClick={handleDownloadZip}
                       className="w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors"
                     >
-                      <p className="text-sm font-medium text-gray-900">📦 Tous les documents</p>
-                      <p className="text-xs text-gray-500 mt-0.5">Convention, programme, convocations, fiches, émargement, évals, analyse de besoins, tests</p>
+                      <p className="text-sm font-medium text-gray-900">📦 Documents vierges</p>
+                      <p className="text-xs text-gray-500 mt-0.5">Tous les docs avec juste les noms — à remplir manuellement</p>
+                    </button>
+                    <div className="border-t border-gray-100" />
+                    <button
+                      onClick={handleDownloadZipFilled}
+                      className="w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors"
+                    >
+                      <p className="text-sm font-medium text-gray-900">📦 Documents remplis</p>
+                      <p className="text-xs text-gray-500 mt-0.5">Tous les docs avec les données existantes</p>
                     </button>
                   </div>
                 </>
