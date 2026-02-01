@@ -2171,7 +2171,7 @@ export async function downloadAllDocuments(docType, session, trainees, options =
   if (!trainees || trainees.length === 0) return
   
   const ref = session?.reference || 'VIERGE'
-  const { trainer = null, questions = [] } = options
+  const { trainer = null, questions = [], evaluationsData = {} } = options
   
   // === DEBUG QR CODE ===
   console.log('🔍 DEBUG CONVOCATION')
@@ -2230,7 +2230,7 @@ export async function downloadAllDocuments(docType, session, trainees, options =
       case 'certificat': generateCertificatContent(doc, session, trainee, trainer); break
       case 'convocation': generateConvocationContent(doc, session, trainee, trainer, qrCodeDataURL); break
       case 'attestation': generateAttestationContent(doc, session, trainee, trainer); break
-      case 'evaluation': generateEvaluationContent(doc, session, trainee); break
+      case 'evaluation': generateEvaluationContent(doc, session, trainee, evaluationsData[trainee.id] || null); break
       case 'evaluationFroid': generateEvaluationFroidContent(doc, session, trainee); break
       case 'positionnement': generatePositionnementContent(doc, session, questions, trainee); break
       default: return
@@ -2293,7 +2293,7 @@ export async function generateAllPDF(docType, session, trainees, options = {}) {
   if (!trainees || trainees.length === 0) return null
   
   const ref = session?.reference || 'VIERGE'
-  const { trainer = null, questions = [] } = options
+  const { trainer = null, questions = [], evaluationsData = {} } = options
   
   let qrCodeDataURL = null
   if (docType === 'convocation' && session?.attendance_token) {
@@ -2330,7 +2330,7 @@ export async function generateAllPDF(docType, session, trainees, options = {}) {
       case 'certificat': generateCertificatContent(doc, session, trainee, trainer); break
       case 'convocation': generateConvocationContent(doc, session, trainee, trainer, qrCodeDataURL); break
       case 'attestation': generateAttestationContent(doc, session, trainee, trainer); break
-      case 'evaluation': generateEvaluationContent(doc, session, trainee); break
+      case 'evaluation': generateEvaluationContent(doc, session, trainee, evaluationsData[trainee.id] || null); break
       case 'evaluationFroid': generateEvaluationFroidContent(doc, session, trainee); break
       default: return
     }
@@ -2595,7 +2595,7 @@ function generateAttestationContent(doc, session, trainee, trainer) {
   addFooter(doc, DOC_CODES.attestation)
 }
 
-function generateEvaluationContent(doc, session, trainee) {
+function generateEvaluationContent(doc, session, trainee, evalData = null) {
   const pw = doc.internal.pageSize.getWidth()
   const ref = session?.reference || ''
   const course = session?.courses || {}
@@ -2625,9 +2625,7 @@ function generateEvaluationContent(doc, session, trainee) {
   const ncW = 12
   const labelW = pw - 40 - colW * 5 - ncW
   
-  // Fonction pour dessiner une section
   const drawSection = (title, questions) => {
-    // Titre section
     doc.setFillColor(230, 230, 230)
     doc.rect(20, y, pw - 40, 6, 'F')
     doc.setFont('helvetica', 'bold')
@@ -2635,7 +2633,6 @@ function generateEvaluationContent(doc, session, trainee) {
     doc.text(title, 22, y + 4)
     y += 6
     
-    // En-tête colonnes
     doc.setFillColor(245, 245, 245)
     doc.rect(20, y, labelW, 5, 'F')
     for (let i = 1; i <= 5; i++) {
@@ -2651,51 +2648,47 @@ function generateEvaluationContent(doc, session, trainee) {
     doc.text('N/C', 20 + labelW + 5 * colW + ncW / 2, y + 3.5, { align: 'center' })
     y += 5
     
-    // Questions
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(7)
     questions.forEach(q => {
+      const response = evalData ? evalData[q.field] : null
       doc.rect(20, y, labelW, 6)
       for (let i = 1; i <= 5; i++) {
         doc.rect(20 + labelW + (i - 1) * colW, y, colW, 6)
-        drawCircle(doc, 20 + labelW + (i - 1) * colW + colW / 2, y + 3, 1.2, false)
+        drawCircle(doc, 20 + labelW + (i - 1) * colW + colW / 2, y + 3, 1.2, response === i)
       }
       doc.rect(20 + labelW + 5 * colW, y, ncW, 6)
-      drawCircle(doc, 20 + labelW + 5 * colW + ncW / 2, y + 3, 1.2, false)
-      doc.text(q, 22, y + 4)
+      drawCircle(doc, 20 + labelW + 5 * colW + ncW / 2, y + 3, 1.2, response === 0 || response === 'nc')
+      doc.text(q.label, 22, y + 4)
       y += 6
     })
     y += 2
   }
   
-  // 1. Organisation
   drawSection('1. ORGANISATION DE LA FORMATION', [
-    'Communication des documents avant la formation',
-    'Accueil sur le lieu de la formation',
-    'Qualité des locaux (salles, signalétique)',
-    'Adéquation des moyens matériels',
+    { label: 'Communication des documents avant la formation', field: 'q_org_documents' },
+    { label: 'Accueil sur le lieu de la formation', field: 'q_org_accueil' },
+    { label: 'Qualité des locaux (salles, signalétique)', field: 'q_org_locaux' },
+    { label: 'Adéquation des moyens matériels', field: 'q_org_materiel' },
   ])
   
-  // 2. Contenu
   drawSection('2. LE CONTENU DE LA FORMATION', [
-    'Organisation et déroulement',
-    'Qualité des supports pédagogiques',
-    'Durée de la formation',
-    'Respect du programme de formation',
+    { label: 'Organisation et déroulement', field: 'q_contenu_organisation' },
+    { label: 'Qualité des supports pédagogiques', field: 'q_contenu_supports' },
+    { label: 'Durée de la formation', field: 'q_contenu_duree' },
+    { label: 'Respect du programme de formation', field: 'q_contenu_programme' },
   ])
   
-  // 3. Formateur
   drawSection('3. L\'INTERVENTION DE L\'ANIMATEUR', [
-    'La pédagogie du formateur',
-    'L\'expertise du formateur (maîtrise du sujet)',
-    'Progression de la formation (rythme)',
-    'Adéquation des moyens mis à disposition',
+    { label: 'La pédagogie du formateur', field: 'q_formateur_pedagogie' },
+    { label: 'L\'expertise du formateur (maîtrise du sujet)', field: 'q_formateur_expertise' },
+    { label: 'Progression de la formation (rythme)', field: 'q_formateur_progression' },
+    { label: 'Adéquation des moyens mis à disposition', field: 'q_formateur_moyens' },
   ])
   
-  // 4. Perception globale
   drawSection('4. PERCEPTION GLOBALE', [
-    'Adéquation formation / métier ou secteur',
-    'Amélioration de vos connaissances',
+    { label: 'Adéquation formation / métier ou secteur', field: 'q_global_adequation' },
+    { label: 'Amélioration de vos connaissances', field: 'q_global_competences' },
   ])
   
   // Recommandation
@@ -2704,9 +2697,10 @@ function generateEvaluationContent(doc, session, trainee) {
   doc.setFontSize(8)
   doc.text('Recommanderiez-vous cette formation ?', 20, y)
   doc.setFont('helvetica', 'normal')
-  drawCircle(doc, 100, y - 1, 1.5, false)
+  const recommend = evalData ? evalData.would_recommend : null
+  drawCircle(doc, 100, y - 1, 1.5, recommend === true || recommend === 1 || recommend === 'yes')
   doc.text('  Oui', 103, y)
-  drawCircle(doc, 125, y - 1, 1.5, false)
+  drawCircle(doc, 125, y - 1, 1.5, recommend === false || recommend === 0 || recommend === 'no')
   doc.text('  Non', 128, y)
   y += 8
   
@@ -2720,11 +2714,21 @@ function generateEvaluationContent(doc, session, trainee) {
   doc.text('Commentaire général (remarques, suggestions) :', 20, y)
   y += 3
   doc.rect(20, y, pw - 40, 18)
+  if (evalData?.comment_general) {
+    doc.setFontSize(6.5)
+    const lines = doc.splitTextToSize(String(evalData.comment_general), pw - 44)
+    doc.text(lines, 22, y + 3)
+  }
   y += 21
   
   doc.text('Projet de formation (besoins futurs) :', 20, y)
   y += 3
   doc.rect(20, y, pw - 40, 15)
+  if (evalData?.comment_projet) {
+    doc.setFontSize(6.5)
+    const lines = doc.splitTextToSize(String(evalData.comment_projet), pw - 44)
+    doc.text(lines, 22, y + 3)
+  }
   y += 18
   
   doc.setFontSize(8)
