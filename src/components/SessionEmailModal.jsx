@@ -99,7 +99,6 @@ Suite à la formation "${courseTitle}", veuillez trouver ci-joints :
 - Les certificats de réalisation
 - Les attestations de présence
 - Les questionnaires d'évaluation à froid (à compléter d'ici 90 jours)
-- Les feuilles d'émargement
 
 Nous vous remercions pour votre confiance et restons à votre disposition.`)
     }
@@ -203,17 +202,6 @@ Nous vous remercions pour votre confiance et restons à votre disposition.`)
         if (attestations) {
           files.push({ id: 'attestations', name: attestations.filename, base64: attestations.base64, size: attestations.size })
           addLog('✅ Attestations générées')
-        }
-
-        // ── EMARGEMENT ──
-        addLog('Feuille d\'émargement...')
-        const emargement = generatePDF('emargement', session, {
-          trainees: traineesWithResult,
-          trainer
-        })
-        if (emargement) {
-          files.push({ id: 'emargement', name: emargement.filename, base64: emargement.base64, size: emargement.size })
-          addLog('✅ Émargement généré')
         }
 
         // ── EVALUATIONS À FROID ──
