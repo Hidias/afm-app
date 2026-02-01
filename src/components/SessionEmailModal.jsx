@@ -55,8 +55,11 @@ Veuillez trouver ci-joints les documents relatifs à la formation "${courseTitle
 - Convention de formation
 - Programme de formation
 - Convocations des stagiaires
+- Analyse du besoin de formation
 
-Merci de nous retourner la convention signée avant le début de la formation.
+Merci de nous retourner la convention signée ainsi que l'analyse du besoin complétée et signée avant le début de la formation.
+
+Concernant les convocations, chacune contient un QR code permettant aux stagiaires de se connecter à notre portail en ligne. Ils pourront y renseigner leurs informations personnelles ainsi que participer à un test de positionnement avant le début de la formation. Ce test n'a aucun caractère certificatif : il vise uniquement à évaluer leur niveau de connaissances préalable afin de mieux adapter la formation à leur niveau.
 
 Restant à votre disposition pour toute information complémentaire.`)
     } else {
