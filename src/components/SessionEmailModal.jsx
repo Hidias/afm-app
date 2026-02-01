@@ -26,6 +26,19 @@ export default function SessionEmailModal({ session, emailType, sessionCosts, qu
   const [crGenerating, setCrGenerating] = useState(false)
   const [crError, setCrError] = useState(null)
 
+  // ── Nombre réel de stagiaires (requête séparée pour éviter stale data du parent) ──
+  const [totalTrainees, setTotalTrainees] = useState(0)
+
+  useEffect(() => {
+    if (emailType === 'after' && session?.id) {
+      supabase
+        .from('session_trainees')
+        .select('id', { count: 'exact', head: true })
+        .eq('session_id', session.id)
+        .then(({ count }) => setTotalTrainees(count || 0))
+    }
+  }, [session?.id])
+
   useEffect(() => {
     loadUserEmail()
     initializeEmail()
@@ -448,8 +461,8 @@ Nous vous remercions pour votre confiance et restons à votre disposition.`)
       if (TEST_WORDS.includes(c.toLowerCase())) return false
       return true
     })
-    const totalTrainees = session?.session_trainees?.length || 0
-    return { scores, globalScore, tauxReco, comments, total: evals.length, totalTrainees }
+    const totalTr = session?.session_trainees?.length || 0
+    return { scores, globalScore, tauxReco, comments, total: evals.length, totalTrainees: totalTr }
   }
 
   const generateCompteRendu = async () => {
@@ -481,7 +494,7 @@ Formation : ${courseTitle}
 Référence : ${ref}
 Dates : du ${startDate} au ${endDate}
 Formateur : ${formateur}
-Stagiaires ayant répondu : ${evalData.total} sur ${evalData.totalTrainees}
+Stagiaires ayant répondu : ${evalData.total} sur ${totalTrainees}
 Score moyen global : ${evalData.globalScore}/5
 Taux de recommandation : ${evalData.tauxReco !== null ? evalData.tauxReco + '%' : 'non calculé'}
 
