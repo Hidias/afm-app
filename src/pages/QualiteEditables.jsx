@@ -48,6 +48,7 @@ const QUALITY_DOCS = {
     { id: 'reg-mat', name: 'Registre matériel', code: 'AF-REGMAT', table: 'equipment_catalog' },
     { id: 'reg-rgpd', name: 'Registre traitements RGPD', code: 'AF-REGRGPD', table: 'rgpd_traitements' },
     { id: 'reg-audit', name: 'Registre audits internes', code: 'AF-REGAUD', table: 'audits_internes' },
+    { id: 'reg-programmes', name: 'Programmes de formation', code: 'AF-REGPROG', table: 'programme_versions' },
   ]},
   checklists: { name: 'Checklists', icon: CheckSquare, color: 'orange', docs: [
     { id: 'ck-audit', name: 'Checklist audit interne', code: 'AF-CKAUD', editable: true },
@@ -958,26 +959,82 @@ export default function QualiteEditables() {
               {registreData[reg.table] !== undefined && (
                 <div className="border rounded overflow-hidden">
                   {registreData[reg.table].length > 0 ? (
-                    <table className="w-full text-sm">
-                      <thead className="bg-gray-50"><tr><th className="text-left px-3 py-2">Date</th><th className="text-left px-3 py-2">Description</th><th className="px-3 py-2">Statut</th></tr></thead>
-                      <tbody className="divide-y">
-                        {registreData[reg.table].slice(0, 5).map((item, i) => (
-                          <tr key={i}>
-                            <td className="px-3 py-2">{format(new Date(item.created_at || item.date_veille || item.date), 'dd/MM/yy')}</td>
-                            <td className="px-3 py-2">{(item.subject || item.sujet || item.titre || item.description || item.name || '-').substring(0, 50)}</td>
-                            <td className="px-3 py-2 text-center">
-                              <span className={`px-2 py-0.5 rounded text-xs ${
-                                (item.status === 'resolved' || item.status === 'closed' || item.statut === 'traite') 
-                                  ? 'bg-green-100 text-green-700' 
-                                  : 'bg-yellow-100 text-yellow-700'
-                              }`}>
-                                {item.status || item.statut || '-'}
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                    reg.table === 'programme_versions' ? (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead className="bg-gray-800 text-white">
+                            <tr>
+                              <th className="text-left px-3 py-2.5 font-semibold">Réf. document</th>
+                              <th className="text-left px-3 py-2.5 font-semibold">Programme</th>
+                              <th className="text-center px-3 py-2.5 font-semibold">Version</th>
+                              <th className="text-center px-3 py-2.5 font-semibold">Date MAJ</th>
+                              <th className="text-left px-3 py-2.5 font-semibold">Validé par</th>
+                              <th className="text-left px-3 py-2.5 font-semibold">Raison du changement</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y">
+                            {(() => {
+                              const grouped = {}
+                              registreData[reg.table].forEach(item => {
+                                if (!grouped[item.ref_doc]) grouped[item.ref_doc] = []
+                                grouped[item.ref_doc].push(item)
+                              })
+                              Object.keys(grouped).forEach(key => {
+                                grouped[key].sort((a, b) => {
+                                  const va = a.version.split('.').map(Number)
+                                  const vb = b.version.split('.').map(Number)
+                                  return (vb[0] - va[0]) || (vb[1] - va[1])
+                                })
+                              })
+                              const order = ['AF-PROG-SST', 'AF-PROG-INC', 'AF-PROG-ELEC', 'AF-PROG-R489', 'AF-PROG-R485']
+                              const sorted = order.filter(k => grouped[k]).flatMap(k => grouped[k])
+                              Object.keys(grouped).filter(k => !order.includes(k)).forEach(k => sorted.push(...grouped[k]))
+                              return sorted
+                            })().map((item, i, arr) => {
+                              const isNewGroup = i === 0 || arr[i - 1].ref_doc !== item.ref_doc
+                              const isLatest = isNewGroup
+                              return (
+                                <tr key={i} className={`${isNewGroup && i > 0 ? 'border-t-2 border-gray-300' : ''} ${isLatest ? 'bg-blue-50' : 'bg-white hover:bg-gray-50'}`}>
+                                  <td className="px-3 py-2.5">
+                                    <span className="font-mono text-xs bg-gray-100 px-1.5 py-0.5 rounded">{item.ref_doc}</span>
+                                  </td>
+                                  <td className="px-3 py-2.5 text-gray-800">{item.nom_programme}</td>
+                                  <td className="px-3 py-2.5 text-center">
+                                    <span className={`inline-block px-2 py-0.5 rounded text-xs font-bold ${isLatest ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'}`}>
+                                      V{item.version}
+                                    </span>
+                                  </td>
+                                  <td className="px-3 py-2.5 text-center text-gray-600">{format(new Date(item.date_maj + 'T00:00:00'), 'dd/MM/yyyy')}</td>
+                                  <td className="px-3 py-2.5 text-gray-700">{item.valide_par}</td>
+                                  <td className="px-3 py-2.5 text-gray-600 italic">{item.raison_changement}</td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <table className="w-full text-sm">
+                        <thead className="bg-gray-50"><tr><th className="text-left px-3 py-2">Date</th><th className="text-left px-3 py-2">Description</th><th className="px-3 py-2">Statut</th></tr></thead>
+                        <tbody className="divide-y">
+                          {registreData[reg.table].slice(0, 5).map((item, i) => (
+                            <tr key={i}>
+                              <td className="px-3 py-2">{format(new Date(item.created_at || item.date_veille || item.date), 'dd/MM/yy')}</td>
+                              <td className="px-3 py-2">{(item.subject || item.sujet || item.titre || item.description || item.name || '-').substring(0, 50)}</td>
+                              <td className="px-3 py-2 text-center">
+                                <span className={`px-2 py-0.5 rounded text-xs ${
+                                  (item.status === 'resolved' || item.status === 'closed' || item.statut === 'traite') 
+                                    ? 'bg-green-100 text-green-700' 
+                                    : 'bg-yellow-100 text-yellow-700'
+                                }`}>
+                                  {item.status || item.statut || '-'}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )
                   ) : <p className="text-center text-gray-500 py-4">Aucun enregistrement</p>}
                 </div>
               )}
