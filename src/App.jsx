@@ -22,6 +22,7 @@ import Questionnaires from './pages/Questionnaires'
 import Settings from './pages/Settings'
 import VersionHistory from './pages/VersionHistory'
 import NonConformites from './pages/NonConformites'
+import RegistrePSH from './pages/RegistrePSH'
 import Indicateurs from './pages/Indicateurs'
 import ProfilStagiaires from './pages/ProfilStagiaires'
 import TestsPositionnement from './pages/TestsPositionnement'
@@ -155,6 +156,7 @@ export default function App() {
           <Route path="tests-positionnement" element={<TestsPositionnement />} />
           <Route path="questionnaires" element={<Questionnaires />} />
           <Route path="non-conformites" element={<NonConformites />} />
+          <Route path="registre-psh" element={<RegistrePSH />} />
           <Route path="indicateurs" element={<Indicateurs />} />
           <Route path="profil-stagiaires" element={<ProfilStagiaires />} />
           <Route path="qualiopi" element={<Qualiopi />} />
