@@ -1362,7 +1362,7 @@ function generateEvaluation(session, trainee = null, isBlank = false) {
   y += 18
   
   doc.setFontSize(8)
-  doc.text(`Date : ${isBlank ? '___/___/______' : formatDate(new Date())}`, 20, y)
+  if (isBlank) doc.text('Date : ___/___/______', 20, y)
   doc.text('Signature :', 130, y)
   
   addFooter(doc, DOC_CODES.evaluation)
@@ -2732,7 +2732,6 @@ function generateEvaluationContent(doc, session, trainee, evalData = null) {
   y += 18
   
   doc.setFontSize(8)
-  doc.text(`Date : ${formatDate(new Date())}`, 20, y)
   doc.text('Signature :', 130, y)
   
   addFooter(doc, DOC_CODES.evaluation)
