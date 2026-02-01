@@ -13,12 +13,34 @@ export default function StageEmailModal({ session, onClose }) {
   const [results, setResults] = useState([])          // { trainee, status: 'pending'|'sent'|'error'|'skipped', error }
   const [loading, setLoading] = useState(false)
 
+  // ── Compte rendu post-formation ──
+  const [evals, setEvals] = useState([])              // évaluations à chaud de la session
+  const [evalsLoaded, setEvalsLoaded] = useState(false)
+  const [compteRendu, setCompteRendu] = useState('')  // texte généré par l'IA
+  const [crGenerating, setCrGenerating] = useState(false)
+  const [crError, setCrError] = useState(null)
+
   const trainer = session?.trainers || null
   const ref = session?.reference || ''
   const courseTitle = session?.courses?.title || ''
   const startDate = session?.start_date ? new Date(session.start_date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }) : ''
   const endDate = session?.end_date ? new Date(session.end_date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }) : ''
   const formateur = trainer ? `${trainer.first_name} ${trainer.last_name}` : 'Access Formation'
+
+  // Charger les évaluations à chaud de la session
+  useEffect(() => {
+    const load = async () => {
+      if (!session?.id) return
+      const { data } = await supabase
+        .from('trainee_evaluations')
+        .select('*')
+        .eq('session_id', session.id)
+        .eq('eval_type', 'chaud')
+      setEvals(data || [])
+      setEvalsLoaded(true)
+    }
+    load()
+  }, [session?.id])
 
   // Extraire les stagiaires depuis session.session_trainees (déjà chargés par le store)
   useEffect(() => {
@@ -179,6 +201,118 @@ Access Formation`
     setLoading(false)
   }
 
+  // ── Génération du compte rendu ──
+  const Q_LABELS = {
+    q_org_documents:          'Organisation — Documents préparés',
+    q_org_accueil:            'Organisation — Accueil',
+    q_org_locaux:             'Organisation — Locaux',
+    q_org_materiel:           'Organisation — Matériel',
+    q_contenu_organisation:   'Contenu — Organisation',
+    q_contenu_supports:       'Contenu — Supports',
+    q_contenu_duree:          'Contenu — Durée',
+    q_contenu_programme:      'Contenu — Programme',
+    q_formateur_pedagogie:    'Formateur — Pédagogie',
+    q_formateur_expertise:    'Formateur — Expertise',
+    q_formateur_progression:  'Formateur — Progression',
+    q_formateur_moyens:       'Formateur — Moyens',
+    q_global_adequation:      'Global — Adéquation',
+    q_global_competences:     'Global — Compétences acquises',
+  }
+  const Q_KEYS = Object.keys(Q_LABELS)
+
+  const computeEvalData = () => {
+    if (!evals.length) return null
+
+    // Score moyen par question
+    const scores = {}
+    Q_KEYS.forEach(key => {
+      const vals = evals.map(e => e[key]).filter(v => v !== null && v !== undefined).map(Number)
+      scores[key] = vals.length ? (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2) : null
+    })
+
+    // Score global
+    const allScores = Q_KEYS.flatMap(key => evals.map(e => e[key]).filter(v => v !== null && v !== undefined).map(Number))
+    const globalScore = allScores.length ? (allScores.reduce((a, b) => a + b, 0) / allScores.length).toFixed(2) : null
+
+    // Taux de recommandation
+    const withReco = evals.filter(e => e.would_recommend !== null && e.would_recommend !== undefined)
+    const tauxReco = withReco.length ? Math.round((withReco.filter(e => e.would_recommend === true).length / withReco.length) * 100) : null
+
+    // Commentaires libres (non vides)
+    const comments = evals
+      .map(e => (e.comments || e.comment || '').trim())
+      .filter(c => c.length > 0)
+
+    return { scores, globalScore, tauxReco, comments, total: evals.length, totalTrainees: trainees.length }
+  }
+
+  const generateCompteRendu = async () => {
+    const evalData = computeEvalData()
+    if (!evalData) return
+
+    setCrGenerating(true)
+    setCrError(null)
+
+    // Construire le contexte pour l'IA
+    const scoresText = Q_KEYS
+      .filter(k => evalData.scores[k] !== null)
+      .map(k => `- ${Q_LABELS[k]} : ${evalData.scores[k]}/5`)
+      .join('\n')
+
+    const commentsText = evalData.comments.length
+      ? evalData.comments.map((c, i) => `${i + 1}. « ${c} »`).join('\n')
+      : 'Aucun commentaire libre.'
+
+    const prompt = `Tu es l'assistant de l'organisme de formation Access Formation (Concarneau, Bretagne).
+Une session de formation s'est terminée. Voici les données d'évaluation à chaud remontées par les stagiaires :
+
+Formation : ${courseTitle}
+Référence : ${ref}
+Dates : du ${startDate} au ${endDate}
+Formateur : ${formateur}
+Stagiaires ayant répondu : ${evalData.total} sur ${evalData.totalTrainees}
+Score moyen global : ${evalData.globalScore}/5
+Taux de recommandation : ${evalData.tauxReco !== null ? evalData.tauxReco + '%' : 'non calculé'}
+
+Scores détaillés par question :
+${scoresText}
+
+Commentaires libres des stagiaires :
+${commentsText}
+
+Écris un compte rendu professionnel et synthétique de cette session de formation.
+Le compte rendu doit :
+- Reprendre les points forts identifiés grâce aux scores (les dimensions avec les meilleurs résultats)
+- Mentionner les points à améliorer si des scores sont nettement plus bas (< 3.5)
+- Intégrer naturellement les commentaires des stagiaires (sans les citer mot pour mot, mais en reflétant leur teneur)
+- Être écrit en français, en style professionnel mais accessible
+- Être concis : entre 80 et 150 mots
+- Ne pas mentionner les chiffres bruts sauf le score global et le taux de recommandation
+
+Réponds uniquement avec le texte du compte rendu, sans titre ni introduction.`
+
+    try {
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 1000,
+          messages: [{ role: 'user', content: prompt }]
+        })
+      })
+
+      const data = await response.json()
+      const text = data.content?.[0]?.text || ''
+      setCompteRendu(text)
+    } catch (e) {
+      console.error('Erreur génération compte rendu:', e)
+      setCrError('Erreur lors de la génération. Réessaie.')
+    }
+
+    setCrGenerating(false)
+  }
+
   // Compteurs pour le résumé
   const selectedCount = selectedIds.size
 
@@ -290,6 +424,87 @@ Access Formation`
                   <li>Évaluation à froid — <em>EvaluationFroid_{ref}_[Nom].pdf</em></li>
                 </ul>
               </div>
+
+              {/* Compte rendu post-formation */}
+              {evalsLoaded && (
+                <div className="border border-purple-200 rounded-lg overflow-hidden">
+                  {/* Header du bloc */}
+                  <div className="bg-purple-50 px-4 py-3 flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-semibold text-purple-800">📋 Compte rendu de formation</p>
+                      <p className="text-xs text-purple-600 mt-0.5">
+                        {evals.length > 0
+                          ? `${evals.length} évaluation${evals.length > 1 ? 's' : ''} à chaud disponible${evals.length > 1 ? 's' : ''} — Score moyen : ${computeEvalData()?.globalScore || '—'}/5 — Recommandation : ${computeEvalData()?.tauxReco !== null ? computeEvalData().tauxReco + '%' : '—'}`
+                          : 'Aucune évaluation à chaud pour cette session'
+                        }
+                      </p>
+                    </div>
+                    {evals.length > 0 && (
+                      <button
+                        onClick={generateCompteRendu}
+                        disabled={crGenerating}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 text-white text-xs font-semibold rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {crGenerating ? <Loader className="w-3.5 h-3.5 animate-spin" /> : <span>✨</span>}
+                        {crGenerating ? 'Génération…' : (compteRendu ? 'Regénérer' : 'Générer avec l\'IA')}
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Erreur */}
+                  {crError && (
+                    <div className="mx-4 mt-3 px-3 py-2 bg-red-50 border border-red-200 rounded text-xs text-red-700">
+                      {crError}
+                    </div>
+                  )}
+
+                  {/* Commentaires libres des stagiaires */}
+                  {evals.length > 0 && computeEvalData()?.comments.length > 0 && (
+                    <div className="px-4 pt-3">
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Commentaires des stagiaires</p>
+                      <div className="space-y-1.5">
+                        {computeEvalData().comments.map((c, i) => (
+                          <p key={i} className="text-xs text-gray-600 italic bg-gray-50 border border-gray-200 rounded px-3 py-2">
+                            « {c} »
+                          </p>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Texte généré — éditable */}
+                  {compteRendu && (
+                    <div className="px-4 py-3">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Texte généré</p>
+                        <button
+                          onClick={() => {
+                            const newBody = emailBody + '\n\n--- Compte rendu de la formation ---\n' + compteRendu
+                            setEmailBody(newBody)
+                            toast.success('Compte rendu ajouté au corps du mail')
+                          }}
+                          className="text-xs text-purple-600 hover:text-purple-800 font-medium underline"
+                        >
+                          + Ajouter au mail
+                        </button>
+                      </div>
+                      <textarea
+                        value={compteRendu}
+                        onChange={e => setCompteRendu(e.target.value)}
+                        className="w-full px-3 py-2 border border-purple-200 rounded-lg text-sm text-gray-800 bg-white resize-none focus:outline-none focus:ring-2 focus:ring-purple-300"
+                        rows={Math.max(3, compteRendu.split('\n').length + 1)}
+                      />
+                    </div>
+                  )}
+
+                  {/* État vide — pas d'évals */}
+                  {evals.length === 0 && (
+                    <p className="px-4 py-3 text-xs text-gray-500 italic">
+                      Les évaluations à chaud n'ont pas encore été complétées pour cette session. Le compte rendu sera disponible une fois les évals reçues.
+                    </p>
+                  )}
+                </div>
+              )}
 
               {/* Bouton envoyer */}
               <button
