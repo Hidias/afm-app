@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
-import { useDataStore } from '../lib/store'
+import { useDataStore, useAuthStore } from '../lib/store'
 import { downloadDocument, downloadAllDocuments, generatePDF, generateAllPDF, setOrganization } from '../lib/pdfGenerator'
 import { 
   ArrowLeft, Calendar, MapPin, Users, Clock, FileText, QrCode, UserPlus, UserMinus,
@@ -68,6 +68,8 @@ export default function SessionDetail() {
     fetchTraineeObjectives, initializeTraineeObjectives, toggleTraineeObjective, updateTraineeResult, forceTraineeResult,
     updateRemediationProposal, updatePresenceComplete,
   } = useDataStore()
+  
+  const { user } = useAuthStore()
   
   const [session, setSession] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -516,11 +518,20 @@ export default function SessionDetail() {
   const toggleEquipmentPrepared = async (eqId, isPrepared) => {
     await supabase
       .from('session_equipment')
-      .update({ is_prepared: isPrepared })
+      .update({ 
+        is_prepared: isPrepared,
+        prepared_by: isPrepared ? user?.email : null,
+        prepared_at: isPrepared ? new Date().toISOString() : null
+      })
       .eq('id', eqId)
     
     setSessionEquipment(sessionEquipment.map(eq => 
-      eq.id === eqId ? { ...eq, is_prepared: isPrepared } : eq
+      eq.id === eqId ? { 
+        ...eq, 
+        is_prepared: isPrepared,
+        prepared_by: isPrepared ? user?.email : null,
+        prepared_at: isPrepared ? new Date().toISOString() : null
+      } : eq
     ))
   }
   
@@ -3229,6 +3240,11 @@ export default function SessionDetail() {
                               ? `1 pour ${eq.equipment_catalog.ratio_per_persons} pers.`
                               : '1 par session'}
                           </p>
+                          {eq.is_prepared && eq.prepared_by && (
+                            <p className="text-xs text-green-600 mt-0.5">
+                              ✓ par {eq.prepared_by.split('@')[0]} le {format(new Date(eq.prepared_at), 'dd/MM HH:mm')}
+                            </p>
+                          )}
                         </td>
                         <td className="p-3 text-center">
                           <span className="font-bold text-lg">{eq.quantity_required}</span>
@@ -3267,10 +3283,11 @@ export default function SessionDetail() {
               {sessionEquipment.some(e => !e.is_prepared) && (
                 <button
                   onClick={async () => {
+                    const now = new Date().toISOString()
                     for (const eq of sessionEquipment.filter(e => !e.is_prepared)) {
                       await supabase
                         .from('session_equipment')
-                        .update({ is_prepared: true })
+                        .update({ is_prepared: true, prepared_by: user?.email, prepared_at: now })
                         .eq('id', eq.id)
                     }
                     await loadSessionEquipment(session.id)
