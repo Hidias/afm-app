@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useDataStore } from '../lib/store'
-import { downloadDocument, downloadAllDocuments, setOrganization } from '../lib/pdfGenerator'
+import { downloadDocument, downloadAllDocuments, generatePDF, generateAllPDF, setOrganization } from '../lib/pdfGenerator'
 import { 
   ArrowLeft, Calendar, MapPin, Users, Clock, FileText, QrCode, UserPlus, UserMinus,
   Download, CheckCircle, AlertCircle, Copy, ExternalLink, X, Edit, Trash2, Save,
   FileSignature, Send, Upload, Eye, Star, ThumbsUp, ClipboardCheck, UserCheck, HelpCircle, Home, Target,
-  Sun, Moon, Plus, ChevronDown, Search, LogOut, MessageSquare, CheckCircle2, FileCheck, Mail
+  Sun, Moon, Plus, ChevronDown, Search, LogOut, MessageSquare, CheckCircle2, FileCheck, Mail, Archive
 } from 'lucide-react'
 import { format, eachDayOfInterval, parseISO, differenceInDays } from 'date-fns'
 import { fr } from 'date-fns/locale'
@@ -1671,6 +1671,157 @@ export default function SessionDetail() {
     }
   }
   
+  // ZIP des documents de session
+  const [showZipDropdown, setShowZipDropdown] = useState(false)
+  const [generatingZip, setGeneratingZip] = useState(false)
+
+  const handleDownloadZip = async () => {
+    setGeneratingZip(true)
+    setShowZipDropdown(false)
+    const toastId = toast.loading('Génération du ZIP en cours...')
+    try {
+      const { default: JSZip } = await import('jszip')
+      const zip = new JSZip()
+      const ref = session?.reference || 'SESSION'
+      const trainer = session.trainers
+      const traineesWithResult = session.session_trainees?.map(st => ({
+        ...st.trainees,
+        result: st.result || traineeResults[st.trainee_id] || null,
+        access_code: st.access_code
+      })) || []
+
+      // 1. Convention (non signée toujours)
+      const convention = generatePDF('convention', session, { trainees: traineesWithResult, trainer, costs: sessionCosts })
+      if (convention) zip.file(`Convention_${ref}.pdf`, convention.base64, { base64: true })
+
+      // 2. Programme — fichier uploadé en priorité, sinon pdfGenerator
+      let programmeAdded = false
+      const programUrl = session?.courses?.program_url
+      if (programUrl) {
+        try {
+          const res = await fetch(programUrl)
+          if (res.ok) {
+            const blob = await res.blob()
+            zip.file(`Programme_${ref}.pdf`, blob)
+            programmeAdded = true
+          }
+        } catch { /* fallback pdfGenerator */ }
+      }
+      if (!programmeAdded) {
+        const programme = generatePDF('programme', session, { trainer })
+        if (programme) zip.file(`Programme_${ref}.pdf`, programme.base64, { base64: true })
+      }
+
+      // 3. Convocations — tous stagiaires dans un seul PDF
+      const convocations = await generateAllPDF('convocation', session, traineesWithResult, { trainer })
+      if (convocations) zip.file(`Convocations_${ref}.pdf`, convocations.base64, { base64: true })
+
+      // 4. Fiches de renseignements — tous stagiaires mergés en un seul PDF
+      const mergedFiches = await mergeMultiplePDFs(
+        traineesWithResult.map(trainee => {
+          const fiche = generatePDF('ficheRenseignements', session, {
+            trainee,
+            isBlank: false,
+            infoSheet: infoSheets[trainee.id] || null
+          })
+          return fiche?.base64 || null
+        }).filter(Boolean)
+      )
+      if (mergedFiches) zip.file(`Fiches_Renseignements_${ref}.pdf`, mergedFiches, { base64: true })
+
+      // 5. Émargement — rempli si données de présence existent, sinon vierge
+      const [{ data: signatures }, { data: halfDays }] = await Promise.all([
+        supabase.from('attendances').select('*').eq('session_id', session.id),
+        supabase.from('attendance_halfdays').select('*').eq('session_id', session.id)
+      ])
+      const hasAttendance = (signatures && signatures.length > 0) || (halfDays && halfDays.length > 0)
+      const emargement = generatePDF('emargement', session, {
+        trainees: traineesWithResult,
+        trainer,
+        isBlank: !hasAttendance,
+        attendanceData: hasAttendance ? { signatures: signatures || [], halfdays: halfDays || [] } : null
+      })
+      if (emargement) zip.file(`Emargement_${ref}.pdf`, emargement.base64, { base64: true })
+
+      // 6. Éval à chaud — tous stagiaires dans un seul PDF
+      const evalChaud = await generateAllPDF('evaluation', session, traineesWithResult, { trainer })
+      if (evalChaud) zip.file(`Eval_Chaud_${ref}.pdf`, evalChaud.base64, { base64: true })
+
+      // 7. Éval à froid — vierge
+      const evalFroid = generatePDF('evaluationFroid', session, { isBlank: true })
+      if (evalFroid) zip.file(`Eval_Froid_${ref}.pdf`, evalFroid.base64, { base64: true })
+
+      // 8. Analyse de besoins
+      const analyseBesoin = generatePDF('analyseBesoin', session, { isBlank: false })
+      if (analyseBesoin) zip.file(`Analyse_Besoin_${ref}.pdf`, analyseBesoin.base64, { base64: true })
+
+      // 9. Tests de positionnement — rempli si fait, sinon vierge, tous mergés en un seul PDF
+      const testParts = []
+      for (const trainee of traineesWithResult) {
+        const stData = session.session_trainees?.find(st => st.trainee_id === trainee.id)
+        if (stData?.positioning_test_completed) {
+          try {
+            const { data: testData } = await supabase.rpc('get_trainee_positioning_test', {
+              p_session_id: session.id,
+              p_trainee_id: trainee.id
+            })
+            if (testData) {
+              const testPdf = generatePDF('testPositionnementRempli', session, { trainee, testData })
+              if (testPdf) { testParts.push(testPdf.base64); continue }
+            }
+          } catch { /* fallback vierge */ }
+        }
+        const testVierge = generatePDF('positionnement', session, { trainee, isBlank: true, questions })
+        if (testVierge) testParts.push(testVierge.base64)
+      }
+      if (testParts.length > 0) {
+        const mergedTests = await mergeMultiplePDFs(testParts)
+        if (mergedTests) zip.file(`Test_Positionnement_${ref}.pdf`, mergedTests, { base64: true })
+      }
+
+      // Télécharger le ZIP
+      const content = await zip.generateAsync({ type: 'blob' })
+      const url = window.URL.createObjectURL(content)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `Documents_${ref}.zip`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      setTimeout(() => window.URL.revokeObjectURL(url), 100)
+
+      toast.success('ZIP téléchargé avec succès !', { id: toastId })
+    } catch (err) {
+      console.error('Erreur génération ZIP:', err)
+      toast.error('Erreur lors de la génération du ZIP', { id: toastId })
+    } finally {
+      setGeneratingZip(false)
+    }
+  }
+
+  // Helper : merger plusieurs PDFs base64 en un seul via pdf-lib
+  const mergeMultiplePDFs = async (base64Array) => {
+    try {
+      const { PDFDocument } = await import('pdf-lib')
+      const merged = await PDFDocument.create()
+      for (const b64 of base64Array) {
+        const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0))
+        const pdf = await PDFDocument.load(bytes)
+        const indices = pdf.getPageIndices()
+        const copiedPages = await merged.copyPages(pdf, indices)
+        copiedPages.forEach(page => merged.addPage(page))
+      }
+      const out = await merged.save()
+      // Convertir Uint8Array en base64
+      let binary = ''
+      out.forEach(byte => { binary += String.fromCharCode(byte) })
+      return btoa(binary)
+    } catch (err) {
+      console.error('Erreur merge PDF:', err)
+      return null
+    }
+  }
+
   const handleDownload = async (docType, trainee = null) => {
     const trainer = session.trainers
     const traineesWithResult = session.session_trainees?.map(st => ({ 
@@ -3192,7 +3343,37 @@ export default function SessionDetail() {
       {/* TAB: Documents */}
       {activeTab === 'documents' && (
         <div className="card">
-          <h3 className="font-semibold mb-4">Générer des documents</h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-semibold">Générer des documents</h3>
+            {/* Bouton ZIP dropdown */}
+            <div className="relative">
+              <button
+                onClick={() => setShowZipDropdown(!showZipDropdown)}
+                disabled={generatingZip}
+                className="btn btn-primary flex items-center gap-2"
+              >
+                {generatingZip ? (
+                  <><span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full"></span> Génération...</>
+                ) : (
+                  <><Archive className="w-4 h-4" /> Télécharger ZIP<ChevronDown className={`w-3 h-3 transition-transform ${showZipDropdown ? 'rotate-180' : ''}`} /></>
+                )}
+              </button>
+              {showZipDropdown && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setShowZipDropdown(false)} />
+                  <div className="absolute right-0 top-full mt-1 w-64 bg-white border border-gray-200 rounded-lg shadow-lg z-20 overflow-hidden">
+                    <button
+                      onClick={handleDownloadZip}
+                      className="w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors"
+                    >
+                      <p className="text-sm font-medium text-gray-900">📦 Tous les documents</p>
+                      <p className="text-xs text-gray-500 mt-0.5">Convention, programme, convocations, fiches, émargement, évals, analyse de besoins, tests</p>
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
             {docTypes.map(doc => (
               <div key={doc.id} className="border rounded-lg p-3">
