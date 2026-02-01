@@ -1721,25 +1721,20 @@ export default function SessionDetail() {
         traineesWithResult.map(trainee => {
           const fiche = generatePDF('ficheRenseignements', session, {
             trainee,
-            isBlank: false,
-            infoSheet: infoSheets[trainee.id] || null
+            isBlank: true,
+            infoSheet: null
           })
           return fiche?.base64 || null
         }).filter(Boolean)
       )
       if (mergedFiches) zip.file(`Fiches_Renseignements_${ref}.pdf`, mergedFiches, { base64: true })
 
-      // 5. Émargement — rempli si données de présence existent, sinon vierge
-      const [{ data: signatures }, { data: halfDays }] = await Promise.all([
-        supabase.from('attendances').select('*').eq('session_id', session.id),
-        supabase.from('attendance_halfdays').select('*').eq('session_id', session.id)
-      ])
-      const hasAttendance = (signatures && signatures.length > 0) || (halfDays && halfDays.length > 0)
+      // 5. Émargement — vierge avec juste les noms des stagiaires
       const emargement = generatePDF('emargement', session, {
         trainees: traineesWithResult,
         trainer,
-        isBlank: !hasAttendance,
-        attendanceData: hasAttendance ? { signatures: signatures || [], halfdays: halfDays || [] } : null
+        isBlank: true,
+        attendanceData: null
       })
       if (emargement) zip.file(`Emargement_${ref}.pdf`, emargement.base64, { base64: true })
 
