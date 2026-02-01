@@ -157,12 +157,12 @@ export const downloadNeedsAnalysisPDF = async (session, analysisData = null, bla
       })
     } else {
       doc.setDrawColor(200, 200, 200)
-      for (let i = 0; i < 3; i++) {
+      for (let i = 0; i < 2; i++) {
         doc.line(margin + 3, yPos, pageWidth - margin, yPos)
-        yPos += 5
+        yPos += 4.5
       }
     }
-    yPos += 3
+    yPos += 2
     
     doc.setFont('helvetica', 'bold')
     doc.text('Enjeux spécifiques :', margin, yPos)
@@ -172,9 +172,9 @@ export const downloadNeedsAnalysisPDF = async (session, analysisData = null, bla
       yPos += addText(analysisData.context_stakes, margin + 3, yPos, contentWidth - 6, 9)
     } else {
       doc.setDrawColor(200, 200, 200)
-      for (let i = 0; i < 3; i++) {
+      for (let i = 0; i < 2; i++) {
         doc.line(margin + 3, yPos, pageWidth - margin, yPos)
-        yPos += 5
+        yPos += 4.5
       }
     }
   } else {
@@ -210,7 +210,7 @@ export const downloadNeedsAnalysisPDF = async (session, analysisData = null, bla
     }
   }
   
-  yPos += 3
+  yPos += 2
 
   // ============ SECTION 2 : OBJECTIFS ATTENDUS ============
   doc.setFont('helvetica', 'bold')
@@ -233,12 +233,12 @@ export const downloadNeedsAnalysisPDF = async (session, analysisData = null, bla
       yPos += addText(analysisData.objectives_description, margin + 3, yPos, contentWidth - 6, 9)
     } else {
       doc.setDrawColor(200, 200, 200)
-      for (let i = 0; i < 3; i++) {
+      for (let i = 0; i < 2; i++) {
         doc.line(margin + 3, yPos, pageWidth - margin, yPos)
-        yPos += 5
+        yPos += 4.5
       }
     }
-    yPos += 3
+    yPos += 2
     
     doc.setFont('helvetica', 'bold')
     doc.text('Résultats mesurables attendus :', margin, yPos)
@@ -248,9 +248,9 @@ export const downloadNeedsAnalysisPDF = async (session, analysisData = null, bla
       yPos += addText(analysisData.objectives_measurable, margin + 3, yPos, contentWidth - 6, 9)
     } else {
       doc.setDrawColor(200, 200, 200)
-      for (let i = 0; i < 3; i++) {
+      for (let i = 0; i < 2; i++) {
         doc.line(margin + 3, yPos, pageWidth - margin, yPos)
-        yPos += 5
+        yPos += 4.5
       }
     }
   } else {
@@ -282,7 +282,7 @@ export const downloadNeedsAnalysisPDF = async (session, analysisData = null, bla
     }
   }
   
-  yPos += 3
+  yPos += 2
 
   // ============ SECTION 3 : PUBLIC CONCERNÉ ============
   doc.setFont('helvetica', 'bold')
@@ -374,7 +374,7 @@ export const downloadNeedsAnalysisPDF = async (session, analysisData = null, bla
     }
   }
   
-  yPos += 3
+  yPos += 2
 
   // ============ SECTION 4 : CONTRAINTES ET MOYENS ============
   doc.setFont('helvetica', 'bold')
@@ -462,7 +462,7 @@ export const downloadNeedsAnalysisPDF = async (session, analysisData = null, bla
     yPos += 4
   }
   
-  yPos += 3
+  yPos += 2
 
   // ============ SIGNATURES ============
   // Calculer espace restant et ajuster si nécessaire
@@ -700,12 +700,12 @@ export const getNeedsAnalysisPDFBytes = async (session, analysisData = null, bla
       })
     } else {
       doc.setDrawColor(200, 200, 200)
-      for (let i = 0; i < 3; i++) {
+      for (let i = 0; i < 2; i++) {
         doc.line(margin + 3, yPos, pageWidth - margin, yPos)
-        yPos += 5
+        yPos += 4.5
       }
     }
-    yPos += 3
+    yPos += 2
     
     doc.setFont('helvetica', 'bold')
     doc.text('Enjeux spécifiques :', margin, yPos)
@@ -715,13 +715,13 @@ export const getNeedsAnalysisPDFBytes = async (session, analysisData = null, bla
       yPos += addText(analysisData.context_stakes, margin + 3, yPos, contentWidth - 6, 9)
     } else {
       doc.setDrawColor(200, 200, 200)
-      for (let i = 0; i < 3; i++) {
+      for (let i = 0; i < 2; i++) {
         doc.line(margin + 3, yPos, pageWidth - margin, yPos)
-        yPos += 5
+        yPos += 4.5
       }
     }
   }
-  yPos += 3
+  yPos += 2
 
   // ============ SECTION 2 ============
   doc.setFont('helvetica', 'bold')
@@ -742,12 +742,12 @@ export const getNeedsAnalysisPDFBytes = async (session, analysisData = null, bla
       yPos += addText(analysisData.objectives_description, margin + 3, yPos, contentWidth - 6, 9)
     } else {
       doc.setDrawColor(200, 200, 200)
-      for (let i = 0; i < 3; i++) {
+      for (let i = 0; i < 2; i++) {
         doc.line(margin + 3, yPos, pageWidth - margin, yPos)
-        yPos += 5
+        yPos += 4.5
       }
     }
-    yPos += 3
+    yPos += 2
     
     doc.setFont('helvetica', 'bold')
     doc.text('Résultats mesurables attendus :', margin, yPos)
@@ -757,13 +757,13 @@ export const getNeedsAnalysisPDFBytes = async (session, analysisData = null, bla
       yPos += addText(analysisData.objectives_measurable, margin + 3, yPos, contentWidth - 6, 9)
     } else {
       doc.setDrawColor(200, 200, 200)
-      for (let i = 0; i < 3; i++) {
+      for (let i = 0; i < 2; i++) {
         doc.line(margin + 3, yPos, pageWidth - margin, yPos)
-        yPos += 5
+        yPos += 4.5
       }
     }
   }
-  yPos += 3
+  yPos += 2
 
   // ============ SECTION 3 ============
   doc.setFont('helvetica', 'bold')
@@ -817,7 +817,7 @@ export const getNeedsAnalysisPDFBytes = async (session, analysisData = null, bla
       }
     }
   }
-  yPos += 3
+  yPos += 2
 
   // ============ SECTION 4 ============
   doc.setFont('helvetica', 'bold')
@@ -886,7 +886,7 @@ export const getNeedsAnalysisPDFBytes = async (session, analysisData = null, bla
       }
     }
   }
-  yPos += 3
+  yPos += 2
 
   // ============ SIGNATURES ============
   const spaceForFooter = 18
