@@ -4854,9 +4854,12 @@ export default function SessionDetail() {
           sessionCosts={sessionCosts}
           questions={questions}
           traineeResults={traineeResults}
-          onClose={() => {
+          onClose={async () => {
             setShowSessionEmailModal(false)
             setSessionEmailType(null)
+            // Recharger la session pour refléter les mises à jour (convention_sent, etc.)
+            const { data } = await getSession(id)
+            if (data) setSession(data)
           }}
         />
       )}
