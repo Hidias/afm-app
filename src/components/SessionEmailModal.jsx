@@ -257,6 +257,14 @@ Nous vous remercions pour votre confiance et restons à votre disposition.`)
             })
         }
       }
+
+      // Sync aussi les colonnes sur la table sessions (utilisées par le bloc "Suivi Convention")
+      if (codes.includes('convention_envoyee')) {
+        await supabase
+          .from('sessions')
+          .update({ convention_sent: true, convention_sent_date: now })
+          .eq('id', session.id)
+      }
     } catch (err) {
       console.error('Erreur mise à jour checklist:', err)
     }
