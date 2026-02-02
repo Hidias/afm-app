@@ -96,10 +96,13 @@ export default function SessionChecklist({ session }) {
       const { data: userData } = await supabase.auth.getUser()
       const existingItem = checklistData[itemCode]
 
+      // Convertir les chaînes vides en null pour PostgreSQL
+      const cleanValue = value === '' ? null : value
+
       const itemData = {
         session_id: session.id,
         item_code: itemCode,
-        [field]: value,
+        [field]: cleanValue,
         checked_by: userData?.user?.id,
         checked_at: field === 'is_checked' && value ? new Date().toISOString() : existingItem?.checked_at,
       }
