@@ -430,7 +430,7 @@ export const useDataStore = create((set, get) => ({
         supabase.from('clients').select('*'),
         supabase.from('trainers').select('*'),
         supabase.from('trainees').select('*'),
-        supabase.from('session_trainees').select('id, session_id, trainee_id, registration_date, result, admin_observation, expectations_notification_sent, presence_complete, early_departure, access_code'),
+        supabase.from('session_trainees').select('id, session_id, trainee_id, registration_date, result, admin_observation, expectations_notification_sent, presence_complete, early_departure, access_code, positioning_test_completed, positioning_test_completed_at, forprev_card_url, departure_date, departure_reason'),
         supabase.from('client_contacts').select('*')
       ])
       
