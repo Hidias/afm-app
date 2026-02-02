@@ -38,6 +38,7 @@ export default function SessionChecklist({ session }) {
   const [saving, setSaving] = useState(false)
   const [isSST, setIsSST] = useState(false)
   const [traineeCount, setTraineeCount] = useState(0)
+  const [editingComments, setEditingComments] = useState({})
 
   useEffect(() => {
     if (session) {
@@ -345,9 +346,21 @@ export default function SessionChecklist({ session }) {
             <label className="text-gray-600">Commentaire</label>
             <input
               type="text"
-              value={itemData.comment || ''}
-              onChange={(e) => handleCheck(item.code, 'comment', e.target.value)}
-              onBlur={() => {}} // Sauvegarde auto au blur
+              value={editingComments[item.code] !== undefined ? editingComments[item.code] : (itemData.comment || '')}
+              onChange={(e) => {
+                // Mettre à jour seulement le state local pendant la saisie
+                setEditingComments(prev => ({ ...prev, [item.code]: e.target.value }))
+              }}
+              onBlur={(e) => {
+                // Sauvegarder en base seulement quand on quitte le champ
+                handleCheck(item.code, 'comment', e.target.value)
+                // Nettoyer le state local
+                setEditingComments(prev => {
+                  const newState = { ...prev }
+                  delete newState[item.code]
+                  return newState
+                })
+              }}
               disabled={saving}
               placeholder="Optionnel"
               className="w-full px-2 py-1 border rounded text-xs"
