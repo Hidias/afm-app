@@ -1424,8 +1424,15 @@ function generateEvaluationFroid(session, trainee = null, isBlank = false) {
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(8)
     objectives.forEach((obj, idx) => {
-      doc.text(`• ${obj}`, 22, y)
-      y += 4
+      // Utiliser splitTextToSize pour gérer les retours à la ligne automatiques
+      const maxWidth = 168 // 210mm - 20mm marge gauche - 22mm marge droite
+      const lines = doc.splitTextToSize(`• ${obj}`, maxWidth)
+      lines.forEach((line, lineIdx) => {
+        // La première ligne a la puce, les suivantes sont indentées
+        const xPos = lineIdx === 0 ? 22 : 26
+        doc.text(line.replace('• ', lineIdx === 0 ? '• ' : ''), xPos, y)
+        y += 4
+      })
     })
     y += 4
   }
@@ -2774,8 +2781,15 @@ function generateEvaluationFroidContent(doc, session, trainee) {
     y += 4
     doc.setFont('helvetica', 'normal')
     objectives.forEach((obj, idx) => {
-      doc.text(`• ${obj}`, 22, y)
-      y += 3.5
+      // Utiliser splitTextToSize pour gérer les retours à la ligne automatiques
+      const maxWidth = 168 // 210mm - 20mm marge gauche - 22mm marge droite
+      const lines = doc.splitTextToSize(`• ${obj}`, maxWidth)
+      lines.forEach((line, lineIdx) => {
+        // La première ligne a la puce, les suivantes sont indentées
+        const xPos = lineIdx === 0 ? 22 : 26
+        doc.text(line.replace('• ', lineIdx === 0 ? '• ' : ''), xPos, y)
+        y += 3.5
+      })
     })
     y += 4
   }
