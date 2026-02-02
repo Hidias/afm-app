@@ -39,6 +39,7 @@ export default function SessionChecklist({ session }) {
   const [isSST, setIsSST] = useState(false)
   const [traineeCount, setTraineeCount] = useState(0)
   const [editingComments, setEditingComments] = useState({})
+  const [editingDates, setEditingDates] = useState({})
 
   useEffect(() => {
     if (session) {
@@ -66,6 +67,28 @@ export default function SessionChecklist({ session }) {
       console.error('Erreur comptage stagiaires:', error)
       setTraineeCount(0)
     }
+  }
+
+  // Convertir date ISO (yyyy-mm-dd) vers format français (dd/mm/yyyy)
+  const formatDateToFrench = (isoDate) => {
+    if (!isoDate) return ''
+    const [year, month, day] = isoDate.split('-')
+    return `${day}/${month}/${year}`
+  }
+
+  // Convertir format français (dd/mm/yyyy) vers ISO (yyyy-mm-dd)
+  const parseFrenchDate = (frenchDate) => {
+    if (!frenchDate || frenchDate.length < 10) return null
+    const parts = frenchDate.split('/')
+    if (parts.length !== 3) return null
+    const [day, month, year] = parts
+    // Validation basique
+    const d = parseInt(day)
+    const m = parseInt(month)
+    const y = parseInt(year)
+    if (isNaN(d) || isNaN(m) || isNaN(y)) return null
+    if (d < 1 || d > 31 || m < 1 || m > 12 || y < 1900 || y > 2100) return null
+    return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`
   }
 
   const loadChecklist = async () => {
@@ -338,9 +361,26 @@ export default function SessionChecklist({ session }) {
           <div>
             <label className="text-gray-600">Date réalisation</label>
             <input
-              type="date"
-              value={itemData.date_realized || ''}
-              onChange={(e) => handleCheck(item.code, 'date_realized', e.target.value)}
+              type="text"
+              placeholder="jj/mm/aaaa"
+              value={editingDates[item.code] !== undefined 
+                ? editingDates[item.code] 
+                : formatDateToFrench(itemData.date_realized || '')}
+              onChange={(e) => {
+                // Mettre à jour seulement le state local pendant la saisie
+                setEditingDates(prev => ({ ...prev, [item.code]: e.target.value }))
+              }}
+              onBlur={(e) => {
+                // Convertir le format français vers ISO et sauvegarder
+                const isoDate = parseFrenchDate(e.target.value)
+                handleCheck(item.code, 'date_realized', isoDate)
+                // Nettoyer le state local
+                setEditingDates(prev => {
+                  const newState = { ...prev }
+                  delete newState[item.code]
+                  return newState
+                })
+              }}
               disabled={saving}
               className="w-full px-2 py-1 border rounded text-xs"
             />
