@@ -2512,7 +2512,7 @@ export default function SessionDetail() {
                         }}
                         className={`btn btn-sm flex items-center gap-1 ${
                           stData?.positioning_test_completed 
-                            ? 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200' 
+                            ? 'bg-green-100 text-green-700 hover:bg-green-200' 
                             : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
                         }`}
                         disabled={loadingPositioningTest}
