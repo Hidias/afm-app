@@ -74,24 +74,11 @@ export async function generateSSTCertificationPDF(certification, trainee, sessio
         
         try {
           if (value === true) {
-            // Cocher "Acquis" avec la valeur 'Oui' (PDF français)
-            const checkbox = form.getCheckBox(ind.pdfAcquis)
-            checkbox.check() // Essayer d'abord check() standard
-            // Si le PDF utilise 'Oui' au lieu de 'Yes', forcer la valeur
-            try {
-              checkbox.select('Oui')
-            } catch (e) {
-              // Ignorer si 'Oui' n'existe pas
-            }
+            // Cocher "Acquis"
+            form.getCheckBox(ind.pdfAcquis).check()
           } else if (value === false) {
             // Cocher "Non acquis"
-            const checkbox = form.getCheckBox(ind.pdfNonAcquis)
-            checkbox.check()
-            try {
-              checkbox.select('Oui')
-            } catch (e) {
-              // Ignorer
-            }
+            form.getCheckBox(ind.pdfNonAcquis).check()
           }
           // Si null, ne rien cocher (non évalué)
         } catch (error) {
@@ -129,21 +116,9 @@ export async function generateSSTCertificationPDF(certification, trainee, sessio
       
       try {
         if (value === true) {
-          const checkbox = form.getCheckBox(comp.acquis)
-          checkbox.check()
-          try {
-            checkbox.select('Oui')
-          } catch (e) {
-            // Ignorer
-          }
+          form.getCheckBox(comp.acquis).check()
         } else if (value === false) {
-          const checkbox = form.getCheckBox(comp.nonAcquis)
-          checkbox.check()
-          try {
-            checkbox.select('Oui')
-          } catch (e) {
-            // Ignorer
-          }
+          form.getCheckBox(comp.nonAcquis).check()
         }
       } catch (error) {
         console.warn(`Case compétence "${comp.acquis}" introuvable`, error)
@@ -186,7 +161,7 @@ export async function generateSSTCertificationPDF(certification, trainee, sessio
         // Entre "Prénom : Hicham" et "Date de certification"
         // Coordonnées PDF : origine en bas à gauche
         const x = 130  // Position horizontale (colonne de gauche, après "Signature :")
-        const y = 320  // Position verticale depuis le bas (ligne "Signature :") - Augmenté de 240 à 320 pour remonter
+        const y = 320  // Position verticale depuis le bas (ligne "Signature :")
         
         // Dessiner la signature sur la page
         page2.drawImage(signatureImage, {
@@ -205,37 +180,18 @@ export async function generateSSTCertificationPDF(certification, trainee, sessio
     
     // === RÉSULTAT FINAL ===
     
-    try {
-      if (certification.candidat_certifie) {
-        const checkbox = form.getCheckBox('OUI')
-        checkbox.check()
-        try {
-          checkbox.select('Oui')
-        } catch (e) {
-          // Ignorer
-        }
-      } else {
-        const checkbox = form.getCheckBox('NON')
-        checkbox.check()
-        try {
-          checkbox.select('Oui')
-        } catch (e) {
-          // Ignorer
-        }
-      }
-    } catch (error) {
-      console.warn('⚠️ Impossible de cocher le résultat final:', error)
+    if (certification.candidat_certifie) {
+      form.getCheckBox('OUI').check()
+    } else {
+      form.getCheckBox('NON').check()
     }
     
-    // Aplatir le formulaire (désactiver les champs éditables)
-    // IMPORTANT : Si le flatten échoue (PDF avec références cassées), 
-    // on continue quand même pour générer le PDF avec les champs remplis
+    // Aplatir le formulaire
     try {
       form.flatten()
       console.log('✅ Formulaire aplati avec succès')
     } catch (flattenError) {
       console.warn('⚠️ Impossible d\'aplatir le formulaire, le PDF restera éditable:', flattenError.message)
-      // On continue sans flatten - le PDF aura des champs éditables mais sera fonctionnel
     }
     
     // Sauvegarder le PDF
