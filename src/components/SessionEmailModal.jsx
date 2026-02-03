@@ -4,6 +4,7 @@ import { X, FileText, Send, Loader, CheckCircle, AlertCircle, Upload, Trash2 } f
 import toast from 'react-hot-toast'
 import { generatePDF, generateAllPDF } from '../lib/pdfGenerator'
 import { getNeedsAnalysisPDFBytes } from '../lib/needsAnalysisPDF'
+import { generateSatisfactionEntreprisePDF } from '../lib/satisfactionEntreprisePDF'
 
 export default function SessionEmailModal({ session, emailType, sessionCosts, questions, traineeResults, onClose }) {
   const [step, setStep] = useState('generating') // 'generating', 'compose', 'sending', 'sent'
@@ -99,6 +100,9 @@ Suite à la formation "${courseTitle}", veuillez trouver ci-joints :
 - Les certificats de réalisation
 - Les attestations de présence
 - Les questionnaires d'évaluation à froid (à compléter d'ici 90 jours)
+- Le questionnaire de satisfaction entreprise
+
+Nous vous serions reconnaissants de bien vouloir compléter et nous retourner le questionnaire de satisfaction entreprise afin de nous permettre d'améliorer continuellement la qualité de nos prestations.
 
 Nous vous remercions pour votre confiance et restons à votre disposition.`)
     }
@@ -210,6 +214,19 @@ Nous vous remercions pour votre confiance et restons à votre disposition.`)
         if (evaluationsFroid) {
           files.push({ id: 'evaluationsFroid', name: evaluationsFroid.filename, base64: evaluationsFroid.base64, size: evaluationsFroid.size })
           addLog('✅ Évaluations à froid générées')
+        }
+
+        // ── QUESTIONNAIRE SATISFACTION ENTREPRISE ──
+        addLog('Questionnaire satisfaction entreprise...')
+        try {
+          const satisfactionPDF = await generateSatisfactionEntreprisePDF(session, session?.clients)
+          if (satisfactionPDF) {
+            files.push({ id: 'satisfactionEntreprise', name: satisfactionPDF.filename, base64: satisfactionPDF.base64, size: satisfactionPDF.size })
+            addLog('✅ Questionnaire satisfaction entreprise généré')
+          }
+        } catch (e) {
+          console.error('Erreur génération questionnaire satisfaction:', e)
+          addLog('⚠️ Erreur génération questionnaire satisfaction')
         }
       }
 
