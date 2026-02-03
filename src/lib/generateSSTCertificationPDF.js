@@ -186,8 +186,16 @@ export async function generateSSTCertificationPDF(certification, trainee, sessio
       form.getCheckBox('NON').check()
     }
     
-    // Aplatir le formulaire
-    form.flatten()
+    // Aplatir le formulaire (désactiver les champs éditables)
+    // IMPORTANT : Si le flatten échoue (PDF avec références cassées), 
+    // on continue quand même pour générer le PDF avec les champs remplis
+    try {
+      form.flatten()
+      console.log('✅ Formulaire aplati avec succès')
+    } catch (flattenError) {
+      console.warn('⚠️ Impossible d\'aplatir le formulaire, le PDF restera éditable:', flattenError.message)
+      // On continue sans flatten - le PDF aura des champs éditables mais sera fonctionnel
+    }
     
     // Sauvegarder le PDF
     const pdfBytes = await pdfDoc.save()
