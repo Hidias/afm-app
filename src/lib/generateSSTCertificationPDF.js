@@ -67,27 +67,49 @@ export async function generateSSTCertificationPDF(certification, trainee, sessio
     
     const config = getCompetencesConfig(certification.formation_type)
     
+    // === DEBUG ===
+    console.log('🔍 === DEBUG INDICATEURS ===')
+    console.log('🔍 formation_type:', certification.formation_type)
+    console.log('🔍 config keys:', Object.keys(config))
+    console.log('🔍 certification sample:', {
+      c2_ind1: certification.c2_ind1,
+      c2_ind2: certification.c2_ind2,
+      c3_ind1: certification.c3_ind1
+    })
+    
     // Cocher les cases d'indicateurs selon l'évaluation
     Object.values(config).forEach(comp => {
+      console.log(`🔍 Compétence ${comp.code}: ${comp.indicateurs.length} indicateurs`)
+      
       comp.indicateurs.forEach(ind => {
-        const value = certification[ind.id] // true, false ou null
+        const value = certification[ind.id]
+        console.log(`  🔍 ${ind.id} = ${value}`)
+        console.log(`     → Acquis: "${ind.pdfAcquis}" / Non acquis: "${ind.pdfNonAcquis}"`)
         
         try {
           if (value === true) {
-            // Cocher "Acquis"
+            console.log(`     ✅ Coche "${ind.pdfAcquis}"...`)
             form.getCheckBox(ind.pdfAcquis).check()
+            console.log(`     ✅ COCHÉE !`)
           } else if (value === false) {
-            // Cocher "Non acquis"
+            console.log(`     ❌ Coche "${ind.pdfNonAcquis}"...`)
             form.getCheckBox(ind.pdfNonAcquis).check()
+            console.log(`     ❌ COCHÉE !`)
+          } else {
+            console.log(`     ⚪ Null - non évalué`)
           }
-          // Si null, ne rien cocher (non évalué)
         } catch (error) {
+          console.error(`     💥 ERREUR:`, error.message)
           console.warn(`Case "${ind.pdfAcquis}" ou "${ind.pdfNonAcquis}" introuvable`, error)
         }
       })
     })
+    console.log('=== FIN DEBUG INDICATEURS ===')
     
     // === RÉSUMÉ DES COMPÉTENCES (page 2) ===
+    
+    console.log('🔍 === DEBUG RÉSUMÉ ===')
+    console.log('🔍 isFI:', isFI)
     
     // Cocher les cases "Acquise" / "Non acquise" pour chaque compétence
     const competencesMapping = isFI 
@@ -113,17 +135,24 @@ export async function generateSSTCertificationPDF(certification, trainee, sessio
     
     competencesMapping.forEach(comp => {
       const value = certification[comp.db]
+      console.log(`🔍 ${comp.db} = ${value} → "${comp.acquis}"`)
       
       try {
         if (value === true) {
+          console.log(`  ✅ Coche "${comp.acquis}"...`)
           form.getCheckBox(comp.acquis).check()
+          console.log(`  ✅ COCHÉE !`)
         } else if (value === false) {
+          console.log(`  ❌ Coche "${comp.nonAcquis}"...`)
           form.getCheckBox(comp.nonAcquis).check()
+          console.log(`  ❌ COCHÉE !`)
         }
       } catch (error) {
+        console.error(`  💥 ERREUR:`, error.message)
         console.warn(`Case compétence "${comp.acquis}" introuvable`, error)
       }
     })
+    console.log('=== FIN DEBUG RÉSUMÉ ===')
     
     // === FORMATEUR ===
     
@@ -157,11 +186,8 @@ export async function generateSSTCertificationPDF(certification, trainee, sessio
         const signatureHeight = 40
         
         // Position de la signature dans le tableau formateur
-        // Dans la cellule GAUCHE du tableau, à droite de "Signature :"
-        // Entre "Prénom : Hicham" et "Date de certification"
-        // Coordonnées PDF : origine en bas à gauche
-        const x = 130  // Position horizontale (colonne de gauche, après "Signature :")
-        const y = 320  // Position verticale depuis le bas (ligne "Signature :")
+        const x = 130
+        const y = 320
         
         // Dessiner la signature sur la page
         page2.drawImage(signatureImage, {
@@ -174,16 +200,26 @@ export async function generateSSTCertificationPDF(certification, trainee, sessio
         console.log('✅ Signature ajoutée au PDF')
       } catch (error) {
         console.warn('⚠️ Erreur lors de l\'ajout de la signature:', error)
-        // On continue même si la signature échoue
       }
     }
     
     // === RÉSULTAT FINAL ===
     
-    if (certification.candidat_certifie) {
-      form.getCheckBox('OUI').check()
-    } else {
-      form.getCheckBox('NON').check()
+    console.log('🔍 === DEBUG RÉSULTAT FINAL ===')
+    console.log('🔍 candidat_certifie:', certification.candidat_certifie)
+    
+    try {
+      if (certification.candidat_certifie) {
+        console.log('✅ Coche "OUI"...')
+        form.getCheckBox('OUI').check()
+        console.log('✅ COCHÉE !')
+      } else {
+        console.log('❌ Coche "NON"...')
+        form.getCheckBox('NON').check()
+        console.log('❌ COCHÉE !')
+      }
+    } catch (error) {
+      console.error('💥 ERREUR résultat:', error.message)
     }
     
     // Aplatir le formulaire
