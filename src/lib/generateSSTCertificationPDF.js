@@ -1,4 +1,4 @@
-import { PDFDocument } from 'pdf-lib'
+import { PDFDocument, PDFName } from 'pdf-lib'
 import { format } from 'date-fns'
 import { getCompetencesConfig } from './sstCompetencesConfig'
 
@@ -89,12 +89,14 @@ export async function generateSSTCertificationPDF(certification, trainee, sessio
         try {
           if (value === true) {
             console.log(`     ✅ Coche "${ind.pdfAcquis}"...`)
-            form.getCheckBox(ind.pdfAcquis).check()
-            console.log(`     ✅ COCHÉE !`)
+            const checkbox = form.getCheckBox(ind.pdfAcquis)
+            checkbox.acroField.setValue(PDFName.of('Oui'))
+            console.log(`     ✅ COCHÉE avec valeur "Oui" !`)
           } else if (value === false) {
             console.log(`     ❌ Coche "${ind.pdfNonAcquis}"...`)
-            form.getCheckBox(ind.pdfNonAcquis).check()
-            console.log(`     ❌ COCHÉE !`)
+            const checkbox = form.getCheckBox(ind.pdfNonAcquis)
+            checkbox.acroField.setValue(PDFName.of('Oui'))
+            console.log(`     ❌ COCHÉE avec valeur "Oui" !`)
           } else {
             console.log(`     ⚪ Null - non évalué`)
           }
@@ -140,12 +142,14 @@ export async function generateSSTCertificationPDF(certification, trainee, sessio
       try {
         if (value === true) {
           console.log(`  ✅ Coche "${comp.acquis}"...`)
-          form.getCheckBox(comp.acquis).check()
-          console.log(`  ✅ COCHÉE !`)
+          const checkbox = form.getCheckBox(comp.acquis)
+          checkbox.acroField.setValue(PDFName.of('Oui'))
+          console.log(`  ✅ COCHÉE avec valeur "Oui" !`)
         } else if (value === false) {
           console.log(`  ❌ Coche "${comp.nonAcquis}"...`)
-          form.getCheckBox(comp.nonAcquis).check()
-          console.log(`  ❌ COCHÉE !`)
+          const checkbox = form.getCheckBox(comp.nonAcquis)
+          checkbox.acroField.setValue(PDFName.of('Oui'))
+          console.log(`  ❌ COCHÉE avec valeur "Oui" !`)
         }
       } catch (error) {
         console.error(`  💥 ERREUR:`, error.message)
@@ -211,12 +215,14 @@ export async function generateSSTCertificationPDF(certification, trainee, sessio
     try {
       if (certification.candidat_certifie) {
         console.log('✅ Coche "OUI"...')
-        form.getCheckBox('OUI').check()
-        console.log('✅ COCHÉE !')
+        const checkbox = form.getCheckBox('OUI')
+        checkbox.acroField.setValue(PDFName.of('Oui'))
+        console.log('✅ COCHÉE avec valeur "Oui" !')
       } else {
         console.log('❌ Coche "NON"...')
-        form.getCheckBox('NON').check()
-        console.log('❌ COCHÉE !')
+        const checkbox = form.getCheckBox('NON')
+        checkbox.acroField.setValue(PDFName.of('Oui'))
+        console.log('❌ COCHÉE avec valeur "Oui" !')
       }
     } catch (error) {
       console.error('💥 ERREUR résultat:', error.message)
