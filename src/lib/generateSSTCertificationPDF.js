@@ -143,13 +143,13 @@ export async function generateSSTCertificationPDF(certification, trainee, sessio
         if (value === true) {
           console.log(`  ✅ Coche "${comp.acquis}"...`)
           const checkbox = form.getCheckBox(comp.acquis)
-          checkbox.acroField.setValue(PDFName.of('Oui'))
-          console.log(`  ✅ COCHÉE avec valeur "Oui" !`)
+          checkbox.acroField.setValue(PDFName.of('On'))
+          console.log(`  ✅ COCHÉE avec valeur "On" !`)
         } else if (value === false) {
           console.log(`  ❌ Coche "${comp.nonAcquis}"...`)
           const checkbox = form.getCheckBox(comp.nonAcquis)
-          checkbox.acroField.setValue(PDFName.of('Oui'))
-          console.log(`  ❌ COCHÉE avec valeur "Oui" !`)
+          checkbox.acroField.setValue(PDFName.of('On'))
+          console.log(`  ❌ COCHÉE avec valeur "On" !`)
         }
       } catch (error) {
         console.error(`  💥 ERREUR:`, error.message)
@@ -216,13 +216,13 @@ export async function generateSSTCertificationPDF(certification, trainee, sessio
       if (certification.candidat_certifie) {
         console.log('✅ Coche "OUI"...')
         const checkbox = form.getCheckBox('OUI')
-        checkbox.acroField.setValue(PDFName.of('Oui'))
-        console.log('✅ COCHÉE avec valeur "Oui" !')
+        checkbox.acroField.setValue(PDFName.of('On'))
+        console.log('✅ COCHÉE avec valeur "On" !')
       } else {
         console.log('❌ Coche "NON"...')
         const checkbox = form.getCheckBox('NON')
-        checkbox.acroField.setValue(PDFName.of('Oui'))
-        console.log('❌ COCHÉE avec valeur "Oui" !')
+        checkbox.acroField.setValue(PDFName.of('On'))
+        console.log('❌ COCHÉE avec valeur "On" !')
       }
     } catch (error) {
       console.error('💥 ERREUR résultat:', error.message)
