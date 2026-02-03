@@ -92,6 +92,7 @@ export default function SessionDetail() {
   const [sessionDocs, setSessionDocs] = useState([])
   const [uploadCategory, setUploadCategory] = useState('autre')
   const [uploading, setUploading] = useState(false)
+  const [sendingHotEvalReminder, setSendingHotEvalReminder] = useState(false)
   
   // Fiches de renseignement
   const [infoSheets, setInfoSheets] = useState({}) // { traineeId: infoSheetData }
@@ -2167,6 +2168,119 @@ export default function SessionDetail() {
     setShowSessionEmailModal(true)
   }
   
+  // Envoyer relance évaluations à chaud aux non-répondants
+  const handleSendHotEvalReminder = async () => {
+    // Identifier les stagiaires qui n'ont pas répondu
+    const nonRespondants = sessionTraineesForEvals.filter(t => {
+      const eval_ = evaluationsData[t.id] || {}
+      return !eval_.questionnaire_submitted && t.email // A un email mais n'a pas répondu
+    })
+    
+    if (nonRespondants.length === 0) {
+      toast.error('Tous les stagiaires avec email ont déjà répondu')
+      return
+    }
+    
+    // Confirmer l'envoi
+    const confirm = window.confirm(
+      `Envoyer un email de relance à ${nonRespondants.length} stagiaire(s) qui n'ont pas encore rempli leur évaluation à chaud ?\n\n` +
+      nonRespondants.map(t => `• ${t.first_name} ${t.last_name}`).join('\n')
+    )
+    
+    if (!confirm) return
+    
+    setSendingHotEvalReminder(true)
+    
+    try {
+      // Récupérer la config email de l'utilisateur
+      const { data: { user } } = await supabase.auth.getUser()
+      const { data: emailConfig } = await supabase
+        .from('user_email_configs')
+        .select('email')
+        .eq('user_id', user.id)
+        .maybeSingle()
+      
+      const fromEmail = emailConfig?.email || 'contact@accessformation.pro'
+      
+      let successCount = 0
+      let errorCount = 0
+      
+      // Envoyer un email à chaque non-répondant
+      for (const trainee of nonRespondants) {
+        try {
+          // Récupérer le access_code depuis session_trainees
+          const { data: sessionTrainee } = await supabase
+            .from('session_trainees')
+            .select('access_code')
+            .eq('session_id', session.id)
+            .eq('trainee_id', trainee.id)
+            .single()
+          
+          const accessCode = sessionTrainee?.access_code
+          
+          if (!accessCode) {
+            console.error(`Pas d'access_code pour ${trainee.first_name} ${trainee.last_name}`)
+            errorCount++
+            continue
+          }
+          
+          const evalLink = `${window.location.origin}/#/portail/${accessCode}/evaluation`
+          
+          const subject = `Rappel : Évaluation de la formation ${session.courses?.title || ''}`
+          const body = `Bonjour ${trainee.first_name},
+
+Suite à la formation "${session.courses?.title || ''}" du ${format(new Date(session.start_date), 'dd/MM/yyyy', { locale: fr })}, nous n'avons pas encore reçu votre évaluation à chaud.
+
+Votre retour est très important pour nous permettre d'améliorer continuellement la qualité de nos formations.
+
+Merci de bien vouloir prendre quelques minutes pour compléter l'évaluation en cliquant sur le lien ci-dessous :
+
+${evalLink}
+
+Nous vous remercions par avance pour votre contribution.
+
+Cordialement,
+${trainer ? `${trainer.first_name} ${trainer.last_name}` : 'Access Formation'}`
+          
+          // Envoyer l'email via l'API
+          const { error: sendError } = await supabase.functions.invoke('send-email-session', {
+            body: {
+              to: trainee.email,
+              from: fromEmail,
+              subject,
+              body,
+              attachments: []
+            }
+          })
+          
+          if (sendError) {
+            console.error(`Erreur envoi à ${trainee.email}:`, sendError)
+            errorCount++
+          } else {
+            successCount++
+          }
+        } catch (error) {
+          console.error(`Erreur pour ${trainee.first_name} ${trainee.last_name}:`, error)
+          errorCount++
+        }
+      }
+      
+      // Message de résultat
+      if (successCount > 0) {
+        toast.success(`${successCount} email(s) de relance envoyé(s) !`)
+      }
+      if (errorCount > 0) {
+        toast.error(`${errorCount} erreur(s) lors de l'envoi`)
+      }
+      
+    } catch (error) {
+      console.error('Erreur relance évaluations:', error)
+      toast.error('Erreur lors de l\'envoi des relances')
+    } finally {
+      setSendingHotEvalReminder(false)
+    }
+  }
+  
   // Créer un nouveau stagiaire depuis la session
   const handleCreateNewTrainee = async () => {
     if (!newTraineeForm.first_name || !newTraineeForm.last_name) {
@@ -2899,10 +3013,25 @@ export default function SessionDetail() {
         <div className="space-y-6">
           {/* Évaluations à chaud - qualité complet */}
           <div className="card">
-            <h3 className="font-semibold mb-2 flex items-center gap-2"><ClipboardCheck className="w-5 h-5 text-orange-600" />Évaluations à chaud (stagiaires)</h3>
-            <p className="text-sm text-gray-500 mb-4">
-              Formation : <strong>{session.courses?.title || 'Non définie'}</strong> - Formateur : <strong>{trainer ? `${trainer.first_name} ${trainer.last_name}` : 'Non assigné'}</strong>
-            </p>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="font-semibold flex items-center gap-2"><ClipboardCheck className="w-5 h-5 text-orange-600" />Évaluations à chaud (stagiaires)</h3>
+                <p className="text-sm text-gray-500 mt-1">
+                  Formation : <strong>{session.courses?.title || 'Non définie'}</strong> - Formateur : <strong>{trainer ? `${trainer.first_name} ${trainer.last_name}` : 'Non assigné'}</strong>
+                </p>
+              </div>
+              <button 
+                onClick={handleSendHotEvalReminder}
+                disabled={sendingHotEvalReminder}
+                className="btn btn-secondary flex items-center gap-2 text-orange-600 border-orange-200 hover:bg-orange-50"
+              >
+                {sendingHotEvalReminder ? (
+                  <><Loader className="w-4 h-4 animate-spin" />Envoi...</>
+                ) : (
+                  <><Send className="w-4 h-4" />Relancer les non-répondants</>
+                )}
+              </button>
+            </div>
             {sessionTraineesForEvals.length === 0 ? <p className="text-gray-500">Aucun stagiaire avec présence validée</p> : (
               <div className="space-y-4">
                 {sessionTraineesForEvals.map(t => {
