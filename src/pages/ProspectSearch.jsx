@@ -126,11 +126,35 @@ export default function ProspectSearch() {
   const [radiusKm, setRadiusKm] = useState(30)
   const [departementsSelected, setDepartementsSelected] = useState([])
   
-  // Critères entreprise
-  const [effectifMin, setEffectifMin] = useState(10)
-  const [effectifMax, setEffectifMax] = useState(500)
+  // Critères entreprise - NOUVEAU SYSTÈME TRANCHES
+  const [tranchesEffectif, setTranchesEffectif] = useState([]) // Codes INSEE sélectionnés
   const [formesJuridiques, setFormesJuridiques] = useState(['SARL', 'SAS', 'SASU', 'SA'])
   const [secteursSelected, setSecteursSelected] = useState([])
+  
+  // Mapping tranches effectif INSEE
+  const TRANCHES_EFFECTIF = [
+    { code: '01', label: '1-2 salariés', min: 1, max: 2 },
+    { code: '02', label: '3-5 salariés', min: 3, max: 5 },
+    { code: '03', label: '6-9 salariés', min: 6, max: 9 },
+    { code: '11', label: '10-19 salariés', min: 10, max: 19 },
+    { code: '12', label: '20-49 salariés', min: 20, max: 49 },
+    { code: '21', label: '50-99 salariés', min: 50, max: 99 },
+    { code: '22', label: '100-199 salariés', min: 100, max: 199 },
+    { code: '31', label: '200-249 salariés', min: 200, max: 249 },
+    { code: '32', label: '250-499 salariés', min: 250, max: 499 },
+    { code: '41', label: '500-999 salariés', min: 500, max: 999 },
+    { code: '42', label: '1 000-1 999 salariés', min: 1000, max: 1999 },
+    { code: '51', label: '2 000-4 999 salariés', min: 2000, max: 4999 },
+    { code: '52', label: '5 000-9 999 salariés', min: 5000, max: 9999 },
+    { code: '53', label: '10 000+ salariés', min: 10000, max: 999999 }
+  ]
+  
+  // Helper: Convertir code INSEE en label
+  const getEffectifLabel = (code) => {
+    if (!code) return 'Non renseigné'
+    const tranche = TRANCHES_EFFECTIF.find(t => t.code === code)
+    return tranche ? tranche.label : code // Fallback vers code brut si inconnu
+  }
   
   // Résultats
   const [searching, setSearching] = useState(false)
@@ -331,25 +355,16 @@ export default function ProspectSearch() {
             return false
           }
           
-          // FILTRE 3 : Par effectif (approximatif via la tranche)
-          if (r.tranche_effectif_salarie_entreprise || r.tranche_effectif_salarie) {
-            const effectif = r.tranche_effectif_salarie_entreprise || r.tranche_effectif_salarie
-            // Exclure les très petites
-            if (effectif.includes('0 salarié') || 
-                effectif.includes('1 ou 2') || 
-                effectif.includes('3 à 5') || 
-                effectif.includes('6 à 9')) {
-              if (effectifMin >= 10) return false
-            }
-            // Exclure les très grandes
-            if (effectifMax <= 500) {
-              if (effectif.includes('500 à') || 
-                  effectif.includes('1 000 à') || 
-                  effectif.includes('2 000 à') || 
-                  effectif.includes('5 000 à') ||
-                  effectif.includes('10 000')) {
-                return false
-              }
+          // FILTRE 3 : Par effectif (codes INSEE)
+          if (tranchesEffectif.length > 0) {
+            const codeEffectif = r.tranche_effectif_salarie_entreprise || r.tranche_effectif_salarie
+            
+            // Si pas de code effectif, on garde par sécurité
+            if (!codeEffectif) return true
+            
+            // Filtrer par codes sélectionnés
+            if (!tranchesEffectif.includes(codeEffectif)) {
+              return false
             }
           }
           
@@ -383,7 +398,7 @@ export default function ProspectSearch() {
                 ville: etab.libelle_commune,
                 forme_juridique: r.nature_juridique_entreprise || r.forme_juridique,
                 naf: r.activite_principale,
-                effectif: r.tranche_effectif_salarie_entreprise || r.tranche_effectif_salarie,
+                effectif: getEffectifLabel(r.tranche_effectif_salarie_entreprise || r.tranche_effectif_salarie),
                 telephone: etab.telephone || null,
                 email: etab.courriel || null,
                 site_web: etab.site_internet || null,
@@ -419,7 +434,7 @@ export default function ProspectSearch() {
               ville: r.siege?.libelle_commune || r.libelle_commune,
               forme_juridique: r.nature_juridique_entreprise || r.forme_juridique,
               naf: r.activite_principale,
-              effectif: r.tranche_effectif_salarie_entreprise || r.tranche_effectif_salarie,
+              effectif: getEffectifLabel(r.tranche_effectif_salarie_entreprise || r.tranche_effectif_salarie),
               telephone: r.siege?.telephone || null,
               email: r.siege?.courriel || null,
               site_web: r.siege?.site_internet || null,
@@ -450,7 +465,7 @@ export default function ProspectSearch() {
           quality_score: calculateQualityScore(p), // Calcul du score
           suggested_formations: suggestFormations(p), // Suggestions formations
         }))
-        .slice(0, 100)
+        .slice(0, 500) // LIMITE AUGMENTÉE À 500 POUR PHONING MASSIF
       
       if (enrichedResults.length === 0) {
         toast.error('Aucun prospect trouvé après filtrage. Essayez des critères plus larges.')
@@ -489,8 +504,7 @@ export default function ProspectSearch() {
           ville,
           radius_km: radiusKm,
           departements: departementsSelected,
-          effectif_min: effectifMin,
-          effectif_max: effectifMax,
+          tranches_effectif: tranchesEffectif,
         },
         nb_results: enrichedResults.length,
         searched_by: 'Hicham',
@@ -830,33 +844,37 @@ export default function ProspectSearch() {
           )}
         </div>
 
-        {/* Effectifs */}
+        {/* Effectifs - NOUVEAU SYSTÈME TRANCHES */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
             👥 Effectif
           </label>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm text-gray-600 mb-1">Minimum</label>
-              <input
-                type="number"
-                value={effectifMin}
-                onChange={(e) => setEffectifMin(Number(e.target.value))}
-                min="0"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-gray-600 mb-1">Maximum</label>
-              <input
-                type="number"
-                value={effectifMax}
-                onChange={(e) => setEffectifMax(Number(e.target.value))}
-                min="0"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-              />
-            </div>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+            {TRANCHES_EFFECTIF.map(tranche => (
+              <button
+                key={tranche.code}
+                onClick={() => {
+                  setTranchesEffectif(prev =>
+                    prev.includes(tranche.code)
+                      ? prev.filter(c => c !== tranche.code)
+                      : [...prev, tranche.code]
+                  )
+                }}
+                className={`px-3 py-2 rounded-lg border text-sm text-left ${
+                  tranchesEffectif.includes(tranche.code)
+                    ? 'bg-primary-500 text-white border-primary-500'
+                    : 'bg-white text-gray-700 border-gray-300 hover:border-primary-300'
+                }`}
+              >
+                {tranche.label}
+              </button>
+            ))}
           </div>
+          {tranchesEffectif.length > 0 && (
+            <p className="text-xs text-gray-500 mt-2">
+              {tranchesEffectif.length} tranche{tranchesEffectif.length > 1 ? 's' : ''} sélectionnée{tranchesEffectif.length > 1 ? 's' : ''}
+            </p>
+          )}
         </div>
 
         {/* Formes juridiques */}
