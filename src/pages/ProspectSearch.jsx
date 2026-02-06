@@ -259,16 +259,25 @@ export default function ProspectSearch() {
     setSelectedResults([])
     setSearchProgress('Préparation de la recherche...')
     
+    // Message info pour recherche approfondie
+    toast.info(
+      '🔍 Recherche approfondie : récupération maximale des prospects (jusqu\'à 5000). ' +
+      'Temps estimé : 2-3 minutes.',
+      { duration: 5000 }
+    )
+    
     try {
       // Construction de la requête API
       let apiUrl = 'https://recherche-entreprises.api.gouv.fr/search?'
       const params = new URLSearchParams()
       
       // LOG DÉBUT RECHERCHE
-      console.group('🔍 NOUVELLE RECHERCHE LANCÉE')
+      console.group('🔍 NOUVELLE RECHERCHE LANCÉE - MODE BATCH MENSUEL')
       console.log('📍 Mode:', searchMode)
       console.log('🏢 Formes juridiques:', formesJuridiques)
       console.log('👥 Tranches effectif:', tranchesEffectif.length > 0 ? tranchesEffectif : 'AUCUN FILTRE (tous effectifs)')
+      console.log('📦 Pagination: 200 pages max (5000 résultats)')
+      console.log('⏱️ Temps estimé: 2-3 minutes')
       
       // Zone géographique
       if (searchMode === 'ville' && villeSelected) {
@@ -294,11 +303,19 @@ export default function ProspectSearch() {
       // Limiter les résultats (max 25 par l'API)
       params.append('per_page', '25')
       
-      // Faire 4 appels (pages 1-4) pour obtenir jusqu'à 100 résultats
+      // Faire 200 appels (pages 1-200) pour obtenir jusqu'à 5000 résultats
+      // Mode BATCH MENSUEL : on récupère le MAX pour avoir toutes les PME
       const allResults = []
+      const maxPages = 200
+      const startTime = Date.now()
       
-      for (let page = 1; page <= 4; page++) {
-        setSearchProgress(`Recherche en cours... ${allResults.length} prospects (page ${page}/4)`)
+      for (let page = 1; page <= maxPages; page++) {
+        const elapsed = Math.floor((Date.now() - startTime) / 1000)
+        const minutes = Math.floor(elapsed / 60)
+        const seconds = elapsed % 60
+        setSearchProgress(
+          `🔄 Page ${page}/${maxPages} | 📦 ${allResults.length} prospects | ⏱️ ${minutes}m ${seconds}s`
+        )
         
         const pageParams = new URLSearchParams(params)
         pageParams.append('page', page)
@@ -506,7 +523,7 @@ export default function ProspectSearch() {
           quality_score: calculateQualityScore(p), // Calcul du score
           suggested_formations: suggestFormations(p), // Suggestions formations
         }))
-        .slice(0, 500) // LIMITE AUGMENTÉE À 500 POUR PHONING MASSIF
+        .slice(0, 5000) // LIMITE MAX 5000 POUR BATCH MENSUEL
       
       // SYSTÈME ANTI-ERREUR : Diagnostic détaillé si 0 résultat
       if (enrichedResults.length === 0) {
@@ -587,7 +604,14 @@ export default function ProspectSearch() {
         searched_by: 'Hicham',
       })
       
-      toast.success(`${enrichedResults.length} prospects trouvés !`)
+      const elapsed = Math.floor((Date.now() - startTime) / 1000)
+      const minutes = Math.floor(elapsed / 60)
+      const seconds = elapsed % 60
+      
+      toast.success(
+        `✅ ${enrichedResults.length} prospects trouvés sur ${allResults.length} entreprises analysées ! ⏱️ ${minutes}m ${seconds}s`,
+        { duration: 6000 }
+      )
       
     } catch (error) {
       console.error('Erreur recherche:', error)
