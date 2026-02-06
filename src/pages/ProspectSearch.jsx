@@ -57,17 +57,20 @@ export default function ProspectSearch() {
     setSelectedResults([])
     
     try {
-      // Construction de la requête API - VERSION SIMPLIFIÉE QUI FONCTIONNE
+      // Construction de la requête API - VERSION ULTRA SIMPLIFIÉE
       let apiUrl = 'https://recherche-entreprises.api.gouv.fr/search?'
       const params = new URLSearchParams()
       
-      // Zone géographique
+      // Zone géographique - SIMPLIFIÉ
       if (searchMode === 'ville' && ville) {
-        // Recherche par commune
-        params.append('commune', ville)
+        // Recherche textuelle simple (l'API cherchera dans tous les champs)
+        params.append('q', ville)
       } else if (searchMode === 'departement' && departementsSelected.length > 0) {
-        // Recherche par département
+        // Recherche par département (ça c'est supporté)
         params.append('departement', departementsSelected.join(','))
+      } else {
+        // Fallback : recherche large
+        params.append('q', ville || 'Bretagne')
       }
       
       // Statut actif uniquement
@@ -83,10 +86,14 @@ export default function ProspectSearch() {
       const response = await fetch(apiUrl)
       
       if (!response.ok) {
+        const errorText = await response.text()
+        console.error('API Error Response:', errorText)
         throw new Error(`API error: ${response.status}`)
       }
       
       const data = await response.json()
+      
+      console.log('API Response:', data)
       
       if (!data.results || data.results.length === 0) {
         toast.error('Aucun prospect trouvé avec ces critères')
@@ -94,25 +101,42 @@ export default function ProspectSearch() {
         return
       }
       
-      // Enrichir et filtrer les résultats
+      // Enrichir et FILTRER les résultats côté client
       let enrichedResults = data.results
         .filter(r => {
-          // Filtrer par effectif si disponible
-          if (r.tranche_effectif_salarie) {
-            const effectif = r.tranche_effectif_salarie
-            // Exclure les très petites entreprises (moins de 10 salariés)
-            if (effectif.includes('0') || effectif.includes('1 ou 2') || effectif.includes('3 à 5') || effectif.includes('6 à 9')) {
-              return false
-            }
-            // Exclure les très grandes (plus de 500 si max est 500)
-            if (effectifMax < 500 && (effectif.includes('500') || effectif.includes('1000') || effectif.includes('2000') || effectif.includes('5000'))) {
+          // FILTRE 1 : Par ville (si mode ville)
+          if (searchMode === 'ville' && ville) {
+            const rVille = (r.siege?.libelle_commune || r.libelle_commune || '').toLowerCase()
+            if (!rVille.includes(ville.toLowerCase())) {
               return false
             }
           }
           
-          // Exclure les auto-entrepreneurs (nature juridique 1000)
+          // FILTRE 2 : Exclure auto-entrepreneurs
           if (r.nature_juridique === '1000') {
             return false
+          }
+          
+          // FILTRE 3 : Par effectif (approximatif via la tranche)
+          if (r.tranche_effectif_salarie_entreprise || r.tranche_effectif_salarie) {
+            const effectif = r.tranche_effectif_salarie_entreprise || r.tranche_effectif_salarie
+            // Exclure les très petites
+            if (effectif.includes('0 salarié') || 
+                effectif.includes('1 ou 2') || 
+                effectif.includes('3 à 5') || 
+                effectif.includes('6 à 9')) {
+              if (effectifMin >= 10) return false
+            }
+            // Exclure les très grandes
+            if (effectifMax <= 500) {
+              if (effectif.includes('500 à') || 
+                  effectif.includes('1 000 à') || 
+                  effectif.includes('2 000 à') || 
+                  effectif.includes('5 000 à') ||
+                  effectif.includes('10 000')) {
+                return false
+              }
+            }
           }
           
           return true
@@ -133,10 +157,10 @@ export default function ProspectSearch() {
           date_creation: r.date_creation,
           tva: r.numero_tva_intra,
         }))
-        .slice(0, 100) // Limiter à 100 résultats max
+        .slice(0, 100) // Limiter à 100 max
       
       if (enrichedResults.length === 0) {
-        toast.error('Aucun prospect trouvé avec ces critères (après filtrage)')
+        toast.error('Aucun prospect trouvé après filtrage. Essayez des critères plus larges.')
         setSearching(false)
         return
       }
@@ -156,10 +180,10 @@ export default function ProspectSearch() {
       }
       
       setResults(enrichedResults)
-      setSelectedResults(enrichedResults.map((_, i) => i)) // Tout sélectionner par défaut
+      setSelectedResults(enrichedResults.map((_, i) => i))
       setShowResults(true)
       
-      // Enregistrer l'historique de recherche
+      // Enregistrer l'historique
       await supabase.from('prospect_search_history').insert({
         search_criteria: {
           search_mode: searchMode,
@@ -168,11 +192,9 @@ export default function ProspectSearch() {
           departements: departementsSelected,
           effectif_min: effectifMin,
           effectif_max: effectifMax,
-          formes_juridiques: formesJuridiques,
-          secteurs: secteursSelected,
         },
         nb_results: enrichedResults.length,
-        searched_by: 'Hicham', // À adapter avec l'utilisateur connecté
+        searched_by: 'Hicham',
       })
       
       toast.success(`${enrichedResults.length} prospects trouvés !`)
