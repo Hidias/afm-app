@@ -34,7 +34,7 @@ import QualiteEditables from './pages/QualiteEditables'
 import Completude from './pages/Completude'
 import Login from './pages/Login'
 // ========== NOUVEAU : Pages Prospection ==========
-import Prospection from './pages/Prospection'
+import ProspectionTabs from './pages/ProspectionTabs'
 import ProspectRDVDetail from './pages/ProspectRDVDetail'
 // ========== NOUVEAU : Configuration Email ==========
 import EmailSettings from './pages/EmailSettings'
@@ -141,7 +141,7 @@ export default function App() {
           <Route path="clients" element={<Clients />} />
           <Route path="clients/:id" element={<ClientDetail />} />
           {/* ========== NOUVEAU : Routes Prospection ========== */}
-          <Route path="prospection" element={<Prospection />} />
+          <Route path="prospection" element={<ProspectionTabs />} />
           <Route path="prospection/:id" element={<ProspectRDVDetail />} />
           {/* ================================================== */}
           <Route path="formations" element={<Courses />} />
