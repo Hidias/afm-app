@@ -518,12 +518,18 @@ export default function ProspectSearch() {
             if (etab.distance !== null && etab.distance !== undefined) {
               // Rejeter si hors du rayon
               if (etab.distance > radiusKm) {
+                console.log(`❌ Rejeté (hors rayon): ${etab.nom_complet} - ${etab.ville} - ${etab.distance.toFixed(1)}km`)
                 return false
               }
+              console.log(`✅ Gardé (dans rayon): ${etab.nom_complet} - ${etab.ville} - ${etab.distance.toFixed(1)}km`)
+              return true
+            } else {
+              // CORRECTION : En mode ville, rejeter ceux sans GPS !
+              console.log(`❌ Rejeté (pas de GPS): ${etab.nom_complet} - ${etab.ville}`)
+              return false
             }
-            // Si pas de GPS, on garde pour l'instant (Hicham affinera plus tard)
           }
-          return true
+          return true // En mode département, on garde tout
         })
         .map(p => ({
           ...p,
@@ -573,6 +579,41 @@ export default function ProspectSearch() {
       
       // LOG SUCCÈS
       console.log(`✅ ${enrichedResults.length} prospects trouvés après filtrage (${allResults.length} résultats API bruts)`)
+      
+      // Détecter les entreprises avec plusieurs établissements
+      const companyGroups = {}
+      enrichedResults.forEach(r => {
+        const companyName = r.nom_complet
+        if (!companyGroups[companyName]) {
+          companyGroups[companyName] = []
+        }
+        companyGroups[companyName].push(r)
+      })
+      
+      const companiesWithMultipleEstablishments = Object.entries(companyGroups)
+        .filter(([_, establishments]) => establishments.length > 1)
+        .map(([name, establishments]) => ({ name, count: establishments.length }))
+      
+      if (companiesWithMultipleEstablishments.length > 0) {
+        console.group('ℹ️ ENTREPRISES AVEC PLUSIEURS ÉTABLISSEMENTS')
+        companiesWithMultipleEstablishments.forEach(c => {
+          console.log(`  📍 ${c.name}: ${c.count} établissements`)
+        })
+        console.groupEnd()
+        
+        toast(
+          `ℹ️ ${companiesWithMultipleEstablishments.length} entreprise(s) avec plusieurs établissements locaux détectée(s). ` +
+          `Chaque établissement = 1 contact local à appeler.`,
+          { 
+            duration: 8000,
+            icon: '📍',
+            style: {
+              background: '#0ea5e9',
+              color: '#fff',
+            }
+          }
+        )
+      }
       
       // Détecter les doublons dans la base
       const siretsToCheck = enrichedResults
