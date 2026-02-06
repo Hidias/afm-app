@@ -118,13 +118,13 @@ const suggestFormations = (prospect) => {
 
 export default function ProspectSearch() {
   // État recherche
-  const [searchMode, setSearchMode] = useState('ville') // 'ville' ou 'departement'
-  const [ville, setVille] = useState('Concarneau')
+  const [searchMode, setSearchMode] = useState('departement') // 'ville' ou 'departement'
+  const [ville, setVille] = useState('')
   const [villeSuggestions, setVilleSuggestions] = useState([]) // NOUVEAU - Suggestions autocomplétion
   const [villeSelected, setVilleSelected] = useState(null) // NOUVEAU - Ville sélectionnée avec GPS
   const [showSuggestions, setShowSuggestions] = useState(false) // NOUVEAU - Afficher suggestions
   const [radiusKm, setRadiusKm] = useState(30)
-  const [departementsSelected, setDepartementsSelected] = useState(['29', '44'])
+  const [departementsSelected, setDepartementsSelected] = useState([])
   
   // Critères entreprise
   const [effectifMin, setEffectifMin] = useState(10)
@@ -222,7 +222,7 @@ export default function ProspectSearch() {
         setSearchProgress(`Recherche dans ${deptsToSearch.length} départements...`)
       } else if (searchMode === 'ville' && ville) {
         // Fallback si ville tapée mais pas sélectionnée
-        toast.warning('Veuillez sélectionner une ville dans les suggestions')
+        toast.error('⚠️ Veuillez sélectionner une ville dans les suggestions')
         setSearching(false)
         setSearchProgress('')
         return
@@ -295,6 +295,15 @@ export default function ProspectSearch() {
       // Enrichir et FILTRER les résultats côté client
       let enrichedResults = allResults
         .filter(r => {
+          // FILTRE 0 : En mode département, vérifier que le SIÈGE est dans les départements sélectionnés
+          // L'API retourne des entreprises avec établissements dans les départements, mais pas forcément le siège
+          if (searchMode === 'departement' && departementsSelected.length > 0) {
+            const departementSiege = r.siege?.departement || r.departement
+            if (!departementSiege || !departementsSelected.includes(departementSiege)) {
+              return false // Exclure si le siège n'est PAS dans les départements sélectionnés
+            }
+          }
+          
           // FILTRE 1 : Par distance GPS (si mode ville avec GPS)
           if (searchMode === 'ville' && villeSelected && villeSelected.latitude && villeSelected.longitude) {
             // Récupérer coordonnées entreprise
