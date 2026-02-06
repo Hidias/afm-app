@@ -770,7 +770,6 @@ export default function ProspectSearch() {
 
           {/* Liste des résultats */}
           <div className="space-y-2 max-h-96 overflow-y-auto">
-            {sortedResults.map((prospect, originalIndex) => {
             {sortedResults.map((prospect, sortedIndex) => {
               // Trouver l'index original pour la sélection
               const index = results.findIndex(r => r.siret === prospect.siret)
