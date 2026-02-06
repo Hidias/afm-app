@@ -219,10 +219,19 @@ export default function ProspectSearch() {
       // Enrichir et FILTRER les résultats côté client
       let enrichedResults = allResults
         .filter(r => {
-          // FILTRE 1 : Par ville (si mode ville) - Support multi-villes
+          // FILTRE 1 : Par ville (si mode ville) - Matching EXACT de la ville
           if (searchMode === 'ville' && villesFilter.length > 0) {
-            const rVille = (r.siege?.libelle_commune || r.libelle_commune || '').toLowerCase()
-            const matchesAnyVille = villesFilter.some(v => rVille.includes(v))
+            const rVille = (r.siege?.libelle_commune || r.libelle_commune || '')
+              .toLowerCase()
+              .trim()
+              .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // Enlever accents
+            
+            const matchesAnyVille = villesFilter.some(v => {
+              const vNormalized = v.toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+              // Matching EXACT ou début de ville (pour "Concarneau" vs "Concarneau-sur-Mer")
+              return rVille === vNormalized || rVille.startsWith(vNormalized + '-')
+            })
+            
             if (!matchesAnyVille) {
               return false
             }
