@@ -94,6 +94,20 @@ const calculateQualityScore = (prospect) => {
   return Math.min(100, Math.max(0, score))
 }
 
+// Fonction de calcul de distance (formule Haversine)
+const calculateDistance = (lat1, lon1, lat2, lon2) => {
+  const R = 6371 // Rayon de la Terre en km
+  const dLat = (lat2 - lat1) * Math.PI / 180
+  const dLon = (lon2 - lon1) * Math.PI / 180
+  const a = 
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2)
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+  const distance = R * c
+  return Math.round(distance) // Distance en km, arrondie
+}
+
 // Fonction de suggestions formations
 const suggestFormations = (prospect) => {
   if (!prospect.naf) return []
@@ -106,6 +120,9 @@ export default function ProspectSearch() {
   // État recherche
   const [searchMode, setSearchMode] = useState('ville') // 'ville' ou 'departement'
   const [ville, setVille] = useState('Concarneau')
+  const [villeSuggestions, setVilleSuggestions] = useState([]) // NOUVEAU - Suggestions autocomplétion
+  const [villeSelected, setVilleSelected] = useState(null) // NOUVEAU - Ville sélectionnée avec GPS
+  const [showSuggestions, setShowSuggestions] = useState(false) // NOUVEAU - Afficher suggestions
   const [radiusKm, setRadiusKm] = useState(30)
   const [departementsSelected, setDepartementsSelected] = useState(['29', '44'])
   
@@ -127,6 +144,68 @@ export default function ProspectSearch() {
   const [selectedResults, setSelectedResults] = useState([])
   const [importing, setImporting] = useState(false)
 
+  const supabase = createClient(
+    import.meta.env.VITE_SUPABASE_URL,
+    import.meta.env.VITE_SUPABASE_ANON_KEY
+  )
+
+  // Autocomplétion des villes via API geo.gouv.fr
+  const searchCities = async (query) => {
+    if (!query || query.length < 2) {
+      setVilleSuggestions([])
+      setShowSuggestions(false)
+      return
+    }
+    
+    try {
+      const response = await fetch(
+        `https://geo.api.gouv.fr/communes?nom=${encodeURIComponent(query)}&fields=nom,code,codesPostaux,codeDepartement,centre&limit=10`
+      )
+      const cities = await response.json()
+      
+      setVilleSuggestions(cities.map(city => ({
+        nom: city.nom,
+        code: city.code,
+        codePostal: city.codesPostaux?.[0] || '',
+        departement: city.codeDepartement,
+        latitude: city.centre?.coordinates?.[1],
+        longitude: city.centre?.coordinates?.[0]
+      })))
+      setShowSuggestions(true)
+    } catch (error) {
+      console.error('Erreur autocomplétion:', error)
+      setVilleSuggestions([])
+    }
+  }
+
+  // Sélectionner une ville
+  const selectCity = (city) => {
+    setVilleSelected(city)
+    setVille(city.nom)
+    setShowSuggestions(false)
+    setVilleSuggestions([])
+  }
+
+  // Gestionnaire de changement du champ ville
+  const handleVilleChange = (e) => {
+    const value = e.target.value
+    setVille(value)
+    setVilleSelected(null)
+    searchCities(value)
+  }
+
+  // Mapping département → départements voisins
+  const getDepartementVoisins = (dept) => {
+    const voisins = {
+      '29': ['29', '22', '56'],
+      '22': ['22', '29', '35', '56'],
+      '35': ['35', '22', '44', '50', '53'],
+      '44': ['44', '35', '49', '56', '85'],
+      '56': ['56', '29', '22', '44'],
+    }
+    return voisins[dept] || [dept]
+  }
+
   // Recherche via API Annuaire Entreprises
   const handleSearch = async () => {
     setSearching(true)
@@ -141,50 +220,17 @@ export default function ProspectSearch() {
       const params = new URLSearchParams()
       
       // Zone géographique
-      if (searchMode === 'ville' && ville) {
-        // Support multi-villes : "Concarneau, Quimper, Brest"
-        const villes = ville.split(',').map(v => v.trim()).filter(Boolean)
-        
-        // MODE VILLE : On cherche par département puis on filtre
-        // Mapping ville → département (codes postaux)
-        const villesDept = {
-          'concarneau': '29', 'quimper': '29', 'brest': '29', 'morlaix': '29',
-          'quimperlé': '29', 'douarnenez': '29', 'landerneau': '29',
-          'saint-brieuc': '22', 'lannion': '22', 'dinan': '22', 'guingamp': '22',
-          'rennes': '35', 'saint-malo': '35', 'fougères': '35', 'vitré': '35',
-          'vannes': '56', 'lorient': '56', 'pontivy': '56', 'auray': '56',
-          'nantes': '44', 'saint-nazaire': '44', 'rezé': '44', 'saint-herblain': '44',
-          'la baule': '44', 'carquefou': '44', 'orvault': '44', 'vertou': '44'
-        }
-        
-        // Détecter les départements à chercher
-        const deptsToSearch = new Set()
-        villes.forEach(v => {
-          const vLower = v.toLowerCase()
-          const dept = villesDept[vLower]
-          if (dept) {
-            deptsToSearch.add(dept)
-          } else {
-            // Si ville inconnue, essayer de détecter le dept par code postal
-            // 29xxx = 29, 22xxx = 22, etc.
-            const cp = v.match(/^(\d{2})/)?.[1]
-            if (cp && ['22', '29', '35', '44', '56'].includes(cp)) {
-              deptsToSearch.add(cp)
-            }
-          }
-        })
-        
-        // Chercher par département (plus fiable que q=ville)
-        if (deptsToSearch.size > 0) {
-          params.append('departement', Array.from(deptsToSearch).join(','))
-        } else {
-          // Fallback : chercher par nom (mode original)
-          if (villes.length === 1) {
-            params.append('q', villes[0])
-          } else {
-            params.append('q', villes.join(' OR '))
-          }
-        }
+      if (searchMode === 'ville' && villeSelected) {
+        // MODE VILLE avec GPS : Chercher dans département + voisins
+        const deptsToSearch = getDepartementVoisins(villeSelected.departement)
+        params.append('departement', deptsToSearch.join(','))
+        setSearchProgress(`Recherche dans ${deptsToSearch.length} départements...`)
+      } else if (searchMode === 'ville' && ville) {
+        // Fallback si ville tapée mais pas sélectionnée
+        toast.warning('Veuillez sélectionner une ville dans les suggestions')
+        setSearching(false)
+        setSearchProgress('')
+        return
       } else if (searchMode === 'departement' && departementsSelected.length > 0) {
         params.append('departement', departementsSelected.join(','))
       } else {
@@ -254,20 +300,27 @@ export default function ProspectSearch() {
       // Enrichir et FILTRER les résultats côté client
       let enrichedResults = allResults
         .filter(r => {
-          // FILTRE 1 : Par ville (si mode ville) - Matching EXACT de la ville
-          if (searchMode === 'ville' && villesFilter.length > 0) {
-            const rVille = (r.siege?.libelle_commune || r.libelle_commune || '')
-              .toLowerCase()
-              .trim()
-              .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // Enlever accents
+          // FILTRE 1 : Par distance GPS (si mode ville avec GPS)
+          if (searchMode === 'ville' && villeSelected && villeSelected.latitude && villeSelected.longitude) {
+            // Récupérer coordonnées entreprise
+            const lat = r.siege?.latitude || r.latitude
+            const lon = r.siege?.longitude || r.longitude
             
-            const matchesAnyVille = villesFilter.some(v => {
-              const vNormalized = v.toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-              // Matching EXACT ou début de ville (pour "Concarneau" vs "Concarneau-sur-Mer")
-              return rVille === vNormalized || rVille.startsWith(vNormalized + '-')
-            })
+            if (!lat || !lon) {
+              // Pas de coordonnées GPS, on garde quand même (sécurité)
+              return true
+            }
             
-            if (!matchesAnyVille) {
+            // Calculer distance
+            const distance = calculateDistance(
+              villeSelected.latitude,
+              villeSelected.longitude,
+              lat,
+              lon
+            )
+            
+            // Filtrer par rayon
+            if (distance > radiusKm) {
               return false
             }
           }
@@ -332,22 +385,42 @@ export default function ProspectSearch() {
           
           return true
         })
-        .map(r => ({
-          nom_complet: r.nom_complet || r.nom_raison_sociale,
-          siret: r.siege?.siret || r.siret,
-          siren: r.siren,
-          adresse: r.siege?.adresse || r.adresse,
-          code_postal: r.siege?.code_postal || r.code_postal,
-          ville: r.siege?.libelle_commune || r.libelle_commune,
-          forme_juridique: r.nature_juridique_entreprise || r.forme_juridique,
-          naf: r.activite_principale,
-          effectif: r.tranche_effectif_salarie_entreprise || r.tranche_effectif_salarie,
-          telephone: r.siege?.telephone || null,
-          email: r.siege?.courriel || null,
-          site_web: r.siege?.site_internet || null,
-          date_creation: r.date_creation,
-          tva: r.numero_tva_intra,
-        }))
+        .map(r => {
+          // Calculer la distance si mode ville avec GPS
+          let distance = null
+          if (searchMode === 'ville' && villeSelected && villeSelected.latitude && villeSelected.longitude) {
+            const lat = r.siege?.latitude || r.latitude
+            const lon = r.siege?.longitude || r.longitude
+            if (lat && lon) {
+              distance = calculateDistance(
+                villeSelected.latitude,
+                villeSelected.longitude,
+                lat,
+                lon
+              )
+            }
+          }
+          
+          return {
+            nom_complet: r.nom_complet || r.nom_raison_sociale,
+            siret: r.siege?.siret || r.siret,
+            siren: r.siren,
+            adresse: r.siege?.adresse || r.adresse,
+            code_postal: r.siege?.code_postal || r.code_postal,
+            ville: r.siege?.libelle_commune || r.libelle_commune,
+            forme_juridique: r.nature_juridique_entreprise || r.forme_juridique,
+            naf: r.activite_principale,
+            effectif: r.tranche_effectif_salarie_entreprise || r.tranche_effectif_salarie,
+            telephone: r.siege?.telephone || null,
+            email: r.siege?.courriel || null,
+            site_web: r.siege?.site_internet || null,
+            date_creation: r.date_creation,
+            tva: r.numero_tva_intra,
+            latitude: r.siege?.latitude || r.latitude,
+            longitude: r.siege?.longitude || r.longitude,
+            distance: distance, // Distance en km (null si pas de GPS)
+          }
+        })
         .map(p => ({
           ...p,
           quality_score: calculateQualityScore(p), // Calcul du score
@@ -379,6 +452,11 @@ export default function ProspectSearch() {
       setSelectedResults(enrichedResults.map((_, i) => i))
       setShowResults(true)
       setSearchProgress('')
+      
+      // Passer au tri par distance si mode ville avec GPS
+      if (searchMode === 'ville' && villeSelected) {
+        setSortBy('distance')
+      }
       
       // Enregistrer l'historique
       await supabase.from('prospect_search_history').insert({
@@ -416,6 +494,7 @@ export default function ProspectSearch() {
       'Adresse',
       'Code Postal',
       'Ville',
+      'Distance (km)',
       'Téléphone',
       'Email',
       'Site Web',
@@ -431,6 +510,7 @@ export default function ProspectSearch() {
       p.adresse || '',
       p.code_postal || '',
       p.ville || '',
+      p.distance !== null ? p.distance : '',
       p.telephone || '',
       p.email || '',
       p.site_web || '',
@@ -465,7 +545,15 @@ export default function ProspectSearch() {
     if (!isDuplicateA && isDuplicateB) return -1
     
     // Puis trier selon le critère choisi
-    if (sortBy === 'score') {
+    if (sortBy === 'distance') {
+      // Tri par distance (ceux avec distance d'abord, puis par distance croissante)
+      if (a.distance !== null && b.distance === null) return -1
+      if (a.distance === null && b.distance !== null) return 1
+      if (a.distance !== null && b.distance !== null) {
+        return a.distance - b.distance
+      }
+      return 0
+    } else if (sortBy === 'score') {
       return (b.quality_score || 0) - (a.quality_score || 0)
     } else if (sortBy === 'ville') {
       return (a.ville || '').localeCompare(b.ville || '')
@@ -632,35 +720,66 @@ export default function ProspectSearch() {
           </div>
 
           {searchMode === 'ville' ? (
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm text-gray-600 mb-1">Ville(s)</label>
-                <input
-                  type="text"
-                  value={ville}
-                  onChange={(e) => setVille(e.target.value)}
-                  placeholder="Concarneau, Quimper, Brest"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  💡 Séparez par virgules • Cherche dans le département puis filtre par ville
-                </p>
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="relative">
+                  <label className="block text-sm text-gray-600 mb-1">📍 Ville de départ</label>
+                  <input
+                    type="text"
+                    value={ville}
+                    onChange={handleVilleChange}
+                    onFocus={() => ville.length >= 2 && setShowSuggestions(true)}
+                    onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
+                    placeholder="Tapez une ville..."
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  />
+                  {villeSelected && (
+                    <p className="text-xs text-green-600 mt-1">
+                      ✓ {villeSelected.nom} ({villeSelected.codePostal}) - Département {villeSelected.departement}
+                    </p>
+                  )}
+                  
+                  {/* Suggestions autocomplétion */}
+                  {showSuggestions && villeSuggestions.length > 0 && (
+                    <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                      {villeSuggestions.map((city, index) => (
+                        <div
+                          key={index}
+                          onMouseDown={() => selectCity(city)}
+                          className="px-3 py-2 hover:bg-primary-50 cursor-pointer border-b border-gray-100 last:border-b-0"
+                        >
+                          <div className="font-medium text-gray-900">{city.nom}</div>
+                          <div className="text-xs text-gray-500">
+                            {city.codePostal} - Département {city.departement}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                
+                <div>
+                  <label className="block text-sm text-gray-600 mb-1">📏 Rayon de recherche</label>
+                  <div className="space-y-2">
+                    {[10, 20, 30, 50, 100].map(km => (
+                      <label key={km} className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="radius"
+                          value={km}
+                          checked={radiusKm === km}
+                          onChange={(e) => setRadiusKm(parseInt(e.target.value))}
+                          className="text-primary-600 focus:ring-primary-500"
+                        />
+                        <span className="text-sm text-gray-700">{km} km</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
               </div>
-              <div>
-                <label className="block text-sm text-gray-600 mb-1">Rayon (km)</label>
-                <select
-                  value={radiusKm}
-                  onChange={(e) => setRadiusKm(Number(e.target.value))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                >
-                  <option value="0">Ville uniquement</option>
-                  <option value="10">10 km</option>
-                  <option value="20">20 km</option>
-                  <option value="30">30 km</option>
-                  <option value="50">50 km</option>
-                  <option value="100">100 km</option>
-                </select>
-              </div>
+              <p className="text-xs text-gray-500">
+                💡 Sélectionnez une ville dans les suggestions • Distance GPS réelle calculée pour chaque prospect
+              </p>
             </div>
           ) : (
             <div className="flex flex-wrap gap-2">
@@ -788,8 +907,9 @@ export default function ProspectSearch() {
                 onChange={(e) => setSortBy(e.target.value)}
                 className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent"
               >
+                {villeSelected && <option value="distance">📍 Par distance (km)</option>}
                 <option value="score">🏆 Meilleur score</option>
-                <option value="ville">📍 Par ville (A→Z)</option>
+                <option value="ville">🏙️ Par ville (A→Z)</option>
                 <option value="effectif">👥 Par effectif</option>
                 <option value="new">🆕 Nouveaux d'abord</option>
               </select>
@@ -874,6 +994,13 @@ export default function ProspectSearch() {
                             <span className={`px-2 py-0.5 text-xs font-medium rounded ${getScoreColor(prospect.quality_score)}`}>
                               🏆 {prospect.quality_score}/100
                             </span>
+                            
+                            {/* Distance (si disponible) */}
+                            {prospect.distance !== null && (
+                              <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs font-medium rounded">
+                                📍 {prospect.distance} km
+                              </span>
+                            )}
                           </div>
                           
                           {/* Infos entreprise */}
@@ -881,6 +1008,11 @@ export default function ProspectSearch() {
                             <div className="flex items-center gap-2">
                               <MapPin className="w-3 h-3" />
                               {prospect.adresse}, {prospect.code_postal} {prospect.ville}
+                              {prospect.distance !== null && (
+                                <span className="text-blue-600 font-medium">
+                                  • {prospect.distance} km
+                                </span>
+                              )}
                             </div>
                             {prospect.siret && (
                               <div>🔢 SIRET: {prospect.siret}</div>
