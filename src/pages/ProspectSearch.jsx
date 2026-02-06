@@ -295,15 +295,6 @@ export default function ProspectSearch() {
       // Enrichir et FILTRER les résultats côté client
       let enrichedResults = allResults
         .filter(r => {
-          // FILTRE 0 : En mode département, vérifier que le SIÈGE est dans les départements sélectionnés
-          // L'API retourne des entreprises avec établissements dans les départements, mais pas forcément le siège
-          if (searchMode === 'departement' && departementsSelected.length > 0) {
-            const departementSiege = r.siege?.departement || r.departement
-            if (!departementSiege || !departementsSelected.includes(departementSiege)) {
-              return false // Exclure si le siège n'est PAS dans les départements sélectionnés
-            }
-          }
-          
           // FILTRE 1 : Par distance GPS (si mode ville avec GPS)
           if (searchMode === 'ville' && villeSelected && villeSelected.latitude && villeSelected.longitude) {
             // Récupérer coordonnées entreprise
@@ -389,40 +380,80 @@ export default function ProspectSearch() {
           
           return true
         })
-        .map(r => {
-          // Calculer la distance si mode ville avec GPS
-          let distance = null
-          if (searchMode === 'ville' && villeSelected && villeSelected.latitude && villeSelected.longitude) {
-            const lat = r.siege?.latitude || r.latitude
-            const lon = r.siege?.longitude || r.longitude
-            if (lat && lon) {
-              distance = calculateDistance(
-                villeSelected.latitude,
-                villeSelected.longitude,
-                lat,
-                lon
-              )
+        .flatMap(r => {
+          // Si l'entreprise a des établissements correspondants dans la zone, créer un prospect par établissement
+          if (r.matching_etablissements && r.matching_etablissements.length > 0) {
+            return r.matching_etablissements.map(etab => {
+              // Calculer la distance si mode ville avec GPS
+              let distance = null
+              if (searchMode === 'ville' && villeSelected && villeSelected.latitude && villeSelected.longitude) {
+                const lat = etab.latitude
+                const lon = etab.longitude
+                if (lat && lon) {
+                  distance = calculateDistance(
+                    villeSelected.latitude,
+                    villeSelected.longitude,
+                    lat,
+                    lon
+                  )
+                }
+              }
+              
+              return {
+                nom_complet: r.nom_complet || r.nom_raison_sociale,
+                siret: etab.siret, // SIRET de l'établissement local
+                siren: r.siren,
+                adresse: etab.adresse, // Adresse de l'établissement local
+                code_postal: etab.code_postal,
+                ville: etab.libelle_commune,
+                forme_juridique: r.nature_juridique_entreprise || r.forme_juridique,
+                naf: r.activite_principale,
+                effectif: r.tranche_effectif_salarie_entreprise || r.tranche_effectif_salarie,
+                telephone: etab.telephone || null,
+                email: etab.courriel || null,
+                site_web: etab.site_internet || null,
+                date_creation: r.date_creation,
+                tva: r.numero_tva_intra,
+                latitude: etab.latitude,
+                longitude: etab.longitude,
+                distance: distance, // Distance en km (null si pas de GPS)
+              }
+            })
+          } else {
+            // Pas d'établissements correspondants → utiliser le siège (comportement actuel)
+            let distance = null
+            if (searchMode === 'ville' && villeSelected && villeSelected.latitude && villeSelected.longitude) {
+              const lat = r.siege?.latitude || r.latitude
+              const lon = r.siege?.longitude || r.longitude
+              if (lat && lon) {
+                distance = calculateDistance(
+                  villeSelected.latitude,
+                  villeSelected.longitude,
+                  lat,
+                  lon
+                )
+              }
             }
-          }
-          
-          return {
-            nom_complet: r.nom_complet || r.nom_raison_sociale,
-            siret: r.siege?.siret || r.siret,
-            siren: r.siren,
-            adresse: r.siege?.adresse || r.adresse,
-            code_postal: r.siege?.code_postal || r.code_postal,
-            ville: r.siege?.libelle_commune || r.libelle_commune,
-            forme_juridique: r.nature_juridique_entreprise || r.forme_juridique,
-            naf: r.activite_principale,
-            effectif: r.tranche_effectif_salarie_entreprise || r.tranche_effectif_salarie,
-            telephone: r.siege?.telephone || null,
-            email: r.siege?.courriel || null,
-            site_web: r.siege?.site_internet || null,
-            date_creation: r.date_creation,
-            tva: r.numero_tva_intra,
-            latitude: r.siege?.latitude || r.latitude,
-            longitude: r.siege?.longitude || r.longitude,
-            distance: distance, // Distance en km (null si pas de GPS)
+            
+            return [{
+              nom_complet: r.nom_complet || r.nom_raison_sociale,
+              siret: r.siege?.siret || r.siret,
+              siren: r.siren,
+              adresse: r.siege?.adresse || r.adresse,
+              code_postal: r.siege?.code_postal || r.code_postal,
+              ville: r.siege?.libelle_commune || r.libelle_commune,
+              forme_juridique: r.nature_juridique_entreprise || r.forme_juridique,
+              naf: r.activite_principale,
+              effectif: r.tranche_effectif_salarie_entreprise || r.tranche_effectif_salarie,
+              telephone: r.siege?.telephone || null,
+              email: r.siege?.courriel || null,
+              site_web: r.siege?.site_internet || null,
+              date_creation: r.date_creation,
+              tva: r.numero_tva_intra,
+              latitude: r.siege?.latitude || r.latitude,
+              longitude: r.siege?.longitude || r.longitude,
+              distance: distance,
+            }]
           }
         })
         .map(p => ({
