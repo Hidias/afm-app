@@ -1,13 +1,65 @@
 import { useEffect, useState, useRef } from 'react'
 import { useDataStore } from '../lib/store'
 import { supabase } from '../lib/supabase'
-import { Plus, Search, Edit, Trash2, X, Save, Building2, Mail, Phone, MapPin, User, Eye, Users, Upload, FileSpreadsheet, FileText } from 'lucide-react'
+import { Plus, Search, Edit, Trash2, X, Save, Building2, Mail, Phone, MapPin, User, Eye, Users, Upload, FileSpreadsheet, FileText, RefreshCw, CheckCircle, AlertCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 // Formatage nom entreprise (majuscules)
 const formatCompanyName = (value) => {
   if (!value) return ''
   return value.toUpperCase()
+}
+
+// ═══════════════════════════════════════════════════════════
+// ENRICHISSEMENT AUTOMATIQUE VIA API ANNUAIRE ENTREPRISES (GRATUITE)
+// ═══════════════════════════════════════════════════════════
+const enrichProspectWithAPI = async (name, city) => {
+  try {
+    const query = `${name} ${city}`.trim()
+    const url = `https://recherche-entreprises.api.gouv.fr/search?q=${encodeURIComponent(query)}&per_page=1`
+    
+    const response = await fetch(url)
+    if (!response.ok) return null
+    
+    const data = await response.json()
+    
+    if (data.results && data.results.length > 0) {
+      const company = data.results[0]
+      const siege = company.siege || {}
+      
+      // Construire l'adresse complète
+      const addressParts = [
+        siege.numero_voie,
+        siege.type_voie,
+        siege.libelle_voie,
+        siege.code_postal,
+        siege.libelle_commune
+      ].filter(Boolean)
+      
+      return {
+        enriched: true,
+        siret: siege.siret || '',
+        name: company.nom_complet || company.nom_raison_sociale || name,
+        address: addressParts.join(' '),
+        city: siege.libelle_commune || city,
+        postal_code: siege.code_postal || '',
+        phone: siege.telephone || '',
+        email: siege.email || '',
+        website: siege.site_internet || '',
+        tva: company.numero_tva_intra || '',
+        legal_form: company.forme_juridique || '',
+        activity: company.activite_principale || '',
+        naf_code: company.section_activite_principale || '',
+        employees: company.tranche_effectif_salarie || '',
+        created_date: company.date_creation || ''
+      }
+    }
+    
+    return null
+  } catch (error) {
+    console.error('Erreur enrichissement API:', error)
+    return null
+  }
 }
 
 // Parser CSV Sellsy (séparateur ;, encodage ISO-8859-1)
@@ -215,19 +267,17 @@ const parseProspectText = (text) => {
   // Nettoyer et formater
   return prospects.map(p => ({
     name: p.name.toUpperCase(),
-    address: `${p.ville}${p.postal_code ? ' ' + p.postal_code : ''}`,
     city: p.ville,
     postal_code: p.postal_code,
-    notes: [
-      p.legal_form && `Forme juridique: ${p.legal_form}`,
-      p.activity && `Activité: ${p.activity}`,
-      p.naf_code && `Code NAF: ${p.naf_code}`,
-      p.effectif && `Effectif: ${p.effectif}`,
-      p.capital && `Capital: ${p.capital}`
-    ].filter(Boolean).join('\n'),
-    contact_email: '',
-    contact_phone: '',
-    contacts: []
+    parsed_data: {
+      legal_form: p.legal_form,
+      activity: p.activity,
+      naf_code: p.naf_code,
+      effectif: p.effectif,
+      capital: p.capital
+    },
+    enriched: false,
+    enriching: false
   }))
 }
 
@@ -269,6 +319,7 @@ export default function Clients() {
   const [importPreview, setImportPreview] = useState(null)
   const [showTextImport, setShowTextImport] = useState(false)
   const [textImportValue, setTextImportValue] = useState('')
+  const [enriching, setEnriching] = useState(false)
   const fileInputRef = useRef(null)
   const [form, setForm] = useState({
     name: '', siret: '', address: '', email: '', phone: '', contact_name: '', contact_function: '', notes: '', status: 'prospect'
@@ -369,7 +420,7 @@ export default function Clients() {
     }
   }
   
-  const handleTextImportAnalyze = () => {
+  const handleTextImportAnalyze = async () => {
     if (!textImportValue.trim()) {
       return toast.error('Veuillez coller du texte')
     }
@@ -382,24 +433,142 @@ export default function Clients() {
         return
       }
       
-      setImportPreview(prospects)
       setShowTextImport(false)
       setTextImportValue('')
+      
+      // ═══════════════════════════════════════════════════════════
+      // ENRICHISSEMENT AUTOMATIQUE
+      // ═══════════════════════════════════════════════════════════
+      toast.loading('🤖 Enrichissement automatique en cours...', { id: 'enriching' })
+      setEnriching(true)
+      
+      const enrichedProspects = []
+      for (const prospect of prospects) {
+        const enriched = await enrichProspectWithAPI(prospect.name, prospect.city)
+        
+        if (enriched) {
+          // Fusionner les données parsées avec les données enrichies
+          const notes = [
+            enriched.legal_form && `Forme juridique: ${enriched.legal_form}`,
+            enriched.activity && `Activité: ${enriched.activity}`,
+            enriched.naf_code && `Code NAF: ${enriched.naf_code}`,
+            enriched.employees && `Effectif: ${enriched.employees}`,
+            enriched.created_date && `Créé le: ${enriched.created_date}`,
+            prospect.parsed_data.capital && `Capital: ${prospect.parsed_data.capital}`
+          ].filter(Boolean).join('\n')
+          
+          enrichedProspects.push({
+            ...enriched,
+            notes,
+            contacts: [],
+            selected: true // Sélectionné par défaut si enrichi
+          })
+        } else {
+          // Prospect non enrichi - NON sélectionné par défaut
+          enrichedProspects.push({
+            name: prospect.name,
+            city: prospect.city,
+            postal_code: prospect.postal_code,
+            address: `${prospect.city}${prospect.postal_code ? ' ' + prospect.postal_code : ''}`,
+            enriched: false,
+            siret: '',
+            phone: '',
+            email: '',
+            website: '',
+            tva: '',
+            notes: [
+              prospect.parsed_data.legal_form && `Forme juridique: ${prospect.parsed_data.legal_form}`,
+              prospect.parsed_data.activity && `Activité: ${prospect.parsed_data.activity}`,
+              prospect.parsed_data.naf_code && `Code NAF: ${prospect.parsed_data.naf_code}`,
+              prospect.parsed_data.effectif && `Effectif: ${prospect.parsed_data.effectif}`,
+              prospect.parsed_data.capital && `Capital: ${prospect.parsed_data.capital}`
+            ].filter(Boolean).join('\n'),
+            contacts: [],
+            selected: false // NON sélectionné si non enrichi
+          })
+        }
+      }
+      
+      setEnriching(false)
+      toast.dismiss('enriching')
+      
+      const enrichedCount = enrichedProspects.filter(p => p.enriched).length
+      const notEnrichedCount = enrichedProspects.filter(p => !p.enriched).length
+      
+      toast.success(`✅ ${enrichedCount} enrichi(s) • ⚠️ ${notEnrichedCount} non enrichi(s)`)
+      
+      setImportPreview(enrichedProspects)
     } catch (err) {
       console.error('Erreur parsing texte:', err)
       toast.error('Erreur lors de l\'analyse du texte')
+      setEnriching(false)
+      toast.dismiss('enriching')
     }
+  }
+  
+  // ═══════════════════════════════════════════════════════════
+  // RÉESSAYER ENRICHISSEMENT
+  // ═══════════════════════════════════════════════════════════
+  const retryEnrichment = async (index) => {
+    const prospect = importPreview[index]
+    if (!prospect || prospect.enriching) return
+    
+    const newPreview = [...importPreview]
+    newPreview[index] = { ...prospect, enriching: true }
+    setImportPreview(newPreview)
+    
+    const enriched = await enrichProspectWithAPI(prospect.name, prospect.city)
+    
+    if (enriched) {
+      const notes = [
+        enriched.legal_form && `Forme juridique: ${enriched.legal_form}`,
+        enriched.activity && `Activité: ${enriched.activity}`,
+        enriched.naf_code && `Code NAF: ${enriched.naf_code}`,
+        enriched.employees && `Effectif: ${enriched.employees}`,
+        enriched.created_date && `Créé le: ${enriched.created_date}`
+      ].filter(Boolean).join('\n')
+      
+      newPreview[index] = {
+        ...enriched,
+        notes: notes || prospect.notes,
+        contacts: [],
+        selected: true,
+        enriching: false
+      }
+      toast.success('✅ Enrichissement réussi !')
+    } else {
+      newPreview[index] = { ...prospect, enriching: false }
+      toast.error('⚠️ Enrichissement échoué')
+    }
+    
+    setImportPreview(newPreview)
+  }
+  
+  // ═══════════════════════════════════════════════════════════
+  // COCHER / DÉCOCHER UN PROSPECT
+  // ═══════════════════════════════════════════════════════════
+  const toggleProspectSelection = (index) => {
+    const newPreview = [...importPreview]
+    newPreview[index] = { ...newPreview[index], selected: !newPreview[index].selected }
+    setImportPreview(newPreview)
   }
   
   const executeImport = async () => {
     if (!importPreview || importing) return
+    
+    // Importer uniquement les prospects sélectionnés
+    const toImport = importPreview.filter(p => p.selected !== false)
+    
+    if (toImport.length === 0) {
+      return toast.error('Aucun prospect sélectionné')
+    }
     
     setImporting(true)
     let created = 0
     let skipped = 0
     
     try {
-      for (const societe of importPreview) {
+      for (const societe of toImport) {
         // Vérifier si existe déjà (SIRET ou nom exact)
         const exists = (societe.siret && clients.find(c => c.siret === societe.siret)) ||
                        clients.find(c => c.name?.toUpperCase() === societe.name?.toUpperCase())
@@ -416,10 +585,10 @@ export default function Clients() {
             name: societe.name,
             siret: societe.siret || null,
             address: societe.address || null,
-            contact_email: societe.contact_email || null,
-            contact_phone: societe.contact_phone || null,
+            contact_email: societe.email || null,
+            contact_phone: societe.phone || null,
             notes: societe.notes || null,
-            status: 'a_completer', // Statut "À compléter" pour prospects importés
+            status: 'a_completer',
             city: societe.city || null,
             postal_code: societe.postal_code || null
           })
@@ -763,7 +932,7 @@ export default function Clients() {
       {/* Modal Import Texte */}
       {showTextImport && (
         <div className="fixed inset-0 z-50 overflow-y-auto">
-          <div className="fixed inset-0 bg-black/50" onClick={() => setShowTextImport(false)} />
+          <div className="fixed inset-0 bg-black/50" onClick={() => !enriching && setShowTextImport(false)} />
           <div className="relative min-h-full flex items-center justify-center p-4">
             <div className="relative bg-white rounded-xl shadow-xl w-full max-w-3xl max-h-[90vh] overflow-hidden">
               <div className="flex items-center justify-between p-4 border-b bg-purple-50">
@@ -771,10 +940,10 @@ export default function Clients() {
                   <FileText className="w-6 h-6 text-purple-600" />
                   <div>
                     <h2 className="text-lg font-semibold">Import prospects en masse</h2>
-                    <p className="text-sm text-gray-600">Pappers, Infogreffe, Societe.com...</p>
+                    <p className="text-sm text-gray-600">Pappers, Infogreffe + 🤖 Enrichissement auto ✨</p>
                   </div>
                 </div>
-                <button onClick={() => setShowTextImport(false)}><X className="w-5 h-5" /></button>
+                {!enriching && <button onClick={() => setShowTextImport(false)}><X className="w-5 h-5" /></button>}
               </div>
               
               <div className="p-4">
@@ -785,25 +954,36 @@ export default function Clients() {
                   value={textImportValue}
                   onChange={(e) => setTextImportValue(e.target.value)}
                   placeholder="GARDEN CONCEPTS&#10;Forme Juridique&#10;EURL&#10;Activité&#10;Services d'aménagement paysager&#10;Code NAF : 81.30Z&#10;Lieu&#10;PLOUDALMEZEAU&#10;Code postal : 29830&#10;Effectif : Entre 10 et 19 salariés&#10;..."
+                  disabled={enriching}
                 />
               </div>
               
               <div className="flex items-center justify-between p-4 border-t bg-gray-50">
                 <p className="text-sm text-gray-600">
-                  Les prospects seront créés avec le statut "À compléter"
+                  {enriching ? '🤖 Enrichissement automatique en cours...' : '🤖 API Gratuite • SIRET, Tel, Email, Site web'}
                 </p>
                 <div className="flex gap-2">
                   <button 
                     onClick={() => setShowTextImport(false)} 
                     className="btn btn-secondary"
+                    disabled={enriching}
                   >
                     Annuler
                   </button>
                   <button 
                     onClick={handleTextImportAnalyze} 
                     className="btn btn-primary flex items-center gap-2"
+                    disabled={enriching}
                   >
-                    <Search className="w-4 h-4" /> Analyser
+                    {enriching ? (
+                      <>
+                        <span className="animate-spin">⏳</span> Enrichissement...
+                      </>
+                    ) : (
+                      <>
+                        <Search className="w-4 h-4" /> Analyser & Enrichir
+                      </>
+                    )}
                   </button>
                 </div>
               </div>
@@ -812,18 +992,22 @@ export default function Clients() {
         </div>
       )}
       
-      {/* Modal Import Preview (Sellsy ou Texte) */}
+      {/* Modal Import Preview AVEC ENRICHISSEMENT */}
       {importPreview && (
         <div className="fixed inset-0 z-50 overflow-y-auto">
           <div className="fixed inset-0 bg-black/50" onClick={() => !importing && setImportPreview(null)} />
           <div className="relative min-h-full flex items-center justify-center p-4">
-            <div className="relative bg-white rounded-xl shadow-xl w-full max-w-3xl max-h-[90vh] overflow-hidden">
+            <div className="relative bg-white rounded-xl shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden">
               <div className="flex items-center justify-between p-4 border-b bg-blue-50">
                 <div className="flex items-center gap-3">
                   <FileSpreadsheet className="w-6 h-6 text-blue-600" />
                   <div>
                     <h2 className="text-lg font-semibold">Prévisualisation import</h2>
-                    <p className="text-sm text-gray-600">{importPreview.length} prospect(s) détecté(s)</p>
+                    <p className="text-sm text-gray-600">
+                      {importPreview.length} prospect(s) • 
+                      {' '}{importPreview.filter(p => p.enriched).length} enrichi(s) ✅ • 
+                      {' '}{importPreview.filter(p => !p.enriched).length} non enrichi(s) ⚠️
+                    </p>
                   </div>
                 </div>
                 {!importing && <button onClick={() => setImportPreview(null)}><X className="w-5 h-5" /></button>}
@@ -831,46 +1015,97 @@ export default function Clients() {
               
               <div className="p-4 overflow-y-auto max-h-[60vh]">
                 <table className="w-full text-sm">
-                  <thead className="bg-gray-50">
+                  <thead className="bg-gray-50 sticky top-0">
                     <tr>
+                      <th className="text-center py-2 px-2 font-medium w-10">
+                        <input 
+                          type="checkbox" 
+                          checked={importPreview.every(p => p.selected !== false)}
+                          onChange={(e) => {
+                            const newPreview = importPreview.map(p => ({ ...p, selected: e.target.checked }))
+                            setImportPreview(newPreview)
+                          }}
+                        />
+                      </th>
                       <th className="text-left py-2 px-3 font-medium">Société</th>
                       <th className="text-left py-2 px-3 font-medium">SIRET</th>
-                      <th className="text-left py-2 px-3 font-medium">Email</th>
-                      <th className="text-center py-2 px-3 font-medium">Contacts</th>
+                      <th className="text-left py-2 px-3 font-medium">Contact</th>
+                      <th className="text-center py-2 px-3 font-medium">Statut</th>
+                      <th className="text-center py-2 px-3 font-medium">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y">
-                    {importPreview.slice(0, 50).map((societe, idx) => {
+                    {importPreview.map((societe, idx) => {
                       const exists = (societe.siret && clients.find(c => c.siret === societe.siret)) ||
                                      clients.find(c => c.name?.toUpperCase() === societe.name?.toUpperCase())
                       return (
-                        <tr key={idx} className={exists ? 'bg-yellow-50' : ''}>
+                        <tr key={idx} className={
+                          exists ? 'bg-yellow-50' : 
+                          societe.enriched ? 'bg-green-50' : 
+                          'bg-red-50'
+                        }>
+                          <td className="py-2 px-2 text-center">
+                            <input 
+                              type="checkbox" 
+                              checked={societe.selected !== false}
+                              onChange={() => toggleProspectSelection(idx)}
+                              disabled={exists || societe.enriching}
+                            />
+                          </td>
                           <td className="py-2 px-3">
                             <div className="font-medium">{societe.name}</div>
                             {societe.city && <div className="text-xs text-gray-500">{societe.postal_code} {societe.city}</div>}
+                            {societe.website && <div className="text-xs text-blue-600">🌐 {societe.website}</div>}
                             {exists && <span className="text-xs text-yellow-600">⚠️ Existe déjà</span>}
                           </td>
                           <td className="py-2 px-3 text-gray-600 font-mono text-xs">{societe.siret || '-'}</td>
-                          <td className="py-2 px-3 text-gray-600 text-xs">{societe.contact_email || '-'}</td>
+                          <td className="py-2 px-3 text-xs">
+                            {societe.phone && <div className="text-gray-600">📞 {societe.phone}</div>}
+                            {societe.email && <div className="text-gray-600">📧 {societe.email}</div>}
+                            {!societe.phone && !societe.email && <span className="text-gray-400">-</span>}
+                          </td>
                           <td className="py-2 px-3 text-center">
-                            <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs font-medium">
-                              {societe.contacts?.length || 0}
-                            </span>
+                            {societe.enriching ? (
+                              <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded text-xs">
+                                <span className="animate-spin inline-block">⏳</span>
+                              </span>
+                            ) : societe.enriched ? (
+                              <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-medium inline-flex items-center gap-1">
+                                <CheckCircle className="w-3 h-3" /> Enrichi
+                              </span>
+                            ) : (
+                              <span className="px-2 py-1 bg-red-100 text-red-700 rounded text-xs font-medium inline-flex items-center gap-1">
+                                <AlertCircle className="w-3 h-3" /> Non enrichi
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-2 px-3 text-center">
+                            {!societe.enriched && !societe.enriching && !exists && (
+                              <button
+                                onClick={() => retryEnrichment(idx)}
+                                className="p-1 text-blue-600 hover:bg-blue-50 rounded"
+                                title="Réessayer enrichissement"
+                              >
+                                <RefreshCw className="w-4 h-4" />
+                              </button>
+                            )}
                           </td>
                         </tr>
                       )
                     })}
                   </tbody>
                 </table>
-                {importPreview.length > 50 && (
-                  <p className="text-center text-gray-500 text-sm mt-2">... et {importPreview.length - 50} autres</p>
-                )}
               </div>
               
               <div className="flex items-center justify-between p-4 border-t bg-gray-50">
-                <p className="text-sm text-gray-600">
-                  Les prospects existants (même SIRET ou nom) seront ignorés
-                </p>
+                <div className="text-sm">
+                  <p className="text-gray-600">
+                    ✅ Enrichis : Sélectionnés par défaut (SIRET trouvé)
+                  </p>
+                  <p className="text-gray-600">
+                    ⚠️ Non enrichis : Non sélectionnés (SIRET manquant)
+                  </p>
+                </div>
                 <div className="flex gap-2">
                   <button 
                     onClick={() => setImportPreview(null)} 
@@ -882,7 +1117,7 @@ export default function Clients() {
                   <button 
                     onClick={executeImport} 
                     className="btn btn-primary flex items-center gap-2"
-                    disabled={importing}
+                    disabled={importing || !importPreview.some(p => p.selected !== false)}
                   >
                     {importing ? (
                       <>
@@ -890,7 +1125,7 @@ export default function Clients() {
                       </>
                     ) : (
                       <>
-                        <Upload className="w-4 h-4" /> Importer
+                        <Upload className="w-4 h-4" /> Importer {importPreview.filter(p => p.selected !== false).length} prospect(s)
                       </>
                     )}
                   </button>
