@@ -295,37 +295,12 @@ export default function ProspectSearch() {
       // Enrichir et FILTRER les résultats côté client
       let enrichedResults = allResults
         .filter(r => {
-          // FILTRE 1 : Par distance GPS (si mode ville avec GPS)
-          if (searchMode === 'ville' && villeSelected && villeSelected.latitude && villeSelected.longitude) {
-            // Récupérer coordonnées entreprise
-            const lat = r.siege?.latitude || r.latitude
-            const lon = r.siege?.longitude || r.longitude
-            
-            if (!lat || !lon) {
-              // Pas de coordonnées GPS, on garde quand même (sécurité)
-              return true
-            }
-            
-            // Calculer distance
-            const distance = calculateDistance(
-              villeSelected.latitude,
-              villeSelected.longitude,
-              lat,
-              lon
-            )
-            
-            // Filtrer par rayon
-            if (distance > radiusKm) {
-              return false
-            }
-          }
-          
-          // FILTRE 2 : Exclure auto-entrepreneurs
+          // FILTRE 1 : Exclure auto-entrepreneurs
           if (r.nature_juridique === '1000') {
             return false
           }
           
-          // FILTRE 3 : Exclure associations, administrations, collectivités, syndicats
+          // FILTRE 2 : Exclure associations, administrations, collectivités, syndicats
           const natureJuridique = r.nature_juridique || ''
           
           // Associations (92xx)
@@ -356,7 +331,7 @@ export default function ProspectSearch() {
             return false
           }
           
-          // FILTRE 4 : Par effectif (approximatif via la tranche)
+          // FILTRE 3 : Par effectif (approximatif via la tranche)
           if (r.tranche_effectif_salarie_entreprise || r.tranche_effectif_salarie) {
             const effectif = r.tranche_effectif_salarie_entreprise || r.tranche_effectif_salarie
             // Exclure les très petites
@@ -455,6 +430,20 @@ export default function ProspectSearch() {
               distance: distance,
             }]
           }
+        })
+        .filter(etab => {
+          // FILTRE GPS sur les établissements individuels (après explosion)
+          if (searchMode === 'ville' && villeSelected && villeSelected.latitude && villeSelected.longitude) {
+            // Si l'établissement a des coordonnées GPS et une distance calculée
+            if (etab.distance !== null && etab.distance !== undefined) {
+              // Rejeter si hors du rayon
+              if (etab.distance > radiusKm) {
+                return false
+              }
+            }
+            // Si pas de GPS, on garde pour l'instant (Hicham affinera plus tard)
+          }
+          return true
         })
         .map(p => ({
           ...p,
