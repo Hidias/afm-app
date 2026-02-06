@@ -260,10 +260,17 @@ export default function ProspectSearch() {
     setSearchProgress('Préparation de la recherche...')
     
     // Message info pour recherche approfondie
-    toast.info(
+    toast(
       '🔍 Recherche approfondie : récupération maximale des prospects (jusqu\'à 5000). ' +
       'Temps estimé : 2-3 minutes.',
-      { duration: 5000 }
+      { 
+        duration: 5000,
+        icon: 'ℹ️',
+        style: {
+          background: '#3b82f6',
+          color: '#fff',
+        }
+      }
     )
     
     try {
