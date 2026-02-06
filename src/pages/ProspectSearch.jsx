@@ -264,6 +264,12 @@ export default function ProspectSearch() {
       let apiUrl = 'https://recherche-entreprises.api.gouv.fr/search?'
       const params = new URLSearchParams()
       
+      // LOG DÉBUT RECHERCHE
+      console.group('🔍 NOUVELLE RECHERCHE LANCÉE')
+      console.log('📍 Mode:', searchMode)
+      console.log('🏢 Formes juridiques:', formesJuridiques)
+      console.log('👥 Tranches effectif:', tranchesEffectif.length > 0 ? tranchesEffectif : 'AUCUN FILTRE (tous effectifs)')
+      
       // Zone géographique
       if (searchMode === 'ville' && villeSelected) {
         // MODE VILLE avec GPS : Chercher dans département + voisins
@@ -336,9 +342,11 @@ export default function ProspectSearch() {
         }
       }
       
-      setSearchProgress(`Filtrage et enrichissement de ${allResults.length} prospects...`)
+      console.log('📦 Total résultats API récupérés:', allResults.length)
+      console.log('🔄 Début du filtrage et enrichissement...')
+      console.groupEnd()
       
-      console.log('Total résultats récupérés:', allResults.length)
+      setSearchProgress(`Filtrage et enrichissement de ${allResults.length} prospects...`)
       
       if (allResults.length === 0) {
         toast.error('Aucun prospect trouvé avec ces critères')
@@ -500,11 +508,47 @@ export default function ProspectSearch() {
         }))
         .slice(0, 500) // LIMITE AUGMENTÉE À 500 POUR PHONING MASSIF
       
+      // SYSTÈME ANTI-ERREUR : Diagnostic détaillé si 0 résultat
       if (enrichedResults.length === 0) {
-        toast.error('Aucun prospect trouvé après filtrage. Essayez des critères plus larges.')
+        console.group('🚨 DEBUG : Aucun résultat après filtrage')
+        console.log('📊 Résultats API bruts:', allResults.length)
+        console.log('🔍 Critères de filtrage appliqués:')
+        console.log('  - Tranches effectif:', tranchesEffectif.length > 0 ? tranchesEffectif : 'AUCUN FILTRE')
+        console.log('  - Mode recherche:', searchMode)
+        console.log('  - Rayon GPS:', searchMode === 'ville' ? `${radiusKm}km` : 'N/A')
+        
+        // Analyser pourquoi 0 résultat
+        if (allResults.length === 0) {
+          console.error('❌ L\'API n\'a retourné AUCUN résultat')
+          toast.error('Aucune entreprise trouvée dans cette zone. Essayez une autre ville ou département.')
+        } else {
+          // Il y a des résultats API mais tout est filtré
+          console.log('📋 Distribution effectifs API (10 premiers):')
+          allResults.slice(0, 10).forEach((r, i) => {
+            const effectif = r.tranche_effectif_salarie_entreprise || r.tranche_effectif_salarie
+            console.log(`  ${i+1}. ${r.nom_complet} → Effectif: "${effectif}"`)
+          })
+          
+          if (tranchesEffectif.length > 0) {
+            console.warn('⚠️ CAUSE : Filtres effectif trop restrictifs')
+            console.log('💡 SOLUTION : Décochez certaines tranches ou enlevez le filtre effectif')
+            toast.error(
+              `${allResults.length} entreprises trouvées mais aucune ne correspond aux tranches sélectionnées (${tranchesEffectif.length} tranches). ` +
+              'Essayez de décocher les filtres effectif ou sélectionnez d\'autres tranches.',
+              { duration: 8000 }
+            )
+          } else {
+            console.warn('⚠️ CAUSE : Filtrage par forme juridique ou localisation trop strict')
+            toast.error(`${allResults.length} entreprises trouvées mais toutes filtrées. Vérifiez vos critères.`)
+          }
+        }
+        console.groupEnd()
         setSearching(false)
         return
       }
+      
+      // LOG SUCCÈS
+      console.log(`✅ ${enrichedResults.length} prospects trouvés après filtrage (${allResults.length} résultats API bruts)`)
       
       // Détecter les doublons dans la base
       const siretsToCheck = enrichedResults
