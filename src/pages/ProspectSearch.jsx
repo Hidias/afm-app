@@ -57,30 +57,17 @@ export default function ProspectSearch() {
     setSelectedResults([])
     
     try {
-      // Construction de la requête API
+      // Construction de la requête API - VERSION SIMPLIFIÉE QUI FONCTIONNE
       let apiUrl = 'https://recherche-entreprises.api.gouv.fr/search?'
       const params = new URLSearchParams()
       
       // Zone géographique
       if (searchMode === 'ville' && ville) {
-        params.append('q', ville)
-        if (radiusKm > 0) {
-          params.append('radius', radiusKm * 1000) // Convertir en mètres
-        }
+        // Recherche par commune
+        params.append('commune', ville)
       } else if (searchMode === 'departement' && departementsSelected.length > 0) {
+        // Recherche par département
         params.append('departement', departementsSelected.join(','))
-      }
-      
-      // Effectifs
-      params.append('minimal_nombre_salaries', effectifMin)
-      if (effectifMax < 10000) {
-        params.append('maximal_nombre_salaries', effectifMax)
-      }
-      
-      // Formes juridiques
-      if (formesJuridiques.length > 0) {
-        // L'API utilise des codes, on fait une correspondance simplifiée
-        params.append('nature_juridique', formesJuridiques.join(','))
       }
       
       // Statut actif uniquement
@@ -94,6 +81,11 @@ export default function ProspectSearch() {
       console.log('API URL:', apiUrl)
       
       const response = await fetch(apiUrl)
+      
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`)
+      }
+      
       const data = await response.json()
       
       if (!data.results || data.results.length === 0) {
@@ -102,23 +94,52 @@ export default function ProspectSearch() {
         return
       }
       
-      // Enrichir les résultats
-      const enrichedResults = data.results.map(r => ({
-        nom_complet: r.nom_complet || r.nom_raison_sociale,
-        siret: r.siege?.siret || r.siret,
-        siren: r.siren,
-        adresse: r.siege?.adresse || r.adresse,
-        code_postal: r.siege?.code_postal || r.code_postal,
-        ville: r.siege?.libelle_commune || r.libelle_commune,
-        forme_juridique: r.nature_juridique,
-        naf: r.activite_principale,
-        effectif: r.tranche_effectif_salarie,
-        telephone: r.siege?.telephone || null,
-        email: r.siege?.courriel || null,
-        site_web: r.siege?.site_internet || null,
-        date_creation: r.date_creation,
-        tva: r.numero_tva_intra,
-      }))
+      // Enrichir et filtrer les résultats
+      let enrichedResults = data.results
+        .filter(r => {
+          // Filtrer par effectif si disponible
+          if (r.tranche_effectif_salarie) {
+            const effectif = r.tranche_effectif_salarie
+            // Exclure les très petites entreprises (moins de 10 salariés)
+            if (effectif.includes('0') || effectif.includes('1 ou 2') || effectif.includes('3 à 5') || effectif.includes('6 à 9')) {
+              return false
+            }
+            // Exclure les très grandes (plus de 500 si max est 500)
+            if (effectifMax < 500 && (effectif.includes('500') || effectif.includes('1000') || effectif.includes('2000') || effectif.includes('5000'))) {
+              return false
+            }
+          }
+          
+          // Exclure les auto-entrepreneurs (nature juridique 1000)
+          if (r.nature_juridique === '1000') {
+            return false
+          }
+          
+          return true
+        })
+        .map(r => ({
+          nom_complet: r.nom_complet || r.nom_raison_sociale,
+          siret: r.siege?.siret || r.siret,
+          siren: r.siren,
+          adresse: r.siege?.adresse || r.adresse,
+          code_postal: r.siege?.code_postal || r.code_postal,
+          ville: r.siege?.libelle_commune || r.libelle_commune,
+          forme_juridique: r.nature_juridique_entreprise || r.forme_juridique,
+          naf: r.activite_principale,
+          effectif: r.tranche_effectif_salarie_entreprise || r.tranche_effectif_salarie,
+          telephone: r.siege?.telephone || null,
+          email: r.siege?.courriel || null,
+          site_web: r.siege?.site_internet || null,
+          date_creation: r.date_creation,
+          tva: r.numero_tva_intra,
+        }))
+        .slice(0, 100) // Limiter à 100 résultats max
+      
+      if (enrichedResults.length === 0) {
+        toast.error('Aucun prospect trouvé avec ces critères (après filtrage)')
+        setSearching(false)
+        return
+      }
       
       // Détecter les doublons dans la base
       const siretsToCheck = enrichedResults
@@ -158,7 +179,7 @@ export default function ProspectSearch() {
       
     } catch (error) {
       console.error('Erreur recherche:', error)
-      toast.error('Erreur lors de la recherche')
+      toast.error('Erreur lors de la recherche : ' + error.message)
     } finally {
       setSearching(false)
     }
