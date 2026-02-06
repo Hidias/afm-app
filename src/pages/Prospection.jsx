@@ -354,6 +354,7 @@ export default function Prospection() {
             <option value="all">Tous les commerciaux</option>
             <option value="Hicham">Hicham</option>
             <option value="Maxime">Maxime</option>
+            <option value="Marine">Marine</option>
           </select>
         </div>
       </div>
