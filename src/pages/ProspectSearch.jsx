@@ -26,6 +26,82 @@ const DEPARTEMENTS = [
   { code: '44', nom: 'Loire-Atlantique' },
 ]
 
+// Mapping NAF → Formations suggérées
+const NAF_TO_FORMATIONS = {
+  // BTP & Construction
+  '41': ['SST / MAC SST', 'Gestes & Postures / TMS', 'R408 Échafaudage', 'CACES R482'],
+  '42': ['SST / MAC SST', 'Gestes & Postures / TMS', 'R408 Échafaudage', 'CACES R482'],
+  '43': ['SST / MAC SST', 'Gestes & Postures / TMS', 'Habilitation électrique (B0/H0V)'],
+  // Industrie
+  '10': ['SST / MAC SST', 'Gestes & Postures / TMS', 'Habilitation électrique (B0/H0V)'],
+  '11': ['SST / MAC SST', 'Gestes & Postures / TMS', 'CACES'],
+  '20': ['SST / MAC SST', 'Gestes & Postures / TMS', 'CACES'],
+  '22': ['SST / MAC SST', 'Gestes & Postures / TMS', 'CACES'],
+  '23': ['SST / MAC SST', 'Gestes & Postures / TMS', 'CACES'],
+  '24': ['SST / MAC SST', 'Gestes & Postures / TMS', 'Habilitation électrique (B0/H0V)'],
+  '25': ['SST / MAC SST', 'Gestes & Postures / TMS', 'CACES'],
+  '28': ['SST / MAC SST', 'Gestes & Postures / TMS', 'Habilitation électrique (B0/H0V)'],
+  // Logistique & Transport
+  '49': ['SST / MAC SST', 'Gestes & Postures / TMS', 'CACES R489'],
+  '52': ['SST / MAC SST', 'Gestes & Postures / TMS', 'CACES R489'],
+  '53': ['SST / MAC SST', 'Gestes & Postures / TMS', 'CACES R489'],
+  // Commerce
+  '45': ['SST / MAC SST', 'Incendie (EPI, extincteurs)', 'Gestes & Postures / TMS'],
+  '46': ['SST / MAC SST', 'Gestes & Postures / TMS', 'CACES R489'],
+  '47': ['SST / MAC SST', 'Incendie (EPI, extincteurs)', 'Gestes & Postures / TMS'],
+  // Services
+  '81': ['SST / MAC SST', 'Gestes & Postures / TMS', 'Habilitation électrique (B0/H0V)'],
+  '95': ['SST / MAC SST', 'Gestes & Postures / TMS', 'Habilitation électrique (B0/H0V)'],
+}
+
+// Fonction de calcul du score qualité (0-100)
+const calculateQualityScore = (prospect) => {
+  let score = 50 // Base score
+  
+  // Effectif (sweet spot 20-200)
+  if (prospect.effectif) {
+    const effectif = prospect.effectif.toLowerCase()
+    if (effectif.includes('20 à 49') || effectif.includes('50 à 99') || effectif.includes('100 à 199')) {
+      score += 20 // Sweet spot
+    } else if (effectif.includes('10 à 19') || effectif.includes('200 à 249')) {
+      score += 10 // Bon
+    } else if (effectif.includes('250 à 499')) {
+      score += 5 // Acceptable
+    }
+  }
+  
+  // Secteur à risque (besoin formation)
+  if (prospect.naf) {
+    const nafCode = prospect.naf.substring(0, 2)
+    if (NAF_TO_FORMATIONS[nafCode]) {
+      score += 15 // Secteur avec besoin formation
+    }
+  }
+  
+  // Coordonnées disponibles
+  if (prospect.telephone) score += 10
+  if (prospect.email) score += 10
+  if (prospect.site_web) score += 5
+  
+  // Âge entreprise (moins de 5 ans = dynamique)
+  if (prospect.date_creation) {
+    const anneeCreation = new Date(prospect.date_creation).getFullYear()
+    const age = new Date().getFullYear() - anneeCreation
+    if (age < 5) score += 5
+    if (age > 20) score -= 5
+  }
+  
+  return Math.min(100, Math.max(0, score))
+}
+
+// Fonction de suggestions formations
+const suggestFormations = (prospect) => {
+  if (!prospect.naf) return []
+  
+  const nafCode = prospect.naf.substring(0, 2)
+  return NAF_TO_FORMATIONS[nafCode] || ['SST / MAC SST', 'Incendie (EPI, extincteurs)']
+}
+
 export default function ProspectSearch() {
   // État recherche
   const [searchMode, setSearchMode] = useState('ville') // 'ville' ou 'departement'
@@ -41,9 +117,11 @@ export default function ProspectSearch() {
   
   // Résultats
   const [searching, setSearching] = useState(false)
+  const [searchProgress, setSearchProgress] = useState('') // NOUVEAU - Compteur temps réel
   const [results, setResults] = useState([])
   const [duplicates, setDuplicates] = useState([])
   const [showResults, setShowResults] = useState(false)
+  const [sortBy, setSortBy] = useState('score') // NOUVEAU - Tri (score, ville, effectif, new)
   
   // Import
   const [selectedResults, setSelectedResults] = useState([])
@@ -55,21 +133,26 @@ export default function ProspectSearch() {
     setResults([])
     setDuplicates([])
     setSelectedResults([])
+    setSearchProgress('Préparation de la recherche...')
     
     try {
-      // Construction de la requête API - VERSION ULTRA SIMPLIFIÉE
+      // Construction de la requête API
       let apiUrl = 'https://recherche-entreprises.api.gouv.fr/search?'
       const params = new URLSearchParams()
       
-      // Zone géographique - SIMPLIFIÉ
+      // Zone géographique - Support multi-villes
       if (searchMode === 'ville' && ville) {
-        // Recherche textuelle simple (l'API cherchera dans tous les champs)
-        params.append('q', ville)
+        // Support multi-villes : "Concarneau, Quimper, Brest"
+        const villes = ville.split(',').map(v => v.trim()).filter(Boolean)
+        if (villes.length === 1) {
+          params.append('q', villes[0])
+        } else {
+          // Pour multi-villes, on fait une recherche large et on filtre après
+          params.append('q', villes.join(' OR '))
+        }
       } else if (searchMode === 'departement' && departementsSelected.length > 0) {
-        // Recherche par département (ça c'est supporté)
         params.append('departement', departementsSelected.join(','))
       } else {
-        // Fallback : recherche large
         params.append('q', ville || 'Bretagne')
       }
       
@@ -83,6 +166,8 @@ export default function ProspectSearch() {
       const allResults = []
       
       for (let page = 1; page <= 4; page++) {
+        setSearchProgress(`Recherche en cours... ${allResults.length} prospects (page ${page}/4)`)
+        
         const pageParams = new URLSearchParams(params)
         pageParams.append('page', page)
         const pageUrl = apiUrl + pageParams.toString()
@@ -93,12 +178,10 @@ export default function ProspectSearch() {
         
         if (!pageResponse.ok) {
           if (page === 1) {
-            // Erreur sur la première page = erreur critique
             const errorText = await pageResponse.text()
             console.error('API Error Response:', errorText)
             throw new Error(`API error: ${pageResponse.status}`)
           } else {
-            // Erreur sur pages suivantes = on arrête juste la pagination
             console.log(`Arrêt pagination à la page ${page}`)
             break
           }
@@ -107,33 +190,40 @@ export default function ProspectSearch() {
         const pageData = await pageResponse.json()
         
         if (!pageData.results || pageData.results.length === 0) {
-          // Plus de résultats, on arrête
           break
         }
         
         allResults.push(...pageData.results)
         
-        // Si moins de 25 résultats, c'est la dernière page
         if (pageData.results.length < 25) {
           break
         }
       }
+      
+      setSearchProgress(`Filtrage et enrichissement de ${allResults.length} prospects...`)
       
       console.log('Total résultats récupérés:', allResults.length)
       
       if (allResults.length === 0) {
         toast.error('Aucun prospect trouvé avec ces critères')
         setSearching(false)
+        setSearchProgress('')
         return
       }
+      
+      // Support multi-villes pour le filtrage
+      const villesFilter = searchMode === 'ville' && ville 
+        ? ville.split(',').map(v => v.trim().toLowerCase()).filter(Boolean)
+        : []
       
       // Enrichir et FILTRER les résultats côté client
       let enrichedResults = allResults
         .filter(r => {
-          // FILTRE 1 : Par ville (si mode ville)
-          if (searchMode === 'ville' && ville) {
+          // FILTRE 1 : Par ville (si mode ville) - Support multi-villes
+          if (searchMode === 'ville' && villesFilter.length > 0) {
             const rVille = (r.siege?.libelle_commune || r.libelle_commune || '').toLowerCase()
-            if (!rVille.includes(ville.toLowerCase())) {
+            const matchesAnyVille = villesFilter.some(v => rVille.includes(v))
+            if (!matchesAnyVille) {
               return false
             }
           }
@@ -143,7 +233,38 @@ export default function ProspectSearch() {
             return false
           }
           
-          // FILTRE 3 : Par effectif (approximatif via la tranche)
+          // FILTRE 3 : Exclure associations, administrations, collectivités, syndicats
+          const natureJuridique = r.nature_juridique || ''
+          
+          // Associations (92xx)
+          if (natureJuridique.startsWith('92')) {
+            return false
+          }
+          
+          // Administrations publiques (71xx, 72xx, 73xx, 74xx)
+          if (natureJuridique.startsWith('71') || 
+              natureJuridique.startsWith('72') || 
+              natureJuridique.startsWith('73') || 
+              natureJuridique.startsWith('74')) {
+            return false
+          }
+          
+          // Collectivités territoriales (75xx)
+          if (natureJuridique.startsWith('75')) {
+            return false
+          }
+          
+          // Syndicats (91xx)
+          if (natureJuridique.startsWith('91')) {
+            return false
+          }
+          
+          // Fondations (93xx)
+          if (natureJuridique.startsWith('93')) {
+            return false
+          }
+          
+          // FILTRE 4 : Par effectif (approximatif via la tranche)
           if (r.tranche_effectif_salarie_entreprise || r.tranche_effectif_salarie) {
             const effectif = r.tranche_effectif_salarie_entreprise || r.tranche_effectif_salarie
             // Exclure les très petites
@@ -183,7 +304,12 @@ export default function ProspectSearch() {
           date_creation: r.date_creation,
           tva: r.numero_tva_intra,
         }))
-        .slice(0, 100) // Limiter à 100 max
+        .map(p => ({
+          ...p,
+          quality_score: calculateQualityScore(p), // Calcul du score
+          suggested_formations: suggestFormations(p), // Suggestions formations
+        }))
+        .slice(0, 100)
       
       if (enrichedResults.length === 0) {
         toast.error('Aucun prospect trouvé après filtrage. Essayez des critères plus larges.')
@@ -208,6 +334,7 @@ export default function ProspectSearch() {
       setResults(enrichedResults)
       setSelectedResults(enrichedResults.map((_, i) => i))
       setShowResults(true)
+      setSearchProgress('')
       
       // Enregistrer l'historique
       await supabase.from('prospect_search_history').insert({
@@ -230,8 +357,96 @@ export default function ProspectSearch() {
       toast.error('Erreur lors de la recherche : ' + error.message)
     } finally {
       setSearching(false)
+      setSearchProgress('')
     }
   }
+
+  // Export CSV
+  const exportToCSV = () => {
+    const prospectsToExport = selectedResults.map(index => results[index])
+    
+    // Headers CSV
+    const headers = [
+      'Nom',
+      'SIRET',
+      'Adresse',
+      'Code Postal',
+      'Ville',
+      'Téléphone',
+      'Email',
+      'Site Web',
+      'Effectif',
+      'Score',
+      'Formations suggérées'
+    ]
+    
+    // Données
+    const rows = prospectsToExport.map(p => [
+      p.nom_complet,
+      p.siret || '',
+      p.adresse || '',
+      p.code_postal || '',
+      p.ville || '',
+      p.telephone || '',
+      p.email || '',
+      p.site_web || '',
+      p.effectif || '',
+      p.quality_score || 0,
+      (p.suggested_formations || []).join(' | ')
+    ])
+    
+    // Créer le CSV
+    const csvContent = [
+      headers.join(';'),
+      ...rows.map(row => row.map(cell => `"${cell}"`).join(';'))
+    ].join('\n')
+    
+    // Télécharger
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const link = document.createElement('a')
+    link.href = URL.createObjectURL(blob)
+    link.download = `prospects_${new Date().toISOString().split('T')[0]}.csv`
+    link.click()
+    
+    toast.success(`${prospectsToExport.length} prospects exportés en CSV`)
+  }
+
+  // Tri des résultats
+  const sortedResults = [...results].sort((a, b) => {
+    const isDuplicateA = duplicates.some(d => d.siret === a.siret)
+    const isDuplicateB = duplicates.some(d => d.siret === b.siret)
+    
+    // Les nouveaux en premier
+    if (isDuplicateA && !isDuplicateB) return 1
+    if (!isDuplicateA && isDuplicateB) return -1
+    
+    // Puis trier selon le critère choisi
+    if (sortBy === 'score') {
+      return (b.quality_score || 0) - (a.quality_score || 0)
+    } else if (sortBy === 'ville') {
+      return (a.ville || '').localeCompare(b.ville || '')
+    } else if (sortBy === 'effectif') {
+      // Tri approximatif par effectif
+      const getEffectifValue = (e) => {
+        if (!e) return 0
+        if (e.includes('10 à 19')) return 15
+        if (e.includes('20 à 49')) return 35
+        if (e.includes('50 à 99')) return 75
+        if (e.includes('100 à 199')) return 150
+        if (e.includes('200 à 249')) return 225
+        if (e.includes('250 à 499')) return 375
+        if (e.includes('500')) return 500
+        return 0
+      }
+      return getEffectifValue(b.effectif) - getEffectifValue(a.effectif)
+    } else if (sortBy === 'new') {
+      // Nouveaux d'abord
+      if (isDuplicateA && !isDuplicateB) return 1
+      if (!isDuplicateA && isDuplicateB) return -1
+      return (b.quality_score || 0) - (a.quality_score || 0)
+    }
+    return 0
+  })
 
   // Import des prospects sélectionnés
   const handleImport = async () => {
@@ -375,14 +590,15 @@ export default function ProspectSearch() {
           {searchMode === 'ville' ? (
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm text-gray-600 mb-1">Ville</label>
+                <label className="block text-sm text-gray-600 mb-1">Ville(s)</label>
                 <input
                   type="text"
                   value={ville}
                   onChange={(e) => setVille(e.target.value)}
-                  placeholder="Concarneau"
+                  placeholder="Concarneau, Quimper, Brest"
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                 />
+                <p className="text-xs text-gray-500 mt-1">💡 Séparez par des virgules pour chercher plusieurs villes</p>
               </div>
               <div>
                 <label className="block text-sm text-gray-600 mb-1">Rayon (km)</label>
@@ -481,7 +697,7 @@ export default function ProspectSearch() {
             ))}
           </div>
           <p className="text-xs text-gray-500 mt-2">
-            ⚠️ Auto-entrepreneurs exclus automatiquement
+            ⚠️ Exclus automatiquement : Auto-entrepreneurs, Associations, Administrations, Collectivités, Syndicats, Fondations
           </p>
         </div>
 
@@ -494,7 +710,7 @@ export default function ProspectSearch() {
           {searching ? (
             <>
               <RefreshCw className="w-5 h-5 animate-spin" />
-              Recherche en cours...
+              {searchProgress || 'Recherche en cours...'}
             </>
           ) : (
             <>
@@ -519,19 +735,55 @@ export default function ProspectSearch() {
                 </p>
               )}
             </div>
-            <button
-              onClick={toggleAll}
-              className="text-sm text-primary-600 hover:text-primary-700 font-medium"
-            >
-              {selectedResults.length === results.length ? 'Tout désélectionner' : 'Tout sélectionner'}
-            </button>
+            <div className="flex items-center gap-3">
+              {/* Tri */}
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+              >
+                <option value="score">🏆 Meilleur score</option>
+                <option value="ville">📍 Par ville (A→Z)</option>
+                <option value="effectif">👥 Par effectif</option>
+                <option value="new">🆕 Nouveaux d'abord</option>
+              </select>
+              
+              {/* Export CSV */}
+              <button
+                onClick={exportToCSV}
+                disabled={selectedResults.length === 0}
+                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+              >
+                <Download className="w-4 h-4" />
+                Export CSV ({selectedResults.length})
+              </button>
+              
+              {/* Sélectionner tout */}
+              <button
+                onClick={toggleAll}
+                className="text-sm text-primary-600 hover:text-primary-700 font-medium"
+              >
+                {selectedResults.length === results.length ? 'Tout désélectionner' : 'Tout sélectionner'}
+              </button>
+            </div>
           </div>
 
           {/* Liste des résultats */}
           <div className="space-y-2 max-h-96 overflow-y-auto">
-            {results.map((prospect, index) => {
+            {sortedResults.map((prospect, originalIndex) => {
+            {sortedResults.map((prospect, sortedIndex) => {
+              // Trouver l'index original pour la sélection
+              const index = results.findIndex(r => r.siret === prospect.siret)
               const isDuplicate = duplicates.some(d => d.siret === prospect.siret)
               const isSelected = selectedResults.includes(index)
+              
+              // Couleur du score
+              const getScoreColor = (score) => {
+                if (score >= 80) return 'text-green-600 bg-green-50'
+                if (score >= 60) return 'text-blue-600 bg-blue-50'
+                if (score >= 40) return 'text-orange-600 bg-orange-50'
+                return 'text-gray-600 bg-gray-50'
+              }
               
               return (
                 <div
@@ -553,10 +805,34 @@ export default function ProspectSearch() {
                       className="mt-1"
                     />
                     <div className="flex-1">
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <h3 className="font-semibold text-gray-900">{prospect.nom_complet}</h3>
-                          <div className="text-sm text-gray-600 space-y-1 mt-1">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex-1">
+                          {/* Nom + Badges */}
+                          <div className="flex items-center gap-2 flex-wrap mb-2">
+                            <h3 className="font-semibold text-gray-900">{prospect.nom_complet}</h3>
+                            
+                            {/* Badge Doublon */}
+                            {isDuplicate && (
+                              <span className="px-2 py-0.5 bg-orange-500 text-white text-xs font-medium rounded">
+                                ⚠️ Doublon
+                              </span>
+                            )}
+                            
+                            {/* Badge Nouveau */}
+                            {!isDuplicate && (
+                              <span className="px-2 py-0.5 bg-green-500 text-white text-xs font-medium rounded">
+                                🆕 Nouveau
+                              </span>
+                            )}
+                            
+                            {/* Score */}
+                            <span className={`px-2 py-0.5 text-xs font-medium rounded ${getScoreColor(prospect.quality_score)}`}>
+                              🏆 {prospect.quality_score}/100
+                            </span>
+                          </div>
+                          
+                          {/* Infos entreprise */}
+                          <div className="text-sm text-gray-600 space-y-1">
                             <div className="flex items-center gap-2">
                               <MapPin className="w-3 h-3" />
                               {prospect.adresse}, {prospect.code_postal} {prospect.ville}
@@ -576,14 +852,31 @@ export default function ProspectSearch() {
                                 {prospect.effectif}
                               </div>
                             )}
+                            
+                            {/* Formations suggérées */}
+                            {prospect.suggested_formations && prospect.suggested_formations.length > 0 && (
+                              <div className="mt-2 pt-2 border-t border-gray-200">
+                                <div className="text-xs font-medium text-gray-700 mb-1">
+                                  🎓 Formations suggérées :
+                                </div>
+                                <div className="flex flex-wrap gap-1">
+                                  {prospect.suggested_formations.slice(0, 3).map((formation, i) => (
+                                    <span
+                                      key={i}
+                                      className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded"
+                                    >
+                                      {formation}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
                           </div>
                         </div>
-                        {isDuplicate ? (
-                          <span className="px-2 py-1 bg-orange-100 text-orange-700 text-xs font-medium rounded">
-                            ⚠️ Doublon
-                          </span>
-                        ) : isSelected ? (
-                          <CheckCircle className="w-5 h-5 text-green-600" />
+                        
+                        {/* Checkbox visuel */}
+                        {isDuplicate ? null : isSelected ? (
+                          <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0" />
                         ) : null}
                       </div>
                     </div>
