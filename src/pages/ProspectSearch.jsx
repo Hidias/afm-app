@@ -76,33 +76,59 @@ export default function ProspectSearch() {
       // Statut actif uniquement
       params.append('etat_administratif', 'A')
       
-      // Limiter les résultats
-      params.append('per_page', '100')
+      // Limiter les résultats (max 25 par l'API)
+      params.append('per_page', '25')
       
-      apiUrl += params.toString()
+      // Faire 4 appels (pages 1-4) pour obtenir jusqu'à 100 résultats
+      const allResults = []
       
-      console.log('API URL:', apiUrl)
-      
-      const response = await fetch(apiUrl)
-      
-      if (!response.ok) {
-        const errorText = await response.text()
-        console.error('API Error Response:', errorText)
-        throw new Error(`API error: ${response.status}`)
+      for (let page = 1; page <= 4; page++) {
+        const pageParams = new URLSearchParams(params)
+        pageParams.append('page', page)
+        const pageUrl = apiUrl + pageParams.toString()
+        
+        console.log(`API URL (page ${page}):`, pageUrl)
+        
+        const pageResponse = await fetch(pageUrl)
+        
+        if (!pageResponse.ok) {
+          if (page === 1) {
+            // Erreur sur la première page = erreur critique
+            const errorText = await pageResponse.text()
+            console.error('API Error Response:', errorText)
+            throw new Error(`API error: ${pageResponse.status}`)
+          } else {
+            // Erreur sur pages suivantes = on arrête juste la pagination
+            console.log(`Arrêt pagination à la page ${page}`)
+            break
+          }
+        }
+        
+        const pageData = await pageResponse.json()
+        
+        if (!pageData.results || pageData.results.length === 0) {
+          // Plus de résultats, on arrête
+          break
+        }
+        
+        allResults.push(...pageData.results)
+        
+        // Si moins de 25 résultats, c'est la dernière page
+        if (pageData.results.length < 25) {
+          break
+        }
       }
       
-      const data = await response.json()
+      console.log('Total résultats récupérés:', allResults.length)
       
-      console.log('API Response:', data)
-      
-      if (!data.results || data.results.length === 0) {
+      if (allResults.length === 0) {
         toast.error('Aucun prospect trouvé avec ces critères')
         setSearching(false)
         return
       }
       
       // Enrichir et FILTRER les résultats côté client
-      let enrichedResults = data.results
+      let enrichedResults = allResults
         .filter(r => {
           // FILTRE 1 : Par ville (si mode ville)
           if (searchMode === 'ville' && ville) {
