@@ -144,11 +144,6 @@ export default function ProspectSearch() {
   const [selectedResults, setSelectedResults] = useState([])
   const [importing, setImporting] = useState(false)
 
-  const supabase = createClient(
-    import.meta.env.VITE_SUPABASE_URL,
-    import.meta.env.VITE_SUPABASE_ANON_KEY
-  )
-
   // Autocomplétion des villes via API geo.gouv.fr
   const searchCities = async (query) => {
     if (!query || query.length < 2) {
