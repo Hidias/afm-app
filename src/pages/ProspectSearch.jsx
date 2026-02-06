@@ -133,27 +133,53 @@ export default function ProspectSearch() {
   
   // Mapping tranches effectif INSEE
   const TRANCHES_EFFECTIF = [
-    { code: '01', label: '1-2 salariés', min: 1, max: 2 },
-    { code: '02', label: '3-5 salariés', min: 3, max: 5 },
-    { code: '03', label: '6-9 salariés', min: 6, max: 9 },
-    { code: '11', label: '10-19 salariés', min: 10, max: 19 },
-    { code: '12', label: '20-49 salariés', min: 20, max: 49 },
-    { code: '21', label: '50-99 salariés', min: 50, max: 99 },
-    { code: '22', label: '100-199 salariés', min: 100, max: 199 },
-    { code: '31', label: '200-249 salariés', min: 200, max: 249 },
-    { code: '32', label: '250-499 salariés', min: 250, max: 499 },
-    { code: '41', label: '500-999 salariés', min: 500, max: 999 },
-    { code: '42', label: '1 000-1 999 salariés', min: 1000, max: 1999 },
-    { code: '51', label: '2 000-4 999 salariés', min: 2000, max: 4999 },
-    { code: '52', label: '5 000-9 999 salariés', min: 5000, max: 9999 },
-    { code: '53', label: '10 000+ salariés', min: 10000, max: 999999 }
+    { code: '01', label: '1-2 salariés', min: 1, max: 2, apiPatterns: ['1 ou 2', '01'] },
+    { code: '02', label: '3-5 salariés', min: 3, max: 5, apiPatterns: ['3 à 5', '02'] },
+    { code: '03', label: '6-9 salariés', min: 6, max: 9, apiPatterns: ['6 à 9', '03'] },
+    { code: '11', label: '10-19 salariés', min: 10, max: 19, apiPatterns: ['10 à 19', '11'] },
+    { code: '12', label: '20-49 salariés', min: 20, max: 49, apiPatterns: ['20 à 49', '12'] },
+    { code: '21', label: '50-99 salariés', min: 50, max: 99, apiPatterns: ['50 à 99', '21'] },
+    { code: '22', label: '100-199 salariés', min: 100, max: 199, apiPatterns: ['100 à 199', '22'] },
+    { code: '31', label: '200-249 salariés', min: 200, max: 249, apiPatterns: ['200 à 249', '31'] },
+    { code: '32', label: '250-499 salariés', min: 250, max: 499, apiPatterns: ['250 à 499', '32'] },
+    { code: '41', label: '500-999 salariés', min: 500, max: 999, apiPatterns: ['500 à 999', '41'] },
+    { code: '42', label: '1 000-1 999 salariés', min: 1000, max: 1999, apiPatterns: ['1 000 à 1 999', '42'] },
+    { code: '51', label: '2 000-4 999 salariés', min: 2000, max: 4999, apiPatterns: ['2 000 à 4 999', '51'] },
+    { code: '52', label: '5 000-9 999 salariés', min: 5000, max: 9999, apiPatterns: ['5 000 à 9 999', '52'] },
+    { code: '53', label: '10 000+ salariés', min: 10000, max: 999999, apiPatterns: ['10 000', '53'] }
   ]
   
-  // Helper: Convertir code INSEE en label
-  const getEffectifLabel = (code) => {
-    if (!code) return 'Non renseigné'
-    const tranche = TRANCHES_EFFECTIF.find(t => t.code === code)
-    return tranche ? tranche.label : code // Fallback vers code brut si inconnu
+  // Helper: Vérifier si effectif API correspond à une tranche sélectionnée
+  const matchesSelectedTranches = (effectifAPI, selectedCodes) => {
+    if (!effectifAPI || selectedCodes.length === 0) return true
+    
+    // Convertir en lowercase pour comparaison
+    const effectifLower = effectifAPI.toLowerCase()
+    
+    // Vérifier si l'effectif API correspond à une des tranches sélectionnées
+    return selectedCodes.some(code => {
+      const tranche = TRANCHES_EFFECTIF.find(t => t.code === code)
+      if (!tranche) return false
+      
+      // Chercher si un des patterns API correspond
+      return tranche.apiPatterns.some(pattern => 
+        effectifLower.includes(pattern.toLowerCase())
+      )
+    })
+  }
+  
+  // Helper: Convertir effectif API en label lisible
+  const getEffectifLabel = (effectifAPI) => {
+    if (!effectifAPI) return 'Non renseigné'
+    
+    const effectifLower = effectifAPI.toLowerCase()
+    
+    // Trouver la tranche correspondante
+    const tranche = TRANCHES_EFFECTIF.find(t => 
+      t.apiPatterns.some(pattern => effectifLower.includes(pattern.toLowerCase()))
+    )
+    
+    return tranche ? tranche.label : effectifAPI // Fallback vers valeur API si inconnue
   }
   
   // Résultats
@@ -295,6 +321,16 @@ export default function ProspectSearch() {
         
         allResults.push(...pageData.results)
         
+        // DEBUG: Logger quelques effectifs pour voir le format API
+        if (page === 1 && pageData.results.length > 0) {
+          console.log('Exemples effectifs API (5 premiers):', 
+            pageData.results.slice(0, 5).map(r => ({
+              nom: r.nom_complet,
+              effectif: r.tranche_effectif_salarie_entreprise || r.tranche_effectif_salarie
+            }))
+          )
+        }
+        
         if (pageData.results.length < 25) {
           break
         }
@@ -357,13 +393,10 @@ export default function ProspectSearch() {
           
           // FILTRE 3 : Par effectif (codes INSEE)
           if (tranchesEffectif.length > 0) {
-            const codeEffectif = r.tranche_effectif_salarie_entreprise || r.tranche_effectif_salarie
+            const effectifAPI = r.tranche_effectif_salarie_entreprise || r.tranche_effectif_salarie
             
-            // Si pas de code effectif, on garde par sécurité
-            if (!codeEffectif) return true
-            
-            // Filtrer par codes sélectionnés
-            if (!tranchesEffectif.includes(codeEffectif)) {
+            // Vérifier si l'effectif API correspond aux tranches sélectionnées
+            if (!matchesSelectedTranches(effectifAPI, tranchesEffectif)) {
               return false
             }
           }
