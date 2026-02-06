@@ -140,15 +140,50 @@ export default function ProspectSearch() {
       let apiUrl = 'https://recherche-entreprises.api.gouv.fr/search?'
       const params = new URLSearchParams()
       
-      // Zone géographique - Support multi-villes
+      // Zone géographique
       if (searchMode === 'ville' && ville) {
         // Support multi-villes : "Concarneau, Quimper, Brest"
         const villes = ville.split(',').map(v => v.trim()).filter(Boolean)
-        if (villes.length === 1) {
-          params.append('q', villes[0])
+        
+        // MODE VILLE : On cherche par département puis on filtre
+        // Mapping ville → département (codes postaux)
+        const villesDept = {
+          'concarneau': '29', 'quimper': '29', 'brest': '29', 'morlaix': '29',
+          'quimperlé': '29', 'douarnenez': '29', 'landerneau': '29',
+          'saint-brieuc': '22', 'lannion': '22', 'dinan': '22', 'guingamp': '22',
+          'rennes': '35', 'saint-malo': '35', 'fougères': '35', 'vitré': '35',
+          'vannes': '56', 'lorient': '56', 'pontivy': '56', 'auray': '56',
+          'nantes': '44', 'saint-nazaire': '44', 'rezé': '44', 'saint-herblain': '44',
+          'la baule': '44', 'carquefou': '44', 'orvault': '44', 'vertou': '44'
+        }
+        
+        // Détecter les départements à chercher
+        const deptsToSearch = new Set()
+        villes.forEach(v => {
+          const vLower = v.toLowerCase()
+          const dept = villesDept[vLower]
+          if (dept) {
+            deptsToSearch.add(dept)
+          } else {
+            // Si ville inconnue, essayer de détecter le dept par code postal
+            // 29xxx = 29, 22xxx = 22, etc.
+            const cp = v.match(/^(\d{2})/)?.[1]
+            if (cp && ['22', '29', '35', '44', '56'].includes(cp)) {
+              deptsToSearch.add(cp)
+            }
+          }
+        })
+        
+        // Chercher par département (plus fiable que q=ville)
+        if (deptsToSearch.size > 0) {
+          params.append('departement', Array.from(deptsToSearch).join(','))
         } else {
-          // Pour multi-villes, on fait une recherche large et on filtre après
-          params.append('q', villes.join(' OR '))
+          // Fallback : chercher par nom (mode original)
+          if (villes.length === 1) {
+            params.append('q', villes[0])
+          } else {
+            params.append('q', villes.join(' OR '))
+          }
         }
       } else if (searchMode === 'departement' && departementsSelected.length > 0) {
         params.append('departement', departementsSelected.join(','))
@@ -607,7 +642,9 @@ export default function ProspectSearch() {
                   placeholder="Concarneau, Quimper, Brest"
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                 />
-                <p className="text-xs text-gray-500 mt-1">💡 Séparez par des virgules pour chercher plusieurs villes</p>
+                <p className="text-xs text-gray-500 mt-1">
+                  💡 Séparez par virgules • Cherche dans le département puis filtre par ville
+                </p>
               </div>
               <div>
                 <label className="block text-sm text-gray-600 mb-1">Rayon (km)</label>
