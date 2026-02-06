@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { useDataStore } from '../lib/store'
 import { supabase } from '../lib/supabase'
-import { Plus, Search, Edit, Trash2, X, Save, Building2, Mail, Phone, MapPin, User, Eye, Users, Upload, FileSpreadsheet } from 'lucide-react'
+import { Plus, Search, Edit, Trash2, X, Save, Building2, Mail, Phone, MapPin, User, Eye, Users, Upload, FileSpreadsheet, FileText } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 // Formatage nom entreprise (majuscules)
@@ -95,6 +95,142 @@ const parseSellsyCSV = (csvText) => {
   return Array.from(societes.values())
 }
 
+// Parser texte libre (Pappers, Infogreffe, etc.)
+const parseProspectText = (text) => {
+  const prospects = []
+  
+  // Pattern pour détecter les entreprises
+  // Supporte : Pappers, Infogreffe, Societe.com, etc.
+  const lines = text.split('\n').map(l => l.trim()).filter(l => l)
+  
+  let currentProspect = null
+  let lastKey = null
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    
+    // Détecter un nouveau prospect (nom en majuscules au début ou après un ensemble de données)
+    // Un nom d'entreprise est généralement en majuscules et ne contient pas de ":" ni de chiffres au début
+    const isLikelyCompanyName = 
+      /^[A-ZÀ-ÿ][A-ZÀ-ÿ\s&'\-]{2,}$/.test(line) && 
+      !line.includes(':') &&
+      !line.match(/^\d/) &&
+      line.length > 3 &&
+      line.length < 100
+    
+    if (isLikelyCompanyName && 
+        (currentProspect === null || 
+         (currentProspect.ville && currentProspect.activity))) {
+      // Sauvegarder le prospect précédent
+      if (currentProspect && currentProspect.name && currentProspect.ville) {
+        prospects.push(currentProspect)
+      }
+      
+      // Nouveau prospect
+      currentProspect = {
+        name: line.toUpperCase(),
+        legal_form: '',
+        activity: '',
+        naf_code: '',
+        ville: '',
+        postal_code: '',
+        effectif: '',
+        capital: ''
+      }
+      lastKey = 'name'
+      continue
+    }
+    
+    if (!currentProspect) continue
+    
+    // Forme juridique
+    if (line.match(/Forme Juridique/i)) {
+      lastKey = 'legal_form'
+      continue
+    }
+    
+    // Activité
+    if (line.match(/Activité/i)) {
+      lastKey = 'activity'
+      continue
+    }
+    
+    // Code NAF
+    const nafMatch = line.match(/Code NAF\s*:?\s*(\d{2}\.\d{2}[A-Z]?)/i)
+    if (nafMatch) {
+      currentProspect.naf_code = nafMatch[1]
+      continue
+    }
+    
+    // Lieu / Ville
+    if (line.match(/Lieu/i)) {
+      lastKey = 'ville'
+      continue
+    }
+    
+    // Code postal
+    const cpMatch = line.match(/Code postal\s*:?\s*(\d{5})/i)
+    if (cpMatch) {
+      currentProspect.postal_code = cpMatch[1]
+      continue
+    }
+    
+    // Effectif
+    const effectifMatch = line.match(/Effectif\s*:?\s*(.*salariés?|.*\d+\s*et\s*\d+)/i)
+    if (effectifMatch) {
+      currentProspect.effectif = effectifMatch[1]
+      continue
+    }
+    
+    // Capital
+    const capitalMatch = line.match(/Capital\s*:?\s*([\d\s,\.]+\s*€)/i)
+    if (capitalMatch) {
+      currentProspect.capital = capitalMatch[1].trim()
+      continue
+    }
+    
+    // Remplir le champ actuel
+    if (lastKey && line.length > 2 && line.length < 200) {
+      if (lastKey === 'legal_form' && !currentProspect.legal_form && 
+          line.match(/(EURL|SARL|SAS|SA|SCI|SASU|Auto-entrepreneur|Micro)/i)) {
+        currentProspect.legal_form = line
+        lastKey = null
+      } else if (lastKey === 'activity' && !currentProspect.activity && 
+                 !line.match(/Code NAF|Lieu|Effectif/i)) {
+        currentProspect.activity = line
+        lastKey = null
+      } else if (lastKey === 'ville' && !currentProspect.ville && 
+                 !line.match(/Code postal|Effectif/i)) {
+        currentProspect.ville = line
+        lastKey = null
+      }
+    }
+  }
+  
+  // Ajouter le dernier prospect
+  if (currentProspect && currentProspect.name && currentProspect.ville) {
+    prospects.push(currentProspect)
+  }
+  
+  // Nettoyer et formater
+  return prospects.map(p => ({
+    name: p.name.toUpperCase(),
+    address: `${p.ville}${p.postal_code ? ' ' + p.postal_code : ''}`,
+    city: p.ville,
+    postal_code: p.postal_code,
+    notes: [
+      p.legal_form && `Forme juridique: ${p.legal_form}`,
+      p.activity && `Activité: ${p.activity}`,
+      p.naf_code && `Code NAF: ${p.naf_code}`,
+      p.effectif && `Effectif: ${p.effectif}`,
+      p.capital && `Capital: ${p.capital}`
+    ].filter(Boolean).join('\n'),
+    contact_email: '',
+    contact_phone: '',
+    contacts: []
+  }))
+}
+
 // Modal de confirmation
 const ConfirmModal = ({ show, onConfirm, onCancel, message }) => {
   if (!show) return null
@@ -131,6 +267,8 @@ export default function Clients() {
   const [contacts, setContacts] = useState([])
   const [importing, setImporting] = useState(false)
   const [importPreview, setImportPreview] = useState(null)
+  const [showTextImport, setShowTextImport] = useState(false)
+  const [textImportValue, setTextImportValue] = useState('')
   const fileInputRef = useRef(null)
   const [form, setForm] = useState({
     name: '', siret: '', address: '', email: '', phone: '', contact_name: '', contact_function: '', notes: '', status: 'prospect'
@@ -177,343 +315,357 @@ export default function Clients() {
   const handleSave = async () => {
     if (!form.name) return toast.error('Nom requis')
     if (selectedClient) {
-      await updateClient(selectedClient.id, form)
-      toast.success('Client modifié')
+      await updateClient(selectedClient.id, { 
+        ...form, 
+        name: formatCompanyName(form.name),
+        contact_email: form.email,
+        contact_phone: form.phone
+      })
+      toast.success('Client mis à jour')
     } else {
-      await createClient(form)
+      await createClient({ 
+        ...form, 
+        name: formatCompanyName(form.name),
+        contact_email: form.email,
+        contact_phone: form.phone
+      })
       toast.success('Client créé')
     }
     setShowForm(false)
   }
   
+  const handleDeleteClick = (client) => setConfirmDelete(client)
+  
   const handleDelete = async () => {
-    if (!confirmDelete) return
-    await deleteClient(confirmDelete)
-    toast.success('Client supprimé')
-    setConfirmDelete(null)
-  }
-  
-  // Gestion des contacts
-  const addContact = async (contactData) => {
-    if (!selectedClient) return
-    const { error } = await supabase.from('client_contacts').insert([{ ...contactData, client_id: selectedClient.id }])
-    if (error) toast.error('Erreur')
-    else {
-      toast.success('Contact ajouté')
-      const { data } = await supabase.from('client_contacts').select('*').eq('client_id', selectedClient.id).order('is_primary', { ascending: false })
-      setContacts(data || [])
+    if (confirmDelete) {
+      await deleteClient(confirmDelete.id)
+      toast.success('Client supprimé')
+      setConfirmDelete(null)
     }
   }
   
-  const deleteContact = async (contactId) => {
-    const { error } = await supabase.from('client_contacts').delete().eq('id', contactId)
-    if (error) toast.error('Erreur')
-    else {
-      toast.success('Contact supprimé')
-      setContacts(contacts.filter(c => c.id !== contactId))
-    }
-  }
-  
-  const editContact = async (contactId, contactData) => {
-    const { error } = await supabase.from('client_contacts').update(contactData).eq('id', contactId)
-    if (error) toast.error('Erreur lors de la modification')
-    else {
-      toast.success('Contact modifié')
-      const { data } = await supabase.from('client_contacts').select('*').eq('client_id', selectedClient.id).order('is_primary', { ascending: false })
-      setContacts(data || [])
-    }
-  }
-  
-  // Import Sellsy CSV
-  const handleFileSelect = (e) => {
-    const file = e.target.files?.[0]
+  const handleFileSelect = async (e) => {
+    const file = e.target.files[0]
     if (!file) return
     
-    const reader = new FileReader()
-    reader.onload = (event) => {
-      try {
-        const text = event.target?.result
-        const parsed = parseSellsyCSV(text)
-        if (parsed.length === 0) {
-          toast.error('Aucun client trouvé dans le fichier')
-          return
-        }
-        setImportPreview(parsed)
-      } catch (error) {
-        console.error('Parse error:', error)
-        toast.error('Erreur lors de la lecture du fichier')
+    setImporting(true)
+    
+    try {
+      const text = await file.text()
+      const societes = parseSellsyCSV(text)
+      
+      if (societes.length === 0) {
+        toast.error('Aucune société détectée dans le CSV')
+        return
       }
+      
+      setImportPreview(societes)
+    } catch (err) {
+      console.error('Erreur parsing CSV:', err)
+      toast.error('Erreur lors de la lecture du fichier')
+    } finally {
+      setImporting(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
     }
-    reader.readAsText(file, 'ISO-8859-1') // Encodage Sellsy
-    e.target.value = '' // Reset pour permettre re-sélection
+  }
+  
+  const handleTextImportAnalyze = () => {
+    if (!textImportValue.trim()) {
+      return toast.error('Veuillez coller du texte')
+    }
+    
+    try {
+      const prospects = parseProspectText(textImportValue)
+      
+      if (prospects.length === 0) {
+        toast.error('Aucune entreprise détectée dans le texte')
+        return
+      }
+      
+      setImportPreview(prospects)
+      setShowTextImport(false)
+      setTextImportValue('')
+    } catch (err) {
+      console.error('Erreur parsing texte:', err)
+      toast.error('Erreur lors de l\'analyse du texte')
+    }
   }
   
   const executeImport = async () => {
-    if (!importPreview || importPreview.length === 0) return
-    setImporting(true)
+    if (!importPreview || importing) return
     
+    setImporting(true)
     let created = 0
     let skipped = 0
-    let contactsCreated = 0
     
-    for (const societe of importPreview) {
-      // Vérifier si le client existe déjà (par SIRET ou nom)
-      const existingBySiret = societe.siret && clients.find(c => c.siret === societe.siret)
-      const existingByName = clients.find(c => c.name?.toUpperCase() === societe.name?.toUpperCase())
-      
-      if (existingBySiret || existingByName) {
-        skipped++
-        continue
-      }
-      
-      // Créer le client
-      const { data: newClient, error } = await supabase
-        .from('clients')
-        .insert([{
-          name: societe.name,
-          siret: societe.siret,
-          contact_email: societe.contact_email,
-          contact_phone: societe.contact_phone,
-          address: societe.address,
-          city: societe.city,
-          postal_code: societe.postal_code,
-        }])
-        .select()
-        .single()
-      
-      if (error) {
-        console.error('Client creation error:', error)
-        continue
-      }
-      
-      created++
-      
-      // Créer les contacts
-      if (newClient && societe.contacts.length > 0) {
-        for (const contact of societe.contacts) {
-          if (!contact.name) continue
-          
-          const { error: contactError } = await supabase
-            .from('client_contacts')
-            .insert([{
-              client_id: newClient.id,
-              name: contact.name,
-              email: contact.email,
-              phone: contact.phone,
-              role: contact.role,
-              is_primary: contact.is_primary,
-            }])
-          
-          if (!contactError) contactsCreated++
+    try {
+      for (const societe of importPreview) {
+        // Vérifier si existe déjà (SIRET ou nom exact)
+        const exists = (societe.siret && clients.find(c => c.siret === societe.siret)) ||
+                       clients.find(c => c.name?.toUpperCase() === societe.name?.toUpperCase())
+        
+        if (exists) {
+          skipped++
+          continue
         }
+        
+        // Créer le client avec statut "À compléter"
+        const { data: newClient, error: clientError } = await supabase
+          .from('clients')
+          .insert({
+            name: societe.name,
+            siret: societe.siret || null,
+            address: societe.address || null,
+            contact_email: societe.contact_email || null,
+            contact_phone: societe.contact_phone || null,
+            notes: societe.notes || null,
+            status: 'a_completer', // Statut "À compléter" pour prospects importés
+            city: societe.city || null,
+            postal_code: societe.postal_code || null
+          })
+          .select()
+          .single()
+        
+        if (clientError) {
+          console.error('Erreur création client:', clientError)
+          continue
+        }
+        
+        // Créer les contacts associés si présents
+        if (societe.contacts && societe.contacts.length > 0 && newClient) {
+          const contactsToInsert = societe.contacts.map(c => ({
+            client_id: newClient.id,
+            name: c.name,
+            email: c.email || null,
+            phone: c.phone || null,
+            role: c.role || null,
+            is_primary: c.is_primary || false
+          }))
+          
+          const { error: contactsError } = await supabase
+            .from('client_contacts')
+            .insert(contactsToInsert)
+          
+          if (contactsError) {
+            console.error('Erreur création contacts:', contactsError)
+          }
+        }
+        
+        created++
       }
+      
+      // Recharger les clients
+      await fetchClients()
+      
+      toast.success(`✅ ${created} prospect(s) importé(s)${skipped > 0 ? ` • ${skipped} ignoré(s) (doublons)` : ''}`)
+      setImportPreview(null)
+    } catch (err) {
+      console.error('Erreur import:', err)
+      toast.error('Erreur lors de l\'import')
+    } finally {
+      setImporting(false)
     }
-    
-    await fetchClients()
-    setImporting(false)
-    setImportPreview(null)
-    toast.success(`Import terminé : ${created} clients créés, ${contactsCreated} contacts, ${skipped} ignorés (déjà existants)`)
   }
   
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="p-6">
+      <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Clients</h1>
-          <p className="text-gray-500">{clients.length} client(s)</p>
+          <p className="text-gray-600 text-sm mt-1">{filtered.length} client{filtered.length > 1 ? 's' : ''}</p>
         </div>
         <div className="flex gap-2">
-          <input 
-            ref={fileInputRef}
-            type="file" 
-            accept=".csv" 
-            onChange={handleFileSelect}
-            className="hidden"
-          />
+          <button 
+            onClick={() => setShowTextImport(true)} 
+            className="btn btn-secondary flex items-center gap-2"
+          >
+            <FileText className="w-4 h-4" />
+            Import prospects
+          </button>
           <button 
             onClick={() => fileInputRef.current?.click()} 
             className="btn btn-secondary flex items-center gap-2"
-            title="Importer depuis Sellsy"
+            disabled={importing}
           >
-            <Upload className="w-4 h-4" />Import Sellsy
+            <FileSpreadsheet className="w-4 h-4" />
+            Import CSV
           </button>
-          <button onClick={() => openForm()} className="btn btn-primary flex items-center gap-2">
-            <Plus className="w-4 h-4" />Nouveau
+          <input 
+            ref={fileInputRef} 
+            type="file" 
+            accept=".csv,.txt" 
+            className="hidden" 
+            onChange={handleFileSelect}
+          />
+          <button onClick={() => openForm()} className="btn btn-primary">
+            <Plus className="w-4 h-4 mr-2" />Nouveau client
           </button>
         </div>
       </div>
       
-      <div className="flex flex-col sm:flex-row gap-3">
-        <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-          <input type="text" placeholder="Rechercher..." className="input pl-10 w-full" value={search} onChange={(e) => setSearch(e.target.value)} />
-        </div>
-        <div className="flex gap-2">
-          {['all', 'prospect', 'en_discussion', 'actif'].map(status => {
-            const labels = { all: 'Tous', prospect: 'Prospects', en_discussion: 'En discussion', actif: 'Actifs' }
-            const styles = {
-              all: filterStatus === 'all' ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200',
-              prospect: filterStatus === 'prospect' ? 'bg-orange-500 text-white' : 'bg-orange-50 text-orange-700 hover:bg-orange-100',
-              en_discussion: filterStatus === 'en_discussion' ? 'bg-blue-500 text-white' : 'bg-blue-50 text-blue-700 hover:bg-blue-100',
-              actif: filterStatus === 'actif' ? 'bg-green-500 text-white' : 'bg-green-50 text-green-700 hover:bg-green-100',
-            }
-            const counts = { all: clients.length, prospect: clients.filter(c => c.status === 'prospect').length, en_discussion: clients.filter(c => c.status === 'en_discussion').length, actif: clients.filter(c => c.status === 'actif').length }
-            return (
-              <button key={status} onClick={() => setFilterStatus(status)} className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${styles[status]}`}>
-                {labels[status]} <span className="opacity-70">({counts[status]})</span>
-              </button>
-            )
-          })}
+      <div className="card mb-6">
+        <div className="flex flex-col sm:flex-row gap-4">
+          <div className="flex-1 relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+            <input 
+              type="text" 
+              placeholder="Rechercher..." 
+              className="input pl-10" 
+              value={search} 
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+          <select className="input w-full sm:w-48" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
+            <option value="all">Tous les statuts</option>
+            <option value="prospect">Prospect</option>
+            <option value="en_discussion">En discussion</option>
+            <option value="actif">Actif</option>
+            <option value="a_completer">À compléter</option>
+          </select>
         </div>
       </div>
       
-      <div className="card overflow-hidden">
-        <table className="w-full">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="text-left py-3 px-4 font-medium text-gray-600">Entreprise</th>
-              <th className="text-left py-3 px-4 font-medium text-gray-600">SIRET</th>
-              <th className="text-left py-3 px-4 font-medium text-gray-600">Contact</th>
-              <th className="text-left py-3 px-4 font-medium text-gray-600">Email</th>
-              <th className="text-left py-3 px-4 font-medium text-gray-600">Téléphone</th>
-              <th className="text-right py-3 px-4 font-medium text-gray-600">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y">
-            {filtered.map(client => (
-              <tr key={client.id} className="hover:bg-gray-50">
-                <td className="py-3 px-4">
-                  <button onClick={() => openPreview(client)} className="font-medium text-primary-600 hover:underline flex items-center gap-2">
-                    <Building2 className="w-4 h-4" />{client.name}
-                  </button>
-                  <span className={`inline-block mt-1 text-xs font-medium px-2 py-0.5 rounded-full ${
-                    client.status === 'actif' ? 'bg-green-100 text-green-700' :
-                    client.status === 'en_discussion' ? 'bg-blue-100 text-blue-700' :
-                    'bg-orange-100 text-orange-700'
-                  }`}>
-                    {client.status === 'actif' ? '✓ Actif' : client.status === 'en_discussion' ? '💬 En discussion' : '🎯 Prospect'}
-                  </span>
-                </td>
-                <td className="py-3 px-4 text-gray-600">{client.siret || '-'}</td>
-                <td className="py-3 px-4 text-gray-600">
-                  {client.contact_name || '-'}
-                  {client.contact_function && <span className="text-xs text-gray-400 ml-1">({client.contact_function})</span>}
-                </td>
-                <td className="py-3 px-4 text-gray-600">{client.contact_email || '-'}</td>
-                <td className="py-3 px-4 text-gray-600">{client.contact_phone || '-'}</td>
-                <td className="py-3 px-4 text-right">
-                  <div className="flex justify-end gap-1">
-                    <button onClick={() => openPreview(client)} className="p-2 hover:bg-gray-100 rounded" title="Aperçu"><Eye className="w-4 h-4 text-blue-500" /></button>
-                    <button onClick={() => openForm(client)} className="p-2 hover:bg-gray-100 rounded" title="Modifier"><Edit className="w-4 h-4 text-gray-500" /></button>
-                    <button onClick={() => setConfirmDelete(client.id)} className="p-2 hover:bg-gray-100 rounded" title="Supprimer"><Trash2 className="w-4 h-4 text-red-500" /></button>
+      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+        {filtered.map(client => (
+          <div key={client.id} className="card hover:shadow-lg transition-shadow">
+            <div className="flex items-start justify-between mb-3">
+              <div className="flex-1">
+                <h3 className="font-semibold text-gray-900 mb-1">{client.name}</h3>
+                {client.address && (
+                  <div className="flex items-center gap-1 text-sm text-gray-600 mb-1">
+                    <MapPin className="w-3.5 h-3.5" />
+                    <span>{client.address}</span>
                   </div>
-                </td>
-              </tr>
-            ))}
-            {filtered.length === 0 && <tr><td colSpan={6} className="py-8 text-center text-gray-500">Aucun client</td></tr>}
-          </tbody>
-        </table>
+                )}
+                {client.contact_email && (
+                  <div className="flex items-center gap-1 text-sm text-gray-600 mb-1">
+                    <Mail className="w-3.5 h-3.5" />
+                    <span>{client.contact_email}</span>
+                  </div>
+                )}
+                {client.contact_phone && (
+                  <div className="flex items-center gap-1 text-sm text-gray-600">
+                    <Phone className="w-3.5 h-3.5" />
+                    <span>{client.contact_phone}</span>
+                  </div>
+                )}
+              </div>
+              <div className="flex gap-1">
+                <button onClick={() => openPreview(client)} className="p-1.5 text-gray-400 hover:text-primary hover:bg-gray-50 rounded transition-colors">
+                  <Eye className="w-4 h-4" />
+                </button>
+                <button onClick={() => openForm(client)} className="p-1.5 text-gray-400 hover:text-primary hover:bg-gray-50 rounded transition-colors">
+                  <Edit className="w-4 h-4" />
+                </button>
+                <button onClick={() => handleDeleteClick(client)} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors">
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-2 pt-3 border-t">
+              {client.status === 'actif' && <span className="px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs font-medium">✓ Actif</span>}
+              {client.status === 'en_discussion' && <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-medium">💬 En discussion</span>}
+              {client.status === 'prospect' && <span className="px-2 py-1 bg-orange-100 text-orange-700 rounded-full text-xs font-medium">🎯 Prospect</span>}
+              {client.status === 'a_completer' && <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded-full text-xs font-medium">📝 À compléter</span>}
+            </div>
+          </div>
+        ))}
+        
+        {filtered.length === 0 && (
+          <div className="col-span-full text-center py-12 text-gray-500">
+            <Building2 className="w-12 h-12 mx-auto mb-3 opacity-50" />
+            <p>Aucun client trouvé</p>
+          </div>
+        )}
       </div>
       
-      {/* Modal Aperçu */}
+      {/* Modal Preview */}
       {showPreview && selectedClient && (
         <div className="fixed inset-0 z-50 overflow-y-auto">
           <div className="fixed inset-0 bg-black/50" onClick={() => setShowPreview(false)} />
           <div className="relative min-h-full flex items-center justify-center p-4">
-            <div className="relative bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-              <div className="flex items-center justify-between p-4 border-b sticky top-0 bg-white">
-                <h2 className="text-lg font-semibold">Fiche client</h2>
+            <div className="relative bg-white rounded-xl shadow-xl w-full max-w-2xl">
+              <div className="flex items-center justify-between p-4 border-b">
+                <h2 className="text-lg font-semibold">{selectedClient.name}</h2>
                 <button onClick={() => setShowPreview(false)}><X className="w-5 h-5" /></button>
               </div>
-              <div className="p-4 space-y-4">
-                {/* En-tête */}
-                <div className="text-center pb-4 border-b">
-                  <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                    <Building2 className="w-8 h-8 text-blue-600" />
+              <div className="p-6 space-y-4">
+                {selectedClient.siret && (
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">SIRET</label>
+                    <p className="text-gray-900 font-mono">{selectedClient.siret}</p>
                   </div>
-                  <h3 className="text-xl font-bold">{selectedClient.name}</h3>
-                  {selectedClient.siret && <p className="text-sm text-gray-500">SIRET: {selectedClient.siret}</p>}
-                  <span className={`inline-block mt-2 text-xs font-medium px-2.5 py-1 rounded-full ${
-                    selectedClient.status === 'actif' ? 'bg-green-100 text-green-700' :
-                    selectedClient.status === 'en_discussion' ? 'bg-blue-100 text-blue-700' :
-                    'bg-orange-100 text-orange-700'
-                  }`}>
-                    {selectedClient.status === 'actif' ? '✓ Actif' : selectedClient.status === 'en_discussion' ? '💬 En discussion' : '🎯 Prospect'}
-                  </span>
-                </div>
-                
-                {/* Adresse */}
+                )}
                 {selectedClient.address && (
-                  <div className="flex items-start gap-3">
-                    <MapPin className="w-5 h-5 text-gray-400 mt-0.5" />
-                    <div>
-                      <p className="text-sm text-gray-500">Adresse</p>
-                      <p className="whitespace-pre-line">{selectedClient.address}</p>
-                    </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">Adresse</label>
+                    <p className="text-gray-900">{selectedClient.address}</p>
+                  </div>
+                )}
+                {(selectedClient.contact_email || selectedClient.contact_phone) && (
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">Contact</label>
+                    {selectedClient.contact_email && <p className="text-gray-900">{selectedClient.contact_email}</p>}
+                    {selectedClient.contact_phone && <p className="text-gray-900">{selectedClient.contact_phone}</p>}
+                  </div>
+                )}
+                {selectedClient.notes && (
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">Notes</label>
+                    <p className="text-gray-900 whitespace-pre-wrap">{selectedClient.notes}</p>
                   </div>
                 )}
                 
-                {/* Contact générique (entreprise) */}
-                <div className="bg-blue-50 rounded-lg p-4">
-                  <h4 className="font-medium text-blue-900 mb-3 flex items-center gap-2">
-                    <Building2 className="w-4 h-4" /> Contact entreprise (générique)
-                  </h4>
-                  <div className="grid grid-cols-1 gap-3">
-                    <div className="flex items-center gap-3">
-                      <Mail className="w-4 h-4 text-blue-600" />
-                      <span>{selectedClient.contact_email || <em className="text-gray-400">Non renseigné</em>}</span>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <Phone className="w-4 h-4 text-blue-600" />
-                      <span>{selectedClient.contact_phone || <em className="text-gray-400">Non renseigné</em>}</span>
-                    </div>
-                  </div>
-                </div>
-                
-                {/* Contact principal (personne) */}
-                {selectedClient.contact_name && (
-                  <div className="bg-gray-50 rounded-lg p-4">
-                    <h4 className="font-medium text-gray-700 mb-2 flex items-center gap-2">
-                      <User className="w-4 h-4" /> Contact principal
-                    </h4>
-                    <p className="font-medium">{selectedClient.contact_name}</p>
-                    {selectedClient.contact_function && (
-                      <p className="text-sm text-gray-500">{selectedClient.contact_function}</p>
-                    )}
-                  </div>
-                )}
-                
-                {/* Contacts spécifiques */}
-                <div className="border rounded-lg p-4">
+                <div className="border-t pt-4">
                   <div className="flex items-center justify-between mb-3">
-                    <h4 className="font-medium flex items-center gap-2">
-                      <Users className="w-4 h-4" /> Contacts spécifiques ({contacts.length})
-                    </h4>
-                    <ContactForm onAdd={addContact} />
+                    <h4 className="font-medium text-gray-700">Contacts ({contacts.length})</h4>
+                    <ContactForm onAdd={async (contactData) => {
+                      const { error } = await supabase.from('client_contacts').insert({ ...contactData, client_id: selectedClient.id })
+                      if (error) return toast.error('Erreur')
+                      const { data } = await supabase.from('client_contacts').select('*').eq('client_id', selectedClient.id).order('is_primary', { ascending: false })
+                      setContacts(data || [])
+                      toast.success('Contact ajouté')
+                    }} />
                   </div>
                   {contacts.length === 0 ? (
-                    <p className="text-sm text-gray-500 text-center py-2">
-                      Aucun contact spécifique.<br/>
-                      <span className="text-xs">Ajoutez des contacts pour les choisir lors de la création de sessions.</span>
-                    </p>
+                    <p className="text-gray-500 text-sm">Aucun contact</p>
                   ) : (
-                    <div className="space-y-2 max-h-48 overflow-y-auto">
-                      {contacts.map(contact => (
-                        <div key={contact.id} className="flex items-center justify-between p-2 bg-gray-50 rounded-lg">
-                          <div className="min-w-0 flex-1">
-                            <p className="font-medium truncate">
-                              {contact.name}
-                              {contact.is_primary && <span className="text-xs bg-green-100 text-green-700 px-1 ml-1 rounded">Principal</span>}
-                            </p>
-                            {contact.role && <p className="text-xs text-gray-500">{contact.role}</p>}
-                            <div className="flex flex-wrap gap-2 text-xs text-gray-500 mt-1">
-                              {contact.email && <span className="flex items-center gap-1"><Mail className="w-3 h-3" />{contact.email}</span>}
-                              {contact.phone && <span className="flex items-center gap-1"><Phone className="w-3 h-3" />{contact.phone}</span>}
+                    <div className="space-y-2">
+                      {contacts.map(c => (
+                        <div key={c.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <p className="font-medium text-gray-900">{c.name}</p>
+                              {c.is_primary && <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded">Principal</span>}
                             </div>
+                            {c.role && <p className="text-sm text-gray-600">{c.role}</p>}
+                            {c.email && <p className="text-sm text-gray-600">{c.email}</p>}
+                            {c.phone && <p className="text-sm text-gray-600">{c.phone}</p>}
                           </div>
-                          <div className="flex items-center gap-1 ml-2">
-                            <ContactForm onEdit={editContact} contact={contact} buttonLabel="✏️" />
-                            <button onClick={() => deleteContact(contact.id)} className="p-1 text-red-400 hover:text-red-600">
+                          <div className="flex gap-1">
+                            <ContactForm 
+                              contact={c}
+                              buttonLabel={<Edit className="w-4 h-4" />}
+                              onEdit={async (id, contactData) => {
+                                const { error } = await supabase.from('client_contacts').update(contactData).eq('id', id)
+                                if (error) return toast.error('Erreur')
+                                const { data } = await supabase.from('client_contacts').select('*').eq('client_id', selectedClient.id).order('is_primary', { ascending: false })
+                                setContacts(data || [])
+                                toast.success('Contact modifié')
+                              }}
+                            />
+                            <button
+                              onClick={async () => {
+                                if (!confirm('Supprimer ce contact ?')) return
+                                const { error } = await supabase.from('client_contacts').delete().eq('id', c.id)
+                                if (error) return toast.error('Erreur')
+                                const { data } = await supabase.from('client_contacts').select('*').eq('client_id', selectedClient.id).order('is_primary', { ascending: false })
+                                setContacts(data || [])
+                                toast.success('Contact supprimé')
+                              }}
+                              className="p-1.5 text-gray-400 hover:text-red-600"
+                            >
                               <Trash2 className="w-4 h-4" />
                             </button>
                           </div>
@@ -522,19 +674,6 @@ export default function Clients() {
                     </div>
                   )}
                 </div>
-                
-                {/* Notes */}
-                {selectedClient.notes && (
-                  <div>
-                    <p className="text-sm text-gray-500">Notes</p>
-                    <p className="text-sm whitespace-pre-line">{selectedClient.notes}</p>
-                  </div>
-                )}
-              </div>
-              <div className="flex justify-end gap-2 p-4 border-t">
-                <button onClick={() => { setShowPreview(false); openForm(selectedClient) }} className="btn btn-primary">
-                  <Edit className="w-4 h-4 mr-2" />Modifier
-                </button>
               </div>
             </div>
           </div>
@@ -546,59 +685,58 @@ export default function Clients() {
         <div className="fixed inset-0 z-50 overflow-y-auto">
           <div className="fixed inset-0 bg-black/50" onClick={() => setShowForm(false)} />
           <div className="relative min-h-full flex items-center justify-center p-4">
-            <div className="relative bg-white rounded-xl shadow-xl w-full max-w-lg">
+            <div className="relative bg-white rounded-xl shadow-xl w-full max-w-2xl">
               <div className="flex items-center justify-between p-4 border-b">
                 <h2 className="text-lg font-semibold">{selectedClient ? 'Modifier' : 'Nouveau'} client</h2>
                 <button onClick={() => setShowForm(false)}><X className="w-5 h-5" /></button>
               </div>
-              <div className="p-4 space-y-4">
+              <div className="p-6 space-y-4">
                 <div>
-                  <label className="label">Raison sociale *</label>
-                  <input type="text" className="input uppercase" value={form.name} onChange={(e) => setForm({...form, name: formatCompanyName(e.target.value)})} />
-                </div>
-                <div>
-                  <label className="label">SIRET</label>
-                  <input type="text" className="input" value={form.siret} onChange={(e) => setForm({...form, siret: e.target.value})} />
-                </div>
-                <div>
-                  <label className="label">Adresse</label>
-                  <textarea className="input" rows={2} value={form.address} onChange={(e) => setForm({...form, address: e.target.value})} />
+                  <label className="label">Nom de l'entreprise *</label>
+                  <input className="input" value={form.name} onChange={(e) => setForm({...form, name: formatCompanyName(e.target.value)})} />
                 </div>
                 
-                <div className="border-t pt-4">
-                  <h4 className="font-medium text-gray-700 mb-3">Contact entreprise (générique)</h4>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="label">Email entreprise</label>
-                      <input type="email" className="input" placeholder="contact@entreprise.fr" value={form.email} onChange={(e) => setForm({...form, email: e.target.value})} />
-                    </div>
-                    <div>
-                      <label className="label">Téléphone entreprise</label>
-                      <input type="tel" className="input" placeholder="02 XX XX XX XX" value={form.phone} onChange={(e) => setForm({...form, phone: e.target.value})} />
-                    </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="label">SIRET</label>
+                    <input className="input" value={form.siret} onChange={(e) => setForm({...form, siret: e.target.value})} />
+                  </div>
+                  <div>
+                    <label className="label">Email</label>
+                    <input type="email" className="input" value={form.email} onChange={(e) => setForm({...form, email: e.target.value})} />
                   </div>
                 </div>
                 
-                <div className="border-t pt-4">
-                  <h4 className="font-medium text-gray-700 mb-3">Contact principal (personne)</h4>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="label">Nom du contact</label>
-                      <input type="text" className="input" placeholder="Jean DUPONT" value={form.contact_name} onChange={(e) => setForm({...form, contact_name: e.target.value})} />
-                    </div>
-                    <div>
-                      <label className="label">Fonction</label>
-                      <input type="text" className="input" placeholder="Ex: Dirigeant, RH..." value={form.contact_function} onChange={(e) => setForm({...form, contact_function: e.target.value})} />
-                    </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="label">Téléphone</label>
+                    <input type="tel" className="input" value={form.phone} onChange={(e) => setForm({...form, phone: e.target.value})} />
+                  </div>
+                  <div>
+                    <label className="label">Adresse</label>
+                    <input className="input" value={form.address} onChange={(e) => setForm({...form, address: e.target.value})} />
+                  </div>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="label">Contact principal</label>
+                    <input className="input" placeholder="Nom du contact" value={form.contact_name} onChange={(e) => setForm({...form, contact_name: e.target.value})} />
+                  </div>
+                  <div>
+                    <label className="label">Fonction</label>
+                    <input className="input" placeholder="Ex: Directeur" value={form.contact_function} onChange={(e) => setForm({...form, contact_function: e.target.value})} />
                   </div>
                 </div>
                 
                 <div className="border-t pt-4">
                   <h4 className="font-medium text-gray-700 mb-3">Statut</h4>
-                  <div className="flex gap-2">
-                    {[{ value: 'prospect', label: '🎯 Prospect', active: 'bg-orange-500 text-white', inactive: 'bg-orange-50 text-orange-700 hover:bg-orange-100' },
+                  <div className="flex gap-2 flex-wrap">
+                    {[
+                      { value: 'prospect', label: '🎯 Prospect', active: 'bg-orange-500 text-white', inactive: 'bg-orange-50 text-orange-700 hover:bg-orange-100' },
                       { value: 'en_discussion', label: '💬 En discussion', active: 'bg-blue-500 text-white', inactive: 'bg-blue-50 text-blue-700 hover:bg-blue-100' },
-                      { value: 'actif', label: '✓ Actif', active: 'bg-green-500 text-white', inactive: 'bg-green-50 text-green-700 hover:bg-green-100' }
+                      { value: 'actif', label: '✓ Actif', active: 'bg-green-500 text-white', inactive: 'bg-green-50 text-green-700 hover:bg-green-100' },
+                      { value: 'a_completer', label: '📝 À compléter', active: 'bg-purple-500 text-white', inactive: 'bg-purple-50 text-purple-700 hover:bg-purple-100' }
                     ].map(s => (
                       <button key={s.value} type="button" onClick={() => setForm({...form, status: s.value})}
                         className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${form.status === s.value ? s.active : s.inactive}`}>
@@ -622,7 +760,59 @@ export default function Clients() {
         </div>
       )}
       
-      {/* Modal Import Sellsy Preview */}
+      {/* Modal Import Texte */}
+      {showTextImport && (
+        <div className="fixed inset-0 z-50 overflow-y-auto">
+          <div className="fixed inset-0 bg-black/50" onClick={() => setShowTextImport(false)} />
+          <div className="relative min-h-full flex items-center justify-center p-4">
+            <div className="relative bg-white rounded-xl shadow-xl w-full max-w-3xl max-h-[90vh] overflow-hidden">
+              <div className="flex items-center justify-between p-4 border-b bg-purple-50">
+                <div className="flex items-center gap-3">
+                  <FileText className="w-6 h-6 text-purple-600" />
+                  <div>
+                    <h2 className="text-lg font-semibold">Import prospects en masse</h2>
+                    <p className="text-sm text-gray-600">Pappers, Infogreffe, Societe.com...</p>
+                  </div>
+                </div>
+                <button onClick={() => setShowTextImport(false)}><X className="w-5 h-5" /></button>
+              </div>
+              
+              <div className="p-4">
+                <label className="label mb-2">Collez ici les données d'entreprises</label>
+                <textarea 
+                  className="input w-full font-mono text-sm"
+                  rows={20}
+                  value={textImportValue}
+                  onChange={(e) => setTextImportValue(e.target.value)}
+                  placeholder="GARDEN CONCEPTS&#10;Forme Juridique&#10;EURL&#10;Activité&#10;Services d'aménagement paysager&#10;Code NAF : 81.30Z&#10;Lieu&#10;PLOUDALMEZEAU&#10;Code postal : 29830&#10;Effectif : Entre 10 et 19 salariés&#10;..."
+                />
+              </div>
+              
+              <div className="flex items-center justify-between p-4 border-t bg-gray-50">
+                <p className="text-sm text-gray-600">
+                  Les prospects seront créés avec le statut "À compléter"
+                </p>
+                <div className="flex gap-2">
+                  <button 
+                    onClick={() => setShowTextImport(false)} 
+                    className="btn btn-secondary"
+                  >
+                    Annuler
+                  </button>
+                  <button 
+                    onClick={handleTextImportAnalyze} 
+                    className="btn btn-primary flex items-center gap-2"
+                  >
+                    <Search className="w-4 h-4" /> Analyser
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Modal Import Preview (Sellsy ou Texte) */}
       {importPreview && (
         <div className="fixed inset-0 z-50 overflow-y-auto">
           <div className="fixed inset-0 bg-black/50" onClick={() => !importing && setImportPreview(null)} />
@@ -632,8 +822,8 @@ export default function Clients() {
                 <div className="flex items-center gap-3">
                   <FileSpreadsheet className="w-6 h-6 text-blue-600" />
                   <div>
-                    <h2 className="text-lg font-semibold">Import Sellsy</h2>
-                    <p className="text-sm text-gray-600">{importPreview.length} société(s) détectée(s)</p>
+                    <h2 className="text-lg font-semibold">Prévisualisation import</h2>
+                    <p className="text-sm text-gray-600">{importPreview.length} prospect(s) détecté(s)</p>
                   </div>
                 </div>
                 {!importing && <button onClick={() => setImportPreview(null)}><X className="w-5 h-5" /></button>}
@@ -657,14 +847,14 @@ export default function Clients() {
                         <tr key={idx} className={exists ? 'bg-yellow-50' : ''}>
                           <td className="py-2 px-3">
                             <div className="font-medium">{societe.name}</div>
-                            {societe.city && <div className="text-xs text-gray-500">{societe.cp} {societe.city}</div>}
+                            {societe.city && <div className="text-xs text-gray-500">{societe.postal_code} {societe.city}</div>}
                             {exists && <span className="text-xs text-yellow-600">⚠️ Existe déjà</span>}
                           </td>
                           <td className="py-2 px-3 text-gray-600 font-mono text-xs">{societe.siret || '-'}</td>
                           <td className="py-2 px-3 text-gray-600 text-xs">{societe.contact_email || '-'}</td>
                           <td className="py-2 px-3 text-center">
                             <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs font-medium">
-                              {societe.contacts.length}
+                              {societe.contacts?.length || 0}
                             </span>
                           </td>
                         </tr>
@@ -679,7 +869,7 @@ export default function Clients() {
               
               <div className="flex items-center justify-between p-4 border-t bg-gray-50">
                 <p className="text-sm text-gray-600">
-                  Les sociétés existantes (même SIRET ou nom) seront ignorées
+                  Les prospects existants (même SIRET ou nom) seront ignorés
                 </p>
                 <div className="flex gap-2">
                   <button 
