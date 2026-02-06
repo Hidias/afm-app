@@ -36,6 +36,9 @@ import Login from './pages/Login'
 // ========== NOUVEAU : Pages Prospection ==========
 import ProspectionTabs from './pages/ProspectionTabs'
 import ProspectRDVDetail from './pages/ProspectRDVDetail'
+// ========== NOUVEAU : Prospection Massive ==========
+import ProspectionMassive from './pages/ProspectionMassive'
+import MultiEtablissements from './pages/MultiEtablissements'
 // ========== NOUVEAU : Configuration Email ==========
 import EmailSettings from './pages/EmailSettings'
 
@@ -143,6 +146,9 @@ export default function App() {
           {/* ========== NOUVEAU : Routes Prospection ========== */}
           <Route path="prospection" element={<ProspectionTabs />} />
           <Route path="prospection/:id" element={<ProspectRDVDetail />} />
+          {/* ========== NOUVEAU : Prospection Massive ========== */}
+          <Route path="prospection-massive" element={<ProspectionMassive />} />
+          <Route path="multi-etablissements" element={<MultiEtablissements />} />
           {/* ================================================== */}
           <Route path="formations" element={<Courses />} />
           <Route path="formateurs" element={<Trainers />} />
