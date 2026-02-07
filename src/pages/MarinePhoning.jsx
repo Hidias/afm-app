@@ -44,6 +44,14 @@ const COLOR_MAP = {
 }
 
 export default function MarinePhoning() {
+  // Mapping tranche effectifs INSEE
+  const EFFECTIF_LABELS = {
+    '00': '0 sal.', '01': '1-2 sal.', '02': '3-5 sal.', '03': '6-9 sal.',
+    '11': '10-19 sal.', '12': '20-49 sal.', '21': '50-99 sal.', '22': '100-199 sal.',
+    '31': '200-249 sal.', '32': '250-499 sal.', '41': '500-999 sal.', '42': '1000-1999 sal.',
+    '51': '2000-4999 sal.', '52': '5000-9999 sal.', '53': '10000+ sal.',
+  }
+  const getEffectifLabel = (code) => code ? (EFFECTIF_LABELS[String(code)] || code + ' sal.') : null
   const { user } = useAuthStore()
   const ADMIN_EMAIL = 'hicham.saidi@accessformation.pro'
   const isAdmin = user?.email === ADMIN_EMAIL
@@ -382,7 +390,7 @@ export default function MarinePhoning() {
                     <div className="font-semibold text-gray-900 text-sm">{p.name}</div>
                     <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">{p.quality_score}</span>
                   </div>
-                  <div className="text-xs text-gray-500 mt-1">📍 {p.city} ({p.departement}) {p.effectif && '• 👥 ' + p.effectif}</div>
+                  <div className="text-xs text-gray-500 mt-1">📍 {p.city} ({p.departement}) {p.effectif && '• 👥 ' + getEffectifLabel(p.effectif)}</div>
                   <div className="text-sm text-primary-600 font-medium mt-1">📞 {p.phone}</div>
                   {p.prospection_status === 'a_rappeler' && (
                     <span className="inline-block mt-1 text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded">🔔 À rappeler</span>
@@ -410,7 +418,7 @@ export default function MarinePhoning() {
                         <a href={'tel:' + current.phone?.replace(/\s/g, '')} className="text-primary-600 hover:underline font-bold text-lg">{current.phone}</a>
                       </div>
                       {current.email && <div className="flex items-center gap-2"><Mail className="w-4 h-4" /><a href={'mailto:' + current.email} className="text-primary-600 hover:underline">{current.email}</a></div>}
-                      {current.effectif && <div>👥 {current.effectif}</div>}
+                      {current.effectif && <div>👥 {getEffectifLabel(current.effectif)}</div>}
                       {current.siret && <div className="text-xs">SIRET: {current.siret}</div>}
                     </div>
                   </div>
