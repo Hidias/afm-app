@@ -1,812 +1,499 @@
 /**
  * ============================================================================
- * ENRICHISSEMENT RAPIDE - Semi-automatisé via Pages Jaunes
+ * API ENDPOINT - ENRICHISSEMENT PROSPECTS VIA PAGES JAUNES
  * ============================================================================
  * 
- * Mode turbo : ouvre PJ dans un nouvel onglet (IP résidentielle = pas de blocage),
- * l'utilisateur copie le téléphone et le colle ici.
+ * Recherche les prospects sur PagesJaunes.fr pour extraire :
+ * - Téléphone
+ * - Email  
+ * - Site web
  * 
- * Raccourcis clavier :
- * - Entrée : Sauvegarder et passer au suivant
- * - Échap : Passer sans sauvegarder
- * - Ctrl+O : Ouvrir Pages Jaunes
+ * Mode prudent pour éviter le blocage :
+ * - 15-30 secondes de délai aléatoire entre chaque requête
+ * - Rotation de User-Agent
+ * - Batch de 10 prospects max
+ * - Détection de blocage → arrêt immédiat
+ * 
+ * POST /api/enrich-prospects  { batch_size: 10 }
+ * GET  /api/enrich-prospects  (cron)
  * ============================================================================
  */
 
-import { useState, useEffect, useRef, useCallback } from 'react'
-import { supabase } from '../lib/supabase'
-import { 
-  Search, SkipForward, Save, ExternalLink, Phone, Mail, Globe,
-  ChevronRight, Zap, CheckCircle, XCircle, RefreshCw, Filter, Loader
-} from 'lucide-react'
+import { createClient } from '@supabase/supabase-js'
+import * as cheerio from 'cheerio'
 
-// Mapping code NAF (division 2 chiffres) → libellé secteur d'activité
-const NAF_LABELS = {
-  '01': 'Culture et production animale',
-  '02': 'Sylviculture et exploitation forestière',
-  '03': 'Pêche et aquaculture',
-  '05': 'Extraction de houille et lignite',
-  '06': 'Extraction d\'hydrocarbures',
-  '07': 'Extraction de minerais métalliques',
-  '08': 'Autres industries extractives',
-  '09': 'Services de soutien aux industries extractives',
-  '10': 'Industries alimentaires',
-  '11': 'Fabrication de boissons',
-  '12': 'Fabrication de produits à base de tabac',
-  '13': 'Fabrication de textiles',
-  '14': 'Industrie de l\'habillement',
-  '15': 'Industrie du cuir et de la chaussure',
-  '16': 'Travail du bois (menuiserie, charpente)',
-  '17': 'Industrie du papier et du carton',
-  '18': 'Imprimerie et reproduction',
-  '20': 'Industrie chimique',
-  '21': 'Industrie pharmaceutique',
-  '22': 'Fabrication de produits en caoutchouc et plastique',
-  '23': 'Fabrication de produits minéraux non métalliques',
-  '24': 'Métallurgie',
-  '25': 'Fabrication de produits métalliques',
-  '26': 'Fabrication de produits informatiques et électroniques',
-  '27': 'Fabrication d\'équipements électriques',
-  '28': 'Fabrication de machines et équipements',
-  '29': 'Industrie automobile',
-  '30': 'Fabrication de matériels de transport',
-  '31': 'Fabrication de meubles',
-  '32': 'Autres industries manufacturières',
-  '33': 'Réparation et installation de machines',
-  '35': 'Production et distribution d\'électricité, gaz',
-  '36': 'Captage, traitement et distribution d\'eau',
-  '37': 'Collecte et traitement des eaux usées',
-  '38': 'Collecte, traitement et élimination des déchets',
-  '39': 'Dépollution et gestion des déchets',
-  '41': 'Construction de bâtiments',
-  '42': 'Génie civil',
-  '43': 'Travaux de construction spécialisés',
-  '45': 'Commerce et réparation automobiles',
-  '46': 'Commerce de gros',
-  '47': 'Commerce de détail',
-  '49': 'Transports terrestres',
-  '50': 'Transports par eau',
-  '51': 'Transports aériens',
-  '52': 'Entreposage et services auxiliaires des transports',
-  '53': 'Activités de poste et de courrier',
-  '55': 'Hébergement',
-  '56': 'Restauration',
-  '58': 'Édition',
-  '59': 'Production de films, vidéo, musique',
-  '60': 'Programmation et diffusion',
-  '61': 'Télécommunications',
-  '62': 'Programmation et conseil informatique',
-  '63': 'Services d\'information',
-  '64': 'Services financiers (banque)',
-  '65': 'Assurance',
-  '66': 'Activités auxiliaires de services financiers',
-  '68': 'Activités immobilières',
-  '69': 'Activités juridiques et comptables',
-  '70': 'Conseil de gestion',
-  '71': 'Architecture, ingénierie, contrôle technique',
-  '72': 'Recherche-développement scientifique',
-  '73': 'Publicité et études de marché',
-  '74': 'Autres activités spécialisées (design, photo)',
-  '75': 'Activités vétérinaires',
-  '77': 'Activités de location',
-  '78': 'Activités liées à l\'emploi (intérim)',
-  '79': 'Agences de voyage et voyagistes',
-  '80': 'Enquêtes et sécurité',
-  '81': 'Services relatifs aux bâtiments (nettoyage)',
-  '82': 'Services administratifs et de soutien',
-  '84': 'Administration publique et défense',
-  '85': 'Enseignement',
-  '86': 'Activités pour la santé humaine',
-  '87': 'Hébergement médico-social et social',
-  '88': 'Action sociale sans hébergement',
-  '90': 'Activités créatives, artistiques et de spectacle',
-  '91': 'Bibliothèques, musées et patrimoine',
-  '92': 'Organisation de jeux de hasard',
-  '93': 'Activités sportives, récréatives et de loisirs',
-  '94': 'Activités des organisations associatives',
-  '95': 'Réparation d\'ordinateurs et de biens personnels',
-  '96': 'Autres services personnels (coiffure, beauté)',
-  '97': 'Activités des ménages en tant qu\'employeurs',
-  '99': 'Organisations et organismes extraterritoriaux',
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL
+const SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY
+
+// ============================================================================
+// CONFIGURATION PRUDENTE
+// ============================================================================
+
+const DEFAULT_BATCH_SIZE = 10
+const MIN_DELAY = 15000  // 15 secondes minimum entre requêtes
+const MAX_DELAY = 30000  // 30 secondes maximum
+const FETCH_TIMEOUT = 12000
+const MAX_ENRICHMENT_ATTEMPTS = 2
+
+// User-Agents rotatifs (navigateurs courants)
+const USER_AGENTS = [
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2.1 Safari/605.1.15',
+  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0',
+]
+
+// Emails à ignorer
+const BLACKLISTED_EMAIL_PREFIXES = [
+  'noreply', 'no-reply', 'no_reply', 'unsubscribe',
+  'mailer-daemon', 'postmaster', 'webmaster', 'root',
+  'abuse', 'spam', 'newsletter', 'notification',
+]
+
+const BLACKLISTED_EMAIL_DOMAINS = [
+  'example.com', 'test.com', 'pagesjaunes.fr', 'solocal.com',
+  'googleapis.com', 'facebook.com', 'twitter.com', 'google.com',
+]
+
+// ============================================================================
+// UTILITAIRES
+// ============================================================================
+
+function getRandomUserAgent() {
+  return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)]
 }
 
-function getNafLabel(naf) {
-  if (!naf) return null
-  const code = naf.replace(/\./g, '').substring(0, 2)
-  return NAF_LABELS[code] || naf
+function getRandomDelay() {
+  return MIN_DELAY + Math.floor(Math.random() * (MAX_DELAY - MIN_DELAY))
 }
 
-const EFFECTIF_LABELS = {
-  '00': '0 sal.', '01': '1-2 sal.', '02': '3-5 sal.', '03': '6-9 sal.',
-  '11': '10-19 sal.', '12': '20-49 sal.', '21': '50-99 sal.', '22': '100-199 sal.',
-  '31': '200-249 sal.', '32': '250-499 sal.', '41': '500-999 sal.', '42': '1000-1999 sal.',
-  '51': '2000-4999 sal.', '52': '5000-9999 sal.', '53': '10000+ sal.',
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms))
 }
 
-function getEffectifLabel(code) {
-  if (!code) return null
-  return EFFECTIF_LABELS[String(code)] || code + ' sal.'
+// Nettoyer le nom de l'entreprise pour la recherche
+function cleanCompanyName(name) {
+  if (!name) return ''
+  return name
+    .replace(/\b(SAS|SARL|SA|EURL|SCI|SNC)\b/gi, '')
+    .replace(/[^\w\sÀ-ÿ-]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
-export default function EnrichissementRapide() {
-  const [prospects, setProspects] = useState([])
-  const [currentIndex, setCurrentIndex] = useState(0)
-  const [phone, setPhone] = useState('')
-  const [email, setEmail] = useState('')
-  const [siteWeb, setSiteWeb] = useState('')
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [dbStats, setDbStats] = useState({ done: 0, phones: 0, emails: 0, excluded: 0 })
-  const [sessionStats, setSessionStats] = useState({ done: 0, phones: 0, emails: 0, excluded: 0 })
-  const [totalRemaining, setTotalRemaining] = useState(0)
-  const [departementFilter, setDepartementFilter] = useState('')
-  const [searchTerm, setSearchTerm] = useState('')
-  const [searchResults, setSearchResults] = useState(null)
-  const [searching, setSearching] = useState(false)
-  const [enriching, setEnriching] = useState(false)
-  const [enrichResult, setEnrichResult] = useState(null)
-  const phoneRef = useRef(null)
+// Normaliser un numéro de téléphone français
+function normalizePhone(raw) {
+  if (!raw) return null
+  let phone = raw.replace(/[\s.\-()]/g, '')
+  
+  if (phone.startsWith('+33')) phone = '0' + phone.slice(3)
+  if (phone.startsWith('0033')) phone = '0' + phone.slice(4)
+  
+  if (!/^0[1-9]\d{8}$/.test(phone)) return null
+  
+  // Exclure les numéros suspects
+  if (/^(\d)\1{9}$/.test(phone)) return null
+  if (phone === '0123456789') return null
+  
+  // Formater : 02 98 12 34 56
+  return phone.replace(/(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/, '$1 $2 $3 $4 $5')
+}
 
-  // Départements importés (hardcodé car la requête SELECT departement sur 273k lignes ne retourne que 1000 rows par défaut)
-  const departements = ['22', '29', '35', '44', '49', '53', '56', '72', '85']
+// Valider un email
+function isValidEmail(email) {
+  if (!email || email.length > 60) return false
+  const lower = email.toLowerCase().trim()
+  const prefix = lower.split('@')[0]
+  const domain = lower.split('@')[1]
+  if (!domain) return false
+  if (BLACKLISTED_EMAIL_PREFIXES.some(bp => prefix.startsWith(bp))) return false
+  if (BLACKLISTED_EMAIL_DOMAINS.some(bd => domain.includes(bd))) return false
+  if (!/^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/.test(lower)) return false
+  return true
+}
 
-  // Charger les stats globales depuis la base
-  async function loadStats() {
-    const [
-      { count: doneCount },
-      { count: phoneCount },
-      { count: emailCount },
-      { count: excludedCount },
-    ] = await Promise.all([
-      supabase.from('prospection_massive').select('id', { count: 'exact', head: true }).eq('enrichment_status', 'done').eq('phone_source', 'manual_pj'),
-      supabase.from('prospection_massive').select('id', { count: 'exact', head: true }).not('phone', 'is', null).eq('phone_source', 'manual_pj'),
-      supabase.from('prospection_massive').select('id', { count: 'exact', head: true }).not('email', 'is', null).eq('email_source', 'manual_pj'),
-      supabase.from('prospection_massive').select('id', { count: 'exact', head: true }).eq('enrichment_status', 'failed').eq('enrichment_attempts', 99),
-    ])
-    setDbStats({
-      done: doneCount || 0,
-      phones: phoneCount || 0,
-      emails: emailCount || 0,
-      excluded: excludedCount || 0,
+// ============================================================================
+// RECHERCHE PAGES JAUNES
+// ============================================================================
+
+async function searchPagesJaunes(companyName, city) {
+  const result = {
+    phone: null,
+    email: null,
+    site_web: null,
+    source: 'pagesjaunes',
+    found: false,
+    blocked: false,
+    error: null,
+  }
+
+  try {
+    const query = cleanCompanyName(companyName)
+    if (!query || query.length < 3) {
+      result.error = 'Nom entreprise trop court'
+      return result
+    }
+
+    const searchCity = (city || '').trim()
+    if (!searchCity) {
+      result.error = 'Pas de ville'
+      return result
+    }
+
+    // Construire l'URL de recherche
+    const url = `https://www.pagesjaunes.fr/pagesblanches/recherche?quoiqui=${encodeURIComponent(query)}&ou=${encodeURIComponent(searchCity)}`
+
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT)
+
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': getRandomUserAgent(),
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Referer': 'https://www.pagesjaunes.fr/',
+        'DNT': '1',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+        'Cache-Control': 'no-cache',
+      },
+      redirect: 'follow',
     })
-  }
 
-  useEffect(() => { loadStats() }, [])
+    clearTimeout(timeoutId)
 
-  // Recherche dans tout l'import massif
-  async function handleSearch(term) {
-    setSearchTerm(term)
-    if (!term || term.length < 2) {
-      setSearchResults(null)
-      return
+    // Détection de blocage
+    if (response.status === 403 || response.status === 429 || response.status === 503) {
+      result.blocked = true
+      result.error = `Blocage détecté (HTTP ${response.status})`
+      return result
     }
-    setSearching(true)
-    try {
-      const isNumeric = /^\d+$/.test(term.replace(/\s/g, ''))
-      let query = supabase
-        .from('prospection_massive')
-        .select('id, siret, siren, name, city, postal_code, address, naf, phone, email, site_web, departement, effectif, quality_score, enrichment_status')
-        .order('quality_score', { ascending: false })
-        .limit(50)
 
-      if (isNumeric) {
-        // Recherche par SIRET/SIREN
-        const clean = term.replace(/\s/g, '')
-        query = query.or(`siret.ilike.%${clean}%,siren.ilike.%${clean}%`)
-      } else {
-        query = query.or(`name.ilike.%${term}%,city.ilike.%${term}%`)
+    if (!response.ok) {
+      result.error = `HTTP ${response.status}`
+      return result
+    }
+
+    const html = await response.text()
+
+    // Vérifier si c'est un captcha
+    if (html.includes('captcha') || html.includes('robot') || html.includes('bot-detection')) {
+      result.blocked = true
+      result.error = 'Captcha détecté'
+      return result
+    }
+
+    // Parser avec Cheerio
+    const $ = cheerio.load(html)
+
+    // ---- Extraire le téléphone ----
+    const phoneSelectors = [
+      '.bi-phone',
+      '.number-phone',
+      '[data-phone]',
+      '.tel',
+      'a[href^="tel:"]',
+      '.phone-number',
+      '.coord-numero',
+    ]
+
+    for (const selector of phoneSelectors) {
+      const el = $(selector).first()
+      if (el.length) {
+        const phoneText = el.attr('data-phone') || el.attr('href')?.replace('tel:', '') || el.text()
+        const normalized = normalizePhone(phoneText)
+        if (normalized) {
+          result.phone = normalized
+          break
+        }
       }
-
-      const { data, error } = await query
-      if (error) throw error
-
-      // Dédupliquer par SIREN
-      const seen = new Set()
-      const unique = (data || []).filter(p => {
-        if (seen.has(p.siren)) return false
-        seen.add(p.siren)
-        return true
-      })
-      setSearchResults(unique)
-    } catch (err) {
-      console.error('Erreur recherche:', err)
-    } finally {
-      setSearching(false)
-    }
-  }
-
-  function selectSearchResult(prospect) {
-    setSearchResults(null)
-    setSearchTerm('')
-    // Injecter dans la file et afficher
-    setProspects([prospect])
-    setCurrentIndex(0)
-    resetFields()
-    if (prospect.phone) setPhone(prospect.phone)
-    if (prospect.email) setEmail(prospect.email)
-    if (prospect.site_web) setSiteWeb(prospect.site_web)
-  }
-
-  // Charger un batch de prospects
-  const loadProspects = useCallback(async () => {
-    setLoading(true)
-    
-    let query = supabase
-      .from('prospection_massive')
-      .select('id, siret, siren, name, city, postal_code, address, naf, phone, email, site_web, departement, effectif, quality_score')
-      .is('phone', null)
-      .or('enrichment_status.is.null,enrichment_status.eq.pending,enrichment_status.eq.enriching')
-      .order('quality_score', { ascending: false })
-      .limit(100)
-
-    if (departementFilter) {
-      query = query.eq('departement', departementFilter)
     }
 
-    const { data, error } = await query
-
-    if (error) {
-      console.error('Erreur chargement:', error)
-      setLoading(false)
-      return
+    // Fallback : chercher des patterns téléphone dans tout le texte
+    if (!result.phone) {
+      const bodyText = $('body').text()
+      const phoneRegex = /(?:0[1-9])(?:[\s.\-]?\d{2}){4}/g
+      const matches = bodyText.match(phoneRegex) || []
+      for (const match of matches) {
+        const normalized = normalizePhone(match)
+        if (normalized) {
+          result.phone = normalized
+          break
+        }
+      }
     }
 
-    // Dédupliquer par SIREN (garder le premier = meilleur score)
-    const seen = new Set()
-    const unique = (data || []).filter(p => {
-      if (seen.has(p.siren)) return false
-      seen.add(p.siren)
-      return true
-    }).slice(0, 50)
-
-    setProspects(unique)
-    setCurrentIndex(0)
-    resetFields()
-
-    // Compter le total restant (approximatif)
-    let countQuery = supabase
-      .from('prospection_massive')
-      .select('id', { count: 'exact', head: true })
-      .is('phone', null)
-      .or('enrichment_status.is.null,enrichment_status.eq.pending,enrichment_status.eq.enriching')
-
-    if (departementFilter) {
-      countQuery = countQuery.eq('departement', departementFilter)
+    // ---- Extraire l'email ----
+    const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g
+    const allEmails = html.match(emailRegex) || []
+    for (const email of allEmails) {
+      if (isValidEmail(email)) {
+        result.email = email.toLowerCase().trim()
+        break
+      }
     }
 
-    const { count } = await countQuery
-    setTotalRemaining(count || 0)
+    // Aussi chercher dans les liens mailto
+    $('a[href^="mailto:"]').each((_, el) => {
+      if (!result.email) {
+        const email = $(el).attr('href').replace('mailto:', '').split('?')[0]
+        if (isValidEmail(email)) {
+          result.email = email.toLowerCase().trim()
+        }
+      }
+    })
 
-    setLoading(false)
-  }, [departementFilter])
+    // ---- Extraire le site web ----
+    const siteSelectors = [
+      'a[data-pjlabel="site_internet"]',
+      'a.pj-link--site',
+      '.site-internet a',
+      '.website a',
+    ]
 
-  useEffect(() => {
-    loadProspects()
-  }, [loadProspects])
-
-  const current = prospects[currentIndex]
-
-  function resetFields() {
-    setPhone('')
-    setEmail('')
-    setSiteWeb('')
-    setEnrichResult(null)
-  }
-
-  // ⚡ Auto-enrichir via Pages Jaunes + scraping site web
-  async function autoEnrich() {
-    if (!current || enriching) return
-    setEnriching(true)
-    setEnrichResult(null)
-
-    try {
-      const response = await fetch('/api/auto-enrich', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: current.name,
-          city: current.city,
-          postal_code: current.postal_code,
-          site_web: siteWeb || current.site_web,
-        })
-      })
-
-      const data = await response.json()
-      setEnrichResult(data)
-
-      // Pré-remplir les champs trouvés (sans écraser ce qui existe déjà)
-      if (data.phone && !phone) setPhone(data.phone)
-      if (data.site_web && !siteWeb) setSiteWeb(data.site_web)
-      if (data.email && !email) setEmail(data.email)
-
-      // Focus sur téléphone si pas trouvé, sinon laisser vérifier
-      if (!data.phone) setTimeout(() => phoneRef.current?.focus(), 100)
-
-    } catch (error) {
-      console.error('Auto-enrich error:', error)
-      setEnrichResult({ error: true, message: error.message })
-    } finally {
-      setEnriching(false)
+    for (const selector of siteSelectors) {
+      const el = $(selector).first()
+      if (el.length) {
+        const href = el.attr('href') || ''
+        if (href && !href.includes('pagesjaunes.fr') && !href.includes('solocal.com')) {
+          result.site_web = href
+          break
+        }
+      }
     }
-  }
 
-  // Passer au prospect suivant
-  function goNext() {
-    resetFields()
-    if (currentIndex < prospects.length - 1) {
-      setCurrentIndex(prev => prev + 1)
+    result.found = !!(result.phone || result.email || result.site_web)
+    return result
+
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      result.error = 'Timeout'
     } else {
-      // Recharger un nouveau batch
-      loadProspects()
+      result.error = error.message
     }
-    // Focus sur le champ téléphone
-    setTimeout(() => phoneRef.current?.focus(), 100)
+    return result
   }
+}
 
-  // Sauvegarder les données
-  async function handleSave() {
-    if (!current) return
-    if (!phone && !email && !siteWeb) {
-      goNext()
-      return
-    }
+// ============================================================================
+// SCRAPING DU SITE WEB (si trouvé via PJ)
+// ============================================================================
 
-    setSaving(true)
+async function scrapeWebsite(siteUrl) {
+  const result = { phone: null, email: null }
 
-    const update = {
-      updated_at: new Date().toISOString(),
-      enrichment_status: 'done',
-      enrichment_last_attempt: new Date().toISOString(),
-      enrichment_attempts: 99,
-    }
+  try {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 8000)
 
-    if (phone) {
-      // Normaliser le téléphone
-      let cleanPhone = phone.replace(/[\s.\-()]/g, '')
-      if (cleanPhone.startsWith('+33')) cleanPhone = '0' + cleanPhone.slice(3)
-      if (cleanPhone.startsWith('0033')) cleanPhone = '0' + cleanPhone.slice(4)
-      
-      if (/^0[1-9]\d{8}$/.test(cleanPhone)) {
-        update.phone = cleanPhone.replace(/(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/, '$1 $2 $3 $4 $5')
-        update.phone_source = 'manual_pj'
-      } else {
-        update.phone = phone.trim()
-        update.phone_source = 'manual_pj'
+    const response = await fetch(siteUrl, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': getRandomUserAgent(),
+        'Accept': 'text/html,application/xhtml+xml',
+        'Accept-Language': 'fr-FR,fr;q=0.9',
+      },
+      redirect: 'follow',
+    })
+
+    clearTimeout(timeoutId)
+
+    if (!response.ok) return result
+
+    const contentType = response.headers.get('content-type') || ''
+    if (!contentType.includes('text/html')) return result
+
+    const html = (await response.text()).slice(0, 300000)
+
+    // Extraire emails
+    const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g
+    const emails = html.match(emailRegex) || []
+    for (const email of emails) {
+      if (isValidEmail(email)) {
+        result.email = email.toLowerCase().trim()
+        break
       }
     }
 
-    if (email) {
-      update.email = email.trim().toLowerCase()
-      update.email_source = 'manual_pj'
+    // Extraire téléphones
+    const text = html.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '').replace(/<[^>]+>/g, ' ')
+    const phoneRegex = /(?:0[1-9])(?:[\s.\-]?\d{2}){4}/g
+    const phones = text.match(phoneRegex) || []
+    for (const p of phones) {
+      const normalized = normalizePhone(p)
+      if (normalized) {
+        result.phone = normalized
+        break
+      }
     }
-
-    if (siteWeb) {
-      update.site_web = siteWeb.trim()
-    }
-
-    const { error } = await supabase
-      .from('prospection_massive')
-      .update(update)
-      .eq('siren', current.siren)
-
-    if (!error) {
-      setSessionStats(prev => ({
-        done: prev.done + 1,
-        phones: prev.phones + (phone ? 1 : 0),
-        emails: prev.emails + (email ? 1 : 0),
-        excluded: prev.excluded,
-      }))
-      setTotalRemaining(prev => prev - 1)
-    }
-
-    setSaving(false)
-    goNext()
+  } catch (error) {
+    // Silencieux
   }
 
-  // Passer sans sauvegarder
-  function handleSkip() {
-    if (!current) return
-    goNext()
-  }
+  return result
+}
 
-  // Marquer comme introuvable / exclu
-  async function handleNotFound() {
-    if (!current) return
+// ============================================================================
+// HANDLER PRINCIPAL
+// ============================================================================
 
-    await supabase
+export default async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Origin', '*')
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+
+  if (req.method === 'OPTIONS') return res.status(200).end()
+
+  const batchSize = Math.min(req.body?.batch_size || DEFAULT_BATCH_SIZE, 15) // Max 15 sécurité
+
+  try {
+    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+
+    // 1. Récupérer les prospects à enrichir
+    //    - Pas encore de phone
+    //    - Moins de MAX_ENRICHMENT_ATTEMPTS tentatives
+    //    - Pas encore enrichi avec succès
+    //    - Triés par quality_score décroissant (les meilleurs d'abord)
+    const { data: prospects, error: fetchError } = await supabase
       .from('prospection_massive')
-      .update({
-        enrichment_status: 'failed',
-        enrichment_attempts: 99,
-        enrichment_last_attempt: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+      .select('id, siret, siren, name, city, postal_code, phone, email, site_web, enrichment_attempts, enrichment_status')
+      .is('phone', null)
+      .or(`enrichment_attempts.is.null,enrichment_attempts.lt.${MAX_ENRICHMENT_ATTEMPTS}`)
+      .or('enrichment_status.is.null,enrichment_status.neq.done')
+      .order('quality_score', { ascending: false })
+      .limit(batchSize)
+
+    if (fetchError) {
+      return res.status(500).json({ error: fetchError.message })
+    }
+
+    if (!prospects || prospects.length === 0) {
+      return res.status(200).json({
+        success: true,
+        message: 'Aucun prospect à enrichir',
+        stats: { total: 0 }
       })
-      .eq('siren', current.siren)
+    }
 
-    setSessionStats(prev => ({ ...prev, excluded: prev.excluded + 1 }))
-    setTotalRemaining(prev => prev - 1)
-    goNext()
-  }
+    // 2. Enrichir chaque prospect
+    const stats = {
+      total: prospects.length,
+      phones_found: 0,
+      emails_found: 0,
+      sites_found: 0,
+      both_found: 0,
+      failed: 0,
+      blocked: false,
+    }
 
-  // Ouvrir Pages Jaunes
-  function openPJ() {
-    if (!current) return
-    const cleanName = current.name
-      .replace(/\b(SAS|SARL|SA|EURL|SCI|SNC|SASU)\b/gi, '')
-      .replace(/[^\w\sÀ-ÿ-]/g, '')
-      .trim()
-    const city = current.city || ''
-    const url = `https://www.pagesjaunes.fr/pagesblanches/recherche?quoiqui=${encodeURIComponent(cleanName)}&ou=${encodeURIComponent(city)}`
-    window.open(url, '_blank')
-  }
+    for (let i = 0; i < prospects.length; i++) {
+      const prospect = prospects[i]
 
-  // Ouvrir recherche Google
-  function openGoogle() {
-    if (!current) return
-    const query = `${current.name} ${current.city || ''} téléphone`
-    window.open(`https://www.google.com/search?q=${encodeURIComponent(query)}`, '_blank')
-  }
+      // Délai aléatoire AVANT chaque requête (sauf la première)
+      if (i > 0) {
+        const delay = getRandomDelay()
+        await sleep(delay)
+      }
 
-  // Ouvrir Societe.com
-  function openSociete() {
-    if (!current) return
-    const query = current.siren || current.siret?.slice(0, 9) || current.name
-    window.open(`https://www.societe.com/cgi-bin/search?champs=${encodeURIComponent(query)}`, '_blank')
-  }
+      try {
+        // Étape 1 : Chercher sur Pages Jaunes
+        const pjResult = await searchPagesJaunes(prospect.name, prospect.city)
 
-  // Raccourcis clavier
-  useEffect(() => {
-    function handleKeyDown(e) {
-      // Ignorer si on tape dans un input
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') {
-        if (e.key === 'Enter') {
-          e.preventDefault()
-          handleSave()
+        // Si blocage détecté, on arrête TOUT le batch
+        if (pjResult.blocked) {
+          stats.blocked = true
+          console.error('⚠️ BLOCAGE DÉTECTÉ - Arrêt du batch')
+          break
         }
-        if (e.key === 'Escape') {
-          e.preventDefault()
-          handleSkip()
-        }
-        return
-      }
 
-      if (e.ctrlKey && e.key === 'o') {
-        e.preventDefault()
-        openPJ()
-      }
-      if (e.ctrlKey && e.key === 'e') {
-        e.preventDefault()
-        autoEnrich()
-      }
-      if (e.key === 'Enter') {
-        e.preventDefault()
-        handleSave()
-      }
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        handleSkip()
+        // Préparer la mise à jour
+        const update = {
+          enrichment_attempts: (prospect.enrichment_attempts || 0) + 1,
+          enrichment_last_attempt: new Date().toISOString(),
+          enrichment_sources_tried: ['pagesjaunes'],
+          updated_at: new Date().toISOString(),
+        }
+
+        let foundPhone = pjResult.phone
+        let foundEmail = pjResult.email
+        let foundSite = pjResult.site_web
+
+        // Étape 2 : Si PJ a trouvé un site web mais pas de phone/email,
+        // scraper le site web directement
+        if (foundSite && (!foundPhone || !foundEmail)) {
+          await sleep(3000) // petit délai
+          const siteResult = await scrapeWebsite(foundSite)
+          if (!foundPhone && siteResult.phone) foundPhone = siteResult.phone
+          if (!foundEmail && siteResult.email) foundEmail = siteResult.email
+          update.enrichment_sources_tried = ['pagesjaunes', 'site_web']
+        }
+
+        // Appliquer les résultats
+        if (foundPhone) {
+          update.phone = foundPhone
+          update.phone_source = 'pagesjaunes'
+          stats.phones_found++
+        }
+
+        if (foundEmail) {
+          update.email = foundEmail
+          update.email_source = pjResult.email ? 'pagesjaunes' : 'site_web'
+          stats.emails_found++
+        }
+
+        if (foundSite && !prospect.site_web) {
+          update.site_web = foundSite
+          stats.sites_found++
+        }
+
+        // Statut
+        if (foundPhone && foundEmail) {
+          update.enrichment_status = 'done'
+          stats.both_found++
+        } else if (foundPhone || foundEmail) {
+          update.enrichment_status = 'done'
+        } else {
+          update.enrichment_status = 'failed'
+          if (pjResult.error) {
+            update.enrichment_errors = [pjResult.error]
+          }
+        }
+
+        await supabase
+          .from('prospection_massive')
+          .update(update)
+          .eq('id', prospect.id)
+
+      } catch (error) {
+        stats.failed++
+        await supabase
+          .from('prospection_massive')
+          .update({
+            enrichment_attempts: (prospect.enrichment_attempts || 0) + 1,
+            enrichment_last_attempt: new Date().toISOString(),
+            enrichment_status: 'failed',
+            enrichment_errors: [error.message],
+          })
+          .eq('id', prospect.id)
       }
     }
 
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [current, phone, email, siteWeb, enriching])
+    const message = stats.blocked
+      ? `⚠️ Blocage détecté après ${stats.phones_found} tels et ${stats.emails_found} emails. Réessayer plus tard.`
+      : `✅ ${stats.phones_found} téléphones, ${stats.emails_found} emails, ${stats.sites_found} sites trouvés sur ${stats.total} prospects`
 
-  // Focus auto sur le champ téléphone
-  useEffect(() => {
-    if (current && phoneRef.current) {
-      phoneRef.current.focus()
-    }
-  }, [currentIndex])
+    return res.status(200).json({
+      success: true,
+      stats,
+      message,
+    })
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <RefreshCw className="w-8 h-8 animate-spin text-primary-600" />
-        <span className="ml-3 text-lg">Chargement des prospects...</span>
-      </div>
-    )
+  } catch (error) {
+    console.error('Erreur enrichissement:', error)
+    return res.status(500).json({ error: error.message })
   }
-
-  return (
-    <div className="max-w-4xl mx-auto">
-      {/* Header Stats */}
-      <div className="mb-6">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">⚡ Enrichissement Rapide</h1>
-            <p className="text-gray-600 mt-1">
-              {totalRemaining.toLocaleString()} prospects restants
-            </p>
-          </div>
-          
-          <div className="flex items-center gap-3">
-            <Filter className="w-4 h-4 text-gray-500" />
-            <select
-              value={departementFilter}
-              onChange={(e) => setDepartementFilter(e.target.value)}
-              className="border rounded-lg px-3 py-2 text-sm"
-            >
-              <option value="">Tous les départements</option>
-              {departements.map(d => (
-                <option key={d} value={d}>{d}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        {/* Barre de recherche */}
-        <div className="relative mb-4">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => handleSearch(e.target.value)}
-            placeholder="Rechercher par nom, ville ou SIRET..."
-            className="w-full pl-10 pr-10 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent text-sm"
-          />
-          {searchTerm && (
-            <button onClick={() => { setSearchTerm(''); setSearchResults(null) }}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
-              <XCircle className="w-4 h-4" />
-            </button>
-          )}
-          
-          {/* Résultats de recherche */}
-          {searchResults !== null && (
-            <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white rounded-lg shadow-lg border border-gray-200 max-h-80 overflow-y-auto">
-              {searching ? (
-                <div className="p-4 text-center text-gray-500 text-sm">
-                  <RefreshCw className="w-4 h-4 animate-spin inline mr-2" />Recherche...
-                </div>
-              ) : searchResults.length === 0 ? (
-                <div className="p-4 text-center text-gray-500 text-sm">Aucun résultat</div>
-              ) : (
-                searchResults.map(p => (
-                  <button key={p.id} onClick={() => selectSearchResult(p)}
-                    className="w-full text-left px-4 py-3 hover:bg-gray-50 border-b border-gray-100 last:border-0">
-                    <div className="flex items-center justify-between">
-                      <span className="font-medium text-gray-900 text-sm">{p.name}</span>
-                      <span className="flex items-center gap-2 text-xs">
-                        {p.enrichment_status === 'done' && <span className="text-green-600 bg-green-50 px-2 py-0.5 rounded">✓ Enrichi</span>}
-                        {p.enrichment_status === 'failed' && <span className="text-red-600 bg-red-50 px-2 py-0.5 rounded">✗ Exclu</span>}
-                        {(!p.enrichment_status || p.enrichment_status === 'pending') && <span className="text-gray-400 bg-gray-50 px-2 py-0.5 rounded">En attente</span>}
-                        <span className="text-gray-400">{p.quality_score}</span>
-                      </span>
-                    </div>
-                    <div className="text-xs text-gray-500 mt-0.5">
-                      📍 {p.city} ({p.departement}) {p.effectif && '• 👥 ' + getEffectifLabel(p.effectif)} {p.phone && '• 📞 ' + p.phone}
-                    </div>
-                    <div className="text-xs text-gray-400">SIRET: {p.siret} {p.naf && '• ' + getNafLabel(p.naf)}</div>
-                  </button>
-                ))
-              )}
-            </div>
-          )}
-        </div>
-
-        <div className="grid grid-cols-4 gap-3">
-          <div className="bg-white rounded-lg shadow p-3 text-center">
-            <p className="text-2xl font-bold text-primary-600">{dbStats.done + sessionStats.done}</p>
-            <p className="text-xs text-gray-500">Enrichis</p>
-            {sessionStats.done > 0 && <p className="text-xs text-primary-400">+{sessionStats.done} cette session</p>}
-          </div>
-          <div className="bg-white rounded-lg shadow p-3 text-center">
-            <p className="text-2xl font-bold text-green-600">{dbStats.phones + sessionStats.phones}</p>
-            <p className="text-xs text-gray-500">📞 Tels</p>
-            {sessionStats.phones > 0 && <p className="text-xs text-green-400">+{sessionStats.phones} cette session</p>}
-          </div>
-          <div className="bg-white rounded-lg shadow p-3 text-center">
-            <p className="text-2xl font-bold text-blue-600">{dbStats.emails + sessionStats.emails}</p>
-            <p className="text-xs text-gray-500">📧 Emails</p>
-            {sessionStats.emails > 0 && <p className="text-xs text-blue-400">+{sessionStats.emails} cette session</p>}
-          </div>
-          <div className="bg-white rounded-lg shadow p-3 text-center">
-            <p className="text-2xl font-bold text-red-400">{dbStats.excluded + sessionStats.excluded}</p>
-            <p className="text-xs text-gray-500">🚫 Supprimés</p>
-            {sessionStats.excluded > 0 && <p className="text-xs text-red-300">+{sessionStats.excluded} cette session</p>}
-          </div>
-        </div>
-      </div>
-
-      {!current ? (
-        <div className="bg-white rounded-lg shadow p-12 text-center">
-          <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
-          <h2 className="text-xl font-semibold mb-2">Tout est enrichi !</h2>
-          <p className="text-gray-600">Aucun prospect restant à traiter.</p>
-        </div>
-      ) : (
-        <>
-          {/* Fiche Prospect */}
-          <div className="bg-white rounded-lg shadow p-6 mb-4">
-            <div className="flex items-start justify-between mb-4">
-              <div>
-                <h2 className="text-xl font-bold text-gray-900">{current.name}</h2>
-                <div className="flex items-center gap-4 mt-2 text-sm text-gray-600">
-                  <span>📍 {current.city} ({current.postal_code?.slice(0, 2)})</span>
-                  {current.effectif && <span>👥 {getEffectifLabel(current.effectif)}</span>}
-                </div>
-                {current.address && (
-                  <p className="text-sm text-gray-500 mt-1">🏠 {current.address}</p>
-                )}
-                {current.naf && (
-                  <p className="text-sm text-gray-500 mt-1">🏭 {getNafLabel(current.naf)}</p>
-                )}
-                <p className="text-xs text-gray-400 mt-1">
-                  SIRET: {current.siret} • Score: {current.quality_score}
-                </p>
-              </div>
-              <div className="text-sm text-gray-400">
-                {currentIndex + 1} / {prospects.length}
-              </div>
-            </div>
-
-            {/* ⚡ AUTO-ENRICHIR */}
-            <button
-              onClick={autoEnrich}
-              disabled={enriching}
-              className={`w-full flex items-center justify-center gap-3 px-6 py-3 rounded-xl font-bold text-lg mb-3 transition-all ${
-                enriching
-                  ? 'bg-purple-100 text-purple-400 cursor-wait'
-                  : 'bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white shadow-lg hover:shadow-xl'
-              }`}
-            >
-              {enriching ? (
-                <><Loader className="w-5 h-5 animate-spin" /> Recherche en cours...</>
-              ) : (
-                <><Zap className="w-5 h-5" /> Auto-enrichir (Ctrl+E)</>
-              )}
-            </button>
-
-            {/* Résultat auto-enrichissement */}
-            {enrichResult && !enrichResult.error && (
-              <div className={`rounded-lg px-4 py-2 text-sm mb-3 ${
-                (enrichResult.phone || enrichResult.site_web || enrichResult.email)
-                  ? 'bg-green-50 border border-green-200 text-green-800'
-                  : 'bg-orange-50 border border-orange-200 text-orange-700'
-              }`}>
-                {(enrichResult.phone || enrichResult.site_web || enrichResult.email) ? (
-                  <>✅ Trouvé : {[enrichResult.phone && 'tél', enrichResult.site_web && 'site', enrichResult.email && 'email'].filter(Boolean).join(', ')} — via {[...new Set(enrichResult.sources || [])].join(' + ')}</>
-                ) : (
-                  <>🤷 Rien trouvé automatiquement — utilise les boutons ci-dessous</>
-                )}
-              </div>
-            )}
-            {enrichResult?.error && (
-              <div className="rounded-lg px-4 py-2 text-sm mb-3 bg-red-50 border border-red-200 text-red-700">
-                ❌ Erreur : {enrichResult.message || 'Impossible de contacter le serveur'}
-              </div>
-            )}
-
-            {/* Boutons de recherche manuelle */}
-            <div className="flex gap-2 mb-6">
-              <button
-                onClick={openPJ}
-                className="flex items-center gap-2 px-4 py-2 bg-yellow-500 hover:bg-yellow-600 text-white rounded-lg font-medium transition-colors"
-              >
-                <ExternalLink className="w-4 h-4" />
-                Pages Jaunes
-              </button>
-              <button
-                onClick={openGoogle}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium transition-colors"
-              >
-                <Search className="w-4 h-4" />
-                Google
-              </button>
-              <button
-                onClick={openSociete}
-                className="flex items-center gap-2 px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-medium transition-colors"
-              >
-                <ExternalLink className="w-4 h-4" />
-                Societe.com
-              </button>
-            </div>
-
-            {/* Champs de saisie */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1">
-                  <Phone className="w-4 h-4" />
-                  Téléphone
-                  {enrichResult?.phone && phone === enrichResult.phone && (
-                    <span className="text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full">auto</span>
-                  )}
-                </label>
-                <input
-                  ref={phoneRef}
-                  type="tel"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  placeholder="02 98 12 34 56"
-                  className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                />
-              </div>
-              <div>
-                <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1">
-                  <Mail className="w-4 h-4" />
-                  Email
-                  {enrichResult?.email && email === enrichResult.email && (
-                    <span className="text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full">auto</span>
-                  )}
-                </label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="contact@entreprise.fr"
-                  className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                />
-              </div>
-              <div>
-                <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1">
-                  <Globe className="w-4 h-4" />
-                  Site web
-                  {enrichResult?.site_web && siteWeb === enrichResult.site_web && (
-                    <span className="text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full">auto</span>
-                  )}
-                </label>
-                <input
-                  type="url"
-                  value={siteWeb}
-                  onChange={(e) => setSiteWeb(e.target.value)}
-                  placeholder="www.entreprise.fr"
-                  className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Boutons d'action */}
-          <div className="flex items-center justify-between">
-            <button
-              onClick={handleNotFound}
-              className="flex items-center gap-2 px-4 py-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg font-medium transition-colors"
-            >
-              <XCircle className="w-5 h-5" />
-              Exclure (fermé / pas intéressé)
-            </button>
-
-            <div className="flex gap-3">
-              <button
-                onClick={handleSkip}
-                className="flex items-center gap-2 px-5 py-3 bg-gray-200 hover:bg-gray-300 rounded-lg font-medium transition-colors"
-              >
-                <SkipForward className="w-5 h-5" />
-                Passer
-                <span className="text-xs text-gray-500 ml-1">(Échap)</span>
-              </button>
-              <button
-                onClick={handleSave}
-                disabled={saving || (!phone && !email && !siteWeb)}
-                className={`flex items-center gap-2 px-6 py-3 rounded-lg font-medium transition-colors ${
-                  saving || (!phone && !email && !siteWeb)
-                    ? 'bg-gray-300 cursor-not-allowed'
-                    : 'bg-green-600 hover:bg-green-700 text-white'
-                }`}
-              >
-                {saving ? (
-                  <RefreshCw className="w-5 h-5 animate-spin" />
-                ) : (
-                  <Save className="w-5 h-5" />
-                )}
-                Sauvegarder & Suivant
-                <span className="text-xs text-green-200 ml-1">(Entrée)</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Raccourcis clavier */}
-          <div className="mt-6 text-center text-xs text-gray-400">
-            <span className="inline-flex items-center gap-4">
-              <span><kbd className="px-1.5 py-0.5 bg-gray-100 rounded text-gray-600">Entrée</kbd> Sauvegarder</span>
-              <span><kbd className="px-1.5 py-0.5 bg-gray-100 rounded text-gray-600">Échap</kbd> Passer</span>
-              <span><kbd className="px-1.5 py-0.5 bg-purple-100 rounded text-purple-600">Ctrl+E</kbd> Auto-enrichir</span>
-              <span><kbd className="px-1.5 py-0.5 bg-gray-100 rounded text-gray-600">Ctrl+O</kbd> Ouvrir PJ</span>
-            </span>
-          </div>
-        </>
-      )}
-    </div>
-  )
 }
