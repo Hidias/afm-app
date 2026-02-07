@@ -39,6 +39,7 @@ import ProspectRDVDetail from './pages/ProspectRDVDetail'
 // ========== NOUVEAU : Prospection Massive ==========
 import ProspectionMassive from './pages/ProspectionMassive'
 import MultiEtablissements from './pages/MultiEtablissements'
+import AdminImport from './pages/AdminImport'
 // ========== NOUVEAU : Configuration Email ==========
 import EmailSettings from './pages/EmailSettings'
 
@@ -149,6 +150,7 @@ export default function App() {
           {/* ========== NOUVEAU : Prospection Massive ========== */}
           <Route path="prospection-massive" element={<ProspectionMassive />} />
           <Route path="multi-etablissements" element={<MultiEtablissements />} />
+          <Route path="admin/import" element={<AdminImport />} />
           {/* ================================================== */}
           <Route path="formations" element={<Courses />} />
           <Route path="formateurs" element={<Trainers />} />
