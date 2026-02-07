@@ -1,554 +1,576 @@
-/**
- * ============================================================================
- * ENRICHISSEMENT RAPIDE - Semi-automatisé via Pages Jaunes
- * ============================================================================
- * 
- * Mode turbo : ouvre PJ dans un nouvel onglet (IP résidentielle = pas de blocage),
- * l'utilisateur copie le téléphone et le colle ici.
- * 
- * Raccourcis clavier :
- * - Entrée : Sauvegarder et passer au suivant
- * - Échap : Passer sans sauvegarder
- * - Ctrl+O : Ouvrir Pages Jaunes
- * ============================================================================
- */
-
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
+import { useAuthStore } from '../lib/store'
 import { 
-  Search, SkipForward, Save, ExternalLink, Phone, Mail, Globe,
-  ChevronRight, Zap, CheckCircle, XCircle, RefreshCw, Filter
+  Phone, CheckCircle, RefreshCw, SkipForward,
+  Building2, MapPin, Mail, List, Search
 } from 'lucide-react'
+import toast from 'react-hot-toast'
 
-export default function EnrichissementRapide() {
+const FORMATIONS = [
+  'SST / MAC SST',
+  'Gestes & Postures / TMS',
+  'Incendie (EPI, extincteurs, évacuation)',
+  'Habilitation électrique (B0 / H0V)',
+  'Conduite R485 / R489'
+]
+
+const TEMPLATES_NOTES = [
+  { label: '🔥 Intéressé - Veut devis', value: 'Intéressé. Demande devis pour [X] personnes. Formations : [liste]. Budget disponible.' },
+  { label: '🟡 À rappeler', value: 'À rappeler le [date] à [heure]. Raison : [Dirigeant absent / En réunion / Demande rappel]' },
+  { label: '❄️ Déjà prestataire', value: 'Travaille déjà avec [nom organisme]. À recontacter dans [3/6 mois] pour renouvellement.' },
+  { label: '📞 Message laissé', value: 'Message laissé. Email de présentation envoyé. À relancer dans 2 jours si pas de retour.' },
+  { label: '⚠️ Barrage secrétariat', value: 'Barrage secrétariat. Contact décideur : [Nom] [Email]. Mail envoyé.' },
+  { label: '📧 Envoyer mail', value: 'Envoyer un mail de présentation à [email]. Rappeler dans 48h.' },
+  { label: '🏢 Voir siège', value: 'Contacter le siège au [numéro]. Demander [nom/service].' },
+]
+
+const CALL_RESULTS = [
+  { id: 'chaud', label: '🔥 Intéressé', sublabel: 'Veut un RDV', color: 'green' },
+  { id: 'tiede', label: '🟡 Tiède', sublabel: 'À rappeler', color: 'orange' },
+  { id: 'froid', label: '❄️ Pas intéressé', sublabel: 'Archiver', color: 'blue' },
+  { id: 'no_answer', label: '📞 Pas de réponse', sublabel: 'Répondeur', color: 'gray' },
+  { id: 'blocked', label: '⚠️ Barrage', sublabel: 'Secrétariat', color: 'red' },
+  { id: 'wrong_number', label: '❌ Numéro erroné', sublabel: 'À corriger', color: 'purple' },
+]
+
+const COLOR_MAP = {
+  green: { active: 'bg-green-500 text-white border-green-500', inactive: 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50' },
+  orange: { active: 'bg-orange-500 text-white border-orange-500', inactive: 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50' },
+  blue: { active: 'bg-blue-500 text-white border-blue-500', inactive: 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50' },
+  gray: { active: 'bg-gray-500 text-white border-gray-500', inactive: 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50' },
+  red: { active: 'bg-red-500 text-white border-red-500', inactive: 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50' },
+  purple: { active: 'bg-purple-500 text-white border-purple-500', inactive: 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50' },
+}
+
+export default function MarinePhoning() {
+  const { user } = useAuthStore()
+  const ADMIN_EMAIL = 'hicham.saidi@accessformation.pro'
+  const isAdmin = user?.email === ADMIN_EMAIL
+  const callerName = user?.email?.split('@')[0]?.split('.')?.map(n => n.charAt(0).toUpperCase() + n.slice(1))?.join(' ') || 'Inconnu'
+
   const [prospects, setProspects] = useState([])
-  const [currentIndex, setCurrentIndex] = useState(0)
-  const [phone, setPhone] = useState('')
-  const [email, setEmail] = useState('')
-  const [siteWeb, setSiteWeb] = useState('')
+  const [current, setCurrent] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [stats, setStats] = useState({ done: 0, phones: 0, emails: 0, skipped: 0, phoning: 0 })
-  const [totalRemaining, setTotalRemaining] = useState(0)
   const [departementFilter, setDepartementFilter] = useState('')
-  const [departements, setDepartements] = useState([])
+  const [viewMode, setViewMode] = useState('list')
+  const [searchTerm, setSearchTerm] = useState('')
+  const [totalCount, setTotalCount] = useState(0)
 
-  const phoneRef = useRef(null)
+  const [callStartTime, setCallStartTime] = useState(null)
+  const [callDuration, setCallDuration] = useState(0)
 
-  // Charger les départements disponibles
+  const [contactName, setContactName] = useState('')
+  const [contactFunction, setContactFunction] = useState('Dirigeant')
+  const [contactEmail, setContactEmail] = useState('')
+  const [contactMobile, setContactMobile] = useState('')
+  const [callResult, setCallResult] = useState('chaud')
+  const [formationsSelected, setFormationsSelected] = useState([])
+  const [notes, setNotes] = useState('')
+  const [createRdv, setCreateRdv] = useState(false)
+  const [rdvAssignedTo, setRdvAssignedTo] = useState('Hicham')
+  const [rdvDate, setRdvDate] = useState('')
+  const [needsCallback, setNeedsCallback] = useState(false)
+  const [callbackDate, setCallbackDate] = useState('')
+  const [callbackTime, setCallbackTime] = useState('14:00')
+  const [callbackReason, setCallbackReason] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const departements = [...new Set(prospects.map(p => p.departement))].filter(Boolean).sort()
+
+  useEffect(() => { loadProspects() }, [])
+
   useEffect(() => {
-    async function loadDepartements() {
-      const { data } = await supabase
-        .from('prospection_massive')
-        .select('departement')
-        .is('phone', null)
-      
-      if (data) {
-        const depts = [...new Set(data.map(d => d.departement).filter(Boolean))].sort()
-        setDepartements(depts)
-      }
-    }
-    loadDepartements()
-  }, [])
+    if (!callStartTime) return
+    const interval = setInterval(() => {
+      setCallDuration(Math.floor((Date.now() - callStartTime) / 1000))
+    }, 1000)
+    return () => clearInterval(interval)
+  }, [callStartTime])
 
-  // Charger un batch de prospects
-  const loadProspects = useCallback(async () => {
+  async function loadProspects() {
     setLoading(true)
-    
-    let query = supabase
-      .from('prospection_massive')
-      .select('id, siret, siren, name, city, postal_code, phone, email, site_web, departement, effectif, quality_score')
-      .is('phone', null)
-      .or('enrichment_status.is.null,enrichment_status.eq.pending,enrichment_status.eq.enriching')
-      .order('quality_score', { ascending: false })
-      .limit(100)
+    try {
+      const { data, error } = await supabase
+        .from('prospection_massive')
+        .select('id, siret, siren, name, city, postal_code, phone, email, site_web, departement, effectif, quality_score, prospection_status, prospection_notes, contacted, contacted_at')
+        .not('phone', 'is', null)
+        .or('prospection_status.is.null,prospection_status.eq.a_rappeler')
+        .order('quality_score', { ascending: false })
+        .limit(200)
 
-    if (departementFilter) {
-      query = query.eq('departement', departementFilter)
-    }
+      if (error) throw error
 
-    const { data, error } = await query
+      const seen = new Set()
+      const unique = (data || []).filter(p => {
+        if (!p.siren || seen.has(p.siren)) return false
+        seen.add(p.siren)
+        return true
+      })
 
-    if (error) {
-      console.error('Erreur chargement:', error)
+      setProspects(unique)
+      setTotalCount(unique.length)
+
+      if (viewMode === 'file' && unique.length > 0 && !current) {
+        selectProspect(unique[0])
+      }
+    } catch (err) {
+      console.error('Erreur chargement:', err)
+      toast.error('Erreur lors du chargement')
+    } finally {
       setLoading(false)
-      return
     }
-
-    // Dédupliquer par SIREN (garder le premier = meilleur score)
-    const seen = new Set()
-    const unique = (data || []).filter(p => {
-      if (seen.has(p.siren)) return false
-      seen.add(p.siren)
-      return true
-    }).slice(0, 50)
-
-    setProspects(unique)
-    setCurrentIndex(0)
-    resetFields()
-
-    // Compter le total restant (approximatif)
-    let countQuery = supabase
-      .from('prospection_massive')
-      .select('id', { count: 'exact', head: true })
-      .is('phone', null)
-      .or('enrichment_status.is.null,enrichment_status.eq.pending,enrichment_status.eq.enriching')
-
-    if (departementFilter) {
-      countQuery = countQuery.eq('departement', departementFilter)
-    }
-
-    const { count } = await countQuery
-    setTotalRemaining(count || 0)
-
-    setLoading(false)
-  }, [departementFilter])
-
-  useEffect(() => {
-    loadProspects()
-  }, [loadProspects])
-
-  const current = prospects[currentIndex]
-
-  function resetFields() {
-    setPhone('')
-    setEmail('')
-    setSiteWeb('')
   }
 
-  // Passer au prospect suivant
-  function goNext() {
-    resetFields()
-    if (currentIndex < prospects.length - 1) {
-      setCurrentIndex(prev => prev + 1)
-    } else {
-      // Recharger un nouveau batch
-      loadProspects()
-    }
-    // Focus sur le champ téléphone
-    setTimeout(() => phoneRef.current?.focus(), 100)
+  function selectProspect(prospect) {
+    setCurrent(prospect)
+    setCallStartTime(Date.now())
+    setCallDuration(0)
+    setContactName('')
+    setContactFunction('Dirigeant')
+    setContactEmail(prospect.email || '')
+    setContactMobile('')
+    setCallResult('chaud')
+    setFormationsSelected([])
+    setNotes('')
+    setCreateRdv(false)
+    setRdvAssignedTo('Hicham')
+    setRdvDate('')
+    setNeedsCallback(false)
+    setCallbackDate('')
+    setCallbackTime('14:00')
+    setCallbackReason('')
   }
 
-  // Sauvegarder les données
+  async function findOrCreateClient(prospect) {
+    const { data: existing } = await supabase
+      .from('clients')
+      .select('id')
+      .eq('siren', prospect.siren)
+      .maybeSingle()
+
+    if (existing) return existing.id
+
+    const { data: newClient, error } = await supabase
+      .from('clients')
+      .insert({
+        name: prospect.name,
+        address: prospect.city ? prospect.postal_code + ' ' + prospect.city : null,
+        postal_code: prospect.postal_code,
+        city: prospect.city,
+        siret: prospect.siret,
+        siren: prospect.siren,
+        contact_phone: prospect.phone,
+        email: prospect.email || null,
+        website: prospect.site_web || null,
+        taille_entreprise: prospect.effectif || null,
+        status: 'prospect',
+        type: 'prospect',
+      })
+      .select('id')
+      .single()
+
+    if (error) throw error
+    return newClient.id
+  }
+
   async function handleSave() {
     if (!current) return
-    if (!phone && !email && !siteWeb) {
-      goNext()
-      return
-    }
-
     setSaving(true)
 
-    const update = {
-      updated_at: new Date().toISOString(),
-      enrichment_status: 'done',
-      enrichment_last_attempt: new Date().toISOString(),
-      enrichment_attempts: 99,
-    }
+    try {
+      const finalDuration = callStartTime ? Math.floor((Date.now() - callStartTime) / 1000) : 0
+      const clientId = await findOrCreateClient(current)
 
-    if (phone) {
-      // Normaliser le téléphone
-      let cleanPhone = phone.replace(/[\s.\-()]/g, '')
-      if (cleanPhone.startsWith('+33')) cleanPhone = '0' + cleanPhone.slice(3)
-      if (cleanPhone.startsWith('0033')) cleanPhone = '0' + cleanPhone.slice(4)
-      
-      if (/^0[1-9]\d{8}$/.test(cleanPhone)) {
-        update.phone = cleanPhone.replace(/(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/, '$1 $2 $3 $4 $5')
-        update.phone_source = 'manual_pj'
-      } else {
-        update.phone = phone.trim()
-        update.phone_source = 'manual_pj'
+      const { data: insertedCall, error: callError } = await supabase
+        .from('prospect_calls')
+        .insert({
+          client_id: clientId,
+          called_by: callerName,
+          duration_seconds: finalDuration,
+          contact_name: contactName || null,
+          contact_function: contactFunction || null,
+          contact_email: contactEmail || null,
+          contact_mobile: contactMobile || null,
+          call_result: callResult,
+          formations_mentioned: formationsSelected.length > 0 ? formationsSelected : null,
+          notes: notes || null,
+          rdv_created: createRdv,
+          needs_callback: needsCallback,
+          callback_date: needsCallback ? callbackDate : null,
+          callback_time: needsCallback ? callbackTime : null,
+          callback_reason: needsCallback ? callbackReason : null,
+        })
+        .select()
+        .single()
+
+      if (callError) throw callError
+
+      // Mettre à jour client
+      const clientUpdates = {}
+      if (contactName) clientUpdates.contact_name = contactName
+      if (contactEmail) clientUpdates.contact_email = contactEmail
+      if (contactMobile) clientUpdates.mobile = contactMobile
+      if (contactFunction) clientUpdates.contact_function = contactFunction
+      if (Object.keys(clientUpdates).length > 0) {
+        await supabase.from('clients').update(clientUpdates).eq('id', clientId)
       }
-    }
 
-    if (email) {
-      update.email = email.trim().toLowerCase()
-      update.email_source = 'manual_pj'
-    }
+      // Créer RDV
+      if (createRdv && rdvDate) {
+        const { data: insertedRdv, error: rdvError } = await supabase
+          .from('prospect_rdv')
+          .insert({
+            client_id: clientId,
+            rdv_date: rdvDate,
+            rdv_type: 'decouverte',
+            conducted_by: rdvAssignedTo,
+            status: 'prevu',
+            contact_name: contactName || null,
+            contact_email: contactEmail || null,
+            contact_phone: contactMobile || null,
+            formations_interet: formationsSelected.length > 0 ? formationsSelected : null,
+            notes: 'Créé par ' + callerName + ' suite à appel téléphonique.\n\nNotes:\n' + notes,
+            temperature: 'chaud',
+            source: 'phoning_' + callerName.toLowerCase().replace(' ', '_'),
+          })
+          .select()
+          .single()
 
-    if (siteWeb) {
-      update.site_web = siteWeb.trim()
-    }
-
-    const { error } = await supabase
-      .from('prospection_massive')
-      .update(update)
-      .eq('siren', current.siren)
-
-    if (!error) {
-      setStats(prev => ({
-        done: prev.done + 1,
-        phones: prev.phones + (phone ? 1 : 0),
-        emails: prev.emails + (email ? 1 : 0),
-        skipped: prev.skipped,
-      }))
-      setTotalRemaining(prev => prev - 1)
-
-      // Si on a un téléphone → créer client + ajouter à la file phoning
-      if (phone) {
-        try {
-          // Vérifier si le client existe déjà (par SIREN)
-          const { data: existing } = await supabase
-            .from('clients')
-            .select('id')
-            .eq('siren', current.siren)
-            .maybeSingle()
-
-          let clientId = existing?.id
-
-          if (!clientId) {
-            // Créer le client
-            const { data: newClient, error: clientError } = await supabase
-              .from('clients')
-              .insert({
-                name: current.name,
-                address: current.city ? `${current.postal_code} ${current.city}` : null,
-                postal_code: current.postal_code,
-                city: current.city,
-                siret: current.siret,
-                siren: current.siren,
-                contact_phone: update.phone || phone.trim(),
-                email: email ? email.trim().toLowerCase() : null,
-                website: siteWeb ? siteWeb.trim() : null,
-                taille_entreprise: current.effectif || null,
-                status: 'prospect',
-                type: 'prospect',
-              })
-              .select('id')
-              .single()
-
-            if (clientError) throw clientError
-            clientId = newClient.id
-          }
-
-          // Vérifier si pas déjà dans la file phoning
-          const { data: existingQueue } = await supabase
-            .from('marine_queue')
-            .select('id')
-            .eq('client_id', clientId)
-            .in('status', ['pending', 'in_progress'])
-            .maybeSingle()
-
-          if (!existingQueue) {
-            await supabase
-              .from('marine_queue')
-              .insert({
-                client_id: clientId,
-                priority: 3,
-                zone_geo: current.departement || null,
-                status: 'pending',
-                call_attempts: 0,
-              })
-            setStats(prev => ({ ...prev, phoning: prev.phoning + 1 }))
-          }
-        } catch (err) {
-          console.error('Erreur ajout file phoning:', err)
-          // On ne bloque pas — le prospect est quand même enrichi
-        }
+        if (rdvError) throw rdvError
+        await supabase.from('prospect_calls').update({ rdv_id: insertedRdv.id }).eq('id', insertedCall.id)
       }
-    }
 
-    setSaving(false)
-    goNext()
+      // Mettre à jour prospection_massive
+      let newStatus = null
+      if (callResult === 'chaud') newStatus = 'rdv_pris'
+      else if (callResult === 'froid') newStatus = 'pas_interesse'
+      else if (callResult === 'tiede' || callResult === 'no_answer' || callResult === 'blocked') newStatus = 'a_rappeler'
+      else if (callResult === 'wrong_number') newStatus = 'numero_errone'
+
+      await supabase
+        .from('prospection_massive')
+        .update({
+          contacted: true,
+          contacted_at: new Date().toISOString(),
+          prospection_status: newStatus,
+          prospection_notes: notes || null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('siren', current.siren)
+
+      let message = '✅ Appel enregistré'
+      if (createRdv) message += ' • RDV créé pour ' + rdvAssignedTo
+      if (needsCallback) message += ' • Rappel programmé'
+      toast.success(message)
+
+      goNext()
+      await loadProspects()
+
+    } catch (error) {
+      console.error('Erreur sauvegarde:', error)
+      toast.error('Erreur: ' + (error.message || 'Échec sauvegarde'))
+    } finally {
+      setSaving(false)
+    }
   }
 
-  // Passer sans sauvegarder
+  function goNext() {
+    if (!current || viewMode === 'list') {
+      setCurrent(null)
+      setCallStartTime(null)
+      return
+    }
+    const idx = prospects.findIndex(p => p.id === current.id)
+    if (idx < prospects.length - 1) {
+      selectProspect(prospects[idx + 1])
+    } else {
+      setCurrent(null)
+      setCallStartTime(null)
+      loadProspects()
+    }
+  }
+
   function handleSkip() {
     if (!current) return
-    setStats(prev => ({ ...prev, skipped: prev.skipped + 1 }))
+    toast.info('Prospect passé')
     goNext()
   }
 
-  // Marquer comme introuvable
-  async function handleNotFound() {
-    if (!current) return
-
-    await supabase
-      .from('prospection_massive')
-      .update({
-        enrichment_status: 'failed',
-        enrichment_attempts: 99,
-        enrichment_last_attempt: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq('siren', current.siren)
-
-    setStats(prev => ({ ...prev, skipped: prev.skipped + 1 }))
-    setTotalRemaining(prev => prev - 1)
-    goNext()
+  const formatDuration = (seconds) => {
+    const mins = Math.floor(seconds / 60)
+    const secs = seconds % 60
+    return mins + 'min ' + secs.toString().padStart(2, '0') + 's'
   }
 
-  // Ouvrir Pages Jaunes
-  function openPJ() {
-    if (!current) return
-    const cleanName = current.name
-      .replace(/\b(SAS|SARL|SA|EURL|SCI|SNC|SASU)\b/gi, '')
-      .replace(/[^\w\sÀ-ÿ-]/g, '')
-      .trim()
-    const city = current.city || ''
-    const url = `https://www.pagesjaunes.fr/pagesblanches/recherche?quoiqui=${encodeURIComponent(cleanName)}&ou=${encodeURIComponent(city)}`
-    window.open(url, '_blank')
-  }
-
-  // Ouvrir recherche Google
-  function openGoogle() {
-    if (!current) return
-    const query = `${current.name} ${current.city || ''} téléphone`
-    window.open(`https://www.google.com/search?q=${encodeURIComponent(query)}`, '_blank')
-  }
-
-  // Ouvrir Societe.com
-  function openSociete() {
-    if (!current) return
-    const query = current.siren || current.siret?.slice(0, 9) || current.name
-    window.open(`https://www.societe.com/cgi-bin/search?champs=${encodeURIComponent(query)}`, '_blank')
-  }
-
-  // Raccourcis clavier
-  useEffect(() => {
-    function handleKeyDown(e) {
-      // Ignorer si on tape dans un input
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') {
-        if (e.key === 'Enter') {
-          e.preventDefault()
-          handleSave()
-        }
-        if (e.key === 'Escape') {
-          e.preventDefault()
-          handleSkip()
-        }
-        return
-      }
-
-      if (e.ctrlKey && e.key === 'o') {
-        e.preventDefault()
-        openPJ()
-      }
-      if (e.key === 'Enter') {
-        e.preventDefault()
-        handleSave()
-      }
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        handleSkip()
-      }
+  const filtered = prospects.filter(p => {
+    if (departementFilter && p.departement !== departementFilter) return false
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase()
+      return p.name?.toLowerCase().includes(term) || p.city?.toLowerCase().includes(term) || p.phone?.includes(term)
     }
-
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [current, phone, email, siteWeb])
-
-  // Focus auto sur le champ téléphone
-  useEffect(() => {
-    if (current && phoneRef.current) {
-      phoneRef.current.focus()
-    }
-  }, [currentIndex])
+    return true
+  })
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <RefreshCw className="w-8 h-8 animate-spin text-primary-600" />
-        <span className="ml-3 text-lg">Chargement des prospects...</span>
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
       </div>
     )
   }
 
   return (
-    <div className="max-w-4xl mx-auto">
-      {/* Header Stats */}
-      <div className="mb-6">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">⚡ Enrichissement Rapide</h1>
-            <p className="text-gray-600 mt-1">
-              {totalRemaining.toLocaleString()} prospects restants
-            </p>
-          </div>
-          
-          <div className="flex items-center gap-3">
-            <Filter className="w-4 h-4 text-gray-500" />
-            <select
-              value={departementFilter}
-              onChange={(e) => setDepartementFilter(e.target.value)}
-              className="border rounded-lg px-3 py-2 text-sm"
-            >
-              <option value="">Tous les départements</option>
-              {departements.map(d => (
-                <option key={d} value={d}>{d}</option>
-              ))}
-            </select>
-          </div>
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">📞 Phoning</h1>
+          <p className="text-gray-600 mt-1">{totalCount} prospects à appeler • {callerName}</p>
         </div>
-
-        <div className="grid grid-cols-5 gap-3">
-          <div className="bg-white rounded-lg shadow p-3 text-center">
-            <p className="text-2xl font-bold text-primary-600">{stats.done}</p>
-            <p className="text-xs text-gray-500">Enrichis</p>
-          </div>
-          <div className="bg-white rounded-lg shadow p-3 text-center">
-            <p className="text-2xl font-bold text-green-600">{stats.phones}</p>
-            <p className="text-xs text-gray-500">📞 Tels</p>
-          </div>
-          <div className="bg-white rounded-lg shadow p-3 text-center">
-            <p className="text-2xl font-bold text-blue-600">{stats.emails}</p>
-            <p className="text-xs text-gray-500">📧 Emails</p>
-          </div>
-          <div className="bg-white rounded-lg shadow p-3 text-center">
-            <p className="text-2xl font-bold text-orange-600">{stats.phoning}</p>
-            <p className="text-xs text-gray-500">📋 Phoning</p>
-          </div>
-          <div className="bg-white rounded-lg shadow p-3 text-center">
-            <p className="text-2xl font-bold text-gray-400">{stats.skipped}</p>
-            <p className="text-xs text-gray-500">Passés</p>
+        <div className="flex items-center gap-3">
+          {current && isAdmin && (
+            <div className="text-2xl font-bold text-primary-600">⏱️ {formatDuration(callDuration)}</div>
+          )}
+          <div className="flex bg-gray-100 rounded-lg p-1">
+            <button onClick={() => setViewMode('list')}
+              className={'px-3 py-1.5 rounded-md text-sm font-medium transition-colors ' + (viewMode === 'list' ? 'bg-white shadow text-gray-900' : 'text-gray-600')}>
+              <List className="w-4 h-4 inline mr-1" /> Liste
+            </button>
+            <button onClick={() => { setViewMode('file'); if (filtered.length > 0 && !current) selectProspect(filtered[0]) }}
+              className={'px-3 py-1.5 rounded-md text-sm font-medium transition-colors ' + (viewMode === 'file' ? 'bg-white shadow text-gray-900' : 'text-gray-600')}>
+              <SkipForward className="w-4 h-4 inline mr-1" /> File
+            </button>
           </div>
         </div>
       </div>
 
-      {!current ? (
-        <div className="bg-white rounded-lg shadow p-12 text-center">
-          <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
-          <h2 className="text-xl font-semibold mb-2">Tout est enrichi !</h2>
-          <p className="text-gray-600">Aucun prospect restant à traiter.</p>
+      {/* Filtres */}
+      <div className="flex gap-3">
+        <div className="relative flex-1">
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input type="text" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Rechercher par nom, ville, téléphone..."
+            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent" />
+        </div>
+        <select value={departementFilter} onChange={(e) => setDepartementFilter(e.target.value)}
+          className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500">
+          <option value="">Tous les dép.</option>
+          {departements.map(d => <option key={d} value={d}>{d}</option>)}
+        </select>
+        <button onClick={loadProspects} className="px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg">
+          <RefreshCw className="w-4 h-4" />
+        </button>
+      </div>
+
+      {filtered.length === 0 && !current ? (
+        <div className="bg-white rounded-lg border border-gray-200 p-12 text-center">
+          <Phone className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+          <h2 className="text-xl font-semibold text-gray-900 mb-2">Aucun prospect à appeler</h2>
+          <p className="text-gray-600">Enrichissez des prospects dans l'onglet Enrichissement</p>
         </div>
       ) : (
-        <>
-          {/* Fiche Prospect */}
-          <div className="bg-white rounded-lg shadow p-6 mb-4">
-            <div className="flex items-start justify-between mb-4">
-              <div>
-                <h2 className="text-xl font-bold text-gray-900">{current.name}</h2>
-                <div className="flex items-center gap-4 mt-2 text-sm text-gray-600">
-                  <span>📍 {current.city} ({current.postal_code?.slice(0, 2)})</span>
-                  {current.effectif && <span>👥 {current.effectif}</span>}
+        <div className="flex gap-4">
+          {/* Liste (gauche) */}
+          {(viewMode === 'list' || (viewMode === 'file' && !current)) && (
+            <div className={(current ? 'w-1/3' : 'w-full') + ' space-y-2 max-h-[70vh] overflow-y-auto'}>
+              {filtered.map((p) => (
+                <button key={p.id} onClick={() => selectProspect(p)}
+                  className={'w-full text-left p-3 rounded-lg border transition-colors ' +
+                    (current?.id === p.id ? 'bg-primary-50 border-primary-300 ring-2 ring-primary-200' : 'bg-white border-gray-200 hover:bg-gray-50')}>
+                  <div className="flex justify-between items-start">
+                    <div className="font-semibold text-gray-900 text-sm">{p.name}</div>
+                    <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">{p.quality_score}</span>
+                  </div>
+                  <div className="text-xs text-gray-500 mt-1">📍 {p.city} ({p.departement}) {p.effectif && '• 👥 ' + p.effectif}</div>
+                  <div className="text-sm text-primary-600 font-medium mt-1">📞 {p.phone}</div>
+                  {p.prospection_status === 'a_rappeler' && (
+                    <span className="inline-block mt-1 text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded">🔔 À rappeler</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Fiche d'appel (droite) */}
+          {current && (
+            <div className={(viewMode === 'list' ? 'w-2/3' : 'w-full') + ' bg-white rounded-lg border border-gray-200 p-6 space-y-5 max-h-[70vh] overflow-y-auto'}>
+              
+              {/* Info entreprise */}
+              <div className="bg-blue-50 rounded-lg p-4">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                      <Building2 className="w-5 h-5" />{current.name}
+                    </h2>
+                    <div className="text-sm text-gray-600 space-y-1 mt-2">
+                      <div className="flex items-center gap-2"><MapPin className="w-4 h-4" />{current.postal_code} {current.city} ({current.departement})</div>
+                      <div className="flex items-center gap-2">
+                        <Phone className="w-4 h-4" />
+                        <a href={'tel:' + current.phone?.replace(/\s/g, '')} className="text-primary-600 hover:underline font-bold text-lg">{current.phone}</a>
+                      </div>
+                      {current.email && <div className="flex items-center gap-2"><Mail className="w-4 h-4" /><a href={'mailto:' + current.email} className="text-primary-600 hover:underline">{current.email}</a></div>}
+                      {current.effectif && <div>👥 {current.effectif}</div>}
+                      {current.siret && <div className="text-xs">SIRET: {current.siret}</div>}
+                    </div>
+                  </div>
+                  {viewMode === 'file' && <span className="text-sm text-gray-500">{prospects.findIndex(p => p.id === current.id) + 1} / {filtered.length}</span>}
                 </div>
-                <p className="text-xs text-gray-400 mt-1">
-                  SIRET: {current.siret} • Score: {current.quality_score}
-                </p>
               </div>
-              <div className="text-sm text-gray-400">
-                {currentIndex + 1} / {prospects.length}
-              </div>
-            </div>
 
-            {/* Boutons de recherche */}
-            <div className="flex gap-2 mb-6">
-              <button
-                onClick={openPJ}
-                className="flex items-center gap-2 px-4 py-2 bg-yellow-500 hover:bg-yellow-600 text-white rounded-lg font-medium transition-colors"
-              >
-                <ExternalLink className="w-4 h-4" />
-                Pages Jaunes
-              </button>
-              <button
-                onClick={openGoogle}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium transition-colors"
-              >
-                <Search className="w-4 h-4" />
-                Google
-              </button>
-              <button
-                onClick={openSociete}
-                className="flex items-center gap-2 px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-medium transition-colors"
-              >
-                <ExternalLink className="w-4 h-4" />
-                Societe.com
-              </button>
-            </div>
-
-            {/* Champs de saisie */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Interlocuteur */}
               <div>
-                <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1">
-                  <Phone className="w-4 h-4" />
-                  Téléphone
-                </label>
-                <input
-                  ref={phoneRef}
-                  type="tel"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  placeholder="02 98 12 34 56"
-                  className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                />
+                <h3 className="font-semibold text-gray-900 mb-3">👤 Interlocuteur contacté</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm text-gray-600 mb-1">Nom</label>
+                    <input type="text" value={contactName} onChange={(e) => setContactName(e.target.value)}
+                      placeholder="Mme Dupont" className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent" />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-600 mb-1">Fonction</label>
+                    <select value={contactFunction} onChange={(e) => setContactFunction(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent">
+                      <option value="Dirigeant">Dirigeant</option>
+                      <option value="RH">RH</option>
+                      <option value="QHSE">QHSE</option>
+                      <option value="Resp formation">Resp formation</option>
+                      <option value="Secrétariat">Secrétariat</option>
+                      <option value="Autre">Autre</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-600 mb-1">Email</label>
+                    <input type="email" value={contactEmail} onChange={(e) => setContactEmail(e.target.value)}
+                      placeholder="m.dupont@entreprise.fr" className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent" />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-600 mb-1">Mobile direct</label>
+                    <input type="tel" value={contactMobile} onChange={(e) => setContactMobile(e.target.value)}
+                      placeholder="06 XX XX XX XX" className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent" />
+                  </div>
+                </div>
               </div>
+
+              {/* Résultat */}
               <div>
-                <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1">
-                  <Mail className="w-4 h-4" />
-                  Email
-                </label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="contact@entreprise.fr"
-                  className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                />
+                <h3 className="font-semibold text-gray-900 mb-3">🎯 Résultat de l'appel</h3>
+                <div className="grid grid-cols-3 gap-2">
+                  {CALL_RESULTS.map(r => (
+                    <button key={r.id} onClick={() => setCallResult(r.id)}
+                      className={'px-3 py-2.5 rounded-lg border text-center transition-colors ' +
+                        (callResult === r.id ? COLOR_MAP[r.color].active : COLOR_MAP[r.color].inactive)}>
+                      {r.label}<br/><span className="text-xs">{r.sublabel}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
+
+              {/* Formations */}
+              {(callResult === 'chaud' || callResult === 'tiede') && (
+                <div>
+                  <h3 className="font-semibold text-gray-900 mb-3">🎓 Formations évoquées</h3>
+                  <div className="space-y-2">
+                    {FORMATIONS.map((f) => (
+                      <label key={f} className="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" checked={formationsSelected.includes(f)}
+                          onChange={(e) => e.target.checked ? setFormationsSelected([...formationsSelected, f]) : setFormationsSelected(formationsSelected.filter(x => x !== f))}
+                          className="rounded" />
+                        <span className="text-sm">{f}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Notes */}
               <div>
-                <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1">
-                  <Globe className="w-4 h-4" />
-                  Site web
-                </label>
-                <input
-                  type="url"
-                  value={siteWeb}
-                  onChange={(e) => setSiteWeb(e.target.value)}
-                  placeholder="www.entreprise.fr"
-                  className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                />
+                <h3 className="font-semibold text-gray-900 mb-3">📝 Notes & observations</h3>
+                <div className="grid grid-cols-2 gap-2 mb-3">
+                  {TEMPLATES_NOTES.map((t) => (
+                    <button key={t.label} onClick={() => setNotes(t.value)}
+                      className="px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm text-left">{t.label}</button>
+                  ))}
+                </div>
+                <textarea value={notes} onChange={(e) => setNotes(e.target.value)}
+                  placeholder="Notes, observations, consignes (contacter tel numéro, voir avec le siège, envoyer un mail, etc.)..."
+                  rows="3" className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent" />
+              </div>
+
+              {/* RDV */}
+              {callResult === 'chaud' && (
+                <div className="bg-green-50 rounded-lg p-4">
+                  <label className="flex items-center gap-2 cursor-pointer mb-3">
+                    <input type="checkbox" checked={createRdv} onChange={(e) => setCreateRdv(e.target.checked)} className="rounded" />
+                    <span className="font-semibold text-gray-900">📅 Créer RDV pour Hicham/Maxime</span>
+                  </label>
+                  {createRdv && (
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm text-gray-600 mb-1">Date souhaitée</label>
+                        <input type="date" value={rdvDate} onChange={(e) => setRdvDate(e.target.value)}
+                          min={new Date().toISOString().split('T')[0]}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent" />
+                      </div>
+                      <div>
+                        <label className="block text-sm text-gray-600 mb-1">Assigné à</label>
+                        <div className="flex gap-2">
+                          {['Hicham', 'Maxime'].map(name => (
+                            <button key={name} onClick={() => setRdvAssignedTo(name)}
+                              className={'flex-1 px-3 py-2 rounded-lg border ' + (rdvAssignedTo === name ? 'bg-primary-500 text-white border-primary-500' : 'bg-white text-gray-700 border-gray-300')}>
+                              {name}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Rappel */}
+              {(callResult === 'tiede' || callResult === 'no_answer' || callResult === 'blocked') && (
+                <div className="bg-orange-50 rounded-lg p-4">
+                  <label className="flex items-center gap-2 cursor-pointer mb-3">
+                    <input type="checkbox" checked={needsCallback} onChange={(e) => setNeedsCallback(e.target.checked)} className="rounded" />
+                    <span className="font-semibold text-gray-900">🔔 Programmer un rappel</span>
+                  </label>
+                  {needsCallback && (
+                    <div className="grid grid-cols-3 gap-4">
+                      <div>
+                        <label className="block text-sm text-gray-600 mb-1">Date</label>
+                        <input type="date" value={callbackDate} onChange={(e) => setCallbackDate(e.target.value)}
+                          min={new Date().toISOString().split('T')[0]} className="w-full px-3 py-2 border border-gray-300 rounded-lg" />
+                      </div>
+                      <div>
+                        <label className="block text-sm text-gray-600 mb-1">Heure</label>
+                        <input type="time" value={callbackTime} onChange={(e) => setCallbackTime(e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg" />
+                      </div>
+                      <div>
+                        <label className="block text-sm text-gray-600 mb-1">Raison</label>
+                        <input type="text" value={callbackReason} onChange={(e) => setCallbackReason(e.target.value)}
+                          placeholder="Dirigeant absent" className="w-full px-3 py-2 border border-gray-300 rounded-lg" />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="flex items-center gap-3 pt-4 border-t sticky bottom-0 bg-white">
+                <button onClick={handleSave} disabled={saving}
+                  className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 font-medium">
+                  {saving ? (<><RefreshCw className="w-5 h-5 animate-spin" /> Enregistrement...</>) : (<><CheckCircle className="w-5 h-5" /> 💾 Enregistrer & Suivant</>)}
+                </button>
+                <button onClick={handleSkip}
+                  className="px-4 py-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 flex items-center gap-2">
+                  <SkipForward className="w-5 h-5" /> Passer
+                </button>
               </div>
             </div>
-          </div>
-
-          {/* Boutons d'action */}
-          <div className="flex items-center justify-between">
-            <button
-              onClick={handleNotFound}
-              className="flex items-center gap-2 px-4 py-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg font-medium transition-colors"
-            >
-              <XCircle className="w-5 h-5" />
-              Exclure (fermé / pas intéressé)
-            </button>
-
-            <div className="flex gap-3">
-              <button
-                onClick={handleSkip}
-                className="flex items-center gap-2 px-5 py-3 bg-gray-200 hover:bg-gray-300 rounded-lg font-medium transition-colors"
-              >
-                <SkipForward className="w-5 h-5" />
-                Passer
-                <span className="text-xs text-gray-500 ml-1">(Échap)</span>
-              </button>
-              <button
-                onClick={handleSave}
-                disabled={saving || (!phone && !email && !siteWeb)}
-                className={`flex items-center gap-2 px-6 py-3 rounded-lg font-medium transition-colors ${
-                  saving || (!phone && !email && !siteWeb)
-                    ? 'bg-gray-300 cursor-not-allowed'
-                    : 'bg-green-600 hover:bg-green-700 text-white'
-                }`}
-              >
-                {saving ? (
-                  <RefreshCw className="w-5 h-5 animate-spin" />
-                ) : (
-                  <Save className="w-5 h-5" />
-                )}
-                Sauvegarder & Suivant
-                <span className="text-xs text-green-200 ml-1">(Entrée)</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Raccourcis clavier */}
-          <div className="mt-6 text-center text-xs text-gray-400">
-            <span className="inline-flex items-center gap-4">
-              <span><kbd className="px-1.5 py-0.5 bg-gray-100 rounded text-gray-600">Entrée</kbd> Sauvegarder</span>
-              <span><kbd className="px-1.5 py-0.5 bg-gray-100 rounded text-gray-600">Échap</kbd> Passer</span>
-              <span><kbd className="px-1.5 py-0.5 bg-gray-100 rounded text-gray-600">Ctrl+O</kbd> Ouvrir PJ</span>
-            </span>
-          </div>
-        </>
+          )}
+        </div>
       )}
     </div>
   )
