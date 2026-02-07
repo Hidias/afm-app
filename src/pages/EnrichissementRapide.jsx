@@ -28,7 +28,7 @@ export default function EnrichissementRapide() {
   const [siteWeb, setSiteWeb] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [stats, setStats] = useState({ done: 0, phones: 0, emails: 0, skipped: 0 })
+  const [stats, setStats] = useState({ done: 0, phones: 0, emails: 0, skipped: 0, phoning: 0 })
   const [totalRemaining, setTotalRemaining] = useState(0)
   const [departementFilter, setDepartementFilter] = useState('')
   const [departements, setDepartements] = useState([])
@@ -183,6 +183,69 @@ export default function EnrichissementRapide() {
         skipped: prev.skipped,
       }))
       setTotalRemaining(prev => prev - 1)
+
+      // Si on a un téléphone → créer client + ajouter à la file phoning
+      if (phone) {
+        try {
+          // Vérifier si le client existe déjà (par SIREN)
+          const { data: existing } = await supabase
+            .from('clients')
+            .select('id')
+            .eq('siren', current.siren)
+            .maybeSingle()
+
+          let clientId = existing?.id
+
+          if (!clientId) {
+            // Créer le client
+            const { data: newClient, error: clientError } = await supabase
+              .from('clients')
+              .insert({
+                name: current.name,
+                address: current.city ? `${current.postal_code} ${current.city}` : null,
+                postal_code: current.postal_code,
+                city: current.city,
+                siret: current.siret,
+                siren: current.siren,
+                contact_phone: update.phone || phone.trim(),
+                email: email ? email.trim().toLowerCase() : null,
+                website: siteWeb ? siteWeb.trim() : null,
+                taille_entreprise: current.effectif || null,
+                status: 'prospect',
+                type: 'prospect',
+              })
+              .select('id')
+              .single()
+
+            if (clientError) throw clientError
+            clientId = newClient.id
+          }
+
+          // Vérifier si pas déjà dans la file phoning
+          const { data: existingQueue } = await supabase
+            .from('marine_queue')
+            .select('id')
+            .eq('client_id', clientId)
+            .in('status', ['pending', 'in_progress'])
+            .maybeSingle()
+
+          if (!existingQueue) {
+            await supabase
+              .from('marine_queue')
+              .insert({
+                client_id: clientId,
+                priority: 5,
+                zone_geo: current.departement || null,
+                status: 'pending',
+                call_attempts: 0,
+              })
+            setStats(prev => ({ ...prev, phoning: prev.phoning + 1 }))
+          }
+        } catch (err) {
+          console.error('Erreur ajout file phoning:', err)
+          // On ne bloque pas — le prospect est quand même enrichi
+        }
+      }
     }
 
     setSaving(false)
@@ -318,7 +381,7 @@ export default function EnrichissementRapide() {
           </div>
         </div>
 
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-5 gap-3">
           <div className="bg-white rounded-lg shadow p-3 text-center">
             <p className="text-2xl font-bold text-primary-600">{stats.done}</p>
             <p className="text-xs text-gray-500">Enrichis</p>
@@ -330,6 +393,10 @@ export default function EnrichissementRapide() {
           <div className="bg-white rounded-lg shadow p-3 text-center">
             <p className="text-2xl font-bold text-blue-600">{stats.emails}</p>
             <p className="text-xs text-gray-500">📧 Emails</p>
+          </div>
+          <div className="bg-white rounded-lg shadow p-3 text-center">
+            <p className="text-2xl font-bold text-orange-600">{stats.phoning}</p>
+            <p className="text-xs text-gray-500">📋 Phoning</p>
           </div>
           <div className="bg-white rounded-lg shadow p-3 text-center">
             <p className="text-2xl font-bold text-gray-400">{stats.skipped}</p>
