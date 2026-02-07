@@ -252,11 +252,15 @@ export default function EnrichissementRapide() {
       return
     }
 
-    // Dédupliquer par SIREN (garder le premier = meilleur score)
-    const seen = new Set()
+    // Dédupliquer par SIREN ET par nom (garder le premier = meilleur score)
+    const seenSiren = new Set()
+    const seenName = new Set()
     const unique = (data || []).filter(p => {
-      if (seen.has(p.siren)) return false
-      seen.add(p.siren)
+      if (seenSiren.has(p.siren)) return false
+      const normName = (p.name || '').toUpperCase().replace(/[^A-Z0-9]/g, '')
+      if (seenName.has(normName)) return false
+      seenSiren.add(p.siren)
+      seenName.add(normName)
       return true
     }).slice(0, 50)
 
@@ -421,6 +425,22 @@ export default function EnrichissementRapide() {
       .from('prospection_massive')
       .update(update)
       .eq('siren', current.siren)
+
+    // Aussi marquer les autres entités avec le même nom comme done
+    if (!error && current.name) {
+      await supabase
+        .from('prospection_massive')
+        .update({
+          enrichment_status: 'done',
+          enrichment_last_attempt: new Date().toISOString(),
+          enrichment_attempts: 99,
+          ...(update.phone ? { phone: update.phone, phone_source: 'manual_pj' } : {}),
+          ...(update.site_web ? { site_web: update.site_web } : {}),
+          ...(update.email ? { email: update.email, email_source: 'manual_pj' } : {}),
+        })
+        .ilike('name', current.name)
+        .neq('siren', current.siren)
+    }
 
     if (!error) {
       setSessionStats(prev => ({
