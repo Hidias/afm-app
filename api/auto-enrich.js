@@ -1,267 +1,21 @@
 /**
  * ============================================================================
- * API - AUTO-ENRICHISSEMENT PROSPECT v2
+ * API - AUTO-ENRICHISSEMENT PROSPECT v3 (Anthropic + Web Search)
  * ============================================================================
  * 
  * À METTRE : afm-app-main/api/auto-enrich.js
  * 
- * v1 échouait car Pages Jaunes et Google bloquent les IP datacenter (Vercel).
- * v2 utilise :
- *   1. DuckDuckGo HTML (ne bloque pas les serveurs) → téléphone + site web
- *   2. Bing Search (fallback) → téléphone + site web
- *   3. Scraping direct du site web → email + téléphone
+ * Utilise Claude Haiku + web_search pour trouver téléphone, site web, email.
+ * Coût : ~0.005€ par recherche — ~1€/jour pour 200 prospects
  * 
- * 100% gratuit, aucune API payante
+ * Requiert : ANTHROPIC_API_KEY dans les variables d'environnement Vercel
  * ============================================================================
  */
 
-// ---- DUCKDUCKGO SEARCH ----
-
-async function searchDuckDuckGo(name, city) {
-  try {
-    const query = `${name} ${city} téléphone`
-    const url = `https://html.duckduckgo.com/html/`
-    
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html',
-        'Accept-Language': 'fr-FR,fr;q=0.9',
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: `q=${encodeURIComponent(query)}`,
-      signal: AbortSignal.timeout(10000),
-    })
-    
-    if (!response.ok) {
-      console.log('DDG status:', response.status)
-      return { phone: null, site_web: null }
-    }
-    
-    const html = await response.text()
-    console.log('DDG response length:', html.length)
-    
-    return extractFromSearchResults(html)
-  } catch (error) {
-    console.error('DuckDuckGo failed:', error.message)
-    return { phone: null, site_web: null }
-  }
+// Vercel Pro = 60s max, Hobby = 10s (trop court, il faut Pro ou configurer)
+export const config = {
+  maxDuration: 30,
 }
-
-
-// ---- BING SEARCH (fallback) ----
-
-async function searchBing(name, city) {
-  try {
-    const query = encodeURIComponent(`${name} ${city} téléphone`)
-    const url = `https://www.bing.com/search?q=${query}&setlang=fr`
-    
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html',
-        'Accept-Language': 'fr-FR,fr;q=0.9',
-      },
-      signal: AbortSignal.timeout(10000),
-    })
-    
-    if (!response.ok) {
-      console.log('Bing status:', response.status)
-      return { phone: null, site_web: null }
-    }
-    
-    const html = await response.text()
-    console.log('Bing response length:', html.length)
-    
-    return extractFromSearchResults(html)
-  } catch (error) {
-    console.error('Bing failed:', error.message)
-    return { phone: null, site_web: null }
-  }
-}
-
-
-// ---- EXTRACTION DEPUIS RÉSULTATS DE RECHERCHE ----
-
-function extractFromSearchResults(html) {
-  let phone = null
-  let site_web = null
-  
-  // Extraction téléphone - numéros français
-  const phoneRegex = /(?:(?:\+33|0033)[\s.]?|0)[1-9](?:[\s.]?\d{2}){4}/g
-  const phoneMatches = html.match(phoneRegex) || []
-  
-  for (const raw of phoneMatches) {
-    const cleaned = cleanPhone(raw)
-    if (cleaned) {
-      phone = cleaned
-      break
-    }
-  }
-  
-  // Extraction site web - URLs hors annuaires
-  const urlRegex = /https?:\/\/(?:www\.)?([a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?\.(?:fr|com|net|org|eu|io|bzh|asso\.fr|gouv\.fr))\b[^\s"'<>]*/gi
-  const urlMatches = html.match(urlRegex) || []
-  
-  const excludedDomains = [
-    'google', 'bing', 'duckduckgo', 'yahoo', 'qwant',
-    'pagesjaunes', 'societe.com', 'infogreffe', 'pappers', 
-    'verif.com', 'manageo', 'annuaire', 'kompass',
-    'linkedin', 'facebook', 'youtube', 'twitter', 'instagram', 
-    'wikipedia', 'tiktok', 'pinterest',
-    'tripadvisor', 'indeed', 'glassdoor',
-    'apple.com', 'microsoft.com', 'amazon',
-    'w3.org', 'schema.org', 'cloudflare',
-    'bing.com', 'duckduckgo.com',
-  ]
-  
-  for (const url of urlMatches) {
-    try {
-      const domain = new URL(url).hostname.toLowerCase().replace('www.', '')
-      if (!excludedDomains.some(ex => domain.includes(ex)) && domain.length > 3) {
-        site_web = `https://${domain}`
-        break
-      }
-    } catch {
-      continue
-    }
-  }
-  
-  return { phone, site_web }
-}
-
-
-// ---- NETTOYAGE TÉLÉPHONE ----
-
-function cleanPhone(raw) {
-  if (!raw) return null
-  let digits = raw.replace(/[^\d+]/g, '')
-  if (digits.startsWith('+33')) digits = '0' + digits.slice(3)
-  if (digits.startsWith('0033')) digits = '0' + digits.slice(4)
-  if (digits.startsWith('33') && digits.length === 11) digits = '0' + digits.slice(2)
-  
-  if (/^0[1-9]\d{8}$/.test(digits)) {
-    // Exclure numéros surtaxés
-    if (digits.startsWith('08') && !digits.startsWith('080')) return null
-    return digits.replace(/(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/, '$1 $2 $3 $4 $5')
-  }
-  return null
-}
-
-
-// ---- SCRAPING SITE WEB POUR EMAIL + TÉLÉPHONE ----
-
-async function scrapeWebsite(siteUrl) {
-  if (!siteUrl) return { email: null, phone: null }
-  
-  let baseUrl = siteUrl
-  if (!baseUrl.startsWith('http')) baseUrl = 'https://' + baseUrl
-  baseUrl = baseUrl.replace(/\/+$/, '')
-  
-  const pagesToCheck = [
-    baseUrl,
-    baseUrl + '/contact',
-    baseUrl + '/contactez-nous',
-    baseUrl + '/nous-contacter',
-    baseUrl + '/mentions-legales',
-    baseUrl + '/a-propos',
-  ]
-  
-  const emails = new Set()
-  const phones = []
-  
-  for (const pageUrl of pagesToCheck) {
-    try {
-      const response = await fetch(pageUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-          'Accept': 'text/html',
-        },
-        redirect: 'follow',
-        signal: AbortSignal.timeout(6000),
-      })
-      
-      if (!response.ok) continue
-      
-      const html = await response.text()
-      
-      // Emails
-      const emailMatches = html.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g) || []
-      for (const em of emailMatches) {
-        if (isValidBusinessEmail(em.toLowerCase())) emails.add(em.toLowerCase())
-      }
-      
-      // mailto: links
-      const mailtoMatches = html.match(/mailto:([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/gi) || []
-      for (const m of mailtoMatches) {
-        const em = m.replace('mailto:', '').toLowerCase()
-        if (isValidBusinessEmail(em)) emails.add(em)
-      }
-      
-      // Téléphones
-      const phoneMatches = html.match(/(?:(?:\+33|0033)[\s.]?|0)[1-9](?:[\s.]?\d{2}){4}/g) || []
-      for (const raw of phoneMatches) {
-        const cleaned = cleanPhone(raw)
-        if (cleaned && !phones.includes(cleaned)) phones.push(cleaned)
-      }
-      
-      // Si on a email + tel, on peut s'arrêter
-      if (emails.size > 0 && phones.length > 0) break
-      
-    } catch {
-      continue
-    }
-  }
-  
-  // Prioriser les emails contact, info, etc.
-  let bestEmail = null
-  if (emails.size > 0) {
-    const list = [...emails]
-    const priority = ['contact', 'info', 'accueil', 'commercial', 'direction', 'rh', 'formation']
-    list.sort((a, b) => {
-      const ap = priority.findIndex(p => a.split('@')[0].includes(p))
-      const bp = priority.findIndex(p => b.split('@')[0].includes(p))
-      if (ap !== -1 && bp === -1) return -1
-      if (ap === -1 && bp !== -1) return 1
-      if (ap !== -1 && bp !== -1) return ap - bp
-      return 0
-    })
-    bestEmail = list[0]
-  }
-  
-  return { email: bestEmail, phone: phones[0] || null }
-}
-
-function isValidBusinessEmail(email) {
-  const excludedPrefixes = [
-    'noreply', 'no-reply', 'no_reply', 'webmaster', 'admin', 'postmaster',
-    'mailer-daemon', 'root', 'bounce', 'unsubscribe', 'newsletter',
-    'notification', 'example', 'test', 'demo', 'null', 'privacy',
-    'abuse', 'hostmaster', 'support@wordpress', 'support@wix',
-  ]
-  const excludedDomains = [
-    'example.com', 'test.com', 'wordpress.com', 'wix.com',
-    'squarespace.com', 'google.com', 'gmail.com', 'yahoo.com',
-    'hotmail.com', 'outlook.com', 'sentry.io', 'github.com',
-    'gravatar.com', 'w3.org', 'schema.org', 'jquery.com',
-    'cloudflare.com', 'gstatic.com', 'googleapis.com',
-    'facebook.com', 'twitter.com', 'instagram.com',
-    'youtube.com', 'linkedin.com', 'recaptcha.net',
-  ]
-  
-  const prefix = email.split('@')[0]
-  const domain = email.split('@')[1]
-  if (!domain) return false
-  if (excludedPrefixes.some(ex => prefix.startsWith(ex))) return false
-  if (excludedDomains.some(ex => domain === ex || domain.endsWith('.' + ex))) return false
-  if (email.includes('..') || email.startsWith('.') || prefix.length > 50) return false
-  if (domain.length < 4) return false
-  return true
-}
-
-
-// ---- HANDLER ----
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
@@ -271,56 +25,170 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end()
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
   
-  const { name, city, postal_code, siren, site_web: existingSiteWeb } = req.body
+  const { name, city, postal_code, siren, siret, site_web: existingSiteWeb } = req.body
   if (!name) return res.status(400).json({ error: 'name requis' })
   
-  const result = { phone: null, site_web: null, email: null, sources: [], debug: {} }
-  const cityOrPostal = city || postal_code || ''
+  const apiKey = process.env.ANTHROPIC_API_KEY
+  if (!apiKey) {
+    return res.status(500).json({ 
+      success: false, error: true,
+      message: 'ANTHROPIC_API_KEY manquante dans Vercel > Settings > Environment Variables'
+    })
+  }
+  
+  const cityInfo = city || postal_code || ''
+  const id = siren || siret || ''
+  
+  console.log(`Auto-enrich v3: "${name}" (${cityInfo})`)
   
   try {
-    console.log(`\n=== Auto-enrich: "${name}" (${cityOrPostal}) ===`)
+    const prompt = buildPrompt(name, cityInfo, id, existingSiteWeb)
     
-    // Étape 1 : DuckDuckGo
-    console.log('Step 1: DuckDuckGo...')
-    const ddg = await searchDuckDuckGo(name, cityOrPostal)
-    result.debug.ddg = ddg
-    if (ddg.phone) { result.phone = ddg.phone; result.sources.push('DuckDuckGo') }
-    if (ddg.site_web) { result.site_web = ddg.site_web; result.sources.push('DuckDuckGo') }
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 512,
+        tools: [{
+          type: 'web_search_20250305',
+          name: 'web_search',
+        }],
+        messages: [{
+          role: 'user',
+          content: prompt,
+        }],
+      }),
+      signal: AbortSignal.timeout(25000),
+    })
     
-    // Étape 2 : Bing (fallback)
-    if (!result.phone || !result.site_web) {
-      console.log('Step 2: Bing...')
-      const bing = await searchBing(name, cityOrPostal)
-      result.debug.bing = bing
-      if (!result.phone && bing.phone) { result.phone = bing.phone; result.sources.push('Bing') }
-      if (!result.site_web && bing.site_web) { result.site_web = bing.site_web; result.sources.push('Bing') }
+    if (!response.ok) {
+      const err = await response.text()
+      console.error('Anthropic error:', response.status, err)
+      return res.status(200).json({
+        success: false, error: true,
+        message: `Erreur API (${response.status}): ${err.substring(0, 200)}`,
+        phone: null, site_web: null, email: null, sources: [],
+      })
     }
     
-    // Étape 3 : Scraping du site web
-    const siteToScrape = result.site_web || existingSiteWeb
-    if (siteToScrape) {
-      console.log('Step 3: Scraping', siteToScrape)
-      const site = await scrapeWebsite(siteToScrape)
-      result.debug.site = site
-      if (site.email) { result.email = site.email; result.sources.push('Site web') }
-      if (!result.phone && site.phone) { result.phone = site.phone; result.sources.push('Site web') }
-    }
+    const data = await response.json()
     
-    console.log(`=== Result: phone=${result.phone}, site=${result.site_web}, email=${result.email} ===\n`)
+    // Extraire le texte de la réponse
+    const text = (data.content || [])
+      .filter(b => b.type === 'text')
+      .map(b => b.text)
+      .join('\n')
+    
+    console.log('Claude raw:', text.substring(0, 300))
+    
+    const result = parseResponse(text)
+    
+    console.log(`Result: tel=${result.phone} site=${result.site_web} email=${result.email}`)
     
     return res.status(200).json({
       success: true,
-      phone: result.phone,
-      site_web: result.site_web,
-      email: result.email,
-      sources: [...new Set(result.sources)],
-      debug: result.debug,
+      ...result,
     })
     
   } catch (error) {
-    console.error('Auto-enrich error:', error)
+    console.error('Auto-enrich error:', error.message)
     return res.status(200).json({
-      success: true, ...result, warning: error.message,
+      success: false, error: true,
+      message: error.name === 'TimeoutError' 
+        ? 'Timeout — la recherche a pris trop de temps, réessaie'
+        : error.message,
+      phone: null, site_web: null, email: null, sources: [],
     })
   }
+}
+
+
+function buildPrompt(name, city, id, existingSite) {
+  // Nettoyer le nom (retirer formes juridiques pour meilleure recherche)
+  const cleanName = name
+    .replace(/\b(SAS|SARL|SA|EURL|SCI|SNC|SASU|SELARL|EARL|GAEC|GIE)\b/gi, '')
+    .trim()
+
+  let p = `Trouve les coordonnées de contact de cette entreprise française.
+
+Entreprise : ${name}
+Ville : ${city}`
+  if (id) p += `\nSIREN : ${id}`
+  if (existingSite) p += `\nSite web connu : ${existingSite}`
+
+  p += `
+
+Cherche le numéro de téléphone, le site web et l'email de contact.
+Essaie "${cleanName} ${city}" sur le web.
+
+Réponds UNIQUEMENT avec ce JSON (rien d'autre, pas de markdown) :
+{"phone":"0X XX XX XX XX ou NON_TROUVE","site_web":"https://... ou NON_TROUVE","email":"...@... ou NON_TROUVE","sources":["source1"]}`
+
+  return p
+}
+
+
+function parseResponse(text) {
+  const result = { phone: null, site_web: null, email: null, sources: [] }
+  if (!text) return result
+  
+  // Tenter parse JSON
+  try {
+    const match = text.match(/\{[^{}]*"phone"[^{}]*\}/)
+    if (match) {
+      const j = JSON.parse(match[0])
+      if (j.phone && j.phone !== 'NON_TROUVE' && j.phone !== 'null' && j.phone.length > 5) {
+        result.phone = cleanPhone(j.phone)
+      }
+      if (j.site_web && j.site_web !== 'NON_TROUVE' && j.site_web !== 'null' && j.site_web.includes('.')) {
+        result.site_web = j.site_web.replace(/\/+$/, '')
+      }
+      if (j.email && j.email !== 'NON_TROUVE' && j.email !== 'null' && j.email.includes('@')) {
+        result.email = j.email.toLowerCase().trim()
+      }
+      if (j.sources) result.sources = j.sources
+      return result
+    }
+  } catch (e) {
+    console.log('JSON parse failed, regex fallback')
+  }
+  
+  // Fallback regex
+  const phoneMatch = text.match(/(?:(?:\+33|0033)[\s.]?|0)[1-9](?:[\s.]?\d{2}){4}/)
+  if (phoneMatch) result.phone = cleanPhone(phoneMatch[0])
+  
+  const siteMatch = text.match(/https?:\/\/(?:www\.)?[a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z]{2,}/)
+  if (siteMatch) {
+    const url = siteMatch[0]
+    const skip = ['google', 'bing', 'pagesjaunes.fr/pros', 'linkedin', 'facebook', 'wikipedia', 'societe.com']
+    if (!skip.some(s => url.includes(s))) result.site_web = url
+  }
+  
+  const emailMatch = text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/)
+  if (emailMatch) {
+    const em = emailMatch[0].toLowerCase()
+    if (!em.includes('exemple') && !em.includes('example')) result.email = em
+  }
+  
+  if (result.phone || result.site_web || result.email) result.sources = ['Web']
+  return result
+}
+
+
+function cleanPhone(raw) {
+  if (!raw) return null
+  let d = raw.replace(/[^\d+]/g, '')
+  if (d.startsWith('+33')) d = '0' + d.slice(3)
+  if (d.startsWith('0033')) d = '0' + d.slice(4)
+  if (d.startsWith('33') && d.length === 11) d = '0' + d.slice(2)
+  if (/^0[1-9]\d{8}$/.test(d)) {
+    if (d.startsWith('08') && !d.startsWith('080')) return null
+    return d.replace(/(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/, '$1 $2 $3 $4 $5')
+  }
+  return null
 }
