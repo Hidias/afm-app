@@ -14,6 +14,9 @@
     },
     "api/enrich-prospects.js": {
       "maxDuration": 300
+    },
+    "api/report-phoning-hebdo.js": {
+      "maxDuration": 60
     }
   },
   "crons": [
@@ -24,6 +27,10 @@
     {
       "path": "/api/enrich-prospects",
       "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/report-phoning-hebdo",
+      "schedule": "0 8 * * 1"
     }
   ]
 }
