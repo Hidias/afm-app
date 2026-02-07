@@ -1,0 +1,461 @@
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { useDataStore } from '../lib/store'
+import { 
+  Sparkles, Download, RefreshCw, FileText, Send, 
+  Minus, Plus, Eye, Save, Loader2, Wand2, ArrowRight
+} from 'lucide-react'
+import toast from 'react-hot-toast'
+import jsPDF from 'jspdf'
+import { supabase } from '../lib/supabase'
+
+const DOC_TYPES = [
+  { id: 'attestation', label: '📜 Attestation libre', description: 'Attestation officielle Access Formation' },
+  { id: 'note_interne', label: '📋 Note interne', description: 'Note de service ou compte-rendu' },
+  { id: 'courrier', label: '✉️ Courrier', description: 'Courrier officiel avec en-tête' },
+]
+
+const ORG_DEFAULTS = {
+  name: 'Access Formation',
+  nameFull: 'SARL Access Formation',
+  address: '24 rue Kerbleiz, 29900 Concarneau',
+  phone: '02 46 56 57 54',
+  email: 'contact@accessformation.pro',
+  siret: '943 563 866 00012',
+  nda: '53 29 10261 29',
+  dirigeant: 'Hicham SAIDI',
+}
+
+export default function CourierEditor() {
+  const { organization } = useDataStore()
+  const org = organization ? { ...ORG_DEFAULTS, ...organization } : ORG_DEFAULTS
+  
+  const [docType, setDocType] = useState('courrier')
+  const [destinataire, setDestinataire] = useState('')
+  const [objet, setObjet] = useState('')
+  const [lieu, setLieu] = useState('Concarneau')
+  const [docDate, setDocDate] = useState(new Date().toISOString().split('T')[0])
+  const [body, setBody] = useState('')
+  const [signataire, setSignataire] = useState('Hicham SAIDI - Directeur')
+  const [context, setContext] = useState('')
+  
+  const [generating, setGenerating] = useState(false)
+  const [generatingAction, setGeneratingAction] = useState(null)
+  const [pdfUrl, setPdfUrl] = useState(null)
+  const [saving, setSaving] = useState(false)
+  
+  const previewTimeout = useRef(null)
+
+  // Générer l'aperçu PDF avec debounce
+  useEffect(() => {
+    if (previewTimeout.current) clearTimeout(previewTimeout.current)
+    previewTimeout.current = setTimeout(() => {
+      generatePreview()
+    }, 500)
+    return () => clearTimeout(previewTimeout.current)
+  }, [docType, destinataire, objet, lieu, docDate, body, signataire])
+
+  function generatePreview() {
+    try {
+      const doc = new jsPDF('p', 'mm', 'a4')
+      const pw = doc.internal.pageSize.getWidth()
+      const ph = doc.internal.pageSize.getHeight()
+      let y = 15
+
+      // === EN-TÊTE ===
+      const logoBase64 = org.logo_base64
+      if (logoBase64) {
+        try {
+          const fmt = logoBase64.includes('image/png') ? 'PNG' : 'JPEG'
+          doc.addImage(logoBase64, fmt, 15, 10, 50, 12.5)
+        } catch {
+          doc.setFillColor(26, 54, 72)
+          doc.rect(15, 10, 50, 12, 'F')
+          doc.setFontSize(10)
+          doc.setFont('helvetica', 'bold')
+          doc.setTextColor(255, 255, 255)
+          doc.text('ACCESS FORMATION', 20, 18)
+        }
+      } else {
+        doc.setFillColor(26, 54, 72)
+        doc.rect(15, 10, 50, 12, 'F')
+        doc.setFontSize(10)
+        doc.setFont('helvetica', 'bold')
+        doc.setTextColor(255, 255, 255)
+        doc.text('ACCESS FORMATION', 20, 18)
+      }
+
+      // Infos société à droite du logo
+      doc.setTextColor(80, 80, 80)
+      doc.setFontSize(7.5)
+      doc.setFont('helvetica', 'normal')
+      doc.text((org.nameFull || org.name).toUpperCase(), 70, 12)
+      doc.text(org.address || '24 rue Kerbleiz, 29900 Concarneau', 70, 17)
+      doc.text('Tél : ' + (org.phone || '02 46 56 57 54') + ' - ' + (org.email || 'contact@accessformation.pro'), 70, 22)
+      doc.text('SIRET : ' + (org.siret || '943 563 866 00012') + ' - NDA : ' + (org.nda || '53 29 10261 29'), 70, 27)
+
+      // Ligne de séparation
+      doc.setDrawColor(26, 54, 72)
+      doc.setLineWidth(0.5)
+      doc.line(15, 32, pw - 15, 32)
+      y = 38
+
+      // === DESTINATAIRE (droite) ===
+      if (destinataire) {
+        doc.setFontSize(10)
+        doc.setFont('helvetica', 'normal')
+        doc.setTextColor(0, 0, 0)
+        const destLines = destinataire.split('\n')
+        destLines.forEach((line, i) => {
+          doc.text(line, pw - 15, y + (i * 5), { align: 'right' })
+        })
+        y += destLines.length * 5 + 5
+      }
+
+      // === LIEU ET DATE ===
+      const dateFormatted = docDate ? new Date(docDate + 'T12:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }) : ''
+      if (lieu || dateFormatted) {
+        doc.setFontSize(10)
+        doc.setFont('helvetica', 'italic')
+        doc.setTextColor(80, 80, 80)
+        doc.text((lieu ? lieu + ', le ' : 'Le ') + dateFormatted, pw - 15, y, { align: 'right' })
+        y += 10
+      }
+
+      // === OBJET ===
+      if (objet) {
+        doc.setFontSize(11)
+        doc.setFont('helvetica', 'bold')
+        doc.setTextColor(26, 54, 72)
+        doc.text('Objet : ' + objet, 15, y)
+        y += 10
+      }
+
+      // === TYPE ATTESTATION : titre centré ===
+      if (docType === 'attestation') {
+        doc.setFontSize(14)
+        doc.setFont('helvetica', 'bold')
+        doc.setTextColor(26, 54, 72)
+        doc.text('ATTESTATION', pw / 2, y, { align: 'center' })
+        y += 12
+      }
+
+      // === CORPS DU DOCUMENT ===
+      if (body) {
+        doc.setFontSize(10)
+        doc.setFont('helvetica', 'normal')
+        doc.setTextColor(30, 30, 30)
+        
+        const paragraphs = body.split('\n')
+        paragraphs.forEach(paragraph => {
+          if (paragraph.trim() === '') {
+            y += 4
+          } else {
+            const lines = doc.splitTextToSize(paragraph, pw - 35)
+            lines.forEach(line => {
+              if (y > ph - 40) {
+                doc.addPage()
+                y = 20
+              }
+              doc.text(line, 15, y)
+              y += 5
+            })
+            y += 2
+          }
+        })
+      }
+
+      // === FORMULE DE POLITESSE implicite pour courrier ===
+      // (l'utilisateur la met dans le body)
+
+      // === SIGNATURE ===
+      if (signataire) {
+        y = Math.max(y + 10, y)
+        if (y > ph - 40) {
+          doc.addPage()
+          y = 20
+        }
+        doc.setFontSize(10)
+        doc.setFont('helvetica', 'normal')
+        doc.setTextColor(0, 0, 0)
+        const sigLines = signataire.split('\n')
+        sigLines.forEach((line, i) => {
+          doc.text(line, pw - 60, y + (i * 5))
+        })
+
+        // Tampon si disponible
+        if (org.stamp_base64) {
+          try {
+            doc.addImage(org.stamp_base64, 'PNG', pw - 80, y - 10, 35, 18)
+          } catch {}
+        }
+      }
+
+      // === PIED DE PAGE ===
+      const totalPages = doc.internal.getNumberOfPages()
+      for (let i = 1; i <= totalPages; i++) {
+        doc.setPage(i)
+        doc.setFontSize(7)
+        doc.setFont('helvetica', 'normal')
+        doc.setTextColor(150, 150, 150)
+        doc.text(
+          (org.nameFull || org.name) + ' - ' + (org.address || '') + ' - SIRET ' + (org.siret || ''),
+          pw / 2, ph - 8, { align: 'center' }
+        )
+        if (totalPages > 1) {
+          doc.text('Page ' + i + '/' + totalPages, pw - 15, ph - 8, { align: 'right' })
+        }
+      }
+
+      const blob = doc.output('blob')
+      const url = URL.createObjectURL(blob)
+      
+      if (pdfUrl) URL.revokeObjectURL(pdfUrl)
+      setPdfUrl(url)
+    } catch (err) {
+      console.error('Erreur aperçu PDF:', err)
+    }
+  }
+
+  // IA : générer / reformuler / raccourcir / allonger
+  async function handleAI(action) {
+    setGenerating(true)
+    setGeneratingAction(action)
+    try {
+      const res = await fetch('/api/generate-document', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action,
+          docType,
+          destinataire,
+          objet,
+          context,
+          currentText: body,
+        })
+      })
+
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Erreur')
+
+      setBody(data.text)
+      toast.success(
+        action === 'generate' ? '✨ Texte généré' :
+        action === 'reformulate' ? '✨ Texte reformulé' :
+        action === 'shorter' ? '✨ Texte raccourci' :
+        '✨ Texte enrichi'
+      )
+    } catch (err) {
+      console.error('Erreur IA:', err)
+      toast.error('Erreur : ' + err.message)
+    } finally {
+      setGenerating(false)
+      setGeneratingAction(null)
+    }
+  }
+
+  // Télécharger le PDF
+  function handleDownload() {
+    if (!pdfUrl) return
+    const a = document.createElement('a')
+    a.href = pdfUrl
+    const dateStr = docDate ? docDate.replace(/-/g, '') : 'undated'
+    const typeStr = docType === 'attestation' ? 'Attestation' : docType === 'note_interne' ? 'Note_interne' : 'Courrier'
+    a.download = typeStr + '_Access_Formation_' + dateStr + '.pdf'
+    a.click()
+    toast.success('PDF téléchargé')
+  }
+
+  // Sauvegarder dans Documents uploadés
+  async function handleSave() {
+    if (!body.trim()) {
+      toast.error('Le document est vide')
+      return
+    }
+    setSaving(true)
+    try {
+      // Générer le PDF blob
+      const doc = new jsPDF('p', 'mm', 'a4')
+      // Reconstruire le PDF identique à l'aperçu
+      generatePreview()
+      
+      // Utiliser le blob actuel
+      const response = await fetch(pdfUrl)
+      const blob = await response.blob()
+      
+      const dateStr = docDate ? docDate.replace(/-/g, '') : 'undated'
+      const typeStr = docType === 'attestation' ? 'Attestation' : docType === 'note_interne' ? 'Note_interne' : 'Courrier'
+      const fileName = typeStr + '_Access_Formation_' + dateStr + '.pdf'
+
+      // Upload vers Supabase Storage
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('documents')
+        .upload('courriers/' + Date.now() + '_' + fileName, blob, { contentType: 'application/pdf' })
+
+      if (uploadError) throw uploadError
+
+      // Enregistrer dans la table uploaded_files
+      const { data: publicUrl } = supabase.storage.from('documents').getPublicUrl(uploadData.path)
+
+      const { error: dbError } = await supabase
+        .from('uploaded_files')
+        .insert({
+          name: (objet || typeStr).substring(0, 100),
+          filename: fileName,
+          file_path: uploadData.path,
+          file_url: publicUrl.publicUrl,
+          mime_type: 'application/pdf',
+          file_size: blob.size,
+          category: docType === 'attestation' ? 'attestation' : 'autre',
+          notes: 'Créé depuis l\'éditeur de courriers',
+        })
+
+      if (dbError) throw dbError
+
+      toast.success('📁 Document sauvegardé dans vos fichiers')
+    } catch (err) {
+      console.error('Erreur sauvegarde:', err)
+      toast.error('Erreur : ' + (err.message || 'Échec sauvegarde'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="flex gap-6 h-[calc(100vh-280px)] min-h-[600px]">
+      {/* Colonne gauche : formulaire */}
+      <div className="w-1/2 space-y-4 overflow-y-auto pr-2">
+        
+        {/* Type de document */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Type de document</label>
+          <div className="grid grid-cols-3 gap-2">
+            {DOC_TYPES.map(t => (
+              <button key={t.id} onClick={() => setDocType(t.id)}
+                className={'px-3 py-2 rounded-lg border text-sm text-center transition-colors ' +
+                  (docType === t.id ? 'bg-primary-50 border-primary-300 text-primary-700 font-medium' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50')}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Destinataire */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Destinataire</label>
+          <textarea value={destinataire} onChange={(e) => setDestinataire(e.target.value)}
+            placeholder={"M. / Mme ...\nEntreprise\nAdresse"}
+            rows="3" className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent resize-none" />
+        </div>
+
+        {/* Date et Lieu */}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Lieu</label>
+            <input type="text" value={lieu} onChange={(e) => setLieu(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
+            <input type="date" value={docDate} onChange={(e) => setDocDate(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent" />
+          </div>
+        </div>
+
+        {/* Objet */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Objet</label>
+          <input type="text" value={objet} onChange={(e) => setObjet(e.target.value)}
+            placeholder={docType === 'attestation' ? "Attestation de formation SST" : "Objet du courrier..."}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent" />
+        </div>
+
+        {/* Contexte IA (optionnel) */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            <Sparkles className="w-3.5 h-3.5 inline mr-1 text-amber-500" />
+            Contexte pour l'IA <span className="text-gray-400 font-normal">(optionnel)</span>
+          </label>
+          <input type="text" value={context} onChange={(e) => setContext(e.target.value)}
+            placeholder="Ex: Formation SST de 14h pour 8 salariés de l'entreprise X..."
+            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-amber-50 focus:ring-2 focus:ring-amber-300 focus:border-transparent" />
+        </div>
+
+        {/* Corps du document */}
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <label className="block text-sm font-medium text-gray-700">Corps du document</label>
+            <div className="flex gap-1">
+              <button onClick={() => handleAI('generate')} disabled={generating || !objet}
+                title="Générer le texte avec l'IA"
+                className="px-2.5 py-1 bg-amber-100 hover:bg-amber-200 text-amber-700 rounded-md text-xs font-medium flex items-center gap-1 disabled:opacity-40 transition-colors">
+                {generatingAction === 'generate' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                Générer
+              </button>
+              <button onClick={() => handleAI('reformulate')} disabled={generating || !body}
+                title="Reformuler le texte"
+                className="px-2.5 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-md text-xs font-medium flex items-center gap-1 disabled:opacity-40 transition-colors">
+                {generatingAction === 'reformulate' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Wand2 className="w-3 h-3" />}
+                Reformuler
+              </button>
+              <button onClick={() => handleAI('shorter')} disabled={generating || !body}
+                title="Raccourcir"
+                className="px-2 py-1 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-md text-xs disabled:opacity-40 transition-colors">
+                {generatingAction === 'shorter' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Minus className="w-3 h-3" />}
+              </button>
+              <button onClick={() => handleAI('longer')} disabled={generating || !body}
+                title="Enrichir"
+                className="px-2 py-1 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-md text-xs disabled:opacity-40 transition-colors">
+                {generatingAction === 'longer' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
+              </button>
+            </div>
+          </div>
+          <textarea value={body} onChange={(e) => setBody(e.target.value)}
+            placeholder="Rédigez votre texte ici ou utilisez le bouton ✨ Générer pour que l'IA vous propose un brouillon..."
+            rows="10" className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent resize-y leading-relaxed" />
+        </div>
+
+        {/* Signataire */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Signataire</label>
+          <input type="text" value={signataire} onChange={(e) => setSignataire(e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent" />
+        </div>
+
+        {/* Actions */}
+        <div className="flex gap-3 pb-4">
+          <button onClick={handleDownload} disabled={!body.trim()}
+            className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-40 font-medium text-sm transition-colors">
+            <Download className="w-4 h-4" /> Télécharger PDF
+          </button>
+          <button onClick={handleSave} disabled={!body.trim() || saving}
+            className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-40 font-medium text-sm transition-colors">
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            Sauvegarder
+          </button>
+        </div>
+      </div>
+
+      {/* Colonne droite : aperçu PDF en direct */}
+      <div className="w-1/2 bg-gray-100 rounded-xl border border-gray-200 overflow-hidden flex flex-col">
+        <div className="bg-gray-200 px-4 py-2 flex items-center justify-between">
+          <span className="text-sm font-medium text-gray-700 flex items-center gap-2">
+            <Eye className="w-4 h-4" /> Aperçu en direct
+          </span>
+          <span className="text-xs text-gray-500">Mise à jour automatique</span>
+        </div>
+        <div className="flex-1">
+          {pdfUrl ? (
+            <iframe src={pdfUrl} className="w-full h-full border-0" title="Aperçu PDF" />
+          ) : (
+            <div className="flex items-center justify-center h-full text-gray-400">
+              <div className="text-center">
+                <FileText className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                <p className="text-sm">Commencez à rédiger pour voir l'aperçu</p>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
