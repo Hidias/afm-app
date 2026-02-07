@@ -1,499 +1,474 @@
 /**
  * ============================================================================
- * API ENDPOINT - ENRICHISSEMENT PROSPECTS VIA PAGES JAUNES
+ * ENRICHISSEMENT RAPIDE AVEC AUTO-ENRICHIR
  * ============================================================================
  * 
- * Recherche les prospects sur PagesJaunes.fr pour extraire :
- * - Téléphone
- * - Email  
- * - Site web
+ * À METTRE : afm-app-main/src/components/EnrichissementAuto.jsx
  * 
- * Mode prudent pour éviter le blocage :
- * - 15-30 secondes de délai aléatoire entre chaque requête
- * - Rotation de User-Agent
- * - Batch de 10 prospects max
- * - Détection de blocage → arrêt immédiat
- * 
- * POST /api/enrich-prospects  { batch_size: 10 }
- * GET  /api/enrich-prospects  (cron)
+ * Charge les prospects sans téléphone et propose :
+ * - Bouton "Auto-enrichir" → scrape Pages Jaunes + site web (1 clic)
+ * - Pré-remplit téléphone, site web, email
+ * - Tu vérifies et valides
+ * - Workflow : 1 clic → vérifier → sauvegarder
  * ============================================================================
  */
 
-import { createClient } from '@supabase/supabase-js'
-import * as cheerio from 'cheerio'
+import { useState, useEffect, useCallback } from 'react'
+import { supabase } from '../lib/supabase'
+import { 
+  Search, Phone, Globe, Mail, CheckCircle, SkipForward,
+  Building2, MapPin, RefreshCw, Zap, ExternalLink, Loader,
+  ChevronLeft, ChevronRight, AlertCircle
+} from 'lucide-react'
+import toast from 'react-hot-toast'
 
-const SUPABASE_URL = process.env.VITE_SUPABASE_URL
-const SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY
+export default function EnrichissementAuto() {
+  const [prospects, setProspects] = useState([])
+  const [current, setCurrent] = useState(null)
+  const [currentIndex, setCurrentIndex] = useState(0)
+  const [loading, setLoading] = useState(true)
+  const [totalNonEnrichis, setTotalNonEnrichis] = useState(0)
+  const [departementFilter, setDepartementFilter] = useState('')
+  const [effectifFilter, setEffectifFilter] = useState('')
+  const [searchTerm, setSearchTerm] = useState('')
 
-// ============================================================================
-// CONFIGURATION PRUDENTE
-// ============================================================================
-
-const DEFAULT_BATCH_SIZE = 10
-const MIN_DELAY = 15000  // 15 secondes minimum entre requêtes
-const MAX_DELAY = 30000  // 30 secondes maximum
-const FETCH_TIMEOUT = 12000
-const MAX_ENRICHMENT_ATTEMPTS = 2
-
-// User-Agents rotatifs (navigateurs courants)
-const USER_AGENTS = [
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0',
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2.1 Safari/605.1.15',
-  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0',
-]
-
-// Emails à ignorer
-const BLACKLISTED_EMAIL_PREFIXES = [
-  'noreply', 'no-reply', 'no_reply', 'unsubscribe',
-  'mailer-daemon', 'postmaster', 'webmaster', 'root',
-  'abuse', 'spam', 'newsletter', 'notification',
-]
-
-const BLACKLISTED_EMAIL_DOMAINS = [
-  'example.com', 'test.com', 'pagesjaunes.fr', 'solocal.com',
-  'googleapis.com', 'facebook.com', 'twitter.com', 'google.com',
-]
-
-// ============================================================================
-// UTILITAIRES
-// ============================================================================
-
-function getRandomUserAgent() {
-  return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)]
-}
-
-function getRandomDelay() {
-  return MIN_DELAY + Math.floor(Math.random() * (MAX_DELAY - MIN_DELAY))
-}
-
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms))
-}
-
-// Nettoyer le nom de l'entreprise pour la recherche
-function cleanCompanyName(name) {
-  if (!name) return ''
-  return name
-    .replace(/\b(SAS|SARL|SA|EURL|SCI|SNC)\b/gi, '')
-    .replace(/[^\w\sÀ-ÿ-]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
-// Normaliser un numéro de téléphone français
-function normalizePhone(raw) {
-  if (!raw) return null
-  let phone = raw.replace(/[\s.\-()]/g, '')
+  // Champs éditables
+  const [phone, setPhone] = useState('')
+  const [siteWeb, setSiteWeb] = useState('')
+  const [email, setEmail] = useState('')
   
-  if (phone.startsWith('+33')) phone = '0' + phone.slice(3)
-  if (phone.startsWith('0033')) phone = '0' + phone.slice(4)
+  // États auto-enrichissement
+  const [enriching, setEnriching] = useState(false)
+  const [enrichResult, setEnrichResult] = useState(null)
+  const [saving, setSaving] = useState(false)
   
-  if (!/^0[1-9]\d{8}$/.test(phone)) return null
-  
-  // Exclure les numéros suspects
-  if (/^(\d)\1{9}$/.test(phone)) return null
-  if (phone === '0123456789') return null
-  
-  // Formater : 02 98 12 34 56
-  return phone.replace(/(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/, '$1 $2 $3 $4 $5')
-}
+  // Stats session
+  const [sessionStats, setSessionStats] = useState({ enrichis: 0, passes: 0, autoOk: 0 })
 
-// Valider un email
-function isValidEmail(email) {
-  if (!email || email.length > 60) return false
-  const lower = email.toLowerCase().trim()
-  const prefix = lower.split('@')[0]
-  const domain = lower.split('@')[1]
-  if (!domain) return false
-  if (BLACKLISTED_EMAIL_PREFIXES.some(bp => prefix.startsWith(bp))) return false
-  if (BLACKLISTED_EMAIL_DOMAINS.some(bd => domain.includes(bd))) return false
-  if (!/^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/.test(lower)) return false
-  return true
-}
+  const departements = [...new Set(prospects.map(p => p.departement))].filter(Boolean).sort()
+  const effectifs = [...new Set(prospects.map(p => p.effectif_label))].filter(Boolean).sort()
 
-// ============================================================================
-// RECHERCHE PAGES JAUNES
-// ============================================================================
+  useEffect(() => { loadProspects() }, [departementFilter, effectifFilter])
 
-async function searchPagesJaunes(companyName, city) {
-  const result = {
-    phone: null,
-    email: null,
-    site_web: null,
-    source: 'pagesjaunes',
-    found: false,
-    blocked: false,
-    error: null,
+  async function loadProspects() {
+    setLoading(true)
+    try {
+      let query = supabase
+        .from('prospection_massive')
+        .select('id, siret, siren, name, city, postal_code, phone, email, site_web, departement, effectif, effectif_label, quality_score, naf_label, dirigeant, adresse', { count: 'exact' })
+        .is('phone', null)
+        .order('quality_score', { ascending: false })
+        .limit(100)
+
+      if (departementFilter) query = query.eq('departement', departementFilter)
+      if (effectifFilter) query = query.eq('effectif_label', effectifFilter)
+
+      const { data, error, count } = await query
+      if (error) throw error
+
+      setProspects(data || [])
+      setTotalNonEnrichis(count || 0)
+
+      if (data && data.length > 0) {
+        selectProspect(data[0], 0)
+      }
+    } catch (err) {
+      console.error('Erreur chargement:', err)
+      toast.error('Erreur lors du chargement')
+    } finally {
+      setLoading(false)
+    }
   }
 
-  try {
-    const query = cleanCompanyName(companyName)
-    if (!query || query.length < 3) {
-      result.error = 'Nom entreprise trop court'
-      return result
-    }
-
-    const searchCity = (city || '').trim()
-    if (!searchCity) {
-      result.error = 'Pas de ville'
-      return result
-    }
-
-    // Construire l'URL de recherche
-    const url = `https://www.pagesjaunes.fr/pagesblanches/recherche?quoiqui=${encodeURIComponent(query)}&ou=${encodeURIComponent(searchCity)}`
-
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT)
-
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        'User-Agent': getRandomUserAgent(),
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-        'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Referer': 'https://www.pagesjaunes.fr/',
-        'DNT': '1',
-        'Connection': 'keep-alive',
-        'Upgrade-Insecure-Requests': '1',
-        'Cache-Control': 'no-cache',
-      },
-      redirect: 'follow',
-    })
-
-    clearTimeout(timeoutId)
-
-    // Détection de blocage
-    if (response.status === 403 || response.status === 429 || response.status === 503) {
-      result.blocked = true
-      result.error = `Blocage détecté (HTTP ${response.status})`
-      return result
-    }
-
-    if (!response.ok) {
-      result.error = `HTTP ${response.status}`
-      return result
-    }
-
-    const html = await response.text()
-
-    // Vérifier si c'est un captcha
-    if (html.includes('captcha') || html.includes('robot') || html.includes('bot-detection')) {
-      result.blocked = true
-      result.error = 'Captcha détecté'
-      return result
-    }
-
-    // Parser avec Cheerio
-    const $ = cheerio.load(html)
-
-    // ---- Extraire le téléphone ----
-    const phoneSelectors = [
-      '.bi-phone',
-      '.number-phone',
-      '[data-phone]',
-      '.tel',
-      'a[href^="tel:"]',
-      '.phone-number',
-      '.coord-numero',
-    ]
-
-    for (const selector of phoneSelectors) {
-      const el = $(selector).first()
-      if (el.length) {
-        const phoneText = el.attr('data-phone') || el.attr('href')?.replace('tel:', '') || el.text()
-        const normalized = normalizePhone(phoneText)
-        if (normalized) {
-          result.phone = normalized
-          break
-        }
-      }
-    }
-
-    // Fallback : chercher des patterns téléphone dans tout le texte
-    if (!result.phone) {
-      const bodyText = $('body').text()
-      const phoneRegex = /(?:0[1-9])(?:[\s.\-]?\d{2}){4}/g
-      const matches = bodyText.match(phoneRegex) || []
-      for (const match of matches) {
-        const normalized = normalizePhone(match)
-        if (normalized) {
-          result.phone = normalized
-          break
-        }
-      }
-    }
-
-    // ---- Extraire l'email ----
-    const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g
-    const allEmails = html.match(emailRegex) || []
-    for (const email of allEmails) {
-      if (isValidEmail(email)) {
-        result.email = email.toLowerCase().trim()
-        break
-      }
-    }
-
-    // Aussi chercher dans les liens mailto
-    $('a[href^="mailto:"]').each((_, el) => {
-      if (!result.email) {
-        const email = $(el).attr('href').replace('mailto:', '').split('?')[0]
-        if (isValidEmail(email)) {
-          result.email = email.toLowerCase().trim()
-        }
-      }
-    })
-
-    // ---- Extraire le site web ----
-    const siteSelectors = [
-      'a[data-pjlabel="site_internet"]',
-      'a.pj-link--site',
-      '.site-internet a',
-      '.website a',
-    ]
-
-    for (const selector of siteSelectors) {
-      const el = $(selector).first()
-      if (el.length) {
-        const href = el.attr('href') || ''
-        if (href && !href.includes('pagesjaunes.fr') && !href.includes('solocal.com')) {
-          result.site_web = href
-          break
-        }
-      }
-    }
-
-    result.found = !!(result.phone || result.email || result.site_web)
-    return result
-
-  } catch (error) {
-    if (error.name === 'AbortError') {
-      result.error = 'Timeout'
-    } else {
-      result.error = error.message
-    }
-    return result
-  }
-}
-
-// ============================================================================
-// SCRAPING DU SITE WEB (si trouvé via PJ)
-// ============================================================================
-
-async function scrapeWebsite(siteUrl) {
-  const result = { phone: null, email: null }
-
-  try {
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 8000)
-
-    const response = await fetch(siteUrl, {
-      signal: controller.signal,
-      headers: {
-        'User-Agent': getRandomUserAgent(),
-        'Accept': 'text/html,application/xhtml+xml',
-        'Accept-Language': 'fr-FR,fr;q=0.9',
-      },
-      redirect: 'follow',
-    })
-
-    clearTimeout(timeoutId)
-
-    if (!response.ok) return result
-
-    const contentType = response.headers.get('content-type') || ''
-    if (!contentType.includes('text/html')) return result
-
-    const html = (await response.text()).slice(0, 300000)
-
-    // Extraire emails
-    const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g
-    const emails = html.match(emailRegex) || []
-    for (const email of emails) {
-      if (isValidEmail(email)) {
-        result.email = email.toLowerCase().trim()
-        break
-      }
-    }
-
-    // Extraire téléphones
-    const text = html.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '').replace(/<[^>]+>/g, ' ')
-    const phoneRegex = /(?:0[1-9])(?:[\s.\-]?\d{2}){4}/g
-    const phones = text.match(phoneRegex) || []
-    for (const p of phones) {
-      const normalized = normalizePhone(p)
-      if (normalized) {
-        result.phone = normalized
-        break
-      }
-    }
-  } catch (error) {
-    // Silencieux
+  function selectProspect(prospect, index) {
+    setCurrent(prospect)
+    setCurrentIndex(index)
+    setPhone(prospect.phone || '')
+    setSiteWeb(prospect.site_web || '')
+    setEmail(prospect.email || '')
+    setEnrichResult(null)
   }
 
-  return result
-}
+  // ---- AUTO-ENRICHIR ----
+  async function autoEnrich() {
+    if (!current) return
+    setEnriching(true)
+    setEnrichResult(null)
 
-// ============================================================================
-// HANDLER PRINCIPAL
-// ============================================================================
-
-export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*')
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
-
-  if (req.method === 'OPTIONS') return res.status(200).end()
-
-  const batchSize = Math.min(req.body?.batch_size || DEFAULT_BATCH_SIZE, 15) // Max 15 sécurité
-
-  try {
-    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
-
-    // 1. Récupérer les prospects à enrichir
-    //    - Pas encore de phone
-    //    - Moins de MAX_ENRICHMENT_ATTEMPTS tentatives
-    //    - Pas encore enrichi avec succès
-    //    - Triés par quality_score décroissant (les meilleurs d'abord)
-    const { data: prospects, error: fetchError } = await supabase
-      .from('prospection_massive')
-      .select('id, siret, siren, name, city, postal_code, phone, email, site_web, enrichment_attempts, enrichment_status')
-      .is('phone', null)
-      .or(`enrichment_attempts.is.null,enrichment_attempts.lt.${MAX_ENRICHMENT_ATTEMPTS}`)
-      .or('enrichment_status.is.null,enrichment_status.neq.done')
-      .order('quality_score', { ascending: false })
-      .limit(batchSize)
-
-    if (fetchError) {
-      return res.status(500).json({ error: fetchError.message })
-    }
-
-    if (!prospects || prospects.length === 0) {
-      return res.status(200).json({
-        success: true,
-        message: 'Aucun prospect à enrichir',
-        stats: { total: 0 }
+    try {
+      const response = await fetch('/api/auto-enrich', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: current.name,
+          city: current.city,
+          postal_code: current.postal_code,
+          site_web: siteWeb || current.site_web,
+        })
       })
-    }
 
-    // 2. Enrichir chaque prospect
-    const stats = {
-      total: prospects.length,
-      phones_found: 0,
-      emails_found: 0,
-      sites_found: 0,
-      both_found: 0,
-      failed: 0,
-      blocked: false,
-    }
+      const data = await response.json()
+      setEnrichResult(data)
 
-    for (let i = 0; i < prospects.length; i++) {
-      const prospect = prospects[i]
+      // Pré-remplir les champs trouvés (sans écraser ce qui existe déjà)
+      if (data.phone && !phone) setPhone(data.phone)
+      if (data.site_web && !siteWeb) setSiteWeb(data.site_web)
+      if (data.email && !email) setEmail(data.email)
 
-      // Délai aléatoire AVANT chaque requête (sauf la première)
-      if (i > 0) {
-        const delay = getRandomDelay()
-        await sleep(delay)
+      const found = [data.phone && 'tél', data.site_web && 'site', data.email && 'email'].filter(Boolean)
+      if (found.length > 0) {
+        toast.success(`Trouvé : ${found.join(', ')}`)
+        setSessionStats(prev => ({ ...prev, autoOk: prev.autoOk + 1 }))
+      } else {
+        toast('Rien trouvé automatiquement', { icon: '🤷' })
       }
-
-      try {
-        // Étape 1 : Chercher sur Pages Jaunes
-        const pjResult = await searchPagesJaunes(prospect.name, prospect.city)
-
-        // Si blocage détecté, on arrête TOUT le batch
-        if (pjResult.blocked) {
-          stats.blocked = true
-          console.error('⚠️ BLOCAGE DÉTECTÉ - Arrêt du batch')
-          break
-        }
-
-        // Préparer la mise à jour
-        const update = {
-          enrichment_attempts: (prospect.enrichment_attempts || 0) + 1,
-          enrichment_last_attempt: new Date().toISOString(),
-          enrichment_sources_tried: ['pagesjaunes'],
-          updated_at: new Date().toISOString(),
-        }
-
-        let foundPhone = pjResult.phone
-        let foundEmail = pjResult.email
-        let foundSite = pjResult.site_web
-
-        // Étape 2 : Si PJ a trouvé un site web mais pas de phone/email,
-        // scraper le site web directement
-        if (foundSite && (!foundPhone || !foundEmail)) {
-          await sleep(3000) // petit délai
-          const siteResult = await scrapeWebsite(foundSite)
-          if (!foundPhone && siteResult.phone) foundPhone = siteResult.phone
-          if (!foundEmail && siteResult.email) foundEmail = siteResult.email
-          update.enrichment_sources_tried = ['pagesjaunes', 'site_web']
-        }
-
-        // Appliquer les résultats
-        if (foundPhone) {
-          update.phone = foundPhone
-          update.phone_source = 'pagesjaunes'
-          stats.phones_found++
-        }
-
-        if (foundEmail) {
-          update.email = foundEmail
-          update.email_source = pjResult.email ? 'pagesjaunes' : 'site_web'
-          stats.emails_found++
-        }
-
-        if (foundSite && !prospect.site_web) {
-          update.site_web = foundSite
-          stats.sites_found++
-        }
-
-        // Statut
-        if (foundPhone && foundEmail) {
-          update.enrichment_status = 'done'
-          stats.both_found++
-        } else if (foundPhone || foundEmail) {
-          update.enrichment_status = 'done'
-        } else {
-          update.enrichment_status = 'failed'
-          if (pjResult.error) {
-            update.enrichment_errors = [pjResult.error]
-          }
-        }
-
-        await supabase
-          .from('prospection_massive')
-          .update(update)
-          .eq('id', prospect.id)
-
-      } catch (error) {
-        stats.failed++
-        await supabase
-          .from('prospection_massive')
-          .update({
-            enrichment_attempts: (prospect.enrichment_attempts || 0) + 1,
-            enrichment_last_attempt: new Date().toISOString(),
-            enrichment_status: 'failed',
-            enrichment_errors: [error.message],
-          })
-          .eq('id', prospect.id)
-      }
+    } catch (error) {
+      console.error('Auto-enrich error:', error)
+      toast.error('Erreur auto-enrichissement')
+    } finally {
+      setEnriching(false)
     }
-
-    const message = stats.blocked
-      ? `⚠️ Blocage détecté après ${stats.phones_found} tels et ${stats.emails_found} emails. Réessayer plus tard.`
-      : `✅ ${stats.phones_found} téléphones, ${stats.emails_found} emails, ${stats.sites_found} sites trouvés sur ${stats.total} prospects`
-
-    return res.status(200).json({
-      success: true,
-      stats,
-      message,
-    })
-
-  } catch (error) {
-    console.error('Erreur enrichissement:', error)
-    return res.status(500).json({ error: error.message })
   }
+
+  // ---- SAUVEGARDER ----
+  async function handleSave() {
+    if (!current) return
+    if (!phone && !siteWeb && !email) {
+      toast.error('Remplissez au moins un champ')
+      return
+    }
+
+    setSaving(true)
+    try {
+      const updates = { updated_at: new Date().toISOString() }
+      if (phone) updates.phone = phone
+      if (siteWeb) updates.site_web = siteWeb
+      if (email) updates.email = email
+
+      const { error } = await supabase
+        .from('prospection_massive')
+        .update(updates)
+        .eq('id', current.id)
+
+      if (error) throw error
+
+      toast.success('✅ Prospect enrichi !')
+      setSessionStats(prev => ({ ...prev, enrichis: prev.enrichis + 1 }))
+      goNext()
+    } catch (error) {
+      console.error('Erreur sauvegarde:', error)
+      toast.error('Erreur: ' + error.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function goNext() {
+    const nextIndex = currentIndex + 1
+    if (nextIndex < prospects.length) {
+      selectProspect(prospects[nextIndex], nextIndex)
+    } else {
+      loadProspects()
+    }
+  }
+
+  function goPrev() {
+    if (currentIndex > 0) {
+      selectProspect(prospects[currentIndex - 1], currentIndex - 1)
+    }
+  }
+
+  function handleSkip() {
+    setSessionStats(prev => ({ ...prev, passes: prev.passes + 1 }))
+    goNext()
+  }
+
+  // Ouvrir Google dans un nouvel onglet (fallback manuel)
+  function openGoogle() {
+    if (!current) return
+    const query = encodeURIComponent(`${current.name} ${current.city} téléphone`)
+    window.open(`https://www.google.com/search?q=${query}`, '_blank')
+  }
+
+  function openPagesJaunes() {
+    if (!current) return
+    const query = encodeURIComponent(current.name)
+    const location = encodeURIComponent(current.city || '')
+    window.open(`https://www.pagesjaunes.fr/annuaire/chercherlespros?quoiqui=${query}&ou=${location}`, '_blank')
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Header + Stats */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">🔍 Enrichissement rapide</h1>
+          <p className="text-gray-600 mt-1">
+            {totalNonEnrichis.toLocaleString()} prospects sans téléphone
+            {departementFilter && ` (dép. ${departementFilter})`}
+          </p>
+        </div>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3 text-sm">
+            <span className="bg-green-100 text-green-800 px-3 py-1 rounded-full font-medium">
+              ✅ {sessionStats.enrichis} enrichis
+            </span>
+            <span className="bg-purple-100 text-purple-800 px-3 py-1 rounded-full font-medium">
+              🤖 {sessionStats.autoOk} auto
+            </span>
+            <span className="bg-gray-100 text-gray-600 px-3 py-1 rounded-full">
+              ⏭️ {sessionStats.passes} passés
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Filtres */}
+      <div className="flex gap-3">
+        <select value={departementFilter} onChange={(e) => setDepartementFilter(e.target.value)}
+          className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500">
+          <option value="">Tous les dép.</option>
+          {['22', '29', '35', '56', '44', '49', '53', '72', '85'].map(d => (
+            <option key={d} value={d}>{d}</option>
+          ))}
+        </select>
+        <select value={effectifFilter} onChange={(e) => setEffectifFilter(e.target.value)}
+          className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500">
+          <option value="">Tous effectifs</option>
+          {effectifs.map(e => <option key={e} value={e}>{e}</option>)}
+        </select>
+        <button onClick={loadProspects} className="px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg" title="Recharger">
+          <RefreshCw className="w-4 h-4" />
+        </button>
+      </div>
+
+      {!current ? (
+        <div className="bg-white rounded-lg border border-gray-200 p-12 text-center">
+          <CheckCircle className="w-12 h-12 text-green-400 mx-auto mb-4" />
+          <h2 className="text-xl font-semibold text-gray-900 mb-2">Tous les prospects sont enrichis !</h2>
+          <p className="text-gray-600">Changez de filtre ou importez de nouveaux prospects</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-3 gap-4">
+          
+          {/* Colonne gauche - Info entreprise */}
+          <div className="col-span-1 space-y-3">
+            <div className="bg-white rounded-lg border border-gray-200 p-4">
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-sm text-gray-500">{currentIndex + 1} / {prospects.length}</span>
+                <div className="flex gap-1">
+                  <button onClick={goPrev} disabled={currentIndex === 0}
+                    className="p-1 rounded hover:bg-gray-100 disabled:opacity-30">
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <button onClick={goNext} disabled={currentIndex >= prospects.length - 1}
+                    className="p-1 rounded hover:bg-gray-100 disabled:opacity-30">
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                <Building2 className="w-5 h-5 text-blue-500" />
+                {current.name}
+              </h2>
+              
+              <div className="text-sm text-gray-600 space-y-1 mt-3">
+                <div className="flex items-center gap-2">
+                  <MapPin className="w-4 h-4 text-gray-400" />
+                  {current.adresse && <span>{current.adresse}, </span>}
+                  {current.postal_code} {current.city}
+                </div>
+                {current.departement && <div className="text-xs text-gray-500">Département {current.departement}</div>}
+                {current.effectif_label && <div>👥 {current.effectif_label}</div>}
+                {current.naf_label && <div className="text-xs">🏭 {current.naf_label}</div>}
+                {current.dirigeant && <div>👤 {current.dirigeant}</div>}
+                {current.siret && <div className="text-xs text-gray-400">SIRET: {current.siret}</div>}
+                {current.quality_score && (
+                  <div className="mt-2">
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                      current.quality_score >= 70 ? 'bg-green-100 text-green-800' :
+                      current.quality_score >= 50 ? 'bg-yellow-100 text-yellow-800' :
+                      'bg-gray-100 text-gray-600'
+                    }`}>
+                      Score: {current.quality_score}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Raccourcis recherche manuelle */}
+            <div className="bg-white rounded-lg border border-gray-200 p-4">
+              <h3 className="text-sm font-semibold text-gray-700 mb-2">🔗 Recherche manuelle</h3>
+              <div className="space-y-2">
+                <button onClick={openGoogle}
+                  className="w-full flex items-center gap-2 px-3 py-2 bg-blue-50 hover:bg-blue-100 rounded-lg text-sm text-blue-700 transition-colors">
+                  <ExternalLink className="w-4 h-4" /> Google → {current.name}
+                </button>
+                <button onClick={openPagesJaunes}
+                  className="w-full flex items-center gap-2 px-3 py-2 bg-yellow-50 hover:bg-yellow-100 rounded-lg text-sm text-yellow-700 transition-colors">
+                  <ExternalLink className="w-4 h-4" /> Pages Jaunes → {current.name}
+                </button>
+                {siteWeb && (
+                  <a href={siteWeb.startsWith('http') ? siteWeb : `https://${siteWeb}`} target="_blank" rel="noopener noreferrer"
+                    className="w-full flex items-center gap-2 px-3 py-2 bg-green-50 hover:bg-green-100 rounded-lg text-sm text-green-700 transition-colors">
+                    <Globe className="w-4 h-4" /> Ouvrir le site web
+                  </a>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Colonne droite - Enrichissement */}
+          <div className="col-span-2 space-y-3">
+            
+            {/* BOUTON AUTO-ENRICHIR */}
+            <button
+              onClick={autoEnrich}
+              disabled={enriching}
+              className={`w-full flex items-center justify-center gap-3 px-6 py-4 rounded-xl font-bold text-lg transition-all ${
+                enriching
+                  ? 'bg-purple-100 text-purple-400 cursor-wait'
+                  : 'bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white shadow-lg hover:shadow-xl transform hover:-translate-y-0.5'
+              }`}
+            >
+              {enriching ? (
+                <>
+                  <Loader className="w-6 h-6 animate-spin" />
+                  Recherche en cours... (Pages Jaunes + site web)
+                </>
+              ) : (
+                <>
+                  <Zap className="w-6 h-6" />
+                  ⚡ Auto-enrichir en 1 clic
+                </>
+              )}
+            </button>
+
+            {/* Résultat auto-enrichissement */}
+            {enrichResult && (
+              <div className={`rounded-lg p-3 text-sm ${
+                enrichResult.sources?.length > 0 ? 'bg-green-50 border border-green-200' : 'bg-orange-50 border border-orange-200'
+              }`}>
+                <div className="flex items-center gap-2 mb-1">
+                  {enrichResult.sources?.length > 0 ? (
+                    <CheckCircle className="w-4 h-4 text-green-600" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 text-orange-600" />
+                  )}
+                  <span className="font-medium">
+                    {enrichResult.sources?.length > 0 
+                      ? `Trouvé via ${[...new Set(enrichResult.sources)].join(' + ')}`
+                      : 'Rien trouvé — utilisez les liens manuels ci-dessous'}
+                  </span>
+                </div>
+                {enrichResult.warning && (
+                  <div className="text-xs text-orange-600 mt-1">{enrichResult.warning}</div>
+                )}
+              </div>
+            )}
+
+            {/* Formulaire d'enrichissement */}
+            <div className="bg-white rounded-lg border border-gray-200 p-5 space-y-4">
+              <h3 className="font-semibold text-gray-900">📋 Coordonnées</h3>
+              
+              {/* Téléphone */}
+              <div>
+                <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1">
+                  <Phone className="w-4 h-4" /> Téléphone
+                  {enrichResult?.phone && phone === enrichResult.phone && (
+                    <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">auto</span>
+                  )}
+                </label>
+                <input
+                  type="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="02 98 XX XX XX"
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent text-lg"
+                />
+              </div>
+
+              {/* Site web */}
+              <div>
+                <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1">
+                  <Globe className="w-4 h-4" /> Site web
+                  {enrichResult?.site_web && siteWeb === enrichResult.site_web && (
+                    <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">auto</span>
+                  )}
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="url"
+                    value={siteWeb}
+                    onChange={(e) => setSiteWeb(e.target.value)}
+                    placeholder="https://www.exemple.fr"
+                    className="flex-1 px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  />
+                  {siteWeb && (
+                    <a href={siteWeb.startsWith('http') ? siteWeb : `https://${siteWeb}`} target="_blank" rel="noopener noreferrer"
+                      className="px-3 py-2.5 bg-gray-100 hover:bg-gray-200 rounded-lg" title="Ouvrir">
+                      <ExternalLink className="w-4 h-4" />
+                    </a>
+                  )}
+                </div>
+              </div>
+
+              {/* Email */}
+              <div>
+                <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1">
+                  <Mail className="w-4 h-4" /> Email
+                  {enrichResult?.email && email === enrichResult.email && (
+                    <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">auto</span>
+                  )}
+                </label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="contact@entreprise.fr"
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                />
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleSave}
+                disabled={saving || (!phone && !siteWeb && !email)}
+                className={`flex-1 flex items-center justify-center gap-2 px-6 py-3 rounded-lg font-bold text-lg transition-colors ${
+                  saving || (!phone && !siteWeb && !email)
+                    ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                    : 'bg-green-600 hover:bg-green-700 text-white'
+                }`}
+              >
+                {saving ? (
+                  <><Loader className="w-5 h-5 animate-spin" /> Sauvegarde...</>
+                ) : (
+                  <><CheckCircle className="w-5 h-5" /> 💾 Sauvegarder & Suivant</>
+                )}
+              </button>
+              <button
+                onClick={handleSkip}
+                className="px-6 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg flex items-center gap-2 font-medium"
+              >
+                <SkipForward className="w-5 h-5" /> Passer
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }
