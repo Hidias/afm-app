@@ -157,7 +157,7 @@ async function insertProspects(supabase, prospects) {
     try {
       const { error } = await supabase
         .from('prospection_massive')
-        .upsert(batch, { onConflict: 'siret', ignoreDuplicates: false })
+        .upsert(batch, { onConflict: 'siret', ignoreDuplicates: true })
       
       if (error) {
         if (error.code === '23505') {
