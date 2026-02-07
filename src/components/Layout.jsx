@@ -97,6 +97,7 @@ export default function Layout() {
       case 'audit': return '📋'
       case 'revue_direction': return '📊'
       case 'j90': return '📅'
+      case 'rdv_phoning': return '🔥'
       default: return '🔔'
     }
   }
