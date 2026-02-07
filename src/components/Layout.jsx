@@ -162,7 +162,7 @@ export default function Layout() {
       
       {/* Desktop sidebar */}
       <aside className="hidden lg:fixed lg:inset-y-0 lg:left-0 lg:flex lg:w-64 lg:flex-col">
-        <div className="flex flex-col flex-1 bg-primary-500">
+        <div className="flex flex-col flex-1 bg-primary-500 h-full">
           <div className="p-5 border-b border-primary-400">
             <div className="flex items-center gap-3">
               <img src="/assets/logo-campus.png" alt="Access Campus" className="h-12" />
@@ -173,7 +173,7 @@ export default function Layout() {
             </div>
           </div>
           
-          <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
+          <nav className="flex-1 p-3 space-y-1 overflow-y-auto min-h-0">
             {navItems.map(item => (
               <NavLink
                 key={item.to}
