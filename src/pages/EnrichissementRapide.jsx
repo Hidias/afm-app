@@ -136,7 +136,8 @@ export default function EnrichissementRapide() {
   const [siteWeb, setSiteWeb] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [stats, setStats] = useState({ done: 0, phones: 0, emails: 0, skipped: 0 })
+  const [dbStats, setDbStats] = useState({ done: 0, phones: 0, emails: 0, excluded: 0 })
+  const [sessionStats, setSessionStats] = useState({ done: 0, phones: 0, emails: 0, excluded: 0 })
   const [totalRemaining, setTotalRemaining] = useState(0)
   const [departementFilter, setDepartementFilter] = useState('')
   const [departements, setDepartements] = useState([])
@@ -158,6 +159,29 @@ export default function EnrichissementRapide() {
     }
     loadDepartements()
   }, [])
+
+  // Charger les stats globales depuis la base
+  async function loadStats() {
+    const [
+      { count: doneCount },
+      { count: phoneCount },
+      { count: emailCount },
+      { count: excludedCount },
+    ] = await Promise.all([
+      supabase.from('prospection_massive').select('id', { count: 'exact', head: true }).eq('enrichment_status', 'done').eq('phone_source', 'manual_pj'),
+      supabase.from('prospection_massive').select('id', { count: 'exact', head: true }).not('phone', 'is', null).eq('phone_source', 'manual_pj'),
+      supabase.from('prospection_massive').select('id', { count: 'exact', head: true }).not('email', 'is', null).eq('email_source', 'manual_pj'),
+      supabase.from('prospection_massive').select('id', { count: 'exact', head: true }).eq('enrichment_status', 'failed').eq('enrichment_attempts', 99),
+    ])
+    setDbStats({
+      done: doneCount || 0,
+      phones: phoneCount || 0,
+      emails: emailCount || 0,
+      excluded: excludedCount || 0,
+    })
+  }
+
+  useEffect(() => { loadStats() }, [])
 
   // Charger un batch de prospects
   const loadProspects = useCallback(async () => {
@@ -284,11 +308,11 @@ export default function EnrichissementRapide() {
       .eq('siren', current.siren)
 
     if (!error) {
-      setStats(prev => ({
+      setSessionStats(prev => ({
         done: prev.done + 1,
         phones: prev.phones + (phone ? 1 : 0),
         emails: prev.emails + (email ? 1 : 0),
-        skipped: prev.skipped,
+        excluded: prev.excluded,
       }))
       setTotalRemaining(prev => prev - 1)
     }
@@ -300,11 +324,10 @@ export default function EnrichissementRapide() {
   // Passer sans sauvegarder
   function handleSkip() {
     if (!current) return
-    setStats(prev => ({ ...prev, skipped: prev.skipped + 1 }))
     goNext()
   }
 
-  // Marquer comme introuvable
+  // Marquer comme introuvable / exclu
   async function handleNotFound() {
     if (!current) return
 
@@ -318,7 +341,7 @@ export default function EnrichissementRapide() {
       })
       .eq('siren', current.siren)
 
-    setStats(prev => ({ ...prev, skipped: prev.skipped + 1 }))
+    setSessionStats(prev => ({ ...prev, excluded: prev.excluded + 1 }))
     setTotalRemaining(prev => prev - 1)
     goNext()
   }
@@ -428,20 +451,24 @@ export default function EnrichissementRapide() {
 
         <div className="grid grid-cols-4 gap-3">
           <div className="bg-white rounded-lg shadow p-3 text-center">
-            <p className="text-2xl font-bold text-primary-600">{stats.done}</p>
+            <p className="text-2xl font-bold text-primary-600">{dbStats.done + sessionStats.done}</p>
             <p className="text-xs text-gray-500">Enrichis</p>
+            {sessionStats.done > 0 && <p className="text-xs text-primary-400">+{sessionStats.done} cette session</p>}
           </div>
           <div className="bg-white rounded-lg shadow p-3 text-center">
-            <p className="text-2xl font-bold text-green-600">{stats.phones}</p>
+            <p className="text-2xl font-bold text-green-600">{dbStats.phones + sessionStats.phones}</p>
             <p className="text-xs text-gray-500">📞 Tels</p>
+            {sessionStats.phones > 0 && <p className="text-xs text-green-400">+{sessionStats.phones} cette session</p>}
           </div>
           <div className="bg-white rounded-lg shadow p-3 text-center">
-            <p className="text-2xl font-bold text-blue-600">{stats.emails}</p>
+            <p className="text-2xl font-bold text-blue-600">{dbStats.emails + sessionStats.emails}</p>
             <p className="text-xs text-gray-500">📧 Emails</p>
+            {sessionStats.emails > 0 && <p className="text-xs text-blue-400">+{sessionStats.emails} cette session</p>}
           </div>
           <div className="bg-white rounded-lg shadow p-3 text-center">
-            <p className="text-2xl font-bold text-gray-400">{stats.skipped}</p>
-            <p className="text-xs text-gray-500">Passés</p>
+            <p className="text-2xl font-bold text-red-400">{dbStats.excluded + sessionStats.excluded}</p>
+            <p className="text-xs text-gray-500">🚫 Supprimés</p>
+            {sessionStats.excluded > 0 && <p className="text-xs text-red-300">+{sessionStats.excluded} cette session</p>}
           </div>
         </div>
       </div>
