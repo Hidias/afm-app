@@ -228,12 +228,8 @@ export default function EnrichissementRapide() {
   // Ouvrir Societe.com
   function openSociete() {
     if (!current) return
-    const siret = current.siret || current.siren || ''
-    if (siret) {
-      window.open(`https://www.societe.com/societe/${siret}.html`, '_blank')
-    } else {
-      window.open(`https://www.societe.com/cgi-bin/search?champs=${encodeURIComponent(current.name)}`, '_blank')
-    }
+    const query = current.siren || current.siret?.slice(0, 9) || current.name
+    window.open(`https://www.societe.com/cgi-bin/search?champs=${encodeURIComponent(query)}`, '_blank')
   }
 
   // Raccourcis clavier
