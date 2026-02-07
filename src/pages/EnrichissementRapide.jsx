@@ -133,7 +133,7 @@ export default function EnrichissementRapide() {
       updated_at: new Date().toISOString(),
       enrichment_status: 'manual',
       enrichment_last_attempt: new Date().toISOString(),
-      enrichment_sources_tried: ['manual_pj'],
+      enrichment_attempts: 99,
     }
 
     if (phone) {
@@ -194,9 +194,8 @@ export default function EnrichissementRapide() {
       .from('prospection_massive')
       .update({
         enrichment_status: 'not_found',
-        enrichment_attempts: 99, // Ne plus réessayer
+        enrichment_attempts: 99,
         enrichment_last_attempt: new Date().toISOString(),
-        enrichment_sources_tried: ['manual_pj'],
         updated_at: new Date().toISOString(),
       })
       .eq('id', current.id)
