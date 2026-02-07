@@ -116,6 +116,18 @@ function getNafLabel(naf) {
   return NAF_LABELS[code] || naf
 }
 
+const EFFECTIF_LABELS = {
+  '00': '0 sal.', '01': '1-2 sal.', '02': '3-5 sal.', '03': '6-9 sal.',
+  '11': '10-19 sal.', '12': '20-49 sal.', '21': '50-99 sal.', '22': '100-199 sal.',
+  '31': '200-249 sal.', '32': '250-499 sal.', '41': '500-999 sal.', '42': '1000-1999 sal.',
+  '51': '2000-4999 sal.', '52': '5000-9999 sal.', '53': '10000+ sal.',
+}
+
+function getEffectifLabel(code) {
+  if (!code) return null
+  return EFFECTIF_LABELS[String(code)] || code + ' sal.'
+}
+
 export default function EnrichissementRapide() {
   const [prospects, setProspects] = useState([])
   const [currentIndex, setCurrentIndex] = useState(0)
@@ -449,7 +461,7 @@ export default function EnrichissementRapide() {
                 <h2 className="text-xl font-bold text-gray-900">{current.name}</h2>
                 <div className="flex items-center gap-4 mt-2 text-sm text-gray-600">
                   <span>📍 {current.city} ({current.postal_code?.slice(0, 2)})</span>
-                  {current.effectif && <span>👥 {current.effectif}</span>}
+                  {current.effectif && <span>👥 {getEffectifLabel(current.effectif)}</span>}
                 </div>
                 {current.address && (
                   <p className="text-sm text-gray-500 mt-1">🏠 {current.address}</p>
