@@ -84,6 +84,7 @@ export default function MarinePhoning() {
   const [saving, setSaving] = useState(false)
   const [aiSummary, setAiSummary] = useState('')
   const [aiSummaryLoading, setAiSummaryLoading] = useState(false)
+  const [statusFilter, setStatusFilter] = useState('a_appeler')
 
   const departements = [...new Set(prospects.map(p => p.departement))].filter(Boolean).sort()
 
@@ -92,18 +93,28 @@ export default function MarinePhoning() {
   async function loadProspects() {
     setLoading(true)
     try {
-      const { data, error } = await supabase
-        .from('prospection_massive')
-        .select('id, siret, siren, name, city, postal_code, phone, email, site_web, departement, effectif, naf, quality_score, prospection_status, prospection_notes, contacted, contacted_at, ai_summary')
-        .not('phone', 'is', null)
-        .or('prospection_status.is.null,prospection_status.eq.a_rappeler')
-        .order('quality_score', { ascending: false })
-        .limit(10000)
+      // Supabase limite à 1000 lignes par requête — on pagine
+      let allData = []
+      let from = 0
+      const pageSize = 1000
+      let keepGoing = true
 
-      if (error) throw error
+      while (keepGoing) {
+        const { data, error } = await supabase
+          .from('prospection_massive')
+          .select('id, siret, siren, name, city, postal_code, phone, email, site_web, departement, effectif, naf, quality_score, prospection_status, prospection_notes, contacted, contacted_at, ai_summary')
+          .not('phone', 'is', null)
+          .order('quality_score', { ascending: false })
+          .range(from, from + pageSize - 1)
+
+        if (error) throw error
+        allData = allData.concat(data || [])
+        if (!data || data.length < pageSize) keepGoing = false
+        else from += pageSize
+      }
 
       const seen = new Set()
-      const unique = (data || []).filter(p => {
+      const unique = allData.filter(p => {
         if (!p.siren || seen.has(p.siren)) return false
         seen.add(p.siren)
         return true
@@ -339,8 +350,25 @@ export default function MarinePhoning() {
     goNext()
   }
 
+  const STATUS_FILTERS = [
+    { id: 'a_appeler', label: '📞 À appeler', count: prospects.filter(p => !p.prospection_status || p.prospection_status === 'a_appeler').length },
+    { id: 'a_rappeler', label: '🟡 Tiède / À rappeler', count: prospects.filter(p => p.prospection_status === 'a_rappeler').length },
+    { id: 'rdv_pris', label: '🔥 Intéressé - RDV à prendre', count: prospects.filter(p => p.prospection_status === 'rdv_pris').length },
+    { id: 'pas_interesse', label: '❄️ Pas intéressé', count: prospects.filter(p => p.prospection_status === 'pas_interesse').length },
+    { id: 'numero_errone', label: '❌ Numéro erroné', count: prospects.filter(p => p.prospection_status === 'numero_errone').length },
+    { id: 'tous', label: '📋 Tous', count: prospects.length },
+  ]
+
   const filtered = prospects.filter(p => {
+    // Filtre statut
+    if (statusFilter === 'a_appeler' && p.prospection_status && p.prospection_status !== 'a_appeler') return false
+    if (statusFilter === 'a_rappeler' && p.prospection_status !== 'a_rappeler') return false
+    if (statusFilter === 'rdv_pris' && p.prospection_status !== 'rdv_pris') return false
+    if (statusFilter === 'pas_interesse' && p.prospection_status !== 'pas_interesse') return false
+    if (statusFilter === 'numero_errone' && p.prospection_status !== 'numero_errone') return false
+    // Filtre département
     if (departementFilter && p.departement !== departementFilter) return false
+    // Filtre recherche
     if (searchTerm) {
       const term = searchTerm.toLowerCase()
       return p.name?.toLowerCase().includes(term) || p.city?.toLowerCase().includes(term) || p.phone?.includes(term)
@@ -362,7 +390,7 @@ export default function MarinePhoning() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">📞 Phoning</h1>
-          <p className="text-gray-600 mt-1">{totalCount} prospects à appeler • {callerName}</p>
+          <p className="text-gray-600 mt-1">{filtered.length} prospects affichés sur {prospects.length} • {callerName}</p>
         </div>
         <div className="flex items-center gap-3">
           <div className="flex bg-gray-100 rounded-lg p-1">
@@ -376,6 +404,19 @@ export default function MarinePhoning() {
             </button>
           </div>
         </div>
+      </div>
+
+      {/* Filtres statut */}
+      <div className="flex gap-2 flex-wrap">
+        {STATUS_FILTERS.map(s => (
+          <button key={s.id} onClick={() => setStatusFilter(s.id)}
+            className={'px-3 py-1.5 rounded-full text-sm font-medium border transition-colors ' +
+              (statusFilter === s.id
+                ? 'bg-primary-600 text-white border-primary-600'
+                : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50')}>
+            {s.label} <span className="ml-1 font-bold">{s.count}</span>
+          </button>
+        ))}
       </div>
 
       {/* Filtres */}
@@ -418,7 +459,16 @@ export default function MarinePhoning() {
                   <div className="text-xs text-gray-500 mt-1">📍 {p.city} ({p.departement}) {p.effectif && '• 👥 ' + getEffectifLabel(p.effectif)}</div>
                   <div className="text-sm text-primary-600 font-medium mt-1">📞 {p.phone}</div>
                   {p.prospection_status === 'a_rappeler' && (
-                    <span className="inline-block mt-1 text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded">🔔 À rappeler</span>
+                    <span className="inline-block mt-1 text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded">🟡 Tiède / À rappeler</span>
+                  )}
+                  {p.prospection_status === 'rdv_pris' && (
+                    <span className="inline-block mt-1 text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded">🔥 Intéressé - RDV à prendre</span>
+                  )}
+                  {p.prospection_status === 'pas_interesse' && (
+                    <span className="inline-block mt-1 text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">❄️ Pas intéressé</span>
+                  )}
+                  {p.prospection_status === 'numero_errone' && (
+                    <span className="inline-block mt-1 text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded">❌ Numéro erroné</span>
                   )}
                 </button>
               ))}
