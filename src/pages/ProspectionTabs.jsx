@@ -10,7 +10,7 @@ export default function ProspectionTabs() {
   const tabs = [
     { id: 'rendez-vous', label: 'Rendez-vous', icon: Calendar, component: Prospection },
     { id: 'recherche', label: 'Recherche Prospects', icon: Search, component: ProspectSearch },
-    { id: 'phoning', label: 'Phoning Marine', icon: Phone, component: MarinePhoning },
+    { id: 'phoning', label: 'Phoning', icon: Phone, component: MarinePhoning },
   ]
 
   const ActiveComponent = tabs.find(t => t.id === activeTab)?.component || Prospection
