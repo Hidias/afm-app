@@ -363,7 +363,7 @@ export default async function handler(req, res) {
       .select('id, siret, siren, name, city, postal_code, phone, email, site_web, enrichment_attempts, enrichment_status')
       .is('phone', null)
       .or(`enrichment_attempts.is.null,enrichment_attempts.lt.${MAX_ENRICHMENT_ATTEMPTS}`)
-      .or('enrichment_status.is.null,enrichment_status.neq.success')
+      .or('enrichment_status.is.null,enrichment_status.neq.done')
       .order('quality_score', { ascending: false })
       .limit(batchSize)
 
@@ -452,12 +452,12 @@ export default async function handler(req, res) {
 
         // Statut
         if (foundPhone && foundEmail) {
-          update.enrichment_status = 'success'
+          update.enrichment_status = 'done'
           stats.both_found++
         } else if (foundPhone || foundEmail) {
-          update.enrichment_status = 'partial'
+          update.enrichment_status = 'done'
         } else {
-          update.enrichment_status = 'no_data'
+          update.enrichment_status = 'failed'
           if (pjResult.error) {
             update.enrichment_errors = [pjResult.error]
           }
@@ -475,7 +475,7 @@ export default async function handler(req, res) {
           .update({
             enrichment_attempts: (prospect.enrichment_attempts || 0) + 1,
             enrichment_last_attempt: new Date().toISOString(),
-            enrichment_status: 'error',
+            enrichment_status: 'failed',
             enrichment_errors: [error.message],
           })
           .eq('id', prospect.id)
