@@ -3,12 +3,13 @@ import { useDataStore } from '../lib/store'
 import { 
   FileText, Download, Trash2, Upload, Search, Filter, 
   X, FolderOpen, File, Image, FileSpreadsheet, Paperclip,
-  Plus, Eye, ExternalLink, BookOpen, ClipboardList, Loader2
+  Plus, Eye, ExternalLink, BookOpen, ClipboardList, Loader2, PenTool, Sparkles
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import toast from 'react-hot-toast'
 import { downloadDocument, setOrganization } from '../lib/pdfGenerator'
+import CourierEditor from './CourierEditor'
 
 const categories = [
   { id: 'all', name: 'Tous' },
@@ -246,6 +247,12 @@ export default function Documents() {
             Téléverser un fichier
           </button>
         )}
+        {activeTab === 'editeur' && (
+          <div className="flex items-center gap-2 text-sm text-amber-600 bg-amber-50 px-3 py-1.5 rounded-lg">
+            <Sparkles className="w-4 h-4" />
+            Assistant IA intégré
+          </div>
+        )}
         <input
           ref={fileInputRef}
           type="file"
@@ -283,6 +290,19 @@ export default function Documents() {
             <div className="flex items-center gap-2">
               <FileText className="w-4 h-4" />
               Documents vierges
+            </div>
+          </button>
+          <button
+            onClick={() => setActiveTab('editeur')}
+            className={`pb-3 px-1 border-b-2 font-medium text-sm transition-colors ${
+              activeTab === 'editeur' 
+                ? 'border-primary-500 text-primary-600' 
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <PenTool className="w-4 h-4" />
+              ✨ Éditeur courrier
             </div>
           </button>
         </nav>
@@ -640,6 +660,11 @@ export default function Documents() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Contenu onglet Éditeur courrier */}
+      {activeTab === 'editeur' && (
+        <CourierEditor />
       )}
     </div>
   )
