@@ -11,12 +11,19 @@
     },
     "api/import-auto-cron.js": {
       "maxDuration": 300
+    },
+    "api/enrich-prospects.js": {
+      "maxDuration": 300
     }
   },
   "crons": [
     {
       "path": "/api/import-auto-cron",
       "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/enrich-prospects",
+      "schedule": "0 3 * * *"
     }
   ]
 }
