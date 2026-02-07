@@ -4,5 +4,19 @@
       "source": "/(.*)",
       "destination": "/index.html"
     }
+  ],
+  "functions": {
+    "api/import-departement.js": {
+      "maxDuration": 300
+    },
+    "api/import-auto-cron.js": {
+      "maxDuration": 300
+    }
+  },
+  "crons": [
+    {
+      "path": "/api/import-auto-cron",
+      "schedule": "0 2 * * *"
+    }
   ]
 }
