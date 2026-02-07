@@ -269,7 +269,6 @@ export default function CourierEditor() {
           doc.text(line, sigX, y + (i * 5))
         })
       }
-      }
 
       // === PIED DE PAGE ===
       const totalPages = doc.internal.getNumberOfPages()
