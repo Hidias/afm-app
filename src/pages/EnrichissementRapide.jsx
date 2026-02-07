@@ -348,13 +348,13 @@ export default function EnrichissementRapide() {
       }
     } finally {
       setEnriching(false)
-      // Lancer cooldown 30s
+      // Lancer cooldown 60s (limite API : 10K tokens/min)
       startCooldown()
     }
   }
 
   function startCooldown() {
-    setEnrichCooldown(30)
+    setEnrichCooldown(60)
     const interval = setInterval(() => {
       setEnrichCooldown(prev => {
         if (prev <= 1) { clearInterval(interval); return 0 }
