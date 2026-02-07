@@ -307,6 +307,7 @@ export default function EnrichissementRapide() {
           name: current.name,
           city: current.city,
           postal_code: current.postal_code,
+          siren: current.siren,
           site_web: siteWeb || current.site_web,
         })
       })
