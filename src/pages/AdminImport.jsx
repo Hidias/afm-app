@@ -1,20 +1,21 @@
 /**
  * ============================================================================
- * PAGE ADMIN - IMPORT AUTOMATIQUE
+ * PAGE ADMIN - IMPORT PROSPECTS PAR TRANCHE
  * ============================================================================
  * 
  * À METTRE : afm-app-main/src/pages/AdminImport.jsx
  * 
- * Page pour lancer l'import manuellement ou automatiquement
+ * Import par tranche d'effectif pour contourner la limite API 10k résultats
+ * Chaque département × tranche = 1 appel API séparé
  * ============================================================================
  */
 
-import { useState } from 'react'
-import { Play, Check, X, Loader, RefreshCw } from 'lucide-react'
+import { useState, useRef } from 'react'
+import { Play, Check, X, Loader, RefreshCw, Square, ChevronDown, ChevronUp } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 const DEPARTEMENTS = {
-  '22': 'Côtes-d\'Armor',
+  '22': "Côtes-d'Armor",
   '29': 'Finistère',
   '35': 'Ille-et-Vilaine',
   '56': 'Morbihan',
@@ -25,17 +26,176 @@ const DEPARTEMENTS = {
   '85': 'Vendée'
 }
 
+const TRANCHES = [
+  { code: '53', label: '10000+ sal.' },
+  { code: '52', label: '5000-9999' },
+  { code: '51', label: '2000-4999' },
+  { code: '42', label: '1000-1999' },
+  { code: '41', label: '500-999' },
+  { code: '32', label: '250-499' },
+  { code: '31', label: '200-249' },
+  { code: '22', label: '100-199' },
+  { code: '21', label: '50-99' },
+  { code: '12', label: '20-49' },
+  { code: '11', label: '10-19' },
+  { code: '03', label: '6-9' },
+  { code: '02', label: '3-5' },
+  { code: '01', label: '1-2' },
+]
+
 export default function AdminImport() {
   const [importing, setImporting] = useState(false)
-  const [progress, setProgress] = useState({})
-  const [stats, setStats] = useState(null)
-  
+  const [currentDept, setCurrentDept] = useState(null)
+  const [currentTranche, setCurrentTranche] = useState(null)
+  const [deptProgress, setDeptProgress] = useState({})
+  const [totalStats, setTotalStats] = useState({ recupere: 0, filtre: 0, insere: 0, doublons: 0 })
+  const [expandedDepts, setExpandedDepts] = useState({})
+  const [selectedDepts, setSelectedDepts] = useState(Object.keys(DEPARTEMENTS))
+  const stopRef = useRef(false)
+
   // Enrichissement
   const [enriching, setEnriching] = useState(false)
   const [enrichBatchSize, setEnrichBatchSize] = useState(20)
   const [enrichStats, setEnrichStats] = useState(null)
   const [enrichHistory, setEnrichHistory] = useState([])
 
+  function toggleDept(code) {
+    setSelectedDepts(prev => 
+      prev.includes(code) ? prev.filter(d => d !== code) : [...prev, code]
+    )
+  }
+
+  function toggleExpand(code) {
+    setExpandedDepts(prev => ({ ...prev, [code]: !prev[code] }))
+  }
+
+  async function importTrancheForDept(dept, trancheCode) {
+    try {
+      const response = await fetch('/api/import-departement', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ departement: dept, tranche_effectif: trancheCode })
+      })
+      
+      const data = await response.json()
+      return data
+    } catch (error) {
+      console.error(`Erreur dept ${dept} tranche ${trancheCode}:`, error)
+      return { success: false, error: error.message }
+    }
+  }
+
+  async function lancerImport() {
+    setImporting(true)
+    stopRef.current = false
+    setDeptProgress({})
+    setTotalStats({ recupere: 0, filtre: 0, insere: 0, doublons: 0 })
+    
+    const deptsToImport = selectedDepts.sort()
+    toast(`🚀 Import lancé : ${deptsToImport.length} départements × ${TRANCHES.length} tranches`, { duration: 5000 })
+    
+    let grandTotal = { recupere: 0, filtre: 0, insere: 0, doublons: 0 }
+    
+    for (const dept of deptsToImport) {
+      if (stopRef.current) break
+      
+      setCurrentDept(dept)
+      setExpandedDepts(prev => ({ ...prev, [dept]: true }))
+      
+      setDeptProgress(prev => ({
+        ...prev,
+        [dept]: { status: 'loading', tranches: {}, total: { recupere: 0, filtre: 0, insere: 0 } }
+      }))
+      
+      let deptTotal = { recupere: 0, filtre: 0, insere: 0, doublons: 0 }
+      
+      for (const tranche of TRANCHES) {
+        if (stopRef.current) break
+        
+        setCurrentTranche(tranche.code)
+        
+        setDeptProgress(prev => ({
+          ...prev,
+          [dept]: {
+            ...prev[dept],
+            tranches: {
+              ...prev[dept].tranches,
+              [tranche.code]: { status: 'loading' }
+            }
+          }
+        }))
+        
+        const result = await importTrancheForDept(dept, tranche.code)
+        
+        if (result.success) {
+          deptTotal.recupere += result.recupere || 0
+          deptTotal.filtre += result.filtre || 0
+          deptTotal.insere += result.insere || 0
+          deptTotal.doublons += result.doublons || 0
+          
+          setDeptProgress(prev => ({
+            ...prev,
+            [dept]: {
+              ...prev[dept],
+              tranches: {
+                ...prev[dept].tranches,
+                [tranche.code]: {
+                  status: 'success',
+                  recupere: result.recupere || 0,
+                  filtre: result.filtre || 0,
+                  insere: result.insere || 0
+                }
+              },
+              total: { ...deptTotal }
+            }
+          }))
+        } else {
+          setDeptProgress(prev => ({
+            ...prev,
+            [dept]: {
+              ...prev[dept],
+              tranches: {
+                ...prev[dept].tranches,
+                [tranche.code]: { status: 'error', error: result.error }
+              }
+            }
+          }))
+        }
+        
+        await new Promise(resolve => setTimeout(resolve, 500))
+      }
+      
+      grandTotal.recupere += deptTotal.recupere
+      grandTotal.filtre += deptTotal.filtre
+      grandTotal.insere += deptTotal.insere
+      grandTotal.doublons += deptTotal.doublons
+      setTotalStats({ ...grandTotal })
+      
+      setDeptProgress(prev => ({
+        ...prev,
+        [dept]: { ...prev[dept], status: stopRef.current ? 'stopped' : 'success' }
+      }))
+      
+      await new Promise(resolve => setTimeout(resolve, 1000))
+    }
+    
+    setCurrentDept(null)
+    setCurrentTranche(null)
+    setImporting(false)
+    
+    if (stopRef.current) {
+      toast('⏹ Import arrêté', { duration: 3000 })
+    } else {
+      toast.success(`✅ Import terminé ! ${grandTotal.insere.toLocaleString()} prospects insérés`)
+    }
+  }
+
+  function arreterImport() {
+    stopRef.current = true
+    toast('⏹ Arrêt demandé, fin de la tranche en cours...', { duration: 3000 })
+  }
+
+  // ---- Enrichissement ----
   async function lancerEnrichissement() {
     setEnriching(true)
     setEnrichStats(null)
@@ -83,7 +243,6 @@ export default function AdminImport() {
         
         if (!data.success || data.stats?.total === 0) break
         
-        // Pause entre les batchs
         await new Promise(resolve => setTimeout(resolve, 2000))
       } catch (error) {
         toast.error('Erreur batch ' + (i + 1) + ': ' + error.message)
@@ -95,191 +254,201 @@ export default function AdminImport() {
     setEnriching(false)
   }
 
-  async function importDepartement(dept) {
-    setProgress(prev => ({ ...prev, [dept]: 'loading' }))
-    
-    try {
-      const response = await fetch('/api/import-departement', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ departement: dept })
-      })
-      
-      const data = await response.json()
-      
-      if (data.success) {
-        setProgress(prev => ({ ...prev, [dept]: 'success' }))
-        return data
-      } else {
-        setProgress(prev => ({ ...prev, [dept]: 'error' }))
-        return null
-      }
-    } catch (error) {
-      console.error(`Erreur département ${dept}:`, error)
-      setProgress(prev => ({ ...prev, [dept]: 'error' }))
-      return null
-    }
-  }
-
-  async function lancerImport() {
-    setImporting(true)
-    setProgress({})
-    setStats(null)
-    
-    toast('🚀 Import lancé ! Durée estimée : 30-45 minutes', { duration: 5000 })
-    
-    const resultats = {
-      totalRecupere: 0,
-      totalInsere: 0,
-      totalDoublons: 0,
-      byDept: {}
-    }
-    
-    // Importer chaque département séquentiellement
-    for (const dept of Object.keys(DEPARTEMENTS)) {
-      const result = await importDepartement(dept)
-      
-      if (result) {
-        resultats.totalRecupere += result.recupere
-        resultats.totalInsere += result.insere
-        resultats.totalDoublons += result.doublons
-        resultats.byDept[dept] = result
-      }
-      
-      // Pause entre départements
-      await new Promise(resolve => setTimeout(resolve, 2000))
-    }
-    
-    setStats(resultats)
-    setImporting(false)
-    
-    toast.success(`✅ Import terminé ! ${resultats.totalInsere.toLocaleString()} prospects`)
-  }
-
-  function getStatusIcon(status) {
-    switch (status) {
-      case 'loading':
-        return <Loader className="w-5 h-5 animate-spin text-blue-500" />
-      case 'success':
-        return <Check className="w-5 h-5 text-green-500" />
-      case 'error':
-        return <X className="w-5 h-5 text-red-500" />
-      default:
-        return null
-    }
-  }
+  // Calcul progression globale
+  const completedTranches = Object.values(deptProgress).reduce((sum, dept) => {
+    return sum + Object.values(dept.tranches || {}).filter(t => t.status === 'success' || t.status === 'error').length
+  }, 0)
+  const totalTranches = selectedDepts.length * TRANCHES.length
+  const progressPercent = totalTranches > 0 ? Math.round((completedTranches / totalTranches) * 100) : 0
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-4xl mx-auto">
+      <div className="max-w-5xl mx-auto">
         
         <div className="mb-6">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">
-            🔧 Administration - Import Prospects
+            🔧 Import Prospects
           </h1>
           <p className="text-gray-600">
-            Lancer manuellement l'import des prospects Bretagne + Pays de la Loire
+            Import par tranche d'effectif — aucune limite de résultats
           </p>
         </div>
 
+        {/* SÉLECTION DÉPARTEMENTS */}
         <div className="bg-white rounded-lg shadow p-6 mb-6">
-          <h2 className="text-lg font-semibold mb-4">🎯 Import Manuel</h2>
+          <h2 className="text-lg font-semibold mb-4">📍 Départements à importer</h2>
           
-          <div className="mb-4">
-            <p className="text-sm text-gray-600 mb-2">
-              • 9 départements à importer
-            </p>
-            <p className="text-sm text-gray-600 mb-2">
-              • Durée totale : ~30-45 minutes
-            </p>
-            <p className="text-sm text-gray-600 mb-4">
-              • Résultat attendu : 25 000 - 40 000 prospects
-            </p>
+          <div className="flex flex-wrap gap-2 mb-4">
+            {Object.entries(DEPARTEMENTS).map(([code, name]) => (
+              <button
+                key={code}
+                onClick={() => toggleDept(code)}
+                disabled={importing}
+                className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  selectedDepts.includes(code)
+                    ? 'bg-blue-100 text-blue-800 border-2 border-blue-300'
+                    : 'bg-gray-100 text-gray-500 border-2 border-transparent'
+                } ${importing ? 'cursor-not-allowed opacity-60' : 'cursor-pointer hover:opacity-80'}`}
+              >
+                {code} - {name}
+              </button>
+            ))}
+          </div>
+
+          <div className="text-sm text-gray-500 mb-4">
+            {selectedDepts.length} départements × {TRANCHES.length} tranches = {selectedDepts.length * TRANCHES.length} appels API
+            <span className="ml-2 text-gray-400">• SCI et auto-entrepreneurs exclus</span>
           </div>
           
-          <button
-            onClick={lancerImport}
-            disabled={importing}
-            className={`flex items-center gap-2 px-6 py-3 rounded-lg font-medium ${
-              importing
-                ? 'bg-gray-300 cursor-not-allowed'
-                : 'bg-blue-600 hover:bg-blue-700 text-white'
-            }`}
-          >
-            {importing ? (
-              <>
-                <Loader className="w-5 h-5 animate-spin" />
-                Import en cours...
-              </>
-            ) : (
-              <>
+          <div className="flex gap-3">
+            {!importing ? (
+              <button
+                onClick={lancerImport}
+                disabled={selectedDepts.length === 0}
+                className={`flex items-center gap-2 px-6 py-3 rounded-lg font-medium ${
+                  selectedDepts.length === 0
+                    ? 'bg-gray-300 cursor-not-allowed'
+                    : 'bg-blue-600 hover:bg-blue-700 text-white'
+                }`}
+              >
                 <Play className="w-5 h-5" />
-                Lancer l'import maintenant
-              </>
+                Lancer l'import
+              </button>
+            ) : (
+              <button
+                onClick={arreterImport}
+                className="flex items-center gap-2 px-6 py-3 rounded-lg font-medium bg-red-600 hover:bg-red-700 text-white"
+              >
+                <Square className="w-5 h-5" />
+                Arrêter
+              </button>
             )}
-          </button>
+          </div>
         </div>
 
-        {Object.keys(progress).length > 0 && (
+        {/* PROGRESSION */}
+        {(importing || completedTranches > 0) && (
           <div className="bg-white rounded-lg shadow p-6 mb-6">
-            <h2 className="text-lg font-semibold mb-4">📊 Progression</h2>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-lg font-semibold">📊 Progression</h2>
+              <div className="flex items-center gap-4 text-sm">
+                {importing && currentDept && (
+                  <span className="text-blue-600 flex items-center gap-1">
+                    <Loader className="w-4 h-4 animate-spin" />
+                    {DEPARTEMENTS[currentDept]} — {TRANCHES.find(t => t.code === currentTranche)?.label || '...'} sal.
+                  </span>
+                )}
+                <span className="font-mono text-gray-600">
+                  {completedTranches}/{totalTranches} ({progressPercent}%)
+                </span>
+              </div>
+            </div>
             
-            <div className="space-y-3">
-              {Object.entries(DEPARTEMENTS).map(([code, name]) => (
-                <div key={code} className="flex items-center justify-between p-3 bg-gray-50 rounded">
-                  <div className="flex items-center gap-3">
-                    {getStatusIcon(progress[code])}
+            <div className="w-full bg-gray-200 rounded-full h-4 mb-4">
+              <div
+                className="bg-blue-600 h-4 rounded-full transition-all duration-500"
+                style={{ width: `${progressPercent}%` }}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+              <div className="bg-blue-50 rounded-lg p-3 text-center">
+                <p className="text-xs text-blue-600">Récupérés API</p>
+                <p className="text-xl font-bold text-blue-900">{totalStats.recupere.toLocaleString()}</p>
+              </div>
+              <div className="bg-green-50 rounded-lg p-3 text-center">
+                <p className="text-xs text-green-600">Après filtres</p>
+                <p className="text-xl font-bold text-green-900">{totalStats.filtre.toLocaleString()}</p>
+              </div>
+              <div className="bg-emerald-50 rounded-lg p-3 text-center">
+                <p className="text-xs text-emerald-600">Nouveaux insérés</p>
+                <p className="text-xl font-bold text-emerald-900">{totalStats.insere.toLocaleString()}</p>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-3 text-center">
+                <p className="text-xs text-gray-600">Déjà en base</p>
+                <p className="text-xl font-bold text-gray-700">{totalStats.doublons.toLocaleString()}</p>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              {Object.entries(DEPARTEMENTS).filter(([code]) => selectedDepts.includes(code)).map(([code, name]) => {
+                const dept = deptProgress[code]
+                if (!dept) return (
+                  <div key={code} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg text-gray-400">
+                    <div className="w-5 h-5" />
                     <span className="font-medium">{code} - {name}</span>
+                    <span className="text-xs ml-auto">En attente</span>
                   </div>
-                  
-                  {stats?.byDept[code] && (
-                    <span className="text-sm text-gray-600">
-                      {stats.byDept[code].insere.toLocaleString()} prospects
-                    </span>
-                  )}
-                </div>
-              ))}
+                )
+                
+                const deptTranchesCompleted = Object.values(dept.tranches || {}).filter(t => t.status === 'success').length
+                const deptTranchesError = Object.values(dept.tranches || {}).filter(t => t.status === 'error').length
+                const isExpanded = expandedDepts[code]
+                
+                return (
+                  <div key={code}>
+                    <div
+                      onClick={() => toggleExpand(code)}
+                      className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors ${
+                        dept.status === 'loading' ? 'bg-blue-50' :
+                        dept.status === 'success' ? 'bg-green-50' :
+                        dept.status === 'stopped' ? 'bg-yellow-50' :
+                        'bg-gray-50'
+                      }`}
+                    >
+                      {dept.status === 'loading' && <Loader className="w-5 h-5 animate-spin text-blue-500" />}
+                      {dept.status === 'success' && <Check className="w-5 h-5 text-green-500" />}
+                      {dept.status === 'stopped' && <Square className="w-5 h-5 text-yellow-500" />}
+                      
+                      <span className="font-medium">{code} - {name}</span>
+                      
+                      <div className="flex items-center gap-2 ml-auto text-sm">
+                        {dept.total && dept.total.insere > 0 && (
+                          <span className="text-green-700 font-medium">
+                            {dept.total.insere.toLocaleString()} insérés
+                          </span>
+                        )}
+                        <span className="text-gray-500">
+                          {deptTranchesCompleted}/{TRANCHES.length}
+                          {deptTranchesError > 0 && <span className="text-red-500 ml-1">({deptTranchesError} err)</span>}
+                        </span>
+                        {isExpanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
+                      </div>
+                    </div>
+                    
+                    {isExpanded && (
+                      <div className="ml-8 mt-1 mb-2 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-1">
+                        {TRANCHES.map(tranche => {
+                          const t = dept.tranches?.[tranche.code]
+                          return (
+                            <div
+                              key={tranche.code}
+                              className={`text-xs px-2 py-1.5 rounded text-center ${
+                                !t ? 'bg-gray-100 text-gray-400' :
+                                t.status === 'loading' ? 'bg-blue-100 text-blue-700' :
+                                t.status === 'success' ? (t.insere > 0 ? 'bg-green-100 text-green-800' : 'bg-green-50 text-green-600') :
+                                'bg-red-100 text-red-700'
+                              }`}
+                            >
+                              <div className="font-medium">{tranche.label}</div>
+                              {t?.status === 'loading' && <Loader className="w-3 h-3 animate-spin mx-auto mt-0.5" />}
+                              {t?.status === 'success' && (
+                                <div>{t.insere > 0 ? `+${t.insere}` : '0 new'}</div>
+                              )}
+                              {t?.status === 'error' && <div>❌</div>}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           </div>
         )}
 
-        {stats && (
-          <div className="bg-green-50 border border-green-200 rounded-lg p-6">
-            <h2 className="text-lg font-semibold text-green-900 mb-4">
-              ✅ Import Terminé !
-            </h2>
-            
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div>
-                <p className="text-sm text-green-700">Récupérés</p>
-                <p className="text-2xl font-bold text-green-900">
-                  {stats.totalRecupere.toLocaleString()}
-                </p>
-              </div>
-              <div>
-                <p className="text-sm text-green-700">Insérés</p>
-                <p className="text-2xl font-bold text-green-900">
-                  {stats.totalInsere.toLocaleString()}
-                </p>
-              </div>
-              <div>
-                <p className="text-sm text-green-700">Doublons</p>
-                <p className="text-2xl font-bold text-green-900">
-                  {stats.totalDoublons.toLocaleString()}
-                </p>
-              </div>
-              <div>
-                <p className="text-sm text-green-700">Départements</p>
-                <p className="text-2xl font-bold text-green-900">9/9</p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ============================================ */}
-        {/* SECTION ENRICHISSEMENT */}
-        {/* ============================================ */}
-
+        {/* ENRICHISSEMENT */}
         <div className="bg-white rounded-lg shadow p-6 mt-6">
           <h2 className="text-lg font-semibold mb-4">🔍 Enrichissement - Scraping Sites Web</h2>
           
@@ -355,27 +524,19 @@ export default function AdminImport() {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div>
                 <p className="text-sm text-purple-700">Traités</p>
-                <p className="text-2xl font-bold text-purple-900">
-                  {enrichStats.stats?.total || 0}
-                </p>
+                <p className="text-2xl font-bold text-purple-900">{enrichStats.stats?.total || 0}</p>
               </div>
               <div>
-                <p className="text-sm text-purple-700">📧 Emails trouvés</p>
-                <p className="text-2xl font-bold text-green-700">
-                  {enrichStats.stats?.emails_found || 0}
-                </p>
+                <p className="text-sm text-purple-700">📧 Emails</p>
+                <p className="text-2xl font-bold text-green-700">{enrichStats.stats?.emails_found || 0}</p>
               </div>
               <div>
-                <p className="text-sm text-purple-700">📞 Téléphones trouvés</p>
-                <p className="text-2xl font-bold text-green-700">
-                  {enrichStats.stats?.phones_found || 0}
-                </p>
+                <p className="text-sm text-purple-700">📞 Téléphones</p>
+                <p className="text-2xl font-bold text-green-700">{enrichStats.stats?.phones_found || 0}</p>
               </div>
               <div>
                 <p className="text-sm text-purple-700">❌ Échecs</p>
-                <p className="text-2xl font-bold text-red-700">
-                  {enrichStats.stats?.failed || 0}
-                </p>
+                <p className="text-2xl font-bold text-red-700">{enrichStats.stats?.failed || 0}</p>
               </div>
             </div>
 
@@ -395,7 +556,7 @@ export default function AdminImport() {
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mt-6">
           <h3 className="font-semibold text-blue-900 mb-2">💡 Infos</h3>
           <p className="text-sm text-blue-800 mb-1">
-            <strong>Import :</strong> Cron automatique à 2h du matin
+            <strong>Import :</strong> 14 tranches d'effectif par département — SCI et auto-entrepreneurs exclus
           </p>
           <p className="text-sm text-blue-800 mb-1">
             <strong>Enrichissement :</strong> Cron automatique à 3h du matin (20 prospects/nuit)
