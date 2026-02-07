@@ -131,7 +131,7 @@ export default function EnrichissementRapide() {
 
     const update = {
       updated_at: new Date().toISOString(),
-      enrichment_status: 'manual',
+      enrichment_status: 'done',
       enrichment_last_attempt: new Date().toISOString(),
       enrichment_attempts: 99,
     }
@@ -193,7 +193,7 @@ export default function EnrichissementRapide() {
     await supabase
       .from('prospection_massive')
       .update({
-        enrichment_status: 'not_found',
+        enrichment_status: 'failed',
         enrichment_attempts: 99,
         enrichment_last_attempt: new Date().toISOString(),
         updated_at: new Date().toISOString(),
