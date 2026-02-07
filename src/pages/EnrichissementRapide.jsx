@@ -61,7 +61,7 @@ export default function EnrichissementRapide() {
       .is('phone', null)
       .or('enrichment_status.is.null,enrichment_status.eq.pending,enrichment_status.eq.enriching')
       .order('quality_score', { ascending: false })
-      .limit(50)
+      .limit(100)
 
     if (departementFilter) {
       query = query.eq('departement', departementFilter)
@@ -75,11 +75,19 @@ export default function EnrichissementRapide() {
       return
     }
 
-    setProspects(data || [])
+    // Dédupliquer par SIREN (garder le premier = meilleur score)
+    const seen = new Set()
+    const unique = (data || []).filter(p => {
+      if (seen.has(p.siren)) return false
+      seen.add(p.siren)
+      return true
+    }).slice(0, 50)
+
+    setProspects(unique)
     setCurrentIndex(0)
     resetFields()
 
-    // Compter le total restant
+    // Compter le total restant (approximatif)
     let countQuery = supabase
       .from('prospection_massive')
       .select('id', { count: 'exact', head: true })
@@ -165,7 +173,7 @@ export default function EnrichissementRapide() {
     const { error } = await supabase
       .from('prospection_massive')
       .update(update)
-      .eq('id', current.id)
+      .eq('siren', current.siren)
 
     if (!error) {
       setStats(prev => ({
@@ -200,7 +208,7 @@ export default function EnrichissementRapide() {
         enrichment_last_attempt: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
-      .eq('id', current.id)
+      .eq('siren', current.siren)
 
     setStats(prev => ({ ...prev, skipped: prev.skipped + 1 }))
     setTotalRemaining(prev => prev - 1)
