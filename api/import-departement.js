@@ -65,7 +65,7 @@ async function fetchDepartementByTranche(dept, trancheEffectif, startTime) {
       const params = new URLSearchParams({
         departement: dept,
         etat_administratif: 'A',
-        tranche_effectif_salarie_entreprise: trancheEffectif,
+        tranche_effectif_salarie: trancheEffectif,
         per_page: '25',
         page: page.toString()
       })
