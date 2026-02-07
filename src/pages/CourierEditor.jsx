@@ -235,30 +235,40 @@ export default function CourierEditor() {
 
       // === SIGNATURE + TAMPON ===
       if (signataire) {
-        y = Math.max(y + 10, y)
-        if (y > ph - 60) {
+        y = Math.max(y + 15, y)
+        if (y > ph - 65) {
           doc.addPage()
           y = 20
         }
 
-        // Tampon (à gauche de la signature)
+        const sigX = pw - 75 // position X pour signature et tampon
+
+        // Tampon au-dessus du signataire
         const stampImg = org.stamp_base64 || STAMP_BASE64
         if (stampImg) {
           try {
-            const fmt = stampImg.includes('image/png') ? 'PNG' : 'JPEG'
-            doc.addImage(stampImg, fmt, pw - 90, y - 2, 45, 16)
-          } catch {}
+            // Détecter format
+            let fmt = 'JPEG'
+            if (stampImg.includes('image/png')) fmt = 'PNG'
+            // Nettoyer le base64 si nécessaire
+            const imgData = stampImg.startsWith('data:') ? stampImg : 'data:image/jpeg;base64,' + stampImg
+            doc.addImage(imgData, fmt, sigX, y, 50, 18)
+            y += 20
+          } catch (e) {
+            console.error('Erreur tampon PDF:', e)
+            y += 5
+          }
         }
 
         // Texte signataire
-        y += 18
         doc.setFontSize(10)
-        doc.setFont('helvetica', 'normal')
+        doc.setFont('helvetica', 'bold')
         doc.setTextColor(0, 0, 0)
         const sigLines = signataire.split('\n')
         sigLines.forEach((line, i) => {
-          doc.text(line, pw - 60, y + (i * 5))
+          doc.text(line, sigX, y + (i * 5))
         })
+      }
       }
 
       // === PIED DE PAGE ===
