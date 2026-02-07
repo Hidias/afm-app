@@ -16,7 +16,7 @@ import { createClient } from '@supabase/supabase-js'
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL
 const SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY
 
-const TRANCHES_EFFECTIF = ['01', '02', '03', '11', '12', '21', '22', '31', '32', '41', '42', '51', '52', '53']
+const TRANCHES_EFFECTIF = ['53', '52', '51', '42', '41', '32', '31', '22', '21', '12', '11', '03', '02', '01']
 const API_BASE_URL = 'https://recherche-entreprises.api.gouv.fr/search'
 const MAX_PAGES = 400
 
@@ -55,15 +55,17 @@ function calculateQualityScore(prospect) {
   return Math.min(100, score)
 }
 
-async function fetchDepartement(dept) {
+async function fetchDepartementByTranche(dept, trancheEffectif, startTime) {
   const allResults = []
   let page = 1
   
   while (page <= MAX_PAGES) {
+    if (startTime && Date.now() - startTime > 250000) break
     try {
       const params = new URLSearchParams({
         departement: dept,
         etat_administratif: 'A',
+        tranche_effectif_salarie_entreprise: trancheEffectif,
         per_page: '25',
         page: page.toString()
       })
@@ -79,10 +81,10 @@ async function fetchDepartement(dept) {
       allResults.push(...data.results)
       page++
       
-      await new Promise(resolve => setTimeout(resolve, 200))
+      await new Promise(resolve => setTimeout(resolve, 150))
       
     } catch (error) {
-      console.error(`Erreur page ${page}:`, error)
+      console.error(`Erreur page ${page} tranche ${trancheEffectif}:`, error)
       break
     }
   }
@@ -90,12 +92,48 @@ async function fetchDepartement(dept) {
   return allResults
 }
 
+async function fetchDepartement(dept) {
+  const allResults = []
+  const startTime = Date.now()
+  const MAX_DURATION = 250000 // 250 sec, garde 50s pour l'insertion
+  
+  for (const tranche of TRANCHES_EFFECTIF) {
+    if (Date.now() - startTime > MAX_DURATION) {
+      console.log(`Timeout approaching, stopping at tranche ${tranche}`)
+      break
+    }
+    console.log(`Fetching dept ${dept}, tranche ${tranche}...`)
+    const results = await fetchDepartementByTranche(dept, tranche, startTime)
+    console.log(`  → ${results.length} résultats`)
+    allResults.push(...results)
+  }
+  
+  // Dédupliquer par SIREN
+  const seen = new Set()
+  const unique = allResults.filter(r => {
+    if (seen.has(r.siren)) return false
+    seen.add(r.siren)
+    return true
+  })
+  
+  console.log(`Total dept ${dept}: ${allResults.length} brut → ${unique.length} uniques`)
+  return unique
+}
+
+// Formes juridiques exclues : SCI (65xx) et entrepreneurs individuels / micro (1000)
+const EXCLUDED_JURIDIQUES = ['1000']
+const EXCLUDED_JURIDIQUES_PREFIX = ['65']
+
 function transformAndFilter(results, dept) {
   const prospects = []
   
   for (const r of results) {
     const effectifCode = r.tranche_effectif_salarie_entreprise || r.tranche_effectif_salarie
     if (!TRANCHES_EFFECTIF.includes(effectifCode)) continue
+    
+    // Exclure SCI et auto/micro-entrepreneurs
+    const nj = r.nature_juridique
+    if (nj && (EXCLUDED_JURIDIQUES.includes(nj) || EXCLUDED_JURIDIQUES_PREFIX.some(p => nj.startsWith(p)))) continue
     
     const etablissements = r.matching_etablissements || []
     
@@ -193,7 +231,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' })
   }
   
-  const { departement } = req.body
+  const { departement, tranche_effectif } = req.body
   
   if (!departement) {
     return res.status(400).json({ error: 'departement requis' })
@@ -202,22 +240,27 @@ export default async function handler(req, res) {
   try {
     const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
     
-    // 1. Récupération
-    const results = await fetchDepartement(departement)
+    let allResults = []
     
-    // 2. Transformation
-    const prospects = transformAndFilter(results, departement)
+    if (tranche_effectif) {
+      // Mode tranche unique (appelé par le frontend)
+      allResults = await fetchDepartementByTranche(departement, tranche_effectif, Date.now())
+    } else {
+      // Mode legacy (toutes les tranches d'un coup)
+      allResults = await fetchDepartement(departement)
+    }
     
-    // 3. Insertion
+    // Transformation
+    const prospects = transformAndFilter(allResults, departement)
+    
+    // Insertion
     const { inserted, duplicates } = await insertProspects(supabase, prospects)
-    
-    // 4. Détection multi-établissements
-    await supabase.rpc('update_multi_etablissements')
     
     return res.status(200).json({
       success: true,
       departement,
-      recupere: results.length,
+      tranche_effectif: tranche_effectif || 'all',
+      recupere: allResults.length,
       filtre: prospects.length,
       insere: inserted,
       doublons: duplicates
