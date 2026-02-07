@@ -140,7 +140,6 @@ export default function EnrichissementRapide() {
   const [sessionStats, setSessionStats] = useState({ done: 0, phones: 0, emails: 0, excluded: 0 })
   const [totalRemaining, setTotalRemaining] = useState(0)
   const [departementFilter, setDepartementFilter] = useState('')
-  const [departements, setDepartements] = useState([])
   const [searchTerm, setSearchTerm] = useState('')
   const [searchResults, setSearchResults] = useState(null)
   const [searching, setSearching] = useState(false)
@@ -148,21 +147,8 @@ export default function EnrichissementRapide() {
   const [enrichResult, setEnrichResult] = useState(null)
   const phoneRef = useRef(null)
 
-  // Charger les départements disponibles
-  useEffect(() => {
-    async function loadDepartements() {
-      const { data } = await supabase
-        .from('prospection_massive')
-        .select('departement')
-        .is('phone', null)
-      
-      if (data) {
-        const depts = [...new Set(data.map(d => d.departement).filter(Boolean))].sort()
-        setDepartements(depts)
-      }
-    }
-    loadDepartements()
-  }, [])
+  // Départements importés (hardcodé car la requête SELECT departement sur 273k lignes ne retourne que 1000 rows par défaut)
+  const departements = ['22', '29', '35', '44', '49', '53', '56', '72', '85']
 
   // Charger les stats globales depuis la base
   async function loadStats() {
