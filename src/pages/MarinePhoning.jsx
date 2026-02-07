@@ -65,8 +65,6 @@ export default function MarinePhoning() {
   const [searchTerm, setSearchTerm] = useState('')
   const [totalCount, setTotalCount] = useState(0)
 
-  const [callStartTime, setCallStartTime] = useState(null)
-
   const [contactName, setContactName] = useState('')
   const [contactFunction, setContactFunction] = useState('Dirigeant')
   const [contactEmail, setContactEmail] = useState('')
@@ -85,6 +83,7 @@ export default function MarinePhoning() {
   const [aiSummary, setAiSummary] = useState('')
   const [aiSummaryLoading, setAiSummaryLoading] = useState(false)
   const [statusFilter, setStatusFilter] = useState('a_appeler')
+  const [effectifFilter, setEffectifFilter] = useState('')
 
   const departements = [...new Set(prospects.map(p => p.departement))].filter(Boolean).sort()
 
@@ -136,7 +135,6 @@ export default function MarinePhoning() {
 
   function selectProspect(prospect) {
     setCurrent(prospect)
-    setCallStartTime(Date.now())
     setContactName('')
     setContactFunction('Dirigeant')
     setContactEmail(prospect.email || '')
@@ -232,7 +230,6 @@ export default function MarinePhoning() {
     setSaving(true)
 
     try {
-      const finalDuration = callStartTime ? Math.floor((Date.now() - callStartTime) / 1000) : 0
       const clientId = await findOrCreateClient(current)
 
       const { data: insertedCall, error: callError } = await supabase
@@ -240,7 +237,6 @@ export default function MarinePhoning() {
         .insert({
           client_id: clientId,
           called_by: callerName,
-          duration_seconds: finalDuration,
           contact_name: contactName || null,
           contact_function: contactFunction || null,
           contact_email: contactEmail || null,
@@ -339,7 +335,6 @@ export default function MarinePhoning() {
   function goNext() {
     if (!current || viewMode === 'list') {
       setCurrent(null)
-      setCallStartTime(null)
       return
     }
     const idx = prospects.findIndex(p => p.id === current.id)
@@ -347,7 +342,6 @@ export default function MarinePhoning() {
       selectProspect(prospects[idx + 1])
     } else {
       setCurrent(null)
-      setCallStartTime(null)
       loadProspects()
     }
   }
@@ -376,6 +370,15 @@ export default function MarinePhoning() {
     if (statusFilter === 'numero_errone' && p.prospection_status !== 'numero_errone') return false
     // Filtre département
     if (departementFilter && p.departement !== departementFilter) return false
+    // Filtre effectif
+    if (effectifFilter) {
+      const eff = parseInt(p.effectif) || 0
+      if (effectifFilter === '6-19' && (eff < 6 || eff > 19)) return false
+      if (effectifFilter === '20-49' && (eff < 20 || eff > 49)) return false
+      if (effectifFilter === '50-99' && (eff < 50 || eff > 99)) return false
+      if (effectifFilter === '100-249' && (eff < 100 || eff > 249)) return false
+      if (effectifFilter === '250+' && eff < 250) return false
+    }
     // Filtre recherche
     if (searchTerm) {
       const term = searchTerm.toLowerCase()
@@ -439,6 +442,15 @@ export default function MarinePhoning() {
           className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500">
           <option value="">Tous les dép.</option>
           {departements.map(d => <option key={d} value={d}>{d}</option>)}
+        </select>
+        <select value={effectifFilter} onChange={(e) => setEffectifFilter(e.target.value)}
+          className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500">
+          <option value="">Tous effectifs</option>
+          <option value="6-19">6-19 sal.</option>
+          <option value="20-49">20-49 sal.</option>
+          <option value="50-99">50-99 sal.</option>
+          <option value="100-249">100-249 sal.</option>
+          <option value="250+">250+ sal.</option>
         </select>
         <button onClick={loadProspects} className="px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg">
           <RefreshCw className="w-4 h-4" />
