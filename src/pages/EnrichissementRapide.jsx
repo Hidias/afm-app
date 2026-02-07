@@ -362,8 +362,6 @@ export default function EnrichissementRapide() {
       })
     }, 1000)
   }
-    }
-  }
 
   // Passer au prospect suivant
   function goNext() {
