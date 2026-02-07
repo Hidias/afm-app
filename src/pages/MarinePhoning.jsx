@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase'
 import { useAuthStore } from '../lib/store'
 import { 
   Phone, CheckCircle, RefreshCw, SkipForward,
-  Building2, MapPin, Mail, List, Search
+  Building2, MapPin, Mail, List, Search, Sparkles, Loader2
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 
@@ -83,6 +83,8 @@ export default function MarinePhoning() {
   const [callbackTime, setCallbackTime] = useState('14:00')
   const [callbackReason, setCallbackReason] = useState('')
   const [saving, setSaving] = useState(false)
+  const [aiSummary, setAiSummary] = useState('')
+  const [aiSummaryLoading, setAiSummaryLoading] = useState(false)
 
   const departements = [...new Set(prospects.map(p => p.departement))].filter(Boolean).sort()
 
@@ -101,7 +103,7 @@ export default function MarinePhoning() {
     try {
       const { data, error } = await supabase
         .from('prospection_massive')
-        .select('id, siret, siren, name, city, postal_code, phone, email, site_web, departement, effectif, quality_score, prospection_status, prospection_notes, contacted, contacted_at')
+        .select('id, siret, siren, name, city, postal_code, phone, email, site_web, departement, effectif, naf, quality_score, prospection_status, prospection_notes, contacted, contacted_at, ai_summary')
         .not('phone', 'is', null)
         .or('prospection_status.is.null,prospection_status.eq.a_rappeler')
         .order('quality_score', { ascending: false })
@@ -148,6 +150,48 @@ export default function MarinePhoning() {
     setCallbackDate('')
     setCallbackTime('14:00')
     setCallbackReason('')
+    // Charger le résumé IA
+    loadAiSummary(prospect)
+  }
+
+  async function loadAiSummary(prospect) {
+    // Si déjà en cache dans la base
+    if (prospect.ai_summary) {
+      setAiSummary(prospect.ai_summary)
+      return
+    }
+    
+    setAiSummary('')
+    setAiSummaryLoading(true)
+    try {
+      const res = await fetch('/api/generate-prospect-summary', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: prospect.name,
+          city: prospect.city,
+          naf: prospect.naf,
+          effectif: prospect.effectif,
+          site_web: prospect.site_web,
+          siret: prospect.siret,
+        })
+      })
+      const data = await res.json()
+      if (data.success && data.summary) {
+        setAiSummary(data.summary)
+        // Sauvegarder en cache dans la base
+        await supabase
+          .from('prospection_massive')
+          .update({ ai_summary: data.summary })
+          .eq('id', prospect.id)
+        // Mettre à jour le prospect local
+        prospect.ai_summary = data.summary
+      }
+    } catch (err) {
+      console.error('Erreur résumé IA:', err)
+    } finally {
+      setAiSummaryLoading(false)
+    }
   }
 
   async function findOrCreateClient(prospect) {
@@ -424,6 +468,28 @@ export default function MarinePhoning() {
                   </div>
                   {viewMode === 'file' && <span className="text-sm text-gray-500">{prospects.findIndex(p => p.id === current.id) + 1} / {filtered.length}</span>}
                 </div>
+              </div>
+
+              {/* Résumé IA */}
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <Sparkles className="w-4 h-4 text-amber-600" />
+                  <span className="text-sm font-semibold text-amber-800">Résumé IA</span>
+                  {current.site_web && (
+                    <a href={(current.site_web.startsWith('http') ? '' : 'https://') + current.site_web} target="_blank" rel="noopener noreferrer"
+                      className="text-xs text-amber-600 hover:underline ml-auto">🌐 {current.site_web}</a>
+                  )}
+                </div>
+                {aiSummaryLoading ? (
+                  <div className="flex items-center gap-2 text-amber-600 text-sm">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Analyse en cours...
+                  </div>
+                ) : aiSummary ? (
+                  <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-line">{aiSummary}</p>
+                ) : (
+                  <p className="text-sm text-gray-400 italic">Aucun résumé disponible</p>
+                )}
               </div>
 
               {/* Interlocuteur */}
