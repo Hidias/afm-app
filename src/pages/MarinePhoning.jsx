@@ -98,7 +98,7 @@ export default function MarinePhoning() {
         .not('phone', 'is', null)
         .or('prospection_status.is.null,prospection_status.eq.a_rappeler')
         .order('quality_score', { ascending: false })
-        .limit(2000)
+        .limit(10000)
 
       if (error) throw error
 
