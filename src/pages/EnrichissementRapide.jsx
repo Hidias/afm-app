@@ -57,7 +57,7 @@ export default function EnrichissementRapide() {
     
     let query = supabase
       .from('prospection_massive')
-      .select('id, siret, siren, name, city, postal_code, phone, email, site_web, departement, effectif, quality_score')
+      .select('id, siret, siren, name, city, postal_code, address, naf, phone, email, site_web, departement, effectif, quality_score')
       .is('phone', null)
       .or('enrichment_status.is.null,enrichment_status.eq.pending,enrichment_status.eq.enriching')
       .order('quality_score', { ascending: false })
@@ -355,6 +355,12 @@ export default function EnrichissementRapide() {
                   <span>📍 {current.city} ({current.postal_code?.slice(0, 2)})</span>
                   {current.effectif && <span>👥 {current.effectif}</span>}
                 </div>
+                {current.address && (
+                  <p className="text-sm text-gray-500 mt-1">🏠 {current.address}</p>
+                )}
+                {current.naf && (
+                  <p className="text-sm text-gray-500 mt-1">🏭 {current.naf}</p>
+                )}
                 <p className="text-xs text-gray-400 mt-1">
                   SIRET: {current.siret} • Score: {current.quality_score}
                 </p>
