@@ -141,7 +141,9 @@ export default function EnrichissementRapide() {
   const [totalRemaining, setTotalRemaining] = useState(0)
   const [departementFilter, setDepartementFilter] = useState('')
   const [departements, setDepartements] = useState([])
-
+  const [searchTerm, setSearchTerm] = useState('')
+  const [searchResults, setSearchResults] = useState(null)
+  const [searching, setSearching] = useState(false)
   const phoneRef = useRef(null)
 
   // Charger les départements disponibles
@@ -182,6 +184,60 @@ export default function EnrichissementRapide() {
   }
 
   useEffect(() => { loadStats() }, [])
+
+  // Recherche dans tout l'import massif
+  async function handleSearch(term) {
+    setSearchTerm(term)
+    if (!term || term.length < 2) {
+      setSearchResults(null)
+      return
+    }
+    setSearching(true)
+    try {
+      const isNumeric = /^\d+$/.test(term.replace(/\s/g, ''))
+      let query = supabase
+        .from('prospection_massive')
+        .select('id, siret, siren, name, city, postal_code, address, naf, phone, email, site_web, departement, effectif, quality_score, enrichment_status')
+        .order('quality_score', { ascending: false })
+        .limit(50)
+
+      if (isNumeric) {
+        // Recherche par SIRET/SIREN
+        const clean = term.replace(/\s/g, '')
+        query = query.or(`siret.ilike.%${clean}%,siren.ilike.%${clean}%`)
+      } else {
+        query = query.or(`name.ilike.%${term}%,city.ilike.%${term}%`)
+      }
+
+      const { data, error } = await query
+      if (error) throw error
+
+      // Dédupliquer par SIREN
+      const seen = new Set()
+      const unique = (data || []).filter(p => {
+        if (seen.has(p.siren)) return false
+        seen.add(p.siren)
+        return true
+      })
+      setSearchResults(unique)
+    } catch (err) {
+      console.error('Erreur recherche:', err)
+    } finally {
+      setSearching(false)
+    }
+  }
+
+  function selectSearchResult(prospect) {
+    setSearchResults(null)
+    setSearchTerm('')
+    // Injecter dans la file et afficher
+    setProspects([prospect])
+    setCurrentIndex(0)
+    resetFields()
+    if (prospect.phone) setPhone(prospect.phone)
+    if (prospect.email) setEmail(prospect.email)
+    if (prospect.site_web) setSiteWeb(prospect.site_web)
+  }
 
   // Charger un batch de prospects
   const loadProspects = useCallback(async () => {
@@ -447,6 +503,56 @@ export default function EnrichissementRapide() {
               ))}
             </select>
           </div>
+        </div>
+
+        {/* Barre de recherche */}
+        <div className="relative mb-4">
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(e) => handleSearch(e.target.value)}
+            placeholder="Rechercher par nom, ville ou SIRET..."
+            className="w-full pl-10 pr-10 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent text-sm"
+          />
+          {searchTerm && (
+            <button onClick={() => { setSearchTerm(''); setSearchResults(null) }}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+              <XCircle className="w-4 h-4" />
+            </button>
+          )}
+          
+          {/* Résultats de recherche */}
+          {searchResults !== null && (
+            <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white rounded-lg shadow-lg border border-gray-200 max-h-80 overflow-y-auto">
+              {searching ? (
+                <div className="p-4 text-center text-gray-500 text-sm">
+                  <RefreshCw className="w-4 h-4 animate-spin inline mr-2" />Recherche...
+                </div>
+              ) : searchResults.length === 0 ? (
+                <div className="p-4 text-center text-gray-500 text-sm">Aucun résultat</div>
+              ) : (
+                searchResults.map(p => (
+                  <button key={p.id} onClick={() => selectSearchResult(p)}
+                    className="w-full text-left px-4 py-3 hover:bg-gray-50 border-b border-gray-100 last:border-0">
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium text-gray-900 text-sm">{p.name}</span>
+                      <span className="flex items-center gap-2 text-xs">
+                        {p.enrichment_status === 'done' && <span className="text-green-600 bg-green-50 px-2 py-0.5 rounded">✓ Enrichi</span>}
+                        {p.enrichment_status === 'failed' && <span className="text-red-600 bg-red-50 px-2 py-0.5 rounded">✗ Exclu</span>}
+                        {(!p.enrichment_status || p.enrichment_status === 'pending') && <span className="text-gray-400 bg-gray-50 px-2 py-0.5 rounded">En attente</span>}
+                        <span className="text-gray-400">{p.quality_score}</span>
+                      </span>
+                    </div>
+                    <div className="text-xs text-gray-500 mt-0.5">
+                      📍 {p.city} ({p.departement}) {p.effectif && '• 👥 ' + getEffectifLabel(p.effectif)} {p.phone && '• 📞 ' + p.phone}
+                    </div>
+                    <div className="text-xs text-gray-400">SIRET: {p.siret} {p.naf && '• ' + getNafLabel(p.naf)}</div>
+                  </button>
+                ))
+              )}
+            </div>
+          )}
         </div>
 
         <div className="grid grid-cols-4 gap-3">
