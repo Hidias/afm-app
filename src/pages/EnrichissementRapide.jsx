@@ -59,6 +59,7 @@ export default function EnrichissementRapide() {
       .from('prospection_massive')
       .select('id, siret, siren, name, city, postal_code, phone, email, site_web, departement, effectif, quality_score')
       .is('phone', null)
+      .or('enrichment_status.is.null,enrichment_status.eq.pending,enrichment_status.eq.enriching')
       .order('quality_score', { ascending: false })
       .limit(50)
 
@@ -83,6 +84,7 @@ export default function EnrichissementRapide() {
       .from('prospection_massive')
       .select('id', { count: 'exact', head: true })
       .is('phone', null)
+      .or('enrichment_status.is.null,enrichment_status.eq.pending,enrichment_status.eq.enriching')
 
     if (departementFilter) {
       countQuery = countQuery.eq('departement', departementFilter)
@@ -428,10 +430,10 @@ export default function EnrichissementRapide() {
           <div className="flex items-center justify-between">
             <button
               onClick={handleNotFound}
-              className="flex items-center gap-2 px-4 py-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg font-medium transition-colors"
             >
               <XCircle className="w-5 h-5" />
-              Introuvable
+              Exclure (fermé / pas intéressé)
             </button>
 
             <div className="flex gap-3">
