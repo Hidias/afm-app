@@ -66,7 +66,6 @@ export default function MarinePhoning() {
   const [totalCount, setTotalCount] = useState(0)
 
   const [callStartTime, setCallStartTime] = useState(null)
-  const [callDuration, setCallDuration] = useState(0)
 
   const [contactName, setContactName] = useState('')
   const [contactFunction, setContactFunction] = useState('Dirigeant')
@@ -89,14 +88,6 @@ export default function MarinePhoning() {
   const departements = [...new Set(prospects.map(p => p.departement))].filter(Boolean).sort()
 
   useEffect(() => { loadProspects() }, [])
-
-  useEffect(() => {
-    if (!callStartTime) return
-    const interval = setInterval(() => {
-      setCallDuration(Math.floor((Date.now() - callStartTime) / 1000))
-    }, 1000)
-    return () => clearInterval(interval)
-  }, [callStartTime])
 
   async function loadProspects() {
     setLoading(true)
@@ -135,7 +126,6 @@ export default function MarinePhoning() {
   function selectProspect(prospect) {
     setCurrent(prospect)
     setCallStartTime(Date.now())
-    setCallDuration(0)
     setContactName('')
     setContactFunction('Dirigeant')
     setContactEmail(prospect.email || '')
@@ -349,12 +339,6 @@ export default function MarinePhoning() {
     goNext()
   }
 
-  const formatDuration = (seconds) => {
-    const mins = Math.floor(seconds / 60)
-    const secs = seconds % 60
-    return mins + 'min ' + secs.toString().padStart(2, '0') + 's'
-  }
-
   const filtered = prospects.filter(p => {
     if (departementFilter && p.departement !== departementFilter) return false
     if (searchTerm) {
@@ -381,9 +365,6 @@ export default function MarinePhoning() {
           <p className="text-gray-600 mt-1">{totalCount} prospects à appeler • {callerName}</p>
         </div>
         <div className="flex items-center gap-3">
-          {current && isAdmin && (
-            <div className="text-2xl font-bold text-primary-600">⏱️ {formatDuration(callDuration)}</div>
-          )}
           <div className="flex bg-gray-100 rounded-lg p-1">
             <button onClick={() => setViewMode('list')}
               className={'px-3 py-1.5 rounded-md text-sm font-medium transition-colors ' + (viewMode === 'list' ? 'bg-white shadow text-gray-900' : 'text-gray-600')}>
