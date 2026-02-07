@@ -29,6 +29,71 @@ export default function AdminImport() {
   const [importing, setImporting] = useState(false)
   const [progress, setProgress] = useState({})
   const [stats, setStats] = useState(null)
+  
+  // Enrichissement
+  const [enriching, setEnriching] = useState(false)
+  const [enrichBatchSize, setEnrichBatchSize] = useState(20)
+  const [enrichStats, setEnrichStats] = useState(null)
+  const [enrichHistory, setEnrichHistory] = useState([])
+
+  async function lancerEnrichissement() {
+    setEnriching(true)
+    setEnrichStats(null)
+    toast('🔍 Enrichissement lancé...', { duration: 3000 })
+    
+    try {
+      const response = await fetch('/api/enrich-prospects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ batch_size: enrichBatchSize })
+      })
+      
+      const data = await response.json()
+      setEnrichStats(data)
+      setEnrichHistory(prev => [...prev, data])
+      
+      if (data.success) {
+        toast.success(data.message)
+      } else {
+        toast.error('Erreur: ' + (data.error || 'inconnue'))
+      }
+    } catch (error) {
+      toast.error('Erreur: ' + error.message)
+    }
+    
+    setEnriching(false)
+  }
+
+  async function lancerEnrichissementBoucle() {
+    setEnriching(true)
+    setEnrichHistory([])
+    toast('🔄 Enrichissement en boucle (5 batchs)...', { duration: 5000 })
+    
+    for (let i = 0; i < 5; i++) {
+      try {
+        const response = await fetch('/api/enrich-prospects', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ batch_size: enrichBatchSize })
+        })
+        
+        const data = await response.json()
+        setEnrichStats(data)
+        setEnrichHistory(prev => [...prev, data])
+        
+        if (!data.success || data.stats?.total === 0) break
+        
+        // Pause entre les batchs
+        await new Promise(resolve => setTimeout(resolve, 2000))
+      } catch (error) {
+        toast.error('Erreur batch ' + (i + 1) + ': ' + error.message)
+        break
+      }
+    }
+    
+    toast.success('✅ Enrichissement en boucle terminé !')
+    setEnriching(false)
+  }
 
   async function importDepartement(dept) {
     setProgress(prev => ({ ...prev, [dept]: 'loading' }))
@@ -211,11 +276,129 @@ export default function AdminImport() {
           </div>
         )}
 
+        {/* ============================================ */}
+        {/* SECTION ENRICHISSEMENT */}
+        {/* ============================================ */}
+
+        <div className="bg-white rounded-lg shadow p-6 mt-6">
+          <h2 className="text-lg font-semibold mb-4">🔍 Enrichissement - Scraping Sites Web</h2>
+          
+          <div className="mb-4">
+            <p className="text-sm text-gray-600 mb-2">
+              • Scrape les sites web des prospects pour extraire emails & téléphones
+            </p>
+            <p className="text-sm text-gray-600 mb-2">
+              • Traite {enrichBatchSize} prospects par batch (~2-3 minutes)
+            </p>
+            <p className="text-sm text-gray-600 mb-4">
+              • ⏰ Cron automatique chaque nuit à 3h du matin
+            </p>
+          </div>
+          
+          <div className="flex items-center gap-3 mb-4">
+            <label className="text-sm text-gray-700">Batch size :</label>
+            <select
+              value={enrichBatchSize}
+              onChange={(e) => setEnrichBatchSize(Number(e.target.value))}
+              className="border rounded px-3 py-1 text-sm"
+              disabled={enriching}
+            >
+              <option value={10}>10 (rapide ~1 min)</option>
+              <option value={20}>20 (normal ~2 min)</option>
+              <option value={50}>50 (long ~5 min)</option>
+            </select>
+          </div>
+          
+          <div className="flex gap-3">
+            <button
+              onClick={lancerEnrichissement}
+              disabled={enriching}
+              className={`flex items-center gap-2 px-6 py-3 rounded-lg font-medium ${
+                enriching
+                  ? 'bg-gray-300 cursor-not-allowed'
+                  : 'bg-purple-600 hover:bg-purple-700 text-white'
+              }`}
+            >
+              {enriching ? (
+                <>
+                  <Loader className="w-5 h-5 animate-spin" />
+                  Enrichissement en cours...
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="w-5 h-5" />
+                  Lancer l'enrichissement
+                </>
+              )}
+            </button>
+            
+            <button
+              onClick={lancerEnrichissementBoucle}
+              disabled={enriching}
+              className={`flex items-center gap-2 px-6 py-3 rounded-lg font-medium ${
+                enriching
+                  ? 'bg-gray-300 cursor-not-allowed'
+                  : 'bg-orange-600 hover:bg-orange-700 text-white'
+              }`}
+            >
+              🔄 Enrichir en boucle (5 batchs)
+            </button>
+          </div>
+        </div>
+
+        {enrichStats && (
+          <div className="bg-purple-50 border border-purple-200 rounded-lg p-6 mt-4">
+            <h2 className="text-lg font-semibold text-purple-900 mb-4">
+              {enrichStats.message}
+            </h2>
+            
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div>
+                <p className="text-sm text-purple-700">Traités</p>
+                <p className="text-2xl font-bold text-purple-900">
+                  {enrichStats.stats?.total || 0}
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-purple-700">📧 Emails trouvés</p>
+                <p className="text-2xl font-bold text-green-700">
+                  {enrichStats.stats?.emails_found || 0}
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-purple-700">📞 Téléphones trouvés</p>
+                <p className="text-2xl font-bold text-green-700">
+                  {enrichStats.stats?.phones_found || 0}
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-purple-700">❌ Échecs</p>
+                <p className="text-2xl font-bold text-red-700">
+                  {enrichStats.stats?.failed || 0}
+                </p>
+              </div>
+            </div>
+
+            {enrichHistory.length > 1 && (
+              <div className="mt-4 pt-4 border-t border-purple-200">
+                <p className="text-sm font-semibold text-purple-800 mb-2">Historique des batchs :</p>
+                {enrichHistory.map((h, i) => (
+                  <p key={i} className="text-xs text-purple-700">
+                    Batch {i + 1}: {h.stats?.emails_found || 0} emails, {h.stats?.phones_found || 0} tels sur {h.stats?.total || 0} prospects
+                  </p>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mt-6">
-          <h3 className="font-semibold text-blue-900 mb-2">💡 Astuce</h3>
+          <h3 className="font-semibold text-blue-900 mb-2">💡 Infos</h3>
+          <p className="text-sm text-blue-800 mb-1">
+            <strong>Import :</strong> Cron automatique à 2h du matin
+          </p>
           <p className="text-sm text-blue-800">
-            Pour automatiser cet import tous les soirs, configurez un cron job Supabase ou Vercel.
-            Contactez votre développeur pour la mise en place.
+            <strong>Enrichissement :</strong> Cron automatique à 3h du matin (20 prospects/nuit)
           </p>
         </div>
 
