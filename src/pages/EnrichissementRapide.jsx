@@ -20,6 +20,102 @@ import {
   ChevronRight, Zap, CheckCircle, XCircle, RefreshCw, Filter
 } from 'lucide-react'
 
+// Mapping code NAF (division 2 chiffres) → libellé secteur d'activité
+const NAF_LABELS = {
+  '01': 'Culture et production animale',
+  '02': 'Sylviculture et exploitation forestière',
+  '03': 'Pêche et aquaculture',
+  '05': 'Extraction de houille et lignite',
+  '06': 'Extraction d\'hydrocarbures',
+  '07': 'Extraction de minerais métalliques',
+  '08': 'Autres industries extractives',
+  '09': 'Services de soutien aux industries extractives',
+  '10': 'Industries alimentaires',
+  '11': 'Fabrication de boissons',
+  '12': 'Fabrication de produits à base de tabac',
+  '13': 'Fabrication de textiles',
+  '14': 'Industrie de l\'habillement',
+  '15': 'Industrie du cuir et de la chaussure',
+  '16': 'Travail du bois (menuiserie, charpente)',
+  '17': 'Industrie du papier et du carton',
+  '18': 'Imprimerie et reproduction',
+  '20': 'Industrie chimique',
+  '21': 'Industrie pharmaceutique',
+  '22': 'Fabrication de produits en caoutchouc et plastique',
+  '23': 'Fabrication de produits minéraux non métalliques',
+  '24': 'Métallurgie',
+  '25': 'Fabrication de produits métalliques',
+  '26': 'Fabrication de produits informatiques et électroniques',
+  '27': 'Fabrication d\'équipements électriques',
+  '28': 'Fabrication de machines et équipements',
+  '29': 'Industrie automobile',
+  '30': 'Fabrication de matériels de transport',
+  '31': 'Fabrication de meubles',
+  '32': 'Autres industries manufacturières',
+  '33': 'Réparation et installation de machines',
+  '35': 'Production et distribution d\'électricité, gaz',
+  '36': 'Captage, traitement et distribution d\'eau',
+  '37': 'Collecte et traitement des eaux usées',
+  '38': 'Collecte, traitement et élimination des déchets',
+  '39': 'Dépollution et gestion des déchets',
+  '41': 'Construction de bâtiments',
+  '42': 'Génie civil',
+  '43': 'Travaux de construction spécialisés',
+  '45': 'Commerce et réparation automobiles',
+  '46': 'Commerce de gros',
+  '47': 'Commerce de détail',
+  '49': 'Transports terrestres',
+  '50': 'Transports par eau',
+  '51': 'Transports aériens',
+  '52': 'Entreposage et services auxiliaires des transports',
+  '53': 'Activités de poste et de courrier',
+  '55': 'Hébergement',
+  '56': 'Restauration',
+  '58': 'Édition',
+  '59': 'Production de films, vidéo, musique',
+  '60': 'Programmation et diffusion',
+  '61': 'Télécommunications',
+  '62': 'Programmation et conseil informatique',
+  '63': 'Services d\'information',
+  '64': 'Services financiers (banque)',
+  '65': 'Assurance',
+  '66': 'Activités auxiliaires de services financiers',
+  '68': 'Activités immobilières',
+  '69': 'Activités juridiques et comptables',
+  '70': 'Conseil de gestion',
+  '71': 'Architecture, ingénierie, contrôle technique',
+  '72': 'Recherche-développement scientifique',
+  '73': 'Publicité et études de marché',
+  '74': 'Autres activités spécialisées (design, photo)',
+  '75': 'Activités vétérinaires',
+  '77': 'Activités de location',
+  '78': 'Activités liées à l\'emploi (intérim)',
+  '79': 'Agences de voyage et voyagistes',
+  '80': 'Enquêtes et sécurité',
+  '81': 'Services relatifs aux bâtiments (nettoyage)',
+  '82': 'Services administratifs et de soutien',
+  '84': 'Administration publique et défense',
+  '85': 'Enseignement',
+  '86': 'Activités pour la santé humaine',
+  '87': 'Hébergement médico-social et social',
+  '88': 'Action sociale sans hébergement',
+  '90': 'Activités créatives, artistiques et de spectacle',
+  '91': 'Bibliothèques, musées et patrimoine',
+  '92': 'Organisation de jeux de hasard',
+  '93': 'Activités sportives, récréatives et de loisirs',
+  '94': 'Activités des organisations associatives',
+  '95': 'Réparation d\'ordinateurs et de biens personnels',
+  '96': 'Autres services personnels (coiffure, beauté)',
+  '97': 'Activités des ménages en tant qu\'employeurs',
+  '99': 'Organisations et organismes extraterritoriaux',
+}
+
+function getNafLabel(naf) {
+  if (!naf) return null
+  const code = naf.replace(/\./g, '').substring(0, 2)
+  return NAF_LABELS[code] || naf
+}
+
 export default function EnrichissementRapide() {
   const [prospects, setProspects] = useState([])
   const [currentIndex, setCurrentIndex] = useState(0)
@@ -359,7 +455,7 @@ export default function EnrichissementRapide() {
                   <p className="text-sm text-gray-500 mt-1">🏠 {current.address}</p>
                 )}
                 {current.naf && (
-                  <p className="text-sm text-gray-500 mt-1">🏭 {current.naf}</p>
+                  <p className="text-sm text-gray-500 mt-1">🏭 {getNafLabel(current.naf)}</p>
                 )}
                 <p className="text-xs text-gray-400 mt-1">
                   SIRET: {current.siret} • Score: {current.quality_score}
