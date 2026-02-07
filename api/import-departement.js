@@ -111,6 +111,8 @@ function transformAndFilter(results, dept) {
           latitude: etab.latitude || null,
           longitude: etab.longitude || null,
           site_web: etab.site_internet || r.siege?.site_internet || null,
+          phone: etab.telephone || null,
+          email: etab.courriel || null,
         })
       }
     } else {
@@ -130,6 +132,8 @@ function transformAndFilter(results, dept) {
         latitude: siege.latitude || r.latitude || null,
         longitude: siege.longitude || r.longitude || null,
         site_web: siege.site_internet || null,
+        phone: siege.telephone || null,
+        email: siege.courriel || null,
       })
     }
   }
