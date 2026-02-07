@@ -397,8 +397,11 @@ export default function AdminImport() {
           <p className="text-sm text-blue-800 mb-1">
             <strong>Import :</strong> Cron automatique à 2h du matin
           </p>
-          <p className="text-sm text-blue-800">
+          <p className="text-sm text-blue-800 mb-1">
             <strong>Enrichissement :</strong> Cron automatique à 3h du matin (20 prospects/nuit)
+          </p>
+          <p className="text-sm text-blue-800">
+            <strong>Rapport phoning :</strong> Email hebdo chaque lundi à 8h
           </p>
         </div>
 
