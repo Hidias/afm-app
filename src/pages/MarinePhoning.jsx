@@ -278,7 +278,7 @@ export default function MarinePhoning() {
             rdv_date: rdvDate,
             rdv_type: 'decouverte',
             conducted_by: rdvAssignedTo,
-            status: 'prevu',
+            status: 'a_prendre',
             contact_name: contactName || null,
             contact_email: contactEmail || null,
             contact_phone: contactMobile || null,
@@ -292,6 +292,14 @@ export default function MarinePhoning() {
 
         if (rdvError) throw rdvError
         await supabase.from('prospect_calls').update({ rdv_id: insertedRdv.id }).eq('id', insertedCall.id)
+
+        // Créer notification pour le dashboard
+        await supabase.from('notifications').insert({
+          title: '🔥 Nouveau RDV phoning — ' + current.name,
+          message: callerName + ' a décroché un RDV pour ' + rdvAssignedTo + ' le ' + new Date(rdvDate).toLocaleDateString('fr-FR') + (formationsSelected.length > 0 ? ' • ' + formationsSelected.join(', ') : ''),
+          type: 'rdv_phoning',
+          link: '/prospection/' + insertedRdv.id,
+        })
       }
 
       // Mettre à jour prospection_massive
