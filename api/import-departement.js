@@ -16,13 +16,14 @@ import { createClient } from '@supabase/supabase-js'
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL
 const SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY
 
-const TRANCHES_EFFECTIF = ['03', '11', '12', '21', '22', '31', '32']
-const FORMES_JURIDIQUES = ['5498', '5499', '5505', '5510', '5546', '5547']
+const TRANCHES_EFFECTIF = ['01', '02', '03', '11', '12', '21', '22', '31', '32', '41', '42', '51', '52', '53']
 const API_BASE_URL = 'https://recherche-entreprises.api.gouv.fr/search'
-const MAX_PAGES = 200
+const MAX_PAGES = 400
 
 function getEffectifLabel(code) {
   const labels = {
+    '01': '1-2 salariés',
+    '02': '3-5 salariés',
     '03': '6-9 salariés',
     '11': '10-19 salariés',
     '12': '20-49 salariés',
@@ -30,14 +31,20 @@ function getEffectifLabel(code) {
     '22': '100-199 salariés',
     '31': '200-249 salariés',
     '32': '250-499 salariés',
+    '41': '500-999 salariés',
+    '42': '1000-1999 salariés',
+    '51': '2000-4999 salariés',
+    '52': '5000-9999 salariés',
+    '53': '10000+ salariés',
   }
   return labels[code] || 'NN'
 }
 
 function calculateQualityScore(prospect) {
   let score = 50
-  if (['12', '21', '22'].includes(prospect.effectif)) score += 20
-  if (['03', '11', '31', '32'].includes(prospect.effectif)) score += 10
+  if (['12', '21', '22', '31', '32', '41', '42', '51', '52', '53'].includes(prospect.effectif)) score += 20
+  if (['03', '11'].includes(prospect.effectif)) score += 10
+  if (['01', '02'].includes(prospect.effectif)) score += 5
   if (prospect.latitude && prospect.longitude) score += 10
   if (prospect.site_web) score += 10
   if (prospect.naf?.startsWith('41') || prospect.naf?.startsWith('42') || 
@@ -87,8 +94,6 @@ function transformAndFilter(results, dept) {
   const prospects = []
   
   for (const r of results) {
-    if (!FORMES_JURIDIQUES.includes(r.nature_juridique)) continue
-    
     const effectifCode = r.tranche_effectif_salarie_entreprise || r.tranche_effectif_salarie
     if (!TRANCHES_EFFECTIF.includes(effectifCode)) continue
     
