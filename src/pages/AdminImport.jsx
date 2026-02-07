@@ -335,7 +335,7 @@ export default function AdminImport() {
                 {importing && currentDept && (
                   <span className="text-blue-600 flex items-center gap-1">
                     <Loader className="w-4 h-4 animate-spin" />
-                    {DEPARTEMENTS[currentDept]} — {TRANCHES.find(t => t.code === currentTranche)?.label || '...'} sal.
+                    {DEPARTEMENTS[currentDept]} — {TRANCHES.find(t => t.code === currentTranche)?.label || '...'}
                   </span>
                 )}
                 <span className="font-mono text-gray-600">
