@@ -234,7 +234,7 @@ export default function EnrichissementRapide() {
               .from('marine_queue')
               .insert({
                 client_id: clientId,
-                priority: 5,
+                priority: 3,
                 zone_geo: current.departement || null,
                 status: 'pending',
                 call_attempts: 0,
