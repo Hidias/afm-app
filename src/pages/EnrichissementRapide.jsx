@@ -145,6 +145,7 @@ export default function EnrichissementRapide() {
   const [searching, setSearching] = useState(false)
   const [enriching, setEnriching] = useState(false)
   const [enrichResult, setEnrichResult] = useState(null)
+  const [enrichCooldown, setEnrichCooldown] = useState(0)
   const phoneRef = useRef(null)
 
   // Départements importés (hardcodé car la requête SELECT departement sur 273k lignes ne retourne que 1000 rows par défaut)
@@ -293,11 +294,17 @@ export default function EnrichissementRapide() {
     setEnrichResult(null)
   }
 
-  // ⚡ Auto-enrichir via Pages Jaunes + scraping site web
+  // ⚡ Auto-enrichir via Anthropic API + web_search
+  // Timeout 10s — si trop long, bascule en recherche manuelle
+  // Cooldown 30s entre chaque recherche pour éviter les rate limits
   async function autoEnrich() {
-    if (!current || enriching) return
+    if (!current || enriching || enrichCooldown > 0) return
     setEnriching(true)
     setEnrichResult(null)
+
+    // Timeout 10s côté frontend
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 10000)
 
     try {
       const response = await fetch('/api/auto-enrich', {
@@ -309,25 +316,52 @@ export default function EnrichissementRapide() {
           postal_code: current.postal_code,
           siren: current.siren,
           site_web: siteWeb || current.site_web,
-        })
+        }),
+        signal: controller.signal,
       })
 
+      clearTimeout(timeout)
+
+      if (!response.ok) {
+        throw new Error(response.status === 504 ? 'timeout' : `Erreur ${response.status}`)
+      }
+
       const data = await response.json()
-      setEnrichResult(data)
 
-      // Pré-remplir les champs trouvés (sans écraser ce qui existe déjà)
-      if (data.phone && !phone) setPhone(data.phone)
-      if (data.site_web && !siteWeb) setSiteWeb(data.site_web)
-      if (data.email && !email) setEmail(data.email)
-
-      // Focus sur téléphone si pas trouvé, sinon laisser vérifier
-      if (!data.phone) setTimeout(() => phoneRef.current?.focus(), 100)
+      if (data.error && data.message?.includes('Rate limit')) {
+        setEnrichResult({ error: true, message: '⏳ Trop rapide — fais une recherche manuelle ou attends le cooldown' })
+      } else {
+        setEnrichResult(data)
+        if (data.phone && !phone) setPhone(data.phone)
+        if (data.site_web && !siteWeb) setSiteWeb(data.site_web)
+        if (data.email && !email) setEmail(data.email)
+        if (!data.phone) setTimeout(() => phoneRef.current?.focus(), 100)
+      }
 
     } catch (error) {
+      clearTimeout(timeout)
       console.error('Auto-enrich error:', error)
-      setEnrichResult({ error: true, message: error.message })
+      if (error.name === 'AbortError') {
+        setEnrichResult({ error: true, message: '⏳ Trop long — passe en recherche manuelle ↓', timeout: true })
+      } else {
+        setEnrichResult({ error: true, message: error.message })
+      }
     } finally {
       setEnriching(false)
+      // Lancer cooldown 30s
+      startCooldown()
+    }
+  }
+
+  function startCooldown() {
+    setEnrichCooldown(30)
+    const interval = setInterval(() => {
+      setEnrichCooldown(prev => {
+        if (prev <= 1) { clearInterval(interval); return 0 }
+        return prev - 1
+      })
+    }, 1000)
+  }
     }
   }
 
@@ -491,7 +525,7 @@ export default function EnrichissementRapide() {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [current, phone, email, siteWeb, enriching])
+  }, [current, phone, email, siteWeb, enriching, enrichCooldown])
 
   // Focus auto sur le champ téléphone
   useEffect(() => {
@@ -645,15 +679,19 @@ export default function EnrichissementRapide() {
             {/* ⚡ AUTO-ENRICHIR */}
             <button
               onClick={autoEnrich}
-              disabled={enriching}
+              disabled={enriching || enrichCooldown > 0}
               className={`w-full flex items-center justify-center gap-3 px-6 py-3 rounded-xl font-bold text-lg mb-3 transition-all ${
                 enriching
                   ? 'bg-purple-100 text-purple-400 cursor-wait'
-                  : 'bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white shadow-lg hover:shadow-xl'
+                  : enrichCooldown > 0
+                    ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                    : 'bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white shadow-lg hover:shadow-xl'
               }`}
             >
               {enriching ? (
-                <><Loader className="w-5 h-5 animate-spin" /> Recherche en cours...</>
+                <><Loader className="w-5 h-5 animate-spin" /> Recherche en cours... (max 10s)</>
+              ) : enrichCooldown > 0 ? (
+                <>⏳ Dispo dans {enrichCooldown}s</>
               ) : (
                 <><Zap className="w-5 h-5" /> Auto-enrichir (Ctrl+E)</>
               )}
@@ -669,13 +707,16 @@ export default function EnrichissementRapide() {
                 {(enrichResult.phone || enrichResult.site_web || enrichResult.email) ? (
                   <>✅ Trouvé : {[enrichResult.phone && 'tél', enrichResult.site_web && 'site', enrichResult.email && 'email'].filter(Boolean).join(', ')} — via {[...new Set(enrichResult.sources || [])].join(' + ')}</>
                 ) : (
-                  <>🤷 Rien trouvé automatiquement — utilise les boutons ci-dessous</>
+                  <>🤷 Rien trouvé — utilise Pages Jaunes / Google ci-dessous ↓</>
                 )}
               </div>
             )}
             {enrichResult?.error && (
-              <div className="rounded-lg px-4 py-2 text-sm mb-3 bg-red-50 border border-red-200 text-red-700">
-                ❌ Erreur : {enrichResult.message || 'Impossible de contacter le serveur'}
+              <div className="rounded-lg px-4 py-3 text-sm mb-3 bg-orange-50 border border-orange-200 text-orange-700">
+                {enrichResult.timeout
+                  ? <>⏳ Trop long — <strong>passe en recherche manuelle</strong> avec les boutons ci-dessous ↓</>
+                  : <>⚠️ {enrichResult.message || 'Erreur'} — utilise les boutons ci-dessous ↓</>
+                }
               </div>
             )}
 
