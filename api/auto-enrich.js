@@ -14,7 +14,7 @@
 
 // Vercel Pro = 60s max, Hobby = 10s (trop court, il faut Pro ou configurer)
 export const config = {
-  maxDuration: 45,
+  maxDuration: 25,
 }
 
 export default async function handler(req, res) {
@@ -44,64 +44,47 @@ export default async function handler(req, res) {
   try {
     const prompt = buildPrompt(name, cityInfo, id, existingSiteWeb)
     
-    const body = JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 512,
-      tools: [{
-        type: 'web_search_20250305',
-        name: 'web_search',
-      }],
-      messages: [{
-        role: 'user',
-        content: prompt,
-      }],
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 512,
+        tools: [{
+          type: 'web_search_20250305',
+          name: 'web_search',
+        }],
+        messages: [{
+          role: 'user',
+          content: prompt,
+        }],
+      }),
+      signal: AbortSignal.timeout(20000),
     })
     
-    // Retry avec backoff pour rate limits (429)
-    let data = null
-    const maxRetries = 3
-    
-    for (let attempt = 0; attempt <= maxRetries; attempt++) {
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-        },
-        body,
-        signal: AbortSignal.timeout(25000),
+    if (response.status === 429) {
+      return res.status(200).json({
+        success: false, error: true,
+        message: '⏳ Rate limit — attends 30s puis réessaie',
+        phone: null, site_web: null, email: null, sources: [],
       })
-      
-      if (response.status === 429) {
-        // Rate limited — attendre avant retry
-        const retryAfter = response.headers.get('retry-after')
-        const waitMs = retryAfter ? parseInt(retryAfter) * 1000 : (attempt + 1) * 5000
-        console.log(`Rate limited, retry ${attempt + 1}/${maxRetries} dans ${waitMs}ms...`)
-        if (attempt < maxRetries) {
-          await new Promise(r => setTimeout(r, waitMs))
-          continue
-        }
-        return res.status(200).json({
-          success: false, error: true,
-          message: 'Rate limit — attends 30s avant de réessayer',
-          phone: null, site_web: null, email: null, sources: [],
-        })
-      }
-      
-      if (!response.ok) {
-        const err = await response.text()
-        console.error('Anthropic error:', response.status, err)
-        return res.status(200).json({
-          success: false, error: true,
-          message: `Erreur API (${response.status}): ${err.substring(0, 200)}`,
-          phone: null, site_web: null, email: null, sources: [],
-        })
-      }
-      
-      data = await response.json()
-      break
     }
+    
+    if (!response.ok) {
+      const err = await response.text()
+      console.error('Anthropic error:', response.status, err)
+      return res.status(200).json({
+        success: false, error: true,
+        message: `Erreur API (${response.status})`,
+        phone: null, site_web: null, email: null, sources: [],
+      })
+    }
+    
+    const data = await response.json()
     
     // Extraire le texte de la réponse
     const text = (data.content || [])
