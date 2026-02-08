@@ -271,16 +271,30 @@ export default function EnrichissementRapide() {
   const loadProspects = useCallback(async () => {
     setLoading(true)
     
+    // Calculer les départements dans le rayon depuis la base choisie
+    const base = BASES[proximityBase]
+    let nearbyDepts = null
+    if (base && radiusFilter > 0) {
+      // Marge +50km car centroïde ≠ position exacte de l'entreprise
+      const marginRadius = radiusFilter + 50
+      nearbyDepts = Object.entries(DEPT_CENTERS)
+        .filter(([_, center]) => distanceKm(base.lat, base.lng, center.lat, center.lng) <= marginRadius)
+        .map(([dept]) => dept)
+    }
+
     let query = supabase
       .from('prospection_massive')
       .select('id, siret, siren, name, city, postal_code, address, naf, phone, email, site_web, departement, effectif, quality_score')
       .is('phone', null)
       .or('enrichment_status.is.null,enrichment_status.eq.pending,enrichment_status.eq.enriching')
       .order('quality_score', { ascending: false })
-      .limit(100)
+      .limit(200)
 
+    // Filtre département : soit manuel, soit par proximité
     if (departementFilter) {
       query = query.eq('departement', departementFilter)
+    } else if (nearbyDepts && nearbyDepts.length > 0) {
+      query = query.in('departement', nearbyDepts)
     }
 
     const { data, error } = await query
@@ -304,7 +318,6 @@ export default function EnrichissementRapide() {
     }).slice(0, 50)
 
     // Calculer distance depuis centroïde département
-    const base = BASES[proximityBase]
     if (base) {
       unique.forEach(p => {
         const dept = p.departement || (p.postal_code || '').slice(0, 2)
@@ -315,13 +328,6 @@ export default function EnrichissementRapide() {
           ? (eff * 2 + (p.quality_score || 50)) / Math.sqrt(p._dist)
           : (eff * 2 + (p.quality_score || 50)) * 0.5
       })
-
-      // Filtre rayon
-      if (radiusFilter > 0) {
-        const filtered2 = unique.filter(p => p._dist == null || p._dist <= radiusFilter)
-        unique.length = 0
-        unique.push(...filtered2)
-      }
 
       // Tri selon le mode
       if (sortMode === 'smart') {
@@ -641,6 +647,14 @@ export default function EnrichissementRapide() {
             <p className="text-gray-600 mt-1">
               {totalRemaining.toLocaleString()} prospects restants
               {radiusFilter > 0 && ` • ≤ ${radiusFilter}km de ${BASES[proximityBase].name}`}
+              {radiusFilter > 0 && (() => {
+                const base = BASES[proximityBase]
+                const marginRadius = radiusFilter + 50
+                const depts = Object.entries(DEPT_CENTERS)
+                  .filter(([_, c]) => distanceKm(base.lat, base.lng, c.lat, c.lng) <= marginRadius)
+                  .map(([d]) => d).sort()
+                return <span className="text-gray-400"> (dép. {depts.join(', ')})</span>
+              })()}
             </p>
           </div>
         </div>
