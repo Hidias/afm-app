@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase'
 import { 
   Building2, GraduationCap, Users, Calendar, FileText, ArrowRight, 
   CheckCircle, AlertTriangle, UserCheck, AlertCircle, 
-  Send, Clock, User, XCircle, Shield, Trash2, ExternalLink
+  Send, Clock, User, XCircle, Shield, Trash2, ExternalLink, Phone
 } from 'lucide-react'
 import { format, isAfter, isBefore, startOfToday, addDays, differenceInDays } from 'date-fns'
 import { fr } from 'date-fns/locale'
@@ -23,6 +23,7 @@ export default function Dashboard() {
   const [coldEvaluations, setColdEvaluations] = useState([])
   const [purgeStats, setPurgeStats] = useState(null)
   const [rdvsAPrendre, setRdvsAPrendre] = useState([])
+  const [callbacksToday, setCallbacksToday] = useState([])
   const [loading, setLoading] = useState(true)
   
   useEffect(() => {
@@ -195,6 +196,18 @@ export default function Dashboard() {
       .eq('status', 'a_prendre')
       .order('created_at', { ascending: false })
     setRdvsAPrendre(rdvs || [])
+
+    // Charger les rappels phoning du jour et à venir
+    const today = new Date().toISOString().split('T')[0]
+    const { data: callbacks } = await supabase
+      .from('prospect_calls')
+      .select('*, clients(name)')
+      .eq('needs_callback', true)
+      .gte('callback_date', today)
+      .order('callback_date', { ascending: true })
+      .order('callback_time', { ascending: true })
+      .limit(20)
+    setCallbacksToday(callbacks || [])
     
     setLoading(false)
   }
@@ -364,7 +377,7 @@ export default function Dashboard() {
       </div>
       
       {/* Alertes prioritaires */}
-      {(sessionsWithoutTrainer.length > 0 || nonConformites.length > 0 || sessionsInProgress.length > 0 || (purgeStats && purgeStats.trainees_to_purge > 0) || sessionsJ90.length > 0 || rdvsAPrendre.length > 0) && (
+      {(sessionsWithoutTrainer.length > 0 || nonConformites.length > 0 || sessionsInProgress.length > 0 || (purgeStats && purgeStats.trainees_to_purge > 0) || sessionsJ90.length > 0 || rdvsAPrendre.length > 0 || callbacksToday.length > 0) && (
         <div className="grid md:grid-cols-3 gap-4">
           {sessionsWithoutTrainer.length > 0 && (
             <div className="card bg-red-50 border-red-200 border p-4">
@@ -491,6 +504,40 @@ export default function Dashboard() {
               </div>
               <Link to="/prospection" className="mt-2 inline-flex items-center gap-1 text-sm text-red-700 hover:underline">
                 Voir tous <ArrowRight className="w-3 h-3" />
+              </Link>
+            </div>
+          )}
+
+          {callbacksToday.length > 0 && (
+            <div className="card bg-orange-50 border-orange-200 border p-4">
+              <div className="flex items-center gap-3">
+                <Phone className="w-8 h-8 text-orange-500" />
+                <div>
+                  <p className="font-semibold text-orange-700">📞 Rappels phoning</p>
+                  <p className="text-2xl font-bold text-orange-600">{callbacksToday.length}</p>
+                </div>
+              </div>
+              <div className="mt-3 space-y-2">
+                {callbacksToday.slice(0, 5).map(cb => {
+                  const isToday = cb.callback_date === new Date().toISOString().split('T')[0]
+                  return (
+                    <div key={cb.id} className={'text-sm p-2 rounded ' + (isToday ? 'bg-orange-100 border border-orange-300' : 'bg-white border border-orange-100')}>
+                      <div className="flex items-center gap-2">
+                        {isToday ? <span className="text-orange-600 font-bold">Aujourd'hui</span> : <span className="text-gray-600">{format(new Date(cb.callback_date), 'EEE d MMM', { locale: fr })}</span>}
+                        <span className="font-medium">{cb.callback_time}</span>
+                      </div>
+                      <p className="font-semibold text-gray-900">{cb.clients?.name || 'Prospect'}</p>
+                      {cb.contact_name && <p className="text-gray-600">👤 {cb.contact_name}</p>}
+                      {cb.callback_reason && <p className="text-gray-500 text-xs">{cb.callback_reason}</p>}
+                    </div>
+                  )
+                })}
+                {callbacksToday.length > 5 && (
+                  <p className="text-xs text-orange-500">+ {callbacksToday.length - 5} autres...</p>
+                )}
+              </div>
+              <Link to="/prospection-massive" className="mt-2 inline-flex items-center gap-1 text-sm text-orange-700 hover:underline">
+                Aller au phoning <ArrowRight className="w-3 h-3" />
               </Link>
             </div>
           )}
