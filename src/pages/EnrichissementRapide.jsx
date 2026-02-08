@@ -170,6 +170,7 @@ export default function EnrichissementRapide() {
   const [phone, setPhone] = useState('')
   const [email, setEmail] = useState('')
   const [siteWeb, setSiteWeb] = useState('')
+  const [scraping, setScraping] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [dbStats, setDbStats] = useState({ done: 0, phones: 0, emails: 0, excluded: 0 })
@@ -374,6 +375,28 @@ export default function EnrichissementRapide() {
     setEmail('')
     setSiteWeb('')
     setEnrichResult(null)
+  }
+
+  // 🔍 Scraper le site web pour extraire téléphone + email
+  async function scrapeWebsite() {
+    if (!siteWeb || scraping) return
+    setScraping(true)
+    try {
+      const res = await fetch('/api/scrape-phone', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: siteWeb })
+      })
+      const data = await res.json()
+      if (data.success) {
+        if (data.phone && !phone) setPhone(data.phone)
+        if (data.email && !email) setEmail(data.email)
+      }
+    } catch (err) {
+      console.error('Erreur scraping:', err)
+    } finally {
+      setScraping(false)
+    }
   }
 
   // ⚡ Auto-enrichir via Anthropic API + web_search
@@ -933,13 +956,27 @@ export default function EnrichissementRapide() {
                     <span className="text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full">auto</span>
                   )}
                 </label>
+                <div className="flex gap-2">
                 <input
                   type="url"
                   value={siteWeb}
                   onChange={(e) => setSiteWeb(e.target.value)}
+                  onBlur={() => { if (siteWeb && !phone) scrapeWebsite() }}
                   placeholder="www.entreprise.fr"
-                  className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                  className="flex-1 border rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                 />
+                {siteWeb && (
+                  <button
+                    type="button"
+                    onClick={scrapeWebsite}
+                    disabled={scraping}
+                    className="px-3 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 text-sm font-medium whitespace-nowrap"
+                    title="Chercher tél + email sur le site"
+                  >
+                    {scraping ? '⏳' : '🔍 Scraper'}
+                  </button>
+                )}
+                </div>
               </div>
             </div>
           </div>
