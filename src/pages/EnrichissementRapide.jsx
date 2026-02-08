@@ -294,15 +294,17 @@ export default function EnrichissementRapide() {
     const base = BASES[proximityBase]
     if (base) {
       unique.forEach(p => {
-        p._dist = (p.latitude && p.longitude) ? distanceKm(base.lat, base.lng, p.latitude, p.longitude) : 9999
+        p._hasCoords = !!(p.latitude && p.longitude)
+        p._dist = p._hasCoords ? distanceKm(base.lat, base.lng, p.latitude, p.longitude) : null
         const eff = parseInt(p.effectif) || 5
-        p._smart = p._dist > 0 ? (eff * 2 + (p.quality_score || 50)) / Math.sqrt(p._dist) : (eff * 2 + (p.quality_score || 50)) * 10
+        p._smart = p._hasCoords && p._dist > 0
+          ? (eff * 2 + (p.quality_score || 50)) / Math.sqrt(p._dist)
+          : (eff * 2 + (p.quality_score || 50)) * 0.5 // sans coords = score moyen
       })
 
-      // Filtre rayon
+      // Filtre rayon (garde les prospects sans coordonnées)
       if (radiusFilter > 0) {
-        const before = unique.length
-        const filtered2 = unique.filter(p => p._dist <= radiusFilter)
+        const filtered2 = unique.filter(p => !p._hasCoords || p._dist <= radiusFilter)
         unique.length = 0
         unique.push(...filtered2)
       }
@@ -311,7 +313,7 @@ export default function EnrichissementRapide() {
       if (sortMode === 'smart') {
         unique.sort((a, b) => b._smart - a._smart)
       } else if (sortMode === 'proche') {
-        unique.sort((a, b) => a._dist - b._dist)
+        unique.sort((a, b) => (a._dist ?? 9999) - (b._dist ?? 9999))
       } else if (sortMode === 'gros') {
         unique.sort((a, b) => (parseInt(b.effectif) || 0) - (parseInt(a.effectif) || 0))
       }
@@ -776,7 +778,7 @@ export default function EnrichissementRapide() {
                 )}
                 <p className="text-xs text-gray-400 mt-1">
                   SIRET: {current.siret} • Score: {current.quality_score}
-                  {current._dist && current._dist < 9999 && (
+                  {current._dist != null && (
                     <span className="ml-2 text-primary-600 font-medium">• 📏 {Math.round(current._dist)} km de {BASES[proximityBase].name}</span>
                   )}
                   {sortMode === 'smart' && current._smart && (
