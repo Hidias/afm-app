@@ -134,6 +134,19 @@ const BASES = {
   derval: { name: 'Derval', who: 'Maxime', lat: 47.6639, lng: -1.6689 },
 }
 
+// Centroïdes approximatifs des départements bretons + limitrophes
+const DEPT_CENTERS = {
+  '22': { lat: 48.45, lng: -2.99 }, // Côtes-d'Armor
+  '29': { lat: 48.39, lng: -4.32 }, // Finistère
+  '35': { lat: 48.11, lng: -1.67 }, // Ille-et-Vilaine
+  '44': { lat: 47.25, lng: -1.57 }, // Loire-Atlantique
+  '49': { lat: 47.47, lng: -0.55 }, // Maine-et-Loire
+  '53': { lat: 48.07, lng: -0.77 }, // Mayenne
+  '56': { lat: 47.75, lng: -2.76 }, // Morbihan
+  '72': { lat: 47.99, lng: 0.20 },  // Sarthe
+  '85': { lat: 46.67, lng: -1.43 }, // Vendée
+}
+
 const SORT_MODES = [
   { id: 'smart', label: '🎯 Smart', desc: 'Potentiel ÷ distance' },
   { id: 'proche', label: '📏 Plus proche', desc: 'Distance croissante' },
@@ -260,7 +273,7 @@ export default function EnrichissementRapide() {
     
     let query = supabase
       .from('prospection_massive')
-      .select('id, siret, siren, name, city, postal_code, address, naf, phone, email, site_web, departement, effectif, quality_score, latitude, longitude')
+      .select('id, siret, siren, name, city, postal_code, address, naf, phone, email, site_web, departement, effectif, quality_score')
       .is('phone', null)
       .or('enrichment_status.is.null,enrichment_status.eq.pending,enrichment_status.eq.enriching')
       .order('quality_score', { ascending: false })
@@ -290,21 +303,22 @@ export default function EnrichissementRapide() {
       return true
     }).slice(0, 50)
 
-    // Enrichir avec distance si base sélectionnée
+    // Calculer distance depuis centroïde département
     const base = BASES[proximityBase]
     if (base) {
       unique.forEach(p => {
-        p._hasCoords = !!(p.latitude && p.longitude)
-        p._dist = p._hasCoords ? distanceKm(base.lat, base.lng, p.latitude, p.longitude) : null
+        const dept = p.departement || (p.postal_code || '').slice(0, 2)
+        const center = DEPT_CENTERS[dept]
+        p._dist = center ? distanceKm(base.lat, base.lng, center.lat, center.lng) : null
         const eff = parseInt(p.effectif) || 5
-        p._smart = p._hasCoords && p._dist > 0
+        p._smart = p._dist != null && p._dist > 0
           ? (eff * 2 + (p.quality_score || 50)) / Math.sqrt(p._dist)
-          : (eff * 2 + (p.quality_score || 50)) * 0.5 // sans coords = score moyen
+          : (eff * 2 + (p.quality_score || 50)) * 0.5
       })
 
-      // Filtre rayon (garde les prospects sans coordonnées)
+      // Filtre rayon
       if (radiusFilter > 0) {
-        const filtered2 = unique.filter(p => !p._hasCoords || p._dist <= radiusFilter)
+        const filtered2 = unique.filter(p => p._dist == null || p._dist <= radiusFilter)
         unique.length = 0
         unique.push(...filtered2)
       }
@@ -779,7 +793,7 @@ export default function EnrichissementRapide() {
                 <p className="text-xs text-gray-400 mt-1">
                   SIRET: {current.siret} • Score: {current.quality_score}
                   {current._dist != null && (
-                    <span className="ml-2 text-primary-600 font-medium">• 📏 {Math.round(current._dist)} km de {BASES[proximityBase].name}</span>
+                    <span className="ml-2 text-primary-600 font-medium">• 📏 ~{Math.round(current._dist)} km de {BASES[proximityBase].name}</span>
                   )}
                   {sortMode === 'smart' && current._smart && (
                     <span className="ml-2 text-amber-600 font-medium">• 🎯 {Math.round(current._smart)}</span>
