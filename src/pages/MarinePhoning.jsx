@@ -430,7 +430,7 @@ export default function MarinePhoning() {
     else { setCurrent(null); loadProspects() }
   }
 
-  function handleSkip() { if (!current) return; toast.info('Prospect passé'); goNext() }
+  function handleSkip() { if (!current) return; toast('Prospect passé', { icon: '⏭️' }); goNext() }
 
   // === FILTRES & TRI ===
   const rappelsCount = prospects.filter(p => p.siren && todayCallbackSirens.has(p.siren)).length
