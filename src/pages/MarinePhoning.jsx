@@ -86,6 +86,7 @@ export default function MarinePhoning() {
   const [saving, setSaving] = useState(false)
   const [aiSummary, setAiSummary] = useState('')
   const [aiSummaryLoading, setAiSummaryLoading] = useState(false)
+  const [callHistory, setCallHistory] = useState([])
   const [statusFilter, setStatusFilter] = useState('a_appeler')
   const [effectifFilter, setEffectifFilter] = useState('')
 
@@ -155,6 +156,41 @@ export default function MarinePhoning() {
     setCallbackReason('')
     // Charger le résumé IA
     loadAiSummary(prospect)
+    // Charger l'historique d'appels
+    loadCallHistory(prospect)
+  }
+
+  async function loadCallHistory(prospect) {
+    setCallHistory([])
+    try {
+      // Trouver le client correspondant par SIREN
+      const { data: clients } = await supabase
+        .from('clients')
+        .select('id')
+        .eq('siren', prospect.siren)
+        .limit(1)
+      
+      if (clients && clients.length > 0) {
+        const { data: calls } = await supabase
+          .from('prospect_calls')
+          .select('*')
+          .eq('client_id', clients[0].id)
+          .order('created_at', { ascending: false })
+          .limit(5)
+        setCallHistory(calls || [])
+        
+        // Pré-remplir avec le dernier contact connu
+        if (calls && calls.length > 0) {
+          const last = calls[0]
+          if (last.contact_name) setContactName(last.contact_name)
+          if (last.contact_function) setContactFunction(last.contact_function)
+          if (last.contact_email) setContactEmail(last.contact_email)
+          if (last.contact_mobile) setContactMobile(last.contact_mobile)
+        }
+      }
+    } catch (err) {
+      console.error('Erreur historique appels:', err)
+    }
   }
 
   async function loadAiSummary(prospect) {
@@ -546,6 +582,53 @@ export default function MarinePhoning() {
                   <p className="text-sm text-gray-400 italic">Aucun résumé disponible</p>
                 )}
               </div>
+
+              {/* Script d'accroche */}
+              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-sm font-semibold text-green-800">📋 Script d'accroche</span>
+                </div>
+                <p className="text-sm text-gray-700 leading-relaxed italic">
+                  "Bonjour, je suis {callerName} d'Access Formation à Concarneau. Nous accompagnons les entreprises de la région dans leurs formations sécurité obligatoires — SST, incendie, habilitation électrique, conduite de chariots... Je souhaitais échanger avec le responsable sécurité ou la personne en charge de la formation. Est-ce que c'est possible ?"
+                </p>
+              </div>
+
+              {/* Historique des appels */}
+              {callHistory.length > 0 && (
+                <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-sm font-semibold text-orange-800">📞 Historique ({callHistory.length} appel{callHistory.length > 1 ? 's' : ''})</span>
+                  </div>
+                  <div className="space-y-2">
+                    {callHistory.map(call => (
+                      <div key={call.id} className="text-sm border-l-2 border-orange-300 pl-3 py-1">
+                        <div className="flex items-center gap-2 text-gray-600">
+                          <span className="font-medium">{new Date(call.created_at).toLocaleDateString('fr-FR')} à {new Date(call.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</span>
+                          <span>par {call.called_by}</span>
+                          <span className={
+                            call.call_result === 'chaud' ? 'text-green-600 font-bold' :
+                            call.call_result === 'tiede' ? 'text-orange-600 font-bold' :
+                            call.call_result === 'froid' ? 'text-blue-600 font-bold' :
+                            call.call_result === 'no_answer' ? 'text-gray-500' :
+                            call.call_result === 'blocked' ? 'text-yellow-600' :
+                            'text-red-600 font-bold'
+                          }>
+                            {call.call_result === 'chaud' ? '🔥 Intéressé' :
+                             call.call_result === 'tiede' ? '🟡 Tiède' :
+                             call.call_result === 'froid' ? '❄️ Pas intéressé' :
+                             call.call_result === 'no_answer' ? '📞 Pas de réponse' :
+                             call.call_result === 'blocked' ? '⚠️ Barrage' :
+                             call.call_result === 'wrong_number' ? '❌ N° erroné' : call.call_result}
+                          </span>
+                        </div>
+                        {call.contact_name && <div className="text-gray-600">👤 {call.contact_name}{call.contact_function ? ' — ' + call.contact_function : ''}</div>}
+                        {call.notes && <div className="text-gray-700 mt-1">{call.notes}</div>}
+                        {call.formations_mentioned && <div className="text-gray-500 text-xs mt-1">Formations : {call.formations_mentioned.join(', ')}</div>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Interlocuteur */}
               <div>
