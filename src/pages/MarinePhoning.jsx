@@ -98,38 +98,18 @@ export default function MarinePhoning() {
   async function loadProspects() {
     setLoading(true)
     try {
-      // Supabase limite à 1000 lignes par requête — on pagine
-      let allData = []
-      let from = 0
-      const pageSize = 1000
-      let keepGoing = true
+      // Appel RPC — dédup SIREN côté serveur, une seule requête
+      const { data, error } = await supabase.rpc('get_unique_prospects')
+      if (error) throw error
 
-      while (keepGoing) {
-        const { data, error } = await supabase
-          .from('prospection_massive')
-          .select('id, siret, siren, name, city, postal_code, phone, email, site_web, departement, effectif, naf, quality_score, prospection_status, prospection_notes, contacted, contacted_at, ai_summary')
-          .not('phone', 'is', null)
-          .order('quality_score', { ascending: false })
-          .range(from, from + pageSize - 1)
+      // Trier par quality_score desc
+      const sorted = (data || []).sort((a, b) => (b.quality_score || 0) - (a.quality_score || 0))
 
-        if (error) throw error
-        allData = allData.concat(data || [])
-        if (!data || data.length < pageSize) keepGoing = false
-        else from += pageSize
-      }
+      setProspects(sorted)
+      setTotalCount(sorted.length)
 
-      const seen = new Set()
-      const unique = allData.filter(p => {
-        if (!p.siren || seen.has(p.siren)) return false
-        seen.add(p.siren)
-        return true
-      })
-
-      setProspects(unique)
-      setTotalCount(unique.length)
-
-      if (viewMode === 'file' && unique.length > 0 && !current) {
-        selectProspect(unique[0])
+      if (viewMode === 'file' && sorted.length > 0 && !current) {
+        selectProspect(sorted[0])
       }
     } catch (err) {
       console.error('Erreur chargement:', err)
