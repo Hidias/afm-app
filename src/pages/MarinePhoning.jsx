@@ -457,6 +457,7 @@ export default function MarinePhoning() {
   ]
 
   const filtered = useMemo(() => {
+    const base = BASES[mapBase]
     let list = prospects.filter(p => {
       if (statusFilter === 'a_appeler' && p.prospection_status && p.prospection_status !== 'a_appeler') return false
       if (statusFilter === 'rappels' && !(p.siren && todayCallbackSirens.has(p.siren))) return false
@@ -479,7 +480,13 @@ export default function MarinePhoning() {
       }
       return true
     })
-    // File intelligente : rappels d'abord, puis à rappeler, puis score
+    // Calculer distance + filtrer par rayon
+    list = list.map(p => {
+      const dist = (p.latitude && p.longitude) ? distanceKm(base.lat, base.lng, p.latitude, p.longitude) : 9999
+      return { ...p, distance: dist }
+    })
+    if (mapRadius > 0) list = list.filter(p => p.distance <= mapRadius)
+    // Tri : rappels du jour → à rappeler → distance croissante
     list.sort((a, b) => {
       const aCb = a.siren && todayCallbackSirens.has(a.siren) ? 1 : 0
       const bCb = b.siren && todayCallbackSirens.has(b.siren) ? 1 : 0
@@ -488,10 +495,10 @@ export default function MarinePhoning() {
       const aO = order[a.prospection_status] || 3
       const bO = order[b.prospection_status] || 3
       if (aO !== bO) return aO - bO
-      return (b.quality_score || 0) - (a.quality_score || 0)
+      return a.distance - b.distance
     })
     return list
-  }, [prospects, statusFilter, departementFilter, effectifFilter, searchTerm, todayCallbackSirens])
+  }, [prospects, statusFilter, departementFilter, effectifFilter, searchTerm, todayCallbackSirens, mapBase, mapRadius])
 
   // En mode file, sélectionner le premier prospect du filtre actif
   useEffect(() => {
@@ -506,13 +513,9 @@ export default function MarinePhoning() {
 
   const basePoint = BASES[mapBase]
   const mapProspects = useMemo(() => {
-    return filtered.filter(p => p.latitude && p.longitude).map(p => {
-      const dist = distanceKm(basePoint.lat, basePoint.lng, p.latitude, p.longitude)
-      const potentiel = (p.quality_score || 50) + (parseInt(p.effectif) || 0) * 0.5
-      const priorite = dist > 0 ? potentiel / Math.sqrt(dist) : potentiel * 10
-      return { ...p, distance: dist, potentiel, priorite }
-    }).filter(p => mapRadius === 0 || p.distance <= mapRadius).sort((a, b) => b.priorite - a.priorite)
-  }, [filtered, mapBase, mapRadius])
+    return filtered.filter(p => p.latitude && p.longitude && p.distance < 9999)
+      .sort((a, b) => a.distance - b.distance)
+  }, [filtered])
 
   function exportCSV() {
     const headers = ['Société','ID','Type','Forme','NAF','VILLE','CP','Nom','Prénom','Mail','Téléphone','Fonction','Appel abouti','Appel non abouti','Mail','Suivi','RDV à prendre']
@@ -575,12 +578,23 @@ export default function MarinePhoning() {
         ))}
       </div>
 
-      {/* Barre de recherche */}
+      {/* Barre de recherche + filtres */}
       <div className="flex gap-2">
         <div className="relative flex-1">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input type="text" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Rechercher..." className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent text-sm" />
         </div>
+        <select value={mapBase} onChange={e => setMapBase(e.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm">
+          {Object.entries(BASES).map(([k, v]) => <option key={k} value={k}>📍 {v.name}</option>)}
+        </select>
+        <select value={mapRadius} onChange={e => setMapRadius(Number(e.target.value))} className="px-3 py-2 border border-gray-300 rounded-lg text-sm">
+          <option value={0}>∞ km</option>
+          <option value={30}>≤ 30 km</option>
+          <option value={60}>≤ 60 km</option>
+          <option value={100}>≤ 100 km</option>
+          <option value={150}>≤ 150 km</option>
+          <option value={200}>≤ 200 km</option>
+        </select>
         <select value={departementFilter} onChange={(e) => setDepartementFilter(e.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm">
           <option value="">Dép.</option>{departements.map(d => <option key={d} value={d}>{d}</option>)}
         </select>
@@ -608,8 +622,8 @@ export default function MarinePhoning() {
                 </div>
                 <div className="text-sm text-gray-500 flex items-center gap-3 mt-0.5">
                   <span>{p.city}</span>
+                  {p.distance < 9999 && <span className="text-gray-400">{p.distance.toFixed(0)} km</span>}
                   {getEffectifLabel(p.effectif) && <span>{getEffectifLabel(p.effectif)}</span>}
-                  {getFormeLabel(p.forme_juridique) && <span className="text-gray-400">{getFormeLabel(p.forme_juridique)}</span>}
                 </div>
               </div>
               <div className="flex items-center gap-3 ml-3">
@@ -629,9 +643,7 @@ export default function MarinePhoning() {
         /* CARTE */
         <div className="grid grid-cols-3 gap-4" style={{ height: 'calc(100vh - 260px)' }}>
           <div className="col-span-2 bg-white rounded-xl border overflow-hidden relative">
-            <div className="absolute top-3 left-3 z-[1000] bg-white rounded-lg shadow-lg p-2 flex gap-2">
-              <select value={mapBase} onChange={e => setMapBase(e.target.value)} className="text-sm border rounded px-2 py-1">{Object.entries(BASES).map(([k, v]) => <option key={k} value={k}>{v.name} ({v.who})</option>)}</select>
-              <select value={mapRadius} onChange={e => setMapRadius(Number(e.target.value))} className="text-sm border rounded px-2 py-1"><option value={0}>Tout</option><option value={30}>30km</option><option value={60}>60km</option><option value={100}>100km</option><option value={150}>150km</option></select>
+            <div className="absolute top-3 left-3 z-[1000] bg-white rounded-lg shadow-lg p-2">
               <button onClick={() => setShowCircles(!showCircles)} className={'text-sm px-2 py-1 rounded ' + (showCircles ? 'bg-primary-100 text-primary-700' : 'bg-gray-100')}>Zones</button>
             </div>
             <MapContainer center={[basePoint.lat, basePoint.lng]} zoom={8} style={{ height: '100%', width: '100%' }}>
@@ -678,6 +690,7 @@ export default function MarinePhoning() {
                 <div className="flex items-center gap-2 mt-1">
                   <MapPin className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
                   <span className="text-sm text-gray-600">{current.postal_code} {current.city}</span>
+                  {current.distance < 9999 && <span className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">{current.distance.toFixed(0)} km</span>}
                   {current.siren && todayCallbackSirens.has(current.siren) && <span className="bg-amber-100 text-amber-700 text-xs font-medium px-2 py-0.5 rounded-full">🔔 Rappel</span>}
                 </div>
               </div>
