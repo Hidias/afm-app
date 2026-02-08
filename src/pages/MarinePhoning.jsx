@@ -593,6 +593,55 @@ export default function MarinePhoning() {
     )
   }
 
+  // 📥 Export CSV au format Sheets Marine
+  function exportCSV() {
+    const headers = ['Société','ID','Type','Forme','NAF','VILLE','CP','Nom','Prénom','Mail','Téléphone','Fonction','Appel abouti','Appel non abouti','Suivi','RDV à prendre']
+    
+    const rows = filtered.map(p => {
+      const status = p.prospection_status
+      const suivi = status === 'rdv_pris' ? 'RDV pris' 
+        : status === 'a_rappeler' ? 'À rappeler'
+        : status === 'pas_interesse' ? 'Pas intéressé'
+        : status === 'injoignable' ? 'Injoignable'
+        : status === 'numero_errone' ? 'Numéro erroné'
+        : ''
+      
+      let tel = p.phone || ''
+      if (tel.startsWith('0')) tel = '+33' + tel.slice(1).replace(/\s/g, '')
+      
+      return [
+        p.name || '',
+        p.siren || '',
+        'P',
+        '',
+        p.naf || '',
+        p.city || '',
+        p.postal_code || '',
+        '', '', // Nom, Prénom contact
+        p.email || '',
+        tel,
+        '', '', '', // Fonction, Appel abouti, Appel non abouti
+        suivi,
+        status === 'rdv_pris' ? 'Oui' : '',
+      ]
+    })
+    
+    const csvContent = [headers, ...rows]
+      .map(row => row.map(cell => {
+        const s = String(cell).replace(/"/g, '""')
+        return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s}"` : s
+      }).join(','))
+      .join('\n')
+    
+    const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `phoning_export_${new Date().toISOString().slice(0,10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   return (
     <div className="space-y-4">
       {/* Header */}
@@ -662,8 +711,11 @@ export default function MarinePhoning() {
           <option value="100-249">100-249 sal.</option>
           <option value="250+">250+ sal.</option>
         </select>
-        <button onClick={loadProspects} className="px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg">
+        <button onClick={loadProspects} className="px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg" title="Rafraîchir">
           <RefreshCw className="w-4 h-4" />
+        </button>
+        <button onClick={exportCSV} className="px-3 py-2 bg-green-100 text-green-700 hover:bg-green-200 rounded-lg text-sm font-medium" title="Exporter CSV">
+          📥 CSV
         </button>
       </div>
 
