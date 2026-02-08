@@ -202,7 +202,7 @@ export default function MarinePhoning() {
       if (mySiren) {
         const { data } = await supabase
           .from('prospection_massive')
-          .select('id, name, city, departement, phone, phoning_status, phoning_result')
+          .select('id, name, city, departement, phone, prospection_status')
           .eq('siren', mySiren)
           .neq('id', myId)
           .limit(10)
@@ -216,7 +216,7 @@ export default function MarinePhoning() {
         const cleanPhone = prospect.phone.replace(/\s/g, '')
         const { data } = await supabase
           .from('prospection_massive')
-          .select('id, name, city, departement, phone, phoning_status, phoning_result')
+          .select('id, name, city, departement, phone, prospection_status')
           .neq('id', myId)
           .or(`phone.eq.${cleanPhone},phone.eq.${prospect.phone}`)
           .limit(10)
@@ -233,7 +233,7 @@ export default function MarinePhoning() {
         if (!isGeneric) {
           const { data } = await supabase
             .from('prospection_massive')
-            .select('id, name, city, departement, phone, phoning_status, phoning_result')
+            .select('id, name, city, departement, phone, prospection_status')
             .eq('email', prospect.email)
             .neq('id', myId)
             .limit(10)
@@ -250,7 +250,7 @@ export default function MarinePhoning() {
         if (domain && domain.length > 3) {
           const { data } = await supabase
             .from('prospection_massive')
-            .select('id, name, city, departement, phone, phoning_status, phoning_result, site_web')
+            .select('id, name, city, departement, phone, prospection_status, site_web')
             .neq('id', myId)
             .ilike('site_web', `%${domain}%`)
             .limit(10)
@@ -897,11 +897,11 @@ export default function MarinePhoning() {
                   </div>
                   <div className="space-y-1">
                     {duplicates.map((d, i) => {
-                      const statusLabel = d.phoning_status === 'rdv_pris' ? '✅ RDV pris'
-                        : d.phoning_status === 'a_rappeler' ? '🔄 À rappeler'
-                        : d.phoning_status === 'pas_interesse' ? '❌ Pas intéressé'
-                        : d.phoning_status === 'a_appeler' ? '📞 À appeler'
-                        : d.phoning_status === 'injoignable' ? '📵 Injoignable'
+                      const statusLabel = d.prospection_status === 'rdv_pris' ? '✅ RDV pris'
+                        : d.prospection_status === 'a_rappeler' ? '🔄 À rappeler'
+                        : d.prospection_status === 'pas_interesse' ? '❌ Pas intéressé'
+                        : d.prospection_status === 'a_appeler' ? '📞 À appeler'
+                        : d.prospection_status === 'injoignable' ? '📵 Injoignable'
                         : '⬜ Non traité'
                       return (
                         <div key={i} className="text-xs text-amber-800 flex items-center gap-2 flex-wrap">
