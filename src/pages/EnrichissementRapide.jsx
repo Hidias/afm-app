@@ -13,7 +13,7 @@
  * ============================================================================
  */
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
 import { 
   Search, SkipForward, Save, ExternalLink, Phone, Mail, Globe,
@@ -128,6 +128,23 @@ function getEffectifLabel(code) {
   return EFFECTIF_LABELS[String(code)] || code + ' sal.'
 }
 
+// Points de départ pour tri par proximité
+const BASES = {
+  '': { name: 'Score (par défaut)', lat: 0, lng: 0 },
+  concarneau: { name: '📍 Concarneau (Hicham)', lat: 47.8742, lng: -3.9196 },
+  derval: { name: '📍 Derval (Maxime)', lat: 47.6639, lng: -1.6689 },
+}
+
+function distanceKm(lat1, lon1, lat2, lon2) {
+  const R = 6371
+  const dLat = (lat2 - lat1) * Math.PI / 180
+  const dLon = (lon2 - lon1) * Math.PI / 180
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLon / 2) ** 2
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
+
 export default function EnrichissementRapide() {
   const [prospects, setProspects] = useState([])
   const [currentIndex, setCurrentIndex] = useState(0)
@@ -140,6 +157,7 @@ export default function EnrichissementRapide() {
   const [sessionStats, setSessionStats] = useState({ done: 0, phones: 0, emails: 0, excluded: 0 })
   const [totalRemaining, setTotalRemaining] = useState(0)
   const [departementFilter, setDepartementFilter] = useState('')
+  const [proximityBase, setProximityBase] = useState('')
   const [searchTerm, setSearchTerm] = useState('')
   const [searchResults, setSearchResults] = useState(null)
   const [searching, setSearching] = useState(false)
@@ -234,7 +252,7 @@ export default function EnrichissementRapide() {
     
     let query = supabase
       .from('prospection_massive')
-      .select('id, siret, siren, name, city, postal_code, address, naf, phone, email, site_web, departement, effectif, quality_score')
+      .select('id, siret, siren, name, city, postal_code, address, naf, phone, email, site_web, departement, effectif, quality_score, latitude, longitude')
       .is('phone', null)
       .or('enrichment_status.is.null,enrichment_status.eq.pending,enrichment_status.eq.enriching')
       .order('quality_score', { ascending: false })
@@ -264,6 +282,16 @@ export default function EnrichissementRapide() {
       return true
     }).slice(0, 50)
 
+    // Tri par proximité si base sélectionnée
+    if (proximityBase && BASES[proximityBase]) {
+      const base = BASES[proximityBase]
+      unique.sort((a, b) => {
+        const distA = (a.latitude && a.longitude) ? distanceKm(base.lat, base.lng, a.latitude, a.longitude) : 9999
+        const distB = (b.latitude && b.longitude) ? distanceKm(base.lat, base.lng, b.latitude, b.longitude) : 9999
+        return distA - distB
+      })
+    }
+
     setProspects(unique)
     setCurrentIndex(0)
     resetFields()
@@ -283,7 +311,7 @@ export default function EnrichissementRapide() {
     setTotalRemaining(count || 0)
 
     setLoading(false)
-  }, [departementFilter])
+  }, [departementFilter, proximityBase])
 
   useEffect(() => {
     loadProspects()
@@ -576,6 +604,15 @@ export default function EnrichissementRapide() {
           <div className="flex items-center gap-3">
             <Filter className="w-4 h-4 text-gray-500" />
             <select
+              value={proximityBase}
+              onChange={(e) => setProximityBase(e.target.value)}
+              className="border rounded-lg px-3 py-2 text-sm"
+            >
+              {Object.entries(BASES).map(([key, val]) => (
+                <option key={key} value={key}>{val.name}</option>
+              ))}
+            </select>
+            <select
               value={departementFilter}
               onChange={(e) => setDepartementFilter(e.target.value)}
               className="border rounded-lg px-3 py-2 text-sm"
@@ -687,6 +724,11 @@ export default function EnrichissementRapide() {
                 )}
                 <p className="text-xs text-gray-400 mt-1">
                   SIRET: {current.siret} • Score: {current.quality_score}
+                  {proximityBase && current.latitude && current.longitude && (() => {
+                    const base = BASES[proximityBase]
+                    const dist = distanceKm(base.lat, base.lng, current.latitude, current.longitude)
+                    return <span className="ml-2 text-primary-600 font-medium">• 📏 {Math.round(dist)} km de {base.name.replace('📍 ', '').split(' (')[0]}</span>
+                  })()}
                 </p>
               </div>
               <div className="text-sm text-gray-400">
