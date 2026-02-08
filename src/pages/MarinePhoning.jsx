@@ -59,7 +59,8 @@ export default function MarinePhoning() {
   const { user } = useAuthStore()
   const ADMIN_EMAIL = 'hicham.saidi@accessformation.pro'
   const isAdmin = user?.email === ADMIN_EMAIL
-  const callerName = user?.email?.split('@')[0]?.split('.')?.map(n => n.charAt(0).toUpperCase() + n.slice(1))?.join(' ') || 'Inconnu'
+  const CALLERS = ['Marine', 'Hicham', 'Maxime']
+  const [callerName, setCallerName] = useState('Marine')
 
   const [prospects, setProspects] = useState([])
   const [current, setCurrent] = useState(null)
@@ -441,9 +442,17 @@ export default function MarinePhoning() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">📞 Phoning</h1>
-          <p className="text-gray-600 mt-1">{filtered.length} prospects affichés sur {prospects.length} • {callerName}</p>
+          <p className="text-gray-600 mt-1">{filtered.length} prospects affichés sur {prospects.length}</p>
         </div>
         <div className="flex items-center gap-3">
+          <div className="flex bg-gray-100 rounded-lg p-1">
+            {CALLERS.map(c => (
+              <button key={c} onClick={() => setCallerName(c)}
+                className={'px-3 py-1.5 rounded-md text-sm font-medium transition-colors ' + (callerName === c ? 'bg-white shadow text-gray-900' : 'text-gray-600')}>
+                {c}
+              </button>
+            ))}
+          </div>
           <div className="flex bg-gray-100 rounded-lg p-1">
             <button onClick={() => setViewMode('list')}
               className={'px-3 py-1.5 rounded-md text-sm font-medium transition-colors ' + (viewMode === 'list' ? 'bg-white shadow text-gray-900' : 'text-gray-600')}>
@@ -581,16 +590,6 @@ export default function MarinePhoning() {
                 ) : (
                   <p className="text-sm text-gray-400 italic">Aucun résumé disponible</p>
                 )}
-              </div>
-
-              {/* Script d'accroche */}
-              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="text-sm font-semibold text-green-800">📋 Script d'accroche</span>
-                </div>
-                <p className="text-sm text-gray-700 leading-relaxed italic">
-                  "Bonjour, je suis {callerName} d'Access Formation à Concarneau. Nous accompagnons les entreprises de la région dans leurs formations sécurité obligatoires — SST, incendie, habilitation électrique, conduite de chariots... Je souhaitais échanger avec le responsable sécurité ou la personne en charge de la formation. Est-ce que c'est possible ?"
-                </p>
               </div>
 
               {/* Historique des appels */}
