@@ -359,7 +359,43 @@ export default function MarinePhoning() {
 
       let message = '✅ Appel enregistré'
       if (createRdv) message += ' • RDV créé pour ' + rdvAssignedTo
-      if (needsCallback) message += ' • Rappel programmé'
+      if (needsCallback) {
+        message += ' • Rappel programmé'
+        // Notification rappel
+        await supabase.from('notifications').insert({
+          title: '🔔 Rappel phoning — ' + current.name,
+          message: callerName + ' → rappeler le ' + new Date(callbackDate).toLocaleDateString('fr-FR') + ' à ' + callbackTime + (callbackReason ? ' (' + callbackReason + ')' : '') + (contactName ? ' • Contact : ' + contactName : ''),
+          type: 'rappel_phoning',
+          link: '/prospection-massive',
+          metadata: {
+            callback_date: callbackDate,
+            callback_time: callbackTime,
+            prospect_name: current.name,
+            prospect_phone: current.phone,
+            contact_name: contactName,
+          }
+        })
+        // Envoyer email rappel avec .ics
+        try {
+          await fetch('/api/send-callback-reminder', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              prospectName: current.name,
+              prospectPhone: current.phone,
+              contactName: contactName,
+              contactFunction: contactFunction,
+              callbackDate,
+              callbackTime,
+              callbackReason,
+              callerName,
+              notes,
+            })
+          })
+        } catch (emailErr) {
+          console.error('Erreur envoi email rappel:', emailErr)
+        }
+      }
       toast.success(message)
 
       goNext()
