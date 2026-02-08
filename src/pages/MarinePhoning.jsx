@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase'
 import { useAuthStore } from '../lib/store'
 import { 
   Phone, CheckCircle, RefreshCw, SkipForward,
-  Building2, MapPin, Mail, List, Search, Sparkles, Loader2, Map as MapIcon, Navigation
+  Building2, MapPin, Mail, List, Search, Sparkles, Loader2, Map as MapIcon, Navigation, AlertTriangle
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { MapContainer, TileLayer, CircleMarker, Circle, Popup, useMap } from 'react-leaflet'
@@ -131,6 +131,7 @@ export default function MarinePhoning() {
   const [aiSummary, setAiSummary] = useState('')
   const [aiSummaryLoading, setAiSummaryLoading] = useState(false)
   const [callHistory, setCallHistory] = useState([])
+  const [duplicates, setDuplicates] = useState([])
   const [statusFilter, setStatusFilter] = useState('a_appeler')
   const [effectifFilter, setEffectifFilter] = useState('')
   const [mapBase, setMapBase] = useState('concarneau')
@@ -186,6 +187,84 @@ export default function MarinePhoning() {
     loadAiSummary(prospect)
     // Charger l'historique d'appels
     loadCallHistory(prospect)
+    // Chercher les doublons
+    loadDuplicates(prospect)
+  }
+
+  async function loadDuplicates(prospect) {
+    setDuplicates([])
+    try {
+      const found = []
+      const myId = prospect.id
+      const mySiren = prospect.siren
+
+      // 1. Même SIREN (autres établissements du même groupe)
+      if (mySiren) {
+        const { data } = await supabase
+          .from('prospection_massive')
+          .select('id, name, city, departement, phone, phoning_status, phoning_result')
+          .eq('siren', mySiren)
+          .neq('id', myId)
+          .limit(10)
+        if (data?.length) {
+          data.forEach(d => found.push({ ...d, reason: 'Même SIREN (groupe)' }))
+        }
+      }
+
+      // 2. Même téléphone
+      if (prospect.phone) {
+        const cleanPhone = prospect.phone.replace(/\s/g, '')
+        const { data } = await supabase
+          .from('prospection_massive')
+          .select('id, name, city, departement, phone, phoning_status, phoning_result')
+          .neq('id', myId)
+          .or(`phone.eq.${cleanPhone},phone.eq.${prospect.phone}`)
+          .limit(10)
+        if (data?.length) {
+          data.filter(d => !found.some(f => f.id === d.id))
+            .forEach(d => found.push({ ...d, reason: 'Même téléphone' }))
+        }
+      }
+
+      // 3. Même email (sauf génériques)
+      if (prospect.email) {
+        const emailPrefix = prospect.email.split('@')[0]?.toLowerCase()
+        const isGeneric = ['contact', 'info', 'accueil', 'commercial', 'admin', 'bonjour', 'hello'].includes(emailPrefix)
+        if (!isGeneric) {
+          const { data } = await supabase
+            .from('prospection_massive')
+            .select('id, name, city, departement, phone, phoning_status, phoning_result')
+            .eq('email', prospect.email)
+            .neq('id', myId)
+            .limit(10)
+          if (data?.length) {
+            data.filter(d => !found.some(f => f.id === d.id))
+              .forEach(d => found.push({ ...d, reason: 'Même email' }))
+          }
+        }
+      }
+
+      // 4. Même site web (domaine)
+      if (prospect.site_web) {
+        const domain = prospect.site_web.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0].toLowerCase()
+        if (domain && domain.length > 3) {
+          const { data } = await supabase
+            .from('prospection_massive')
+            .select('id, name, city, departement, phone, phoning_status, phoning_result, site_web')
+            .neq('id', myId)
+            .ilike('site_web', `%${domain}%`)
+            .limit(10)
+          if (data?.length) {
+            data.filter(d => !found.some(f => f.id === d.id))
+              .forEach(d => found.push({ ...d, reason: 'Même site web' }))
+          }
+        }
+      }
+
+      setDuplicates(found)
+    } catch (err) {
+      console.error('Erreur doublons:', err)
+    }
   }
 
   async function loadCallHistory(prospect) {
@@ -808,6 +887,34 @@ export default function MarinePhoning() {
                   {viewMode === 'file' && <span className="text-sm text-gray-500">{prospects.findIndex(p => p.id === current.id) + 1} / {filtered.length}</span>}
                 </div>
               </div>
+
+              {/* Alerte doublons */}
+              {duplicates.length > 0 && (
+                <div className="bg-amber-50 border border-amber-300 rounded-lg px-4 py-3">
+                  <div className="flex items-center gap-2 text-amber-700 font-medium text-sm mb-2">
+                    <AlertTriangle className="w-4 h-4" />
+                    Informations similaires trouvées ({duplicates.length})
+                  </div>
+                  <div className="space-y-1">
+                    {duplicates.map((d, i) => {
+                      const statusLabel = d.phoning_status === 'rdv_pris' ? '✅ RDV pris'
+                        : d.phoning_status === 'a_rappeler' ? '🔄 À rappeler'
+                        : d.phoning_status === 'pas_interesse' ? '❌ Pas intéressé'
+                        : d.phoning_status === 'a_appeler' ? '📞 À appeler'
+                        : d.phoning_status === 'injoignable' ? '📵 Injoignable'
+                        : '⬜ Non traité'
+                      return (
+                        <div key={i} className="text-xs text-amber-800 flex items-center gap-2 flex-wrap">
+                          <span className="font-medium">{d.name}</span>
+                          <span className="text-amber-600">({d.city || d.departement})</span>
+                          <span className="bg-amber-100 px-1.5 py-0.5 rounded">{d.reason}</span>
+                          <span>{statusLabel}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
 
               {/* Résumé IA */}
               <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
