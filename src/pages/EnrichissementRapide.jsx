@@ -353,6 +353,8 @@ export default function EnrichissementRapide() {
 
     if (departementFilter) {
       countQuery = countQuery.eq('departement', departementFilter)
+    } else if (nearbyDepts && nearbyDepts.length > 0) {
+      countQuery = countQuery.in('departement', nearbyDepts)
     }
 
     const { count } = await countQuery
