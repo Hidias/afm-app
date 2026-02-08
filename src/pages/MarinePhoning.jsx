@@ -132,6 +132,7 @@ export default function MarinePhoning() {
   const [aiSummaryLoading, setAiSummaryLoading] = useState(false)
   const [callHistory, setCallHistory] = useState([])
   const [duplicates, setDuplicates] = useState([])
+  const [showDuplicates, setShowDuplicates] = useState(false)
   const [statusFilter, setStatusFilter] = useState('a_appeler')
   const [effectifFilter, setEffectifFilter] = useState('')
   const [mapBase, setMapBase] = useState('concarneau')
@@ -193,6 +194,7 @@ export default function MarinePhoning() {
 
   async function loadDuplicates(prospect) {
     setDuplicates([])
+    setShowDuplicates(false)
     try {
       const found = []
       const myId = prospect.id
@@ -986,29 +988,36 @@ export default function MarinePhoning() {
 
               {/* Alerte doublons */}
               {duplicates.length > 0 && (
-                <div className="bg-amber-50 border border-amber-300 rounded-lg px-4 py-3">
-                  <div className="flex items-center gap-2 text-amber-700 font-medium text-sm mb-2">
+                <div className="bg-amber-50 border border-amber-300 rounded-lg px-3 py-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowDuplicates(!showDuplicates)}
+                    className="flex items-center gap-2 text-amber-700 font-medium text-sm w-full"
+                  >
                     <AlertTriangle className="w-4 h-4" />
-                    Informations similaires trouvées ({duplicates.length})
-                  </div>
-                  <div className="space-y-1">
-                    {duplicates.map((d, i) => {
-                      const statusLabel = d.prospection_status === 'rdv_pris' ? '✅ RDV pris'
-                        : d.prospection_status === 'a_rappeler' ? '🔄 À rappeler'
-                        : d.prospection_status === 'pas_interesse' ? '❌ Pas intéressé'
-                        : d.prospection_status === 'a_appeler' ? '📞 À appeler'
-                        : d.prospection_status === 'injoignable' ? '📵 Injoignable'
-                        : '⬜ Non traité'
-                      return (
-                        <div key={i} className="text-xs text-amber-800 flex items-center gap-2 flex-wrap">
-                          <span className="font-medium">{d.name}</span>
-                          <span className="text-amber-600">({d.city || d.departement})</span>
-                          <span className="bg-amber-100 px-1.5 py-0.5 rounded">{d.reason}</span>
-                          <span>{statusLabel}</span>
-                        </div>
-                      )
-                    })}
-                  </div>
+                    <span>Informations similaires trouvées ({duplicates.length})</span>
+                    <span className="ml-auto text-amber-500">{showDuplicates ? '▲' : '▼'}</span>
+                  </button>
+                  {showDuplicates && (
+                    <div className="space-y-1 mt-2 pt-2 border-t border-amber-200">
+                      {duplicates.map((d, i) => {
+                        const statusLabel = d.prospection_status === 'rdv_pris' ? '✅ RDV pris'
+                          : d.prospection_status === 'a_rappeler' ? '🔄 À rappeler'
+                          : d.prospection_status === 'pas_interesse' ? '❌ Pas intéressé'
+                          : d.prospection_status === 'a_appeler' ? '📞 À appeler'
+                          : d.prospection_status === 'injoignable' ? '📵 Injoignable'
+                          : '⬜ Non traité'
+                        return (
+                          <div key={i} className="text-xs text-amber-800 flex items-center gap-2 flex-wrap">
+                            <span className="font-medium">{d.name}</span>
+                            <span className="text-amber-600">({d.city || d.departement})</span>
+                            <span className="bg-amber-100 px-1.5 py-0.5 rounded">{d.reason}</span>
+                            <span>{statusLabel}</span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
 
