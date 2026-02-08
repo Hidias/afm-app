@@ -1,9 +1,8 @@
 import { useState } from 'react'
-import { Calendar, Phone, Zap, Map } from 'lucide-react'
+import { Calendar, Phone, Zap } from 'lucide-react'
 import Prospection from './Prospection'
 import MarinePhoning from './MarinePhoning'
 import EnrichissementRapide from './EnrichissementRapide'
-import ProspectionCarte from './ProspectionCarte'
 
 export default function ProspectionTabs() {
   const [activeTab, setActiveTab] = useState('rendez-vous')
@@ -12,7 +11,6 @@ export default function ProspectionTabs() {
     { id: 'rendez-vous', label: 'Rendez-vous', icon: Calendar, component: Prospection },
     { id: 'enrichissement', label: 'Enrichissement', icon: Zap, component: EnrichissementRapide },
     { id: 'phoning', label: 'Phoning', icon: Phone, component: MarinePhoning },
-    { id: 'carte', label: 'Carte', icon: Map, component: ProspectionCarte },
   ]
 
   const ActiveComponent = tabs.find(t => t.id === activeTab)?.component || Prospection
