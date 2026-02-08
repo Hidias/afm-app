@@ -304,7 +304,16 @@ export default function MarinePhoning() {
       const { data: clientData } = await supabase.from('clients').select('id').eq('siren', prospect.siren).maybeSingle()
       if (clientData) {
         const { data: calls } = await supabase.from('prospect_calls').select('*').eq('client_id', clientData.id).order('called_at', { ascending: false }).limit(5)
-        if (calls) setCallHistory(calls)
+        if (calls && calls.length > 0) {
+          setCallHistory(calls)
+          // Pré-remplir depuis le dernier appel
+          const last = calls[0]
+          if (last.formations_mentioned && last.formations_mentioned.length > 0) setFormationsSelected(last.formations_mentioned)
+          if (last.contact_name && !contactName) setContactName(last.contact_name)
+          if (last.contact_function) setContactFunction(last.contact_function)
+          if (last.contact_email) setContactEmail(last.contact_email)
+          if (last.contact_mobile) setContactMobile(last.contact_mobile)
+        }
       }
     } catch (err) { console.error('Erreur historique:', err) }
   }
