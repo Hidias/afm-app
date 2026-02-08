@@ -57,38 +57,54 @@ export default async function handler(req, res) {
       }
     }
 
-    const prompt = `Tu es l'assistant commercial d'Access Formation, organisme de formation sécurité basé à Concarneau (29).
+    const prompt = `Tu génères une FICHE PROSPECT pour un opérateur téléphonique d'Access Formation (organisme de formation sécurité, Concarneau).
 
-NOTRE CATALOGUE (utilise UNIQUEMENT ces termes, jamais d'autres) :
-- SST (Sauveteur Secouriste du Travail) / MAC SST (recyclage)
-- Initiation aux gestes de premiers secours (4h ou plus, pour petites structures qui n'ont pas besoin du SST)
-- Incendie : EPI (Équipier de Première Intervention), manipulation extincteurs, évacuation
-- Habilitation électrique B0/H0V uniquement (non-électriciens)
-- Conduite en sécurité de chariots élévateurs R489 (formation interne, PAS de CACES)
-- Conduite en sécurité de gerbeurs R485 (formation interne, PAS de CACES)
-- Gestes & Postures / Prévention TMS
-- Accompagnement DUERP (Document Unique d'Évaluation des Risques Professionnels)
-- Formations sur mesure adaptées aux besoins
-
-⚠️ IMPORTANT : Ne JAMAIS mentionner "CACES" — nous faisons de la formation interne à la conduite, pas du CACES. Ne JAMAIS mentionner d'habilitation électrique autre que B0/H0V.
+CE N'EST PAS UN PITCH. C'est une fiche d'intelligence rapide que l'opérateur lit en 10 secondes avant d'appeler.
 
 INFORMATIONS PROSPECT :
-- Entreprise : ${name}
+- Nom entreprise : ${name}
 - Ville : ${city || 'Inconnue'}
 - Code NAF : ${naf || 'Inconnu'}
 - Effectif : ${effectif || 'Inconnu'}
 - SIRET : ${siret || ''}
-${siteContent ? `\nCONTENU DU SITE WEB :\n${siteContent}` : ''}
+${siteContent ? `\nSITE WEB :\n${siteContent}` : ''}
 
-INSTRUCTIONS :
-1. Résume l'activité de l'entreprise en 1 phrase
-2. Identifie les formations pertinentes UNIQUEMENT parmi notre catalogue ci-dessus
-3. Pour les petites structures (<20 salariés), pense à l'initiation premiers secours (4h) plutôt que SST
-4. Si l'entreprise utilise des chariots/gerbeurs, propose la formation interne conduite R489/R485 (jamais CACES)
-5. Mentionne le DUERP si pertinent (toute entreprise y est obligée)
-6. Si le site donne des infos utiles (clients, secteur, risques), mentionne-les
+NOTRE OFFRE (utilise UNIQUEMENT ces termes) :
+- SST initial (14h, groupes 4-10 pers.) / MAC SST recyclage (7h)
+- Initiation gestes de premiers secours (4h) — alternative SST pour petites structures
+- Incendie : EPI, manipulation extincteurs, évacuation
+- Habilitation électrique B0/H0V uniquement (non-électriciens)
+- Conduite chariots R489 / gerbeurs R485 (formation INTERNE, jamais dire "CACES")
+- Gestes & Postures / Prévention TMS
+- DUERP (Document Unique) — obligatoire toute entreprise
+- Conseil sur mesure : analyse de postes de travail, formations adaptées (notre spécialité)
 
-FORMAT : Texte brut, pas de markdown, pas de puces, pas de titres. 3-4 lignes directement exploitables pour l'appel.`
+RÈGLES MÉTIER — QUAND PROPOSER QUOI :
+- < 10 salariés → Initiation 4h (moins contraignant que SST 14h qui impose 4-10 pers.)
+- ≥ 10 salariés → SST initial 14h pertinent (groupe possible), MAC SST si déjà formés
+- Si l'entreprise veut du SST même en petit effectif → c'est possible
+- Incendie → OBLIGATOIRE toute entreprise : manipulation extincteurs + exercice évacuation 2x/an → d'où l'intérêt de former des EPI (manip extincteurs + guide-file/serre-file)
+- Entrepôt / logistique / stockage / magasin avec réserve → Conduite chariots R489 et/ou gerbeurs R485
+- Manutention / port de charges / posture debout / travail répétitif → Gestes & Postures + analyse de poste sur mesure
+- Travail à proximité d'installations électriques (bureaux, ateliers, maintenance) → Habilitation B0/H0V
+- DUERP → obligatoire TOUTE entreprise dès 1 salarié, toujours le mentionner
+- Conseil sur mesure / analyse de poste → notre spécialité, à proposer dès qu'il y a des risques spécifiques
+- ⚠️ JAMAIS mentionner "CACES" — on fait de la formation interne conduite
+- ⚠️ JAMAIS d'habilitation autre que B0/H0V
+
+FORMAT OBLIGATOIRE (bullet points, texte brut, pas de markdown) :
+
+🏢 [Nom commercial + enseigne/groupe si identifiable, activité en 5 mots max]
+⚠️ Risques : [risques métier principaux, séparés par virgules]
+📋 Obligations : [ce qui s'applique selon effectif — SST ou initiation, DUERP]
+🎯 À proposer : [2-3 formations prioritaires avec raison courte]
+💡 Accroche : [1 angle d'approche personnalisé basé sur l'activité réelle]
+
+IMPORTANT :
+- Pas de formule de politesse, pas de "n'hésitez pas"
+- Pas de texte à réciter — juste des faits
+- Si le site web ou le nom révèle un groupe/enseigne (ex: Intersport, Leclerc...), le mentionner
+- Chaque ligne doit être ultra-concise`
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -99,7 +115,7 @@ FORMAT : Texte brut, pas de markdown, pas de puces, pas de titres. 3-4 lignes di
       },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 300,
+        max_tokens: 400,
         messages: [{ role: 'user', content: prompt }]
       })
     })
