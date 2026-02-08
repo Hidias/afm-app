@@ -1,11 +1,49 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuthStore } from '../lib/store'
 import { 
   Phone, CheckCircle, RefreshCw, SkipForward,
-  Building2, MapPin, Mail, List, Search, Sparkles, Loader2
+  Building2, MapPin, Mail, List, Search, Sparkles, Loader2, Map as MapIcon, Navigation
 } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { MapContainer, TileLayer, CircleMarker, Circle, Popup, useMap } from 'react-leaflet'
+import 'leaflet/dist/leaflet.css'
+
+// Points de départ
+const BASES = {
+  concarneau: { name: 'Concarneau', who: 'Hicham', lat: 47.8742, lng: -3.9196 },
+  derval: { name: 'Derval', who: 'Maxime', lat: 47.6639, lng: -1.6689 },
+}
+
+// Distance Haversine en km
+function distanceKm(lat1, lon1, lat2, lon2) {
+  const R = 6371
+  const dLat = (lat2 - lat1) * Math.PI / 180
+  const dLon = (lon2 - lon1) * Math.PI / 180
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLon / 2) ** 2
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
+
+// Couleur point carte
+function getMapColor(p) {
+  if (p.prospection_status === 'pas_interesse') return '#9CA3AF'
+  if (p.prospection_status === 'rdv_pris') return '#10B981'
+  if (p.prospection_status === 'a_rappeler') return '#F59E0B'
+  const eff = parseInt(p.effectif) || 0
+  if (eff >= 50) return '#EF4444'
+  if (eff >= 20) return '#F97316'
+  if (eff >= 6) return '#EAB308'
+  return '#94A3B8'
+}
+
+// Recentrer la carte
+function MapRecenter({ center, zoom }) {
+  const map = useMap()
+  useEffect(() => { map.setView(center, zoom) }, [center, zoom])
+  return null
+}
 
 const FORMATIONS = [
   'SST / MAC SST',
@@ -90,6 +128,10 @@ export default function MarinePhoning() {
   const [callHistory, setCallHistory] = useState([])
   const [statusFilter, setStatusFilter] = useState('a_appeler')
   const [effectifFilter, setEffectifFilter] = useState('')
+  const [mapBase, setMapBase] = useState('concarneau')
+  const [mapRadius, setMapRadius] = useState(0)
+  const [showCircles, setShowCircles] = useState(true)
+  const [mapSelected, setMapSelected] = useState(null)
 
   const departements = [...new Set(prospects.map(p => p.departement))].filter(Boolean).sort()
 
@@ -444,6 +486,21 @@ export default function MarinePhoning() {
     return true
   })
 
+  // Enrichir avec distance pour la carte
+  const basePoint = BASES[mapBase]
+  const mapProspects = useMemo(() => {
+    return filtered
+      .filter(p => p.latitude && p.longitude)
+      .map(p => {
+        const dist = distanceKm(basePoint.lat, basePoint.lng, p.latitude, p.longitude)
+        const potentiel = (p.quality_score || 50) + (parseInt(p.effectif) || 0) * 0.5
+        const priorite = dist > 0 ? potentiel / Math.sqrt(dist) : potentiel * 10
+        return { ...p, distance: dist, potentiel, priorite }
+      })
+      .filter(p => mapRadius === 0 || p.distance <= mapRadius)
+      .sort((a, b) => b.priorite - a.priorite)
+  }, [filtered, mapBase, mapRadius])
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -477,6 +534,10 @@ export default function MarinePhoning() {
             <button onClick={() => { setViewMode('file'); if (filtered.length > 0 && !current) selectProspect(filtered[0]) }}
               className={'px-3 py-1.5 rounded-md text-sm font-medium transition-colors ' + (viewMode === 'file' ? 'bg-white shadow text-gray-900' : 'text-gray-600')}>
               <SkipForward className="w-4 h-4 inline mr-1" /> File
+            </button>
+            <button onClick={() => setViewMode('carte')}
+              className={'px-3 py-1.5 rounded-md text-sm font-medium transition-colors ' + (viewMode === 'carte' ? 'bg-white shadow text-gray-900' : 'text-gray-600')}>
+              <MapIcon className="w-4 h-4 inline mr-1" /> Carte
             </button>
           </div>
         </div>
@@ -522,11 +583,168 @@ export default function MarinePhoning() {
         </button>
       </div>
 
-      {filtered.length === 0 && !current ? (
+      {filtered.length === 0 && !current && viewMode !== 'carte' ? (
         <div className="bg-white rounded-lg border border-gray-200 p-12 text-center">
           <Phone className="w-12 h-12 text-gray-400 mx-auto mb-4" />
           <h2 className="text-xl font-semibold text-gray-900 mb-2">Aucun prospect à appeler</h2>
           <p className="text-gray-600">Enrichissez des prospects dans l'onglet Enrichissement</p>
+        </div>
+      ) : viewMode === 'carte' ? (
+        <div className="space-y-3">
+          {/* Contrôles carte */}
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex bg-gray-100 rounded-lg p-0.5">
+              {Object.entries(BASES).map(([key, val]) => (
+                <button key={key} onClick={() => setMapBase(key)}
+                  className={'px-3 py-1.5 rounded-md text-xs font-medium transition-colors ' +
+                    (mapBase === key ? 'bg-white shadow text-gray-900' : 'text-gray-600')}>
+                  📍 {val.name} ({val.who})
+                </button>
+              ))}
+            </div>
+            <select value={mapRadius} onChange={(e) => setMapRadius(parseInt(e.target.value))}
+              className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm">
+              <option value="0">Tous (pas de limite)</option>
+              <option value="20">≤ 20 km</option>
+              <option value="50">≤ 50 km</option>
+              <option value="100">≤ 100 km</option>
+              <option value="150">≤ 150 km</option>
+            </select>
+            <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer">
+              <input type="checkbox" checked={showCircles} onChange={(e) => setShowCircles(e.target.checked)} className="rounded" />
+              Cercles distance
+            </label>
+            <span className="text-sm text-gray-500 ml-auto">
+              {mapProspects.length} prospects sur la carte
+              {mapRadius > 0 && ` • ≤ ${mapRadius}km de ${BASES[mapBase].name}`}
+            </span>
+          </div>
+
+          {/* Légende */}
+          <div className="flex items-center gap-4 text-xs text-gray-500">
+            <span><span className="inline-block w-3 h-3 rounded-full bg-red-500 mr-1"></span>50+ sal.</span>
+            <span><span className="inline-block w-3 h-3 rounded-full bg-orange-500 mr-1"></span>20-49</span>
+            <span><span className="inline-block w-3 h-3 rounded-full bg-yellow-500 mr-1"></span>6-19</span>
+            <span><span className="inline-block w-3 h-3 rounded-full bg-gray-400 mr-1"></span>&lt;6</span>
+            <span><span className="inline-block w-3 h-3 rounded-full bg-green-500 mr-1"></span>RDV pris</span>
+            <span><span className="inline-block w-3 h-3 rounded-full bg-amber-400 mr-1"></span>À rappeler</span>
+          </div>
+
+          {/* Carte + Liste */}
+          <div className="flex gap-4" style={{ height: 'calc(100vh - 380px)' }}>
+            {/* Carte */}
+            <div className="flex-1 rounded-lg overflow-hidden border border-gray-200 shadow-sm">
+              <MapContainer
+                center={[basePoint.lat, basePoint.lng]}
+                zoom={9}
+                style={{ height: '100%', width: '100%' }}
+                scrollWheelZoom={true}
+              >
+                <MapRecenter center={[basePoint.lat, basePoint.lng]} zoom={mapRadius <= 20 ? 11 : mapRadius <= 50 ? 10 : mapRadius <= 100 ? 9 : 8} />
+                <TileLayer
+                  attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                />
+
+                {showCircles && (
+                  <>
+                    <Circle center={[basePoint.lat, basePoint.lng]} radius={20000}
+                      pathOptions={{ color: '#3B82F6', weight: 1, fillOpacity: 0.03, dashArray: '5,10' }} />
+                    <Circle center={[basePoint.lat, basePoint.lng]} radius={50000}
+                      pathOptions={{ color: '#6366F1', weight: 1, fillOpacity: 0.02, dashArray: '5,10' }} />
+                    <Circle center={[basePoint.lat, basePoint.lng]} radius={100000}
+                      pathOptions={{ color: '#8B5CF6', weight: 1, fillOpacity: 0.01, dashArray: '5,10' }} />
+                  </>
+                )}
+
+                {/* Base marker */}
+                <CircleMarker center={[basePoint.lat, basePoint.lng]} radius={10}
+                  pathOptions={{ color: '#1E40AF', fillColor: '#3B82F6', fillOpacity: 1, weight: 3 }}>
+                  <Popup><strong>📍 {basePoint.name}</strong><br />Base de départ — {basePoint.who}</Popup>
+                </CircleMarker>
+
+                {/* Prospects */}
+                {mapProspects.map(p => (
+                  <CircleMarker
+                    key={p.id}
+                    center={[p.latitude, p.longitude]}
+                    radius={Math.max(4, Math.min(12, (p.quality_score || 50) / 10))}
+                    pathOptions={{
+                      color: mapSelected?.id === p.id ? '#1E40AF' : '#fff',
+                      fillColor: getMapColor(p),
+                      fillOpacity: 0.85,
+                      weight: mapSelected?.id === p.id ? 3 : 1,
+                    }}
+                    eventHandlers={{ click: () => setMapSelected(p) }}
+                  >
+                    <Popup>
+                      <div style={{ minWidth: 200 }}>
+                        <strong>{p.name}</strong><br />
+                        <span style={{ fontSize: 12, color: '#666' }}>{p.postal_code} {p.city}</span><br />
+                        {p.phone && <a href={'tel:' + p.phone.replace(/\s/g, '')} style={{ color: '#2563EB', fontWeight: 'bold' }}>📞 {p.phone}</a>}<br />
+                        <span style={{ fontSize: 12 }}>
+                          👥 {getEffectifLabel(p.effectif)} • 📏 {Math.round(p.distance)} km
+                        </span>
+                      </div>
+                    </Popup>
+                  </CircleMarker>
+                ))}
+              </MapContainer>
+            </div>
+
+            {/* Liste latérale triée par priorité */}
+            <div className="w-72 bg-white rounded-lg border border-gray-200 overflow-hidden flex flex-col">
+              <div className="p-3 bg-gray-50 border-b text-xs font-semibold text-gray-700">
+                ⭐ Triés par priorité (potentiel ÷ distance)
+              </div>
+              <div className="flex-1 overflow-y-auto">
+                {mapProspects.map((p, idx) => (
+                  <button
+                    key={p.id}
+                    onClick={() => { setMapSelected(p); selectProspect(p) }}
+                    className={'w-full text-left px-3 py-2 border-b border-gray-100 hover:bg-blue-50 transition-colors ' +
+                      (mapSelected?.id === p.id ? 'bg-blue-50 border-l-4 border-l-blue-500' : '')}
+                  >
+                    <div className="flex items-start justify-between gap-1">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: getMapColor(p) }}></span>
+                          <p className="text-xs font-medium text-gray-900 truncate">{p.name}</p>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-0.5">{p.city} • 👥 {getEffectifLabel(p.effectif)} • 📏 {Math.round(p.distance)}km</p>
+                      </div>
+                      <span className="text-xs font-bold text-primary-600">#{idx + 1}</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+
+              {/* Détail prospect sélectionné */}
+              {mapSelected && (
+                <div className="border-t bg-blue-50 p-3 space-y-2">
+                  <div className="flex items-start justify-between">
+                    <p className="font-bold text-gray-900 text-sm">{mapSelected.name}</p>
+                    <button onClick={() => setMapSelected(null)} className="text-gray-400 hover:text-gray-600 text-xs">✕</button>
+                  </div>
+                  <p className="text-xs text-gray-600">{mapSelected.postal_code} {mapSelected.city} • 📏 {Math.round(mapSelected.distance)} km</p>
+                  {mapSelected.phone && (
+                    <a href={'tel:' + mapSelected.phone.replace(/\s/g, '')}
+                      className="flex items-center gap-2 px-3 py-2 bg-green-500 text-white rounded-lg text-sm font-medium hover:bg-green-600 justify-center">
+                      <Phone className="w-4 h-4" /> {mapSelected.phone}
+                    </a>
+                  )}
+                  <div className="grid grid-cols-2 gap-1 text-xs">
+                    <div className="bg-white rounded px-2 py-1"><span className="text-gray-500">Effectif</span><p className="font-medium">{getEffectifLabel(mapSelected.effectif)}</p></div>
+                    <div className="bg-white rounded px-2 py-1"><span className="text-gray-500">Score</span><p className="font-medium">{mapSelected.quality_score || '-'}</p></div>
+                  </div>
+                  <button onClick={() => { selectProspect(mapSelected); setViewMode('file') }}
+                    className="w-full px-3 py-2 bg-primary-600 text-white rounded-lg text-sm font-medium hover:bg-primary-700">
+                    Ouvrir la fiche →
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       ) : (
         <div className="flex gap-4">
