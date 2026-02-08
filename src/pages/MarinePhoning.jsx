@@ -178,21 +178,10 @@ export default function MarinePhoning() {
 
   useEffect(() => { loadProspects(); loadDailyStats(); loadTodayCallbacks() }, [])
 
-  // Scroll en haut quand on change de filtre + recharger premier prospect en mode file
+  // Scroll en haut quand on change de filtre
   useEffect(() => {
     if (listRef.current) listRef.current.scrollTop = 0
   }, [statusFilter, departementFilter, effectifFilter, searchTerm])
-
-  // En mode file, sélectionner le premier prospect du filtre actif
-  useEffect(() => {
-    if (viewMode === 'file' && filtered.length > 0) {
-      if (!current || !filtered.some(p => p.id === current.id)) {
-        selectProspect(filtered[0])
-      }
-    } else if (viewMode === 'file' && filtered.length === 0) {
-      setCurrent(null)
-    }
-  }, [filtered, viewMode])
 
   async function loadProspects() {
     setLoading(true)
@@ -492,6 +481,17 @@ export default function MarinePhoning() {
     })
     return list
   }, [prospects, statusFilter, departementFilter, effectifFilter, searchTerm, todayCallbackSirens])
+
+  // En mode file, sélectionner le premier prospect du filtre actif
+  useEffect(() => {
+    if (viewMode === 'file' && filtered.length > 0) {
+      if (!current || !filtered.some(p => p.id === current.id)) {
+        selectProspect(filtered[0])
+      }
+    } else if (viewMode === 'file' && filtered.length === 0) {
+      setCurrent(null)
+    }
+  }, [filtered, viewMode])
 
   const basePoint = BASES[mapBase]
   const mapProspects = useMemo(() => {
