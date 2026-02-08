@@ -65,7 +65,13 @@ INFORMATIONS PROSPECT :
 - Nom entreprise : ${name}
 - Ville : ${city || 'Inconnue'}
 - Code NAF : ${naf || 'Inconnu'}
-- Effectif : ${effectif || 'Inconnu'}
+- Effectif : ${effectif || 'Inconnu'}${effectif ? (() => {
+      const s = (effectif + '').toLowerCase()
+      const match = s.match(/(\d+)/)
+      const firstNum = match ? parseInt(match[1]) : 0
+      const isSmall = firstNum > 0 && firstNum < 10
+      return isSmall ? ' → PETITE STRUCTURE < 10 sal. = privilégier Initiation 4h' : ' → ≥ 10 sal. = SST initial 14h adapté (groupe 4-10 pers.)'
+    })() : ''}
 - SIRET : ${siret || ''}
 ${siteContent ? `\nSITE WEB :\n${siteContent}` : ''}
 
