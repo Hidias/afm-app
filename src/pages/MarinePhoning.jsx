@@ -98,7 +98,12 @@ export default function MarinePhoning() {
   const ADMIN_EMAIL = 'hicham.saidi@accessformation.pro'
   const isAdmin = user?.email === ADMIN_EMAIL
   const CALLERS = ['Marine', 'Hicham', 'Maxime']
-  const [callerName, setCallerName] = useState('Marine')
+  const getCallerFromEmail = (email) => {
+    if (email === 'hicham.saidi@accessformation.pro') return 'Hicham'
+    if (email === 'maxime.langlais@accessformation.pro') return 'Maxime'
+    return 'Marine' // contact@ ou autre = Marine
+  }
+  const [callerName, setCallerName] = useState(getCallerFromEmail(user?.email))
 
   const [prospects, setProspects] = useState([])
   const [current, setCurrent] = useState(null)
