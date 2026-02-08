@@ -130,10 +130,16 @@ function getEffectifLabel(code) {
 
 // Points de départ pour tri par proximité
 const BASES = {
-  '': { name: 'Score (par défaut)', lat: 0, lng: 0 },
-  concarneau: { name: '📍 Concarneau (Hicham)', lat: 47.8742, lng: -3.9196 },
-  derval: { name: '📍 Derval (Maxime)', lat: 47.6639, lng: -1.6689 },
+  concarneau: { name: 'Concarneau', who: 'Hicham', lat: 47.8742, lng: -3.9196 },
+  derval: { name: 'Derval', who: 'Maxime', lat: 47.6639, lng: -1.6689 },
 }
+
+const SORT_MODES = [
+  { id: 'smart', label: '🎯 Smart', desc: 'Potentiel ÷ distance' },
+  { id: 'proche', label: '📏 Plus proche', desc: 'Distance croissante' },
+  { id: 'gros', label: '🔥 Gros poissons', desc: 'Effectif décroissant' },
+  { id: 'score', label: '⭐ Score', desc: 'Quality score' },
+]
 
 function distanceKm(lat1, lon1, lat2, lon2) {
   const R = 6371
@@ -157,7 +163,9 @@ export default function EnrichissementRapide() {
   const [sessionStats, setSessionStats] = useState({ done: 0, phones: 0, emails: 0, excluded: 0 })
   const [totalRemaining, setTotalRemaining] = useState(0)
   const [departementFilter, setDepartementFilter] = useState('')
-  const [proximityBase, setProximityBase] = useState('')
+  const [proximityBase, setProximityBase] = useState('concarneau')
+  const [sortMode, setSortMode] = useState('smart')
+  const [radiusFilter, setRadiusFilter] = useState(0)
   const [searchTerm, setSearchTerm] = useState('')
   const [searchResults, setSearchResults] = useState(null)
   const [searching, setSearching] = useState(false)
@@ -282,14 +290,32 @@ export default function EnrichissementRapide() {
       return true
     }).slice(0, 50)
 
-    // Tri par proximité si base sélectionnée
-    if (proximityBase && BASES[proximityBase]) {
-      const base = BASES[proximityBase]
-      unique.sort((a, b) => {
-        const distA = (a.latitude && a.longitude) ? distanceKm(base.lat, base.lng, a.latitude, a.longitude) : 9999
-        const distB = (b.latitude && b.longitude) ? distanceKm(base.lat, base.lng, b.latitude, b.longitude) : 9999
-        return distA - distB
+    // Enrichir avec distance si base sélectionnée
+    const base = BASES[proximityBase]
+    if (base) {
+      unique.forEach(p => {
+        p._dist = (p.latitude && p.longitude) ? distanceKm(base.lat, base.lng, p.latitude, p.longitude) : 9999
+        const eff = parseInt(p.effectif) || 5
+        p._smart = p._dist > 0 ? (eff * 2 + (p.quality_score || 50)) / Math.sqrt(p._dist) : (eff * 2 + (p.quality_score || 50)) * 10
       })
+
+      // Filtre rayon
+      if (radiusFilter > 0) {
+        const before = unique.length
+        const filtered2 = unique.filter(p => p._dist <= radiusFilter)
+        unique.length = 0
+        unique.push(...filtered2)
+      }
+
+      // Tri selon le mode
+      if (sortMode === 'smart') {
+        unique.sort((a, b) => b._smart - a._smart)
+      } else if (sortMode === 'proche') {
+        unique.sort((a, b) => a._dist - b._dist)
+      } else if (sortMode === 'gros') {
+        unique.sort((a, b) => (parseInt(b.effectif) || 0) - (parseInt(a.effectif) || 0))
+      }
+      // score = already sorted by quality_score from DB
     }
 
     setProspects(unique)
@@ -311,7 +337,7 @@ export default function EnrichissementRapide() {
     setTotalRemaining(count || 0)
 
     setLoading(false)
-  }, [departementFilter, proximityBase])
+  }, [departementFilter, proximityBase, sortMode, radiusFilter])
 
   useEffect(() => {
     loadProspects()
@@ -598,30 +624,56 @@ export default function EnrichissementRapide() {
             <h1 className="text-2xl font-bold text-gray-900">⚡ Enrichissement Rapide</h1>
             <p className="text-gray-600 mt-1">
               {totalRemaining.toLocaleString()} prospects restants
+              {radiusFilter > 0 && ` • ≤ ${radiusFilter}km de ${BASES[proximityBase].name}`}
             </p>
           </div>
-          
-          <div className="flex items-center gap-3">
-            <Filter className="w-4 h-4 text-gray-500" />
-            <select
-              value={proximityBase}
-              onChange={(e) => setProximityBase(e.target.value)}
-              className="border rounded-lg px-3 py-2 text-sm"
-            >
-              {Object.entries(BASES).map(([key, val]) => (
-                <option key={key} value={key}>{val.name}</option>
+        </div>
+
+        {/* Contrôles tri + filtres */}
+        <div className="bg-white rounded-lg border border-gray-200 p-3 mb-4 space-y-3">
+          {/* Ligne 1 : Mode de tri */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs text-gray-500 font-medium mr-1">Trier :</span>
+            <div className="flex bg-gray-100 rounded-lg p-0.5">
+              {SORT_MODES.map(m => (
+                <button key={m.id} onClick={() => setSortMode(m.id)}
+                  className={'px-3 py-1.5 rounded-md text-xs font-medium transition-colors ' +
+                    (sortMode === m.id ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700')}
+                  title={m.desc}>
+                  {m.label}
+                </button>
               ))}
+            </div>
+          </div>
+
+          {/* Ligne 2 : Base + Rayon + Département */}
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex bg-gray-100 rounded-lg p-0.5">
+              {Object.entries(BASES).map(([key, val]) => (
+                <button key={key} onClick={() => setProximityBase(key)}
+                  className={'px-3 py-1.5 rounded-md text-xs font-medium transition-colors ' +
+                    (proximityBase === key ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700')}>
+                  📍 {val.name} ({val.who})
+                </button>
+              ))}
+            </div>
+            <select value={radiusFilter} onChange={(e) => setRadiusFilter(parseInt(e.target.value))}
+              className="border rounded-lg px-3 py-1.5 text-sm">
+              <option value="0">Pas de limite</option>
+              <option value="30">≤ 30 km</option>
+              <option value="50">≤ 50 km</option>
+              <option value="100">≤ 100 km</option>
+              <option value="150">≤ 150 km</option>
+              <option value="200">≤ 200 km</option>
             </select>
-            <select
-              value={departementFilter}
-              onChange={(e) => setDepartementFilter(e.target.value)}
-              className="border rounded-lg px-3 py-2 text-sm"
-            >
-              <option value="">Tous les départements</option>
+            <select value={departementFilter} onChange={(e) => setDepartementFilter(e.target.value)}
+              className="border rounded-lg px-3 py-1.5 text-sm">
+              <option value="">Tous les dép.</option>
               {departements.map(d => (
                 <option key={d} value={d}>{d}</option>
               ))}
             </select>
+            <span className="text-xs text-gray-400 ml-auto">{prospects.length} chargés</span>
           </div>
         </div>
 
@@ -724,11 +776,12 @@ export default function EnrichissementRapide() {
                 )}
                 <p className="text-xs text-gray-400 mt-1">
                   SIRET: {current.siret} • Score: {current.quality_score}
-                  {proximityBase && current.latitude && current.longitude && (() => {
-                    const base = BASES[proximityBase]
-                    const dist = distanceKm(base.lat, base.lng, current.latitude, current.longitude)
-                    return <span className="ml-2 text-primary-600 font-medium">• 📏 {Math.round(dist)} km de {base.name.replace('📍 ', '').split(' (')[0]}</span>
-                  })()}
+                  {current._dist && current._dist < 9999 && (
+                    <span className="ml-2 text-primary-600 font-medium">• 📏 {Math.round(current._dist)} km de {BASES[proximityBase].name}</span>
+                  )}
+                  {sortMode === 'smart' && current._smart && (
+                    <span className="ml-2 text-amber-600 font-medium">• 🎯 {Math.round(current._smart)}</span>
+                  )}
                 </p>
               </div>
               <div className="text-sm text-gray-400">
