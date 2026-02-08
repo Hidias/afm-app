@@ -164,6 +164,7 @@ export default function MarinePhoning() {
   const [callHistory, setCallHistory] = useState([])
   const [duplicates, setDuplicates] = useState([])
   const [showDuplicates, setShowDuplicates] = useState(false)
+  const [showHistory, setShowHistory] = useState(false)
   const [statusFilter, setStatusFilter] = useState('a_appeler')
   const [effectifFilter, setEffectifFilter] = useState('')
   const [mapBase, setMapBase] = useState('concarneau')
@@ -238,6 +239,7 @@ export default function MarinePhoning() {
     setCallbackDate('')
     setCallbackTime('14:00')
     setCallbackReason('')
+    setShowHistory(false)
     // Pré-remplir résultat selon statut précédent
     if (prospect.prospection_status === 'a_rappeler') setCallResult('tiede')
     else if (prospect.prospection_status === 'rdv_pris') setCallResult('chaud')
@@ -688,6 +690,48 @@ export default function MarinePhoning() {
                 </a>
               )}
 
+              {/* Historique compact */}
+              {callHistory.length > 0 && (() => {
+                const last = callHistory[0]
+                const resultColors = { chaud: 'bg-green-100 text-green-700 border-green-200', tiede: 'bg-orange-100 text-orange-700 border-orange-200', froid: 'bg-blue-100 text-blue-700 border-blue-200', no_answer: 'bg-gray-100 text-gray-600 border-gray-200', blocked: 'bg-red-100 text-red-700 border-red-200', wrong_number: 'bg-purple-100 text-purple-700 border-purple-200' }
+                const resultLabels = { chaud: '🔥 Intéressé', tiede: '🟡 Tiède', froid: '❄️ Refus', no_answer: '📞 Injoignable', blocked: '⚠️ Barrage', wrong_number: '❌ N° erroné' }
+                return (
+                  <div className={'rounded-lg border px-3 py-2 ' + (resultColors[last.call_result] || 'bg-gray-50 border-gray-200')}>
+                    {/* Badge compact — dernier appel */}
+                    <button type="button" onClick={() => setShowHistory(!showHistory)} className="w-full text-left">
+                      <div className="flex items-center gap-2 text-sm">
+                        <span className="font-semibold">{resultLabels[last.call_result] || last.call_result}</span>
+                        <span className="text-xs opacity-70">— {last.called_by} le {new Date(last.called_at).toLocaleDateString('fr-FR')}</span>
+                        {last.contact_name && <span className="text-xs opacity-70">• 👤 {last.contact_name}</span>}
+                        <span className="ml-auto text-xs opacity-50">{callHistory.length > 1 ? callHistory.length + ' appels' : '1 appel'} {showHistory ? '▲' : '▼'}</span>
+                      </div>
+                      {last.notes && <p className="text-xs mt-1 opacity-80 truncate">{last.notes}</p>}
+                      {last.formations_mentioned && last.formations_mentioned.length > 0 && (
+                        <p className="text-xs mt-0.5 opacity-70">🎓 {last.formations_mentioned.join(', ')}</p>
+                      )}
+                    </button>
+
+                    {/* Détail tous les appels */}
+                    {showHistory && (
+                      <div className="mt-2 pt-2 border-t border-current/10 space-y-2">
+                        {callHistory.map((call, i) => (
+                          <div key={i} className="text-xs bg-white/60 rounded p-2">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-medium">{call.called_by}</span>
+                              <span className="opacity-60">{new Date(call.called_at).toLocaleDateString('fr-FR')} {call.called_at ? new Date(call.called_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : ''}</span>
+                              <span className={'px-1.5 py-0.5 rounded text-xs ' + (resultColors[call.call_result] || 'bg-gray-100')}>{resultLabels[call.call_result] || call.call_result}</span>
+                            </div>
+                            {call.contact_name && <div className="mt-0.5 opacity-80">👤 {call.contact_name}{call.contact_function ? ' — ' + call.contact_function : ''}{call.contact_email ? ' • ' + call.contact_email : ''}</div>}
+                            {call.notes && <div className="mt-0.5 opacity-90">{call.notes}</div>}
+                            {call.formations_mentioned && call.formations_mentioned.length > 0 && <div className="mt-0.5 opacity-70">🎓 {call.formations_mentioned.join(', ')}</div>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
+
               {/* Infos */}
               <div className="grid grid-cols-2 gap-2 text-sm">
                 {current.naf && <div className="bg-gray-50 rounded px-2 py-1.5"><span className="text-gray-500">NAF</span> <span className="font-medium">{current.naf}</span></div>}
@@ -720,24 +764,6 @@ export default function MarinePhoning() {
                   : aiSummary ? <p className="text-sm text-amber-900 whitespace-pre-line leading-relaxed">{aiSummary}</p>
                   : <p className="text-sm text-amber-600 italic">Pas de résumé</p>}
               </div>
-
-              {/* Historique */}
-              {callHistory.length > 0 && (
-                <div className="border border-gray-200 rounded-lg p-3">
-                  <h3 className="text-sm font-semibold text-gray-700 mb-2">📋 Historique ({callHistory.length})</h3>
-                  <div className="space-y-2">{callHistory.map((call, i) => (
-                    <div key={i} className="text-xs bg-gray-50 rounded p-2">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium">{call.called_by}</span>
-                        <span className="text-gray-400">{new Date(call.called_at).toLocaleDateString('fr-FR')}</span>
-                        <span className={'px-1.5 py-0.5 rounded ' + (call.call_result === 'chaud' ? 'bg-green-100 text-green-700' : call.call_result === 'tiede' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-600')}>{call.call_result}</span>
-                      </div>
-                      {call.contact_name && <div className="text-gray-600">👤 {call.contact_name}{call.contact_function ? ' — ' + call.contact_function : ''}</div>}
-                      {call.notes && <div className="text-gray-700 mt-1">{call.notes}</div>}
-                    </div>
-                  ))}</div>
-                </div>
-              )}
 
               {/* Nav */}
               <div className="flex gap-2 pt-2 border-t">
