@@ -594,8 +594,50 @@ export default function MarinePhoning() {
   }
 
   // 📥 Export CSV au format Sheets Marine
+  // Mapping codes INSEE → labels formes juridiques
+  const FORMES_JURIDIQUES = {
+    '1000':'EI','2110':'Indivision','2310':'GIE','2900':'Autre groupement',
+    '3110':'Représentation État','3210':'SA éco. mixte','3310':'SA HLM',
+    '4110':'SCI','4120':'SCI construction vente','4130':'SCI attribution',
+    '5191':'SNC','5192':'SCS','5193':'SEP','5194':'SCOP','5195':'SA',
+    '5196':'SA coopérative','5199':'Sté comm.','5202':'SCOP',
+    '5306':'SARL','5307':'SARL assoc. unique','5308':'SARL HLM',
+    '5310':'SAS','5370':'Sté prof. lib.','5385':'SAS',
+    '5410':'SARL unipersonnelle','5415':'EURL','5422':'SARL',
+    '5426':'SARL capital variable','5430':'SARL','5431':'SARL unique',
+    '5432':'SARL','5443':'SARL exercice libéral',
+    '5451':'SA','5453':'SA board','5454':'SA directoire',
+    '5455':'SA unipersonnelle','5458':'SA prof. lib.',
+    '5460':'SA coop.','5470':'SELAFA','5485':'SA capital variable',
+    '5498':'SA coop.','5499':'SA coop.',
+    '5505':'SAS','5510':'SAS','5515':'SASU','5520':'SAS capital variable',
+    '5522':'SAS prof. lib.','5525':'SASU prof. lib.',
+    '5530':'SAS coop.','5532':'SAS SPL','5542':'SAS intérêt collectif',
+    '5547':'SE','5548':'SE SAS','5551':'SE SAS unipersonnelle',
+    '5600':'Autre SARL','5699':'Autre SA',
+    '5710':'SCA','5720':'SCA intérêt collectif','5800':'SCOP',
+    '6100':'Caisse épargne','6220':'Mutuelle','6316':'CUMA',
+    '6317':'Coop. agricole','6411':'Mutuelle santé',
+    '6521':'SCPI','6532':'Sté assurance mutuelle',
+    '6540':'Syndicat copropriétaires','6551':'Fondation',
+    '7111':'État','7210':'Commune','7220':'Département','7230':'Région',
+    '7321':'CC','7322':'CA','7323':'Métropole',
+    '7361':'CCI','7362':'Chambre métiers','7363':'Chambre agriculture',
+    '7372':'Centre hospitalier','7373':'EHPAD public',
+    '7383':'Établissement public','7430':'EPA national',
+    '7470':'EPIC national','7530':'EPIC local',
+    '8210':'Mutuelle','8321':'CSE','8331':'CSE',
+    '8450':'Syndicat salariés','9210':'Association déclarée',
+    '9220':'Association droit local','9221':'Association inscrite',
+    '9224':'Association reconnue utilité publique',
+    '9230':'Association loi 1901','9300':'Fondation',
+    '9900':'Autre personne morale droit privé',
+    '9970':'GCS','9971':'GCS pub.','9972':'GCS priv.'
+  }
+  const getFormeLabel = (code) => code ? (FORMES_JURIDIQUES[String(code)] || String(code)) : ''
+
   function exportCSV() {
-    const headers = ['Société','ID','Type','Forme','NAF','VILLE','CP','Nom','Prénom','Mail','Téléphone','Fonction','Appel abouti','Appel non abouti','Suivi','RDV à prendre']
+    const headers = ['Société','ID','Type','Forme','NAF','VILLE','CP','Nom','Prénom','Mail','Téléphone','Fonction','Appel abouti','Appel non abouti','Mail','Suivi','RDV à prendre']
     
     const rows = filtered.map(p => {
       const status = p.prospection_status
@@ -613,7 +655,7 @@ export default function MarinePhoning() {
         p.name || '',
         p.siren || '',
         'P',
-        '',
+        getFormeLabel(p.forme_juridique),
         p.naf || '',
         p.city || '',
         p.postal_code || '',
@@ -621,6 +663,7 @@ export default function MarinePhoning() {
         p.email || '',
         tel,
         '', '', '', // Fonction, Appel abouti, Appel non abouti
+        '',          // Mail (2)
         suivi,
         status === 'rdv_pris' ? 'Oui' : '',
       ]
