@@ -9,10 +9,14 @@ import toast from 'react-hot-toast'
 
 const FORMATIONS = [
   'SST / MAC SST',
+  'Initiation gestes de premiers secours (4h+)',
   'Gestes & Postures / TMS',
   'Incendie (EPI, extincteurs, évacuation)',
-  'Habilitation électrique (B0 / H0V)',
-  'Conduite R485 / R489'
+  'Habilitation électrique B0/H0V',
+  'Conduite chariot élévateur R489',
+  'Conduite gerbeur R485',
+  'DUERP (Document Unique)',
+  'Formation sur mesure'
 ]
 
 const TEMPLATES_NOTES = [
