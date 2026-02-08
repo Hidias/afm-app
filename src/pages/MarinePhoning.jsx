@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuthStore } from '../lib/store'
 import { 
@@ -173,7 +173,7 @@ export default function MarinePhoning() {
   const [dailyStats, setDailyStats] = useState({ total: 0, chaud: 0, tiede: 0, froid: 0, no_answer: 0, blocked: 0, wrong_number: 0 })
   const [todayCallbackSirens, setTodayCallbackSirens] = useState(new Set())
 
-  const listRef = { current: null }
+  const listRef = useRef(null)
   const departements = [...new Set(prospects.map(p => p.departement))].filter(Boolean).sort()
 
   useEffect(() => { loadProspects(); loadDailyStats(); loadTodayCallbacks() }, [])
@@ -573,7 +573,7 @@ export default function MarinePhoning() {
 
       ) : viewMode === 'list' ? (
         /* LISTE */
-        <div ref={el => listRef.current = el} className="bg-white rounded-xl border border-gray-200 divide-y max-h-[70vh] overflow-y-auto">
+        <div ref={listRef} className="bg-white rounded-xl border border-gray-200 divide-y max-h-[70vh] overflow-y-auto">
           {filtered.map((p) => (
             <div key={p.id} onClick={() => { selectProspect(p); setViewMode('file') }}
               className="flex items-center px-4 py-3 hover:bg-gray-50 cursor-pointer">
