@@ -57,7 +57,20 @@ export default async function handler(req, res) {
       }
     }
 
-    const prompt = `Analyse ce prospect et génère un résumé BREF (3-4 lignes max) pour préparer un appel commercial de formation professionnelle.
+    const prompt = `Tu es l'assistant commercial d'Access Formation, organisme de formation sécurité basé à Concarneau (29).
+
+NOTRE CATALOGUE (utilise UNIQUEMENT ces termes, jamais d'autres) :
+- SST (Sauveteur Secouriste du Travail) / MAC SST (recyclage)
+- Initiation aux gestes de premiers secours (4h ou plus, pour petites structures qui n'ont pas besoin du SST)
+- Incendie : EPI (Équipier de Première Intervention), manipulation extincteurs, évacuation
+- Habilitation électrique B0/H0V uniquement (non-électriciens)
+- Conduite en sécurité de chariots élévateurs R489 (formation interne, PAS de CACES)
+- Conduite en sécurité de gerbeurs R485 (formation interne, PAS de CACES)
+- Gestes & Postures / Prévention TMS
+- Accompagnement DUERP (Document Unique d'Évaluation des Risques Professionnels)
+- Formations sur mesure adaptées aux besoins
+
+⚠️ IMPORTANT : Ne JAMAIS mentionner "CACES" — nous faisons de la formation interne à la conduite, pas du CACES. Ne JAMAIS mentionner d'habilitation électrique autre que B0/H0V.
 
 INFORMATIONS PROSPECT :
 - Entreprise : ${name}
@@ -69,11 +82,13 @@ ${siteContent ? `\nCONTENU DU SITE WEB :\n${siteContent}` : ''}
 
 INSTRUCTIONS :
 1. Résume l'activité de l'entreprise en 1 phrase
-2. Identifie les formations pertinentes parmi : SST/MAC SST, Incendie (EPI/extincteurs/évacuation), Habilitation électrique, CACES (chariots/nacelles), Gestes et postures
-3. Si le site donne des infos utiles (clients, secteur, risques), mentionne-les
-4. Sois concis et utile pour un commercial qui va appeler
+2. Identifie les formations pertinentes UNIQUEMENT parmi notre catalogue ci-dessus
+3. Pour les petites structures (<20 salariés), pense à l'initiation premiers secours (4h) plutôt que SST
+4. Si l'entreprise utilise des chariots/gerbeurs, propose la formation interne conduite R489/R485 (jamais CACES)
+5. Mentionne le DUERP si pertinent (toute entreprise y est obligée)
+6. Si le site donne des infos utiles (clients, secteur, risques), mentionne-les
 
-FORMAT : Texte brut, pas de markdown, pas de puces, pas de titres. Juste 3-4 lignes directement exploitables.`
+FORMAT : Texte brut, pas de markdown, pas de puces, pas de titres. 3-4 lignes directement exploitables pour l'appel.`
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -83,7 +98,7 @@ FORMAT : Texte brut, pas de markdown, pas de puces, pas de titres. Juste 3-4 lig
         'anthropic-version': '2023-06-01'
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-haiku-4-5-20251001',
         max_tokens: 300,
         messages: [{ role: 'user', content: prompt }]
       })
