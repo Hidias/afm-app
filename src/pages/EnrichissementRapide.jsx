@@ -148,9 +148,9 @@ const DEPT_CENTERS = {
 }
 
 const SORT_MODES = [
-  { id: 'smart', label: '🎯 Smart', desc: 'Potentiel ÷ distance' },
-  { id: 'proche', label: '📏 Plus proche', desc: 'Distance croissante' },
-  { id: 'gros', label: '🔥 Gros poissons', desc: 'Effectif décroissant' },
+  { id: 'smart', label: '🎯 Priorité', desc: 'Potentiel pondéré par distance' },
+  { id: 'proche', label: '📏 Proximité', desc: 'Distance croissante' },
+  { id: 'gros', label: '🏢 Effectif', desc: 'Effectif décroissant' },
   { id: 'score', label: '⭐ Score', desc: 'Quality score' },
 ]
 
@@ -825,20 +825,20 @@ export default function EnrichissementRapide() {
             <button
               onClick={autoEnrich}
               disabled={enriching || enrichCooldown > 0}
-              className={`w-full flex items-center justify-center gap-3 px-6 py-3 rounded-xl font-bold text-lg mb-3 transition-all ${
+              className={`w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium text-sm mb-3 transition-all ${
                 enriching
                   ? 'bg-purple-100 text-purple-400 cursor-wait'
                   : enrichCooldown > 0
                     ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                    : 'bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white shadow-lg hover:shadow-xl'
+                    : 'bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white'
               }`}
             >
               {enriching ? (
-                <><Loader className="w-5 h-5 animate-spin" /> Recherche en cours... (max 10s)</>
+                <><Loader className="w-4 h-4 animate-spin" /> Recherche en cours...</>
               ) : enrichCooldown > 0 ? (
                 <>⏳ Dispo dans {enrichCooldown}s</>
               ) : (
-                <><Zap className="w-5 h-5" /> Auto-enrichir (Ctrl+E)</>
+                <><Zap className="w-4 h-4" /> Auto-enrichir (Ctrl+E)</>
               )}
             </button>
 
