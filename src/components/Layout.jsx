@@ -98,6 +98,7 @@ export default function Layout() {
       case 'revue_direction': return '📊'
       case 'j90': return '📅'
       case 'rdv_phoning': return '🔥'
+      case 'rappel_phoning': return '📞'
       default: return '🔔'
     }
   }
