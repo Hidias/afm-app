@@ -8,7 +8,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 )
 
-export const config = { maxDuration: 60 }
+export const config = { maxDuration: 300 }
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -16,17 +16,24 @@ export default async function handler(req, res) {
   }
 
   try {
-    // 1. Récupérer les codes postaux uniques sans coordonnées
-    const { data: prospects, error } = await supabase
-      .from('prospection_massive')
-      .select('postal_code')
-      .is('latitude', null)
-      .not('postal_code', 'is', null)
-      .not('phone', 'is', null)
+    // 1. Récupérer les codes postaux uniques sans coordonnées via RPC
+    const { data: postalData, error } = await supabase.rpc('get_ungeo_postal_codes')
 
-    if (error) throw error
+    if (error) {
+      // Fallback si la fonction n'existe pas
+      console.log('RPC fallback, using direct query')
+      const { data: prospects, error: err2 } = await supabase
+        .from('prospection_massive')
+        .select('postal_code')
+        .is('latitude', null)
+        .not('postal_code', 'is', null)
+        .limit(1000)
 
-    const uniquePostalCodes = [...new Set((prospects || []).map(p => p.postal_code).filter(Boolean))]
+      if (err2) throw err2
+      var uniquePostalCodes = [...new Set((prospects || []).map(p => p.postal_code).filter(Boolean))]
+    } else {
+      var uniquePostalCodes = (postalData || []).map(r => r.postal_code).filter(Boolean)
+    }
 
     if (uniquePostalCodes.length === 0) {
       return res.status(200).json({ success: true, message: 'Tous les prospects sont déjà géocodés', geocoded: 0 })
