@@ -821,8 +821,8 @@ export default function EnrichissementRapide() {
               </div>
             </div>
 
-            {/* ⚡ AUTO-ENRICHIR */}
-            <button
+            {/* ⚡ AUTO-ENRICHIR — masqué temporairement */}
+            {false && <button
               onClick={autoEnrich}
               disabled={enriching || enrichCooldown > 0}
               className={`w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium text-sm mb-3 transition-all ${
@@ -840,7 +840,7 @@ export default function EnrichissementRapide() {
               ) : (
                 <><Zap className="w-4 h-4" /> Auto-enrichir (Ctrl+E)</>
               )}
-            </button>
+            </button>}
 
             {/* Résultat auto-enrichissement */}
             {enrichResult && !enrichResult.error && (
