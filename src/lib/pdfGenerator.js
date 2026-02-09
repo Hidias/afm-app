@@ -2189,7 +2189,7 @@ function generateFicheRenseignements(session, trainee = null, isBlank = false, i
 // ============================================================
 // EXPORT
 // ============================================================
-export function downloadDocument(docType, session, options = {}) {
+export async function downloadDocument(docType, session, options = {}) {
   const { trainees = [], trainee = null, trainer = null, isBlank = false, questions = [], costs = [], attendanceData = null } = options
   const ref = session?.reference || 'VIERGE'
   let doc, filename
@@ -2198,7 +2198,19 @@ export function downloadDocument(docType, session, options = {}) {
     case 'convention': doc = generateConvention(session, trainees, trainer, costs); filename = `Convention_${ref}.pdf`; break
     case 'certificat': doc = generateCertificat(session, trainee, trainer); filename = `Certificat_${ref}_${trainee?.last_name || ''}.pdf`; break
     case 'emargement': doc = generateEmargement(session, trainees, trainer, isBlank, attendanceData); filename = isBlank ? 'Emargement_Vierge.pdf' : `Emargement_${ref}.pdf`; break
-    case 'convocation': doc = generateConvocation(session, trainee, trainer); filename = `Convocation_${ref}_${trainee?.last_name || ''}.pdf`; break
+    case 'convocation': {
+      doc = new jsPDF()
+      let qrCodeDataURL = null
+      if (session?.attendance_token && trainee?.access_code) {
+        try {
+          const portalURL = `https://app.accessformation.pro/#/portail/${session.attendance_token}`
+          qrCodeDataURL = await QRCode.toDataURL(portalURL, { width: 150, margin: 1 })
+        } catch (err) { console.error('Erreur QR convocation individuelle:', err) }
+      }
+      generateConvocationContent(doc, session, trainee, trainer, qrCodeDataURL)
+      filename = `Convocation_${ref}_${trainee?.last_name || ''}.pdf`
+      break
+    }
     case 'attestation': doc = generateAttestation(session, trainee, trainer); filename = `Attestation_${ref}_${trainee?.last_name || ''}.pdf`; break
     case 'programme': doc = generateProgramme(session, trainer); filename = `Programme_${ref}.pdf`; break
     case 'evaluation': doc = generateEvaluation(session, trainee, isBlank); filename = isBlank ? 'Evaluation_Vierge.pdf' : `Evaluation_${ref}.pdf`; break
@@ -2313,7 +2325,7 @@ export async function downloadAllDocuments(docType, session, trainees, options =
 }
 
 // Même chose que downloadDocument mais retourne { base64, filename } au lieu de télécharger
-export function generatePDF(docType, session, options = {}) {
+export async function generatePDF(docType, session, options = {}) {
   const { trainees = [], trainee = null, trainer = null, isBlank = false, questions = [], costs = [], attendanceData = null } = options
   const ref = session?.reference || 'VIERGE'
   let doc, filename
@@ -2322,7 +2334,19 @@ export function generatePDF(docType, session, options = {}) {
     case 'convention': doc = generateConvention(session, trainees, trainer, costs); filename = `Convention_${ref}.pdf`; break
     case 'certificat': doc = generateCertificat(session, trainee, trainer); filename = `Certificat_${ref}_${trainee?.last_name || ''}.pdf`; break
     case 'emargement': doc = generateEmargement(session, trainees, trainer, isBlank, attendanceData); filename = isBlank ? 'Emargement_Vierge.pdf' : `Emargement_${ref}.pdf`; break
-    case 'convocation': doc = generateConvocation(session, trainee, trainer); filename = `Convocation_${ref}_${trainee?.last_name || ''}.pdf`; break
+    case 'convocation': {
+      doc = new jsPDF()
+      let qrCodeDataURL = null
+      if (session?.attendance_token && trainee?.access_code) {
+        try {
+          const portalURL = `https://app.accessformation.pro/#/portail/${session.attendance_token}`
+          qrCodeDataURL = await QRCode.toDataURL(portalURL, { width: 150, margin: 1 })
+        } catch (err) { console.error('Erreur QR convocation individuelle:', err) }
+      }
+      generateConvocationContent(doc, session, trainee, trainer, qrCodeDataURL)
+      filename = `Convocation_${ref}_${trainee?.last_name || ''}.pdf`
+      break
+    }
     case 'attestation': doc = generateAttestation(session, trainee, trainer); filename = `Attestation_${ref}_${trainee?.last_name || ''}.pdf`; break
     case 'programme': doc = generateProgramme(session, trainer); filename = `Programme_${ref}.pdf`; break
     case 'evaluation': doc = generateEvaluation(session, trainee, isBlank); filename = isBlank ? 'Evaluation_Vierge.pdf' : `Evaluation_${ref}.pdf`; break
