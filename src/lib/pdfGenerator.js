@@ -271,7 +271,7 @@ function getLocation(session) {
   if (session?.is_intra && session?.clients?.address) {
     return session.clients.address
   }
-  return session?.location || ''
+  return session?.location_name || session?.location || ''
 }
 
 // ============================================================
