@@ -124,7 +124,7 @@ export default function Layout() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Mobile header */}
-      <div className="lg:hidden bg-primary-500 px-4 py-3 flex items-center justify-between">
+      <div className="lg:hidden bg-primary-500 px-4 py-3 flex items-center justify-between" style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}>
         <button onClick={() => setSidebarOpen(true)} className="p-2 hover:bg-primary-600 rounded-lg text-white">
           <Menu className="w-6 h-6" />
         </button>
@@ -139,7 +139,7 @@ export default function Layout() {
       {sidebarOpen && (
         <div className="lg:hidden fixed inset-0 z-50">
           <div className="fixed inset-0 bg-black/50" onClick={() => setSidebarOpen(false)} />
-          <div className="fixed left-0 top-0 bottom-0 w-64 bg-primary-500 shadow-xl">
+          <div className="fixed left-0 top-0 bottom-0 w-64 bg-primary-500 shadow-xl" style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)' }}>
             <div className="p-4 border-b border-primary-400 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <img src="/assets/logo-campus.png" alt="Campus" className="h-10" />
@@ -210,7 +210,7 @@ export default function Layout() {
       {/* Main content */}
       <main className="lg:pl-64">
         {/* Top header bar with notifications and clock */}
-        <div className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-end gap-4">
+        <div className="bg-white border-b border-gray-200 px-4 sm:px-6 py-3 flex items-center justify-end gap-3 sm:gap-4">
           {/* Notification bell */}
           <div className="relative">
             <button 
@@ -229,7 +229,7 @@ export default function Layout() {
             {showNotifications && (
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setShowNotifications(false)} />
-                <div className="absolute right-0 top-12 w-80 bg-white rounded-xl shadow-xl border z-50 overflow-hidden">
+                <div className="absolute right-0 top-12 w-[calc(100vw-2rem)] sm:w-80 max-w-sm bg-white rounded-xl shadow-xl border z-50 overflow-hidden">
                   <div className="p-3 border-b bg-gray-50 flex items-center justify-between">
                     <span className="font-semibold text-gray-900">Notifications</span>
                     {unreadCount > 0 && (
@@ -295,7 +295,7 @@ export default function Layout() {
           </div>
         </div>
         
-        <div className="p-6 lg:p-8 max-w-7xl mx-auto">
+        <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto" style={{ paddingBottom: 'max(2rem, env(safe-area-inset-bottom))' }}>
           <Outlet />
         </div>
       </main>
