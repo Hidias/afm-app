@@ -3,11 +3,12 @@ import { Link, useLocation } from 'react-router-dom'
 import { useDataStore } from '../lib/store'
 import { supabase } from '../lib/supabase'
 import { 
-  Calendar, Plus, Search, MapPin, Users, Clock, ChevronRight, X, Trash2, Copy
+  Calendar, Plus, Search, MapPin, Users, Clock, ChevronRight, X, Trash2, Copy, Building2
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import toast from 'react-hot-toast'
+import MultiSiretWizard from '../components/MultiSiretWizard'
 
 const statusLabels = {
   draft: { label: 'Brouillon', class: 'badge-gray' },
@@ -30,6 +31,7 @@ export default function Sessions() {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [showForm, setShowForm] = useState(location.state?.openNew || false)
+  const [showMultiSiret, setShowMultiSiret] = useState(false)
   
   // Filtres stagiaires
   const [traineeSearch, setTraineeSearch] = useState('')
@@ -42,8 +44,8 @@ export default function Sessions() {
     course_id: '',
     client_id: '',
     contact_id: '', // ID du contact spécifique (optionnel)
-    signatory_name: '', // Signataire convention (si différent du contact)
-    signatory_role: '', // Fonction du signataire
+    signatory_name: '',
+    signatory_role: '',
     start_date: '',
     end_date: '',
     start_time: '09:00',
@@ -282,10 +284,16 @@ export default function Sessions() {
           <h1 className="text-2xl font-bold text-gray-900">Sessions</h1>
           <p className="text-gray-500 mt-1">{sessions.length} session(s)</p>
         </div>
-        <button onClick={() => setShowForm(true)} className="btn btn-primary flex items-center gap-2">
-          <Plus className="w-4 h-4" />
-          Nouvelle session
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={() => setShowMultiSiret(true)} className="btn btn-secondary flex items-center gap-2">
+            <Building2 className="w-4 h-4" />
+            Multi-SIRET
+          </button>
+          <button onClick={() => setShowForm(true)} className="btn btn-primary flex items-center gap-2">
+            <Plus className="w-4 h-4" />
+            Nouvelle session
+          </button>
+        </div>
       </div>
       
       {/* Filtres */}
@@ -743,6 +751,13 @@ export default function Sessions() {
             </form>
           </div>
         </div>
+      )}
+      
+      {showMultiSiret && (
+        <MultiSiretWizard
+          onClose={() => setShowMultiSiret(false)}
+          onCreated={() => setShowMultiSiret(false)}
+        />
       )}
     </div>
   )
