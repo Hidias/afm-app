@@ -289,50 +289,47 @@ export async function generateQuotePDF(quote, items, client, contact = null) {
   // NOTES
   // ───────────────────────────────────────────────
   if (quote.notes) {
-    if (y > 200) { addFooter(doc, FONT); doc.addPage(); y = 20 }
+    if (y > 230) { addFooter(doc, FONT); doc.addPage(); y = 20 }
     doc.setFontSize(8)
     doc.setFont(FONT, 'italic')
     doc.setTextColor(80, 80, 80)
     doc.text('Note : ' + quote.notes, mL, y)
     doc.setTextColor(0, 0, 0)
-    y += 8
+    y += 7
   }
 
   // ───────────────────────────────────────────────
-  // SIGNATURE BLOCK
+  // SIGNATURE (right) + CONDITIONS (left) - SIDE BY SIDE
+  // Total block height: ~50mm. Footer at 271. Max y = 220.
   // ───────────────────────────────────────────────
-  if (y > 175) { addFooter(doc, FONT); doc.addPage(); y = 20 }
+  if (y > 210) { addFooter(doc, FONT); doc.addPage(); y = 20 }
 
-  const sigX = 110
+  const blockStartY = y
+
+  // --- RIGHT: Signature ---
+  const sigX = 112
   const sigW = mR - sigX
 
-  doc.setFontSize(9)
+  doc.setFontSize(8)
   doc.setFont(FONT, 'bold')
   doc.setTextColor(0, 80, 130)
   doc.text("Signature du client precedee de la mention", sigX + sigW / 2, y, { align: 'center' })
-  doc.text("'Lu et approuve, bon pour accord' :", sigX + sigW / 2, y + 5, { align: 'center' })
+  doc.text("'Lu et approuve, bon pour accord' :", sigX + sigW / 2, y + 4, { align: 'center' })
   doc.setTextColor(0, 0, 0)
-  y += 9
 
+  const sigBoxY = y + 7
   doc.setDrawColor(180, 180, 180)
   doc.setLineWidth(0.3)
-  doc.rect(sigX, y, sigW, 28)
+  doc.rect(sigX, sigBoxY, sigW, 22)
 
   if (quote.signature_base64) {
     try {
-      doc.addImage(quote.signature_base64, 'PNG', sigX + 3, y + 2, sigW - 6, 24)
+      doc.addImage(quote.signature_base64, 'PNG', sigX + 2, sigBoxY + 1, sigW - 4, 20)
     } catch (e) { /* ignore */ }
   }
 
-  y += 34
-
-  // ───────────────────────────────────────────────
-  // PAYMENT CONDITIONS
-  // Need ~65mm for conditions + bank + legal. Footer starts at y=271.
-  // ───────────────────────────────────────────────
-  if (y > 200) { addFooter(doc, FONT); doc.addPage(); y = 20 }
-
-  doc.setFontSize(8)
+  // --- LEFT: Payment conditions ---
+  doc.setFontSize(7.5)
   doc.setTextColor(60, 60, 60)
   doc.setFont(FONT, 'normal')
 
@@ -344,31 +341,35 @@ export async function generateQuotePDF(quote, items, client, contact = null) {
   ]
   conds.forEach(function(row) {
     doc.text(row[0], mL, y)
-    doc.text(row[1], mL + 50, y)
-    y += 5
+    doc.text(row[1], mL + 42, y)
+    y += 4
   })
 
+  // Bank details (left side, below conditions)
   y += 1
   doc.text('Banque :', mL, y)
-  doc.text(ORG.bank_name, mL + 50, y)
-  y += 5
-  doc.text('BIC : ' + ORG.bic, mL + 50, y)
+  doc.text(ORG.bank_name, mL + 42, y)
   y += 4
-  doc.text('IBAN : ' + ORG.iban, mL + 50, y)
-  y += 8
+  doc.text('BIC : ' + ORG.bic, mL + 42, y)
+  y += 3.5
+  doc.text('IBAN : ' + ORG.iban, mL + 42, y)
+
+  // Move y below both columns (whichever is taller)
+  const sigEndY = sigBoxY + 22 + 4
+  y = Math.max(y + 6, sigEndY)
 
   // ───────────────────────────────────────────────
-  // LEGAL MENTIONS
+  // LEGAL MENTIONS (full width below)
   // ───────────────────────────────────────────────
-  doc.setFontSize(7)
-  doc.setTextColor(80, 80, 80)
+  doc.setFontSize(6.5)
+  doc.setTextColor(100, 100, 100)
   doc.text(
     "En cas de retard de paiement, des penalites seront exigibles au taux legal majore de 10 points, ainsi qu'une indemnite forfaitaire de 40 EUR",
     mL, y
   )
-  y += 3.5
+  y += 3
   doc.text("pour frais de recouvrement (art. L441-10 du Code de commerce).", mL, y)
-  y += 5
+  y += 4
   if (quote.tva_applicable !== false) {
     doc.text("TVA exigible d'apres les encaissements (article 269, 2-c du CGI).", mL, y)
   } else {
