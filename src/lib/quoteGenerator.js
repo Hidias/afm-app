@@ -163,8 +163,9 @@ function drawBottomBlock(doc, font, quote) {
 // ============================================================
 // MAIN
 // ============================================================
-export async function generateQuotePDF(quote, items, client, contact) {
+export async function generateQuotePDF(quote, items, client, contact, options) {
   contact = contact || null
+  options = options || {}
   var doc = new jsPDF()
   var FONT = 'helvetica'
   var createdBy = CONTACTS[quote.created_by] || CONTACTS['Hicham Saidi']
@@ -360,6 +361,8 @@ export async function generateQuotePDF(quote, items, client, contact) {
     addFooter(doc, FONT, p, totalPages)
   }
 
-  doc.save(quote.reference + '.pdf')
+  if (!options.skipSave) {
+    doc.save(quote.reference + '.pdf')
+  }
   return doc
 }
