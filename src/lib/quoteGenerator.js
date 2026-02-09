@@ -18,7 +18,7 @@ const ORG = {
   rcs: '943 563 866 R.C.S. Quimper',
   nda: '53 29 10261 29',
   capital: '2 500',
-  bank_name: 'Crédit Mutuel de Bretagne - COMPTE CHÈQUES 1',
+  bank_name: 'Credit Mutuel de Bretagne - COMPTE CHEQUES 1',
   bic: 'CMBRFR2BXXX',
   iban: 'FR76 1558 9297 0600 0890 6894 048',
 }
@@ -36,71 +36,21 @@ function fmtDate(d) {
   return format(new Date(d), 'dd/MM/yyyy')
 }
 
-// 1175.50 => "1 175,50" with real space separator (Liberation Sans handles it)
+// 1175.50 => "1.175,50" with period as thousands separator (jsPDF-safe)
 function fmtMoney(val) {
   const num = Math.abs(parseFloat(val) || 0)
   const fixed = num.toFixed(2)
   const parts = fixed.split('.')
-  parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ' ')
+  parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, '.')
   return parts.join(',')
 }
 
 function fmtEuro(val) {
   const prefix = parseFloat(val) < 0 ? '-' : ''
-  return prefix + fmtMoney(val) + ' \u20AC'
+  return prefix + fmtMoney(val) + ' EUR'
 }
 
-// ============================================================
-// FONT LOADING - Liberation Sans (Helvetica-compatible + accents + €)
-// ============================================================
-let fontsLoaded = false
-
-async function loadFontAsBase64(url) {
-  const resp = await fetch(url)
-  const buffer = await resp.arrayBuffer()
-  const bytes = new Uint8Array(buffer)
-  let binary = ''
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i])
-  }
-  return btoa(binary)
-}
-
-async function registerFonts(doc) {
-  if (fontsLoaded) {
-    // Fonts already in VFS from previous call, just add to this doc
-    try {
-      doc.addFont('LiberationSans-Regular.ttf', 'Liberation', 'normal')
-      doc.addFont('LiberationSans-Bold.ttf', 'Liberation', 'bold')
-      doc.addFont('LiberationSans-Italic.ttf', 'Liberation', 'italic')
-      return true
-    } catch (e) {
-      return false
-    }
-  }
-
-  try {
-    const [regular, bold, italic] = await Promise.all([
-      loadFontAsBase64('/fonts/LiberationSans-Regular.ttf'),
-      loadFontAsBase64('/fonts/LiberationSans-Bold.ttf'),
-      loadFontAsBase64('/fonts/LiberationSans-Italic.ttf'),
-    ])
-
-    doc.addFileToVFS('LiberationSans-Regular.ttf', regular)
-    doc.addFileToVFS('LiberationSans-Bold.ttf', bold)
-    doc.addFileToVFS('LiberationSans-Italic.ttf', italic)
-
-    doc.addFont('LiberationSans-Regular.ttf', 'Liberation', 'normal')
-    doc.addFont('LiberationSans-Bold.ttf', 'Liberation', 'bold')
-    doc.addFont('LiberationSans-Italic.ttf', 'Liberation', 'italic')
-
-    fontsLoaded = true
-    return true
-  } catch (e) {
-    console.warn('Custom font loading failed, falling back to helvetica:', e)
-    return false
-  }
-}
+// Font: helvetica (built-in jsPDF, no accent support but reliable)
 
 // ============================================================
 // LOAD LOGO
@@ -129,9 +79,7 @@ async function loadLogo() {
 export async function generateQuotePDF(quote, items, client, contact = null) {
   const doc = new jsPDF()
 
-  // Load custom font
-  const hasCustomFont = await registerFonts(doc)
-  const FONT = hasCustomFont ? 'Liberation' : 'helvetica'
+  const FONT = 'helvetica'
 
   const pw = 210
   const ph = 297
@@ -169,7 +117,7 @@ export async function generateQuotePDF(quote, items, client, contact = null) {
   doc.setFontSize(9)
   doc.text('En date du : ' + fmtDate(quote.quote_date), mR, y + 11, { align: 'right' })
   if (quote.client_reference) {
-    doc.text('Réf. client : ' + quote.client_reference, mR, y + 17, { align: 'right' })
+    doc.text('Ref. client : ' + quote.client_reference, mR, y + 17, { align: 'right' })
   }
 
   y = 40
@@ -189,7 +137,7 @@ export async function generateQuotePDF(quote, items, client, contact = null) {
   doc.text('Votre contact : ' + createdBy.name, mL, y + 18)
   doc.setFont(FONT, 'normal')
   doc.setTextColor(80, 80, 80)
-  doc.text('Tél : ' + createdBy.phone, mL, y + 23)
+  doc.text('Tel : ' + createdBy.phone, mL, y + 23)
   if (createdBy.email) {
     doc.text('Email : ' + createdBy.email, mL, y + 28)
   }
@@ -212,7 +160,7 @@ export async function generateQuotePDF(quote, items, client, contact = null) {
     const civ = contact.civilite || ''
     const cName = contact.name || ((contact.first_name || '') + ' ' + (contact.last_name || '')).trim()
     if (cName) {
-      doc.text("À l'attention de " + (civ ? civ + ' ' : '') + cName, cX, cy)
+      doc.text("A l'attention de " + (civ ? civ + ' ' : '') + cName, cX, cy)
       cy += 5
     }
   }
@@ -253,7 +201,7 @@ export async function generateQuotePDF(quote, items, client, contact = null) {
       item.code || '',
       desc,
       fmtMoney(qty),
-      fmtMoney(pu) + '\n' + (item.unit || 'unité'),
+      fmtMoney(pu) + '\n' + (item.unit || 'unite'),
       fmtMoney(tva) + ' %\n(' + fmtMoney(tvaAmt) + ')',
       fmtMoney(lineTotal)
     ]
@@ -262,7 +210,7 @@ export async function generateQuotePDF(quote, items, client, contact = null) {
   doc.autoTable({
     startY: y,
     margin: { left: mL, right: 18 },
-    head: [['Nom / Code', 'Description', 'Qté', 'PU HT', 'TVA', 'Total HT']],
+    head: [['Nom / Code', 'Description', 'Qte', 'PU HT', 'TVA', 'Total HT']],
     body: tableBody,
     theme: 'grid',
     headStyles: {
@@ -309,7 +257,7 @@ export async function generateQuotePDF(quote, items, client, contact = null) {
   const totRows = []
   if (hasDiscount) {
     totRows.push(['Montant total HT', fmtEuro(subtotalHt)])
-    totRows.push(['Réduction HT (' + fmtMoney(quote.discount_percent) + '%)', '-' + fmtEuro(discountAmt)])
+    totRows.push(['Reduction HT (' + fmtMoney(quote.discount_percent) + '%)', '-' + fmtEuro(discountAmt)])
   }
   totRows.push([
     { content: 'Total net HT', styles: { fontStyle: 'bold' } },
@@ -361,8 +309,8 @@ export async function generateQuotePDF(quote, items, client, contact = null) {
   doc.setFontSize(9)
   doc.setFont(FONT, 'bold')
   doc.setTextColor(0, 80, 130)
-  doc.text("Signature du client précédée de la mention", sigX + sigW / 2, y, { align: 'center' })
-  doc.text("« Lu et approuvé, bon pour accord » :", sigX + sigW / 2, y + 5, { align: 'center' })
+  doc.text("Signature du client precedee de la mention", sigX + sigW / 2, y, { align: 'center' })
+  doc.text("'Lu et approuve, bon pour accord' :", sigX + sigW / 2, y + 5, { align: 'center' })
   doc.setTextColor(0, 0, 0)
   y += 9
 
@@ -388,10 +336,10 @@ export async function generateQuotePDF(quote, items, client, contact = null) {
   doc.setFont(FONT, 'normal')
 
   const conds = [
-    ['Date de validité :', fmtDate(quote.validity_date)],
-    ['Moyen de règlement :', quote.payment_method || 'virement bancaire'],
-    ['Délai de règlement :', quote.payment_terms || 'à 30 jours'],
-    ['Date limite de règlement :', fmtDate(quote.payment_deadline)],
+    ['Date de validite :', fmtDate(quote.validity_date)],
+    ['Moyen de reglement :', quote.payment_method || 'virement bancaire'],
+    ['Delai de reglement :', quote.payment_terms || 'a 30 jours'],
+    ['Date limite de reglement :', fmtDate(quote.payment_deadline)],
   ]
   conds.forEach(function(row) {
     doc.text(row[0], mL, y)
@@ -414,17 +362,17 @@ export async function generateQuotePDF(quote, items, client, contact = null) {
   doc.setFontSize(7)
   doc.setTextColor(80, 80, 80)
   doc.text(
-    "En cas de retard de paiement, des pénalités seront exigibles au taux légal majoré de 10 points, ainsi qu'une indemnité forfaitaire de 40 \u20AC",
+    "En cas de retard de paiement, des penalites seront exigibles au taux legal majore de 10 points, ainsi qu'une indemnite forfaitaire de 40 EUR",
     mL, y
   )
   y += 3.5
   doc.text("pour frais de recouvrement (art. L441-10 du Code de commerce).", mL, y)
   y += 5
   if (quote.tva_applicable !== false) {
-    doc.text("TVA exigible d'après les encaissements (article 269, 2-c du CGI).", mL, y)
+    doc.text("TVA exigible d'apres les encaissements (article 269, 2-c du CGI).", mL, y)
   } else {
     doc.setFont(FONT, 'bold')
-    doc.text("TVA non applicable conformément à l'article 261 du CGI.", mL, y)
+    doc.text("TVA non applicable conformement a l'article 261 du CGI.", mL, y)
   }
 
   // ───────────────────────────────────────────────
@@ -459,15 +407,15 @@ function addFooter(doc, font) {
     cx, 275, { align: 'center' }
   )
   doc.text(
-    "Déclaration d'activité enregistrée sous le numéro 53 29 10261 29 auprès du préfet de la région Bretagne",
+    "Declaration d'activite enregistree sous le numero 53 29 10261 29 aupres du prefet de la region Bretagne",
     cx, 279, { align: 'center' }
   )
   doc.text(
-    'SARL au capital de 2 500 \u20AC - Siret : 943 563 866 00012 - Naf : 8559A - TVA : FR71943563866 - RCS 943 563 866 R.C.S. Quimper',
+    'SARL au capital de 2.500 EUR - Siret : 943 563 866 00012 - Naf : 8559A - TVA : FR71943563866 - RCS 943 563 866 R.C.S. Quimper',
     cx, 283, { align: 'center' }
   )
   doc.text(
-    'Tél : 02 46 56 57 54 - Email : contact@accessformation.pro',
+    'Tel : 02 46 56 57 54 - Email : contact@accessformation.pro',
     cx, 287, { align: 'center' }
   )
 
