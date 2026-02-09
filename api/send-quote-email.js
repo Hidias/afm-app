@@ -81,10 +81,17 @@ export default async function handler(req, res) {
   let transporter = null
 
   try {
-    const { userId, to, subject, body, pdfBase64, pdfFilename, quoteId } = req.body
+    const { userId, to, subject, body, pdfBase64, pdfFilename, quoteId } = req.body || {}
 
-    if (!userId || !to || !subject || !body) {
-      return res.status(400).json({ error: 'Paramètres manquants: userId, to, subject, body' })
+    console.log('send-quote-email params:', { userId: !!userId, to: !!to, subject: !!subject, body: !!body, hasPdf: !!pdfBase64 })
+
+    const missing = []
+    if (!userId) missing.push('userId')
+    if (!to) missing.push('to')
+    if (!subject) missing.push('subject')
+    if (!body) missing.push('body')
+    if (missing.length > 0) {
+      return res.status(400).json({ error: `Paramètres manquants: ${missing.join(', ')}` })
     }
 
     // 1. Récupérer la config SMTP de l'utilisateur
