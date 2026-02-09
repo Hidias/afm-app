@@ -444,7 +444,7 @@ export default function VeilleQualiopi() {
             </div>
             
             <div className="p-4 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="label">Type de veille *</label>
                   <select
@@ -500,7 +500,7 @@ export default function VeilleQualiopi() {
                 />
               </div>
               
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="label">Impact</label>
                   <select
@@ -537,7 +537,7 @@ export default function VeilleQualiopi() {
                 />
               </div>
               
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="label">Responsable</label>
                   <select
@@ -585,7 +585,7 @@ export default function VeilleQualiopi() {
             </div>
             
             <div className="p-4 space-y-4">
-              <div className="grid grid-cols-2 gap-4 text-sm">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                 <div>
                   <span className="text-gray-500">Type :</span>
                   <span className="ml-2 font-medium">{VEILLE_TYPES[showPreview.type]?.label}</span>
