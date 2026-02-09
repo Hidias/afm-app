@@ -91,11 +91,11 @@ const formatDate = (d) => d ? format(new Date(d), 'dd/MM/yyyy') : ''
 const formatDateLong = (d) => d ? format(new Date(d), 'd MMMM yyyy', { locale: fr }) : ''
 
 // Helper pour obtenir les infos de contact pour une session
-// Priorité: contact spécifique > contact générique du client
+// Priorité: 1) contact spécifique session > 2) contact "documents" du client > 3) contact générique
 function getSessionContact(session) {
   const client = session?.clients || {}
   
-  // Si un contact spécifique est défini pour cette session
+  // 1. Contact spécifique défini pour cette session
   if (session?.contact) {
     return {
       name: session.contact.name || '',
@@ -106,7 +106,21 @@ function getSessionContact(session) {
     }
   }
   
-  // Sinon, utiliser le contact générique du client
+  // 2. Contact "documents" du client (is_document_contact = true)
+  if (client.contacts && client.contacts.length > 0) {
+    const docContact = client.contacts.find(c => c.is_document_contact)
+    if (docContact) {
+      return {
+        name: docContact.name || '',
+        role: docContact.role || '',
+        email: docContact.email || client.contact_email || '',
+        phone: docContact.phone || client.contact_phone || '',
+        isSpecific: true
+      }
+    }
+  }
+  
+  // 3. Fallback : contact générique du client
   return {
     name: client.contact_name || '',
     role: client.contact_function || '',
