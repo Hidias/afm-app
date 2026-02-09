@@ -1,6 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
-import { useDataStore } from '../lib/store'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import toast from 'react-hot-toast'
@@ -139,7 +138,6 @@ function SignaturePad({ value, onChange, onClear }) {
 // MAIN COMPONENT
 // ============================================================
 export default function Quotes() {
-  const { user } = useDataStore()
   const [quotes, setQuotes] = useState([])
   const [clients, setClients] = useState([])
   const [contacts, setContacts] = useState([])
@@ -458,12 +456,17 @@ export default function Quotes() {
     }
     setSendSending(true)
     try {
+      // Get userId from supabase auth
+      const { data: { user: authUser } } = await supabase.auth.getUser()
+      if (!authUser?.id) {
+        throw new Error('Session expirée. Reconnectez-vous.')
+      }
       const { quote, pdfBase64 } = sendWizard
       const resp = await fetch('/api/send-quote-email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          userId: user?.id,
+          userId: authUser.id,
           to: sendEmail.to,
           subject: sendEmail.subject,
           body: sendEmail.body,
