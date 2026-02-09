@@ -457,6 +457,9 @@ export default function SessionDetail() {
         trainer_id: currentTrainer,
         requires_forprev: found.requires_forprev || false,
         forprev_done: found.forprev_done || false,
+        contact_id: found.contact_id || '',
+        signatory_name: found.signatory_name || '',
+        signatory_role: found.signatory_role || '',
       })
     }
   }, [sessions, id])
@@ -4270,6 +4273,32 @@ ${trainer ? `${trainer.first_name} ${trainer.last_name}` : 'Access Formation'}`
                 <div>
                   <label className="label">Prix total HT (€) - surcharge le prix formation</label>
                   <input type="number" className="input" value={editForm.total_price} onChange={(e) => setEditForm({...editForm, total_price: e.target.value})} placeholder="Laisser vide = prix formation" />
+                </div>
+                
+                {/* Contact pour convocations */}
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg space-y-3">
+                  <p className="font-medium text-blue-800 text-sm">📧 Contact & Signataire</p>
+                  <div>
+                    <label className="label text-xs">Contact convocations</label>
+                    <select className="input" value={editForm.contact_id} onChange={(e) => setEditForm({...editForm, contact_id: e.target.value})}>
+                      <option value="">Contact générique (entreprise)</option>
+                      {(session?.clients?.contacts || []).map(c => (
+                        <option key={c.id} value={c.id}>👤 {c.name}{c.role ? ` (${c.role})` : ''}</option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-gray-500 mt-0.5">Personne mentionnée sur les convocations</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="label text-xs">Signataire convention</label>
+                      <input type="text" className="input" value={editForm.signatory_name} onChange={(e) => setEditForm({...editForm, signatory_name: e.target.value})} placeholder="Ex: Frédéric LE REGENT" />
+                    </div>
+                    <div>
+                      <label className="label text-xs">Fonction signataire</label>
+                      <input type="text" className="input" value={editForm.signatory_role} onChange={(e) => setEditForm({...editForm, signatory_role: e.target.value})} placeholder="Ex: Dirigeant" />
+                    </div>
+                  </div>
+                  <p className="text-xs text-gray-500">Si vide, le contact ci-dessus sera utilisé comme signataire sur la convention</p>
                 </div>
                 <div>
                   <label className="label flex items-center gap-2">
