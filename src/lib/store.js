@@ -619,6 +619,8 @@ export const useDataStore = create((set, get) => ({
       day_type: rest.day_type || 'full', // 'full' ou 'half'
       status: rest.status || 'planned',
       notes: rest.notes || null,
+      signatory_name: rest.signatory_name || null,
+      signatory_role: rest.signatory_role || null,
       reference,
       attendance_token: generateHexToken(32), // Token pour QR code portail
     }
@@ -684,6 +686,9 @@ export const useDataStore = create((set, get) => ({
     if (rest.forprev_done !== undefined) sessionUpdates.forprev_done = rest.forprev_done
     if (rest.forprev_date !== undefined) sessionUpdates.forprev_date = rest.forprev_date
     if (rest.total_price !== undefined) sessionUpdates.total_price = rest.total_price || null
+    // Signataire convention (distinct du contact convocation)
+    if (rest.signatory_name !== undefined) sessionUpdates.signatory_name = rest.signatory_name || null
+    if (rest.signatory_role !== undefined) sessionUpdates.signatory_role = rest.signatory_role || null
     // Ne pas envoyer room si pas défini (colonne peut ne pas exister)
     if (rest.room !== undefined && rest.room !== '') sessionUpdates.room = rest.room
     
