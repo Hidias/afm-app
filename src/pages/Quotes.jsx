@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
+import { useDataStore } from '../lib/store'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import toast from 'react-hot-toast'
@@ -7,7 +8,7 @@ import { generateQuotePDF } from '../lib/quoteGenerator'
 import {
   Plus, Search, FileText, ArrowLeft, Trash2, Save, Send, Copy,
   ChevronDown, ChevronUp, Eye, MoreHorizontal, Check, X, Edit2,
-  Download, RefreshCw, Building2, GripVertical, Pen
+  Download, RefreshCw, Building2, GripVertical, Pen, Mail, Loader2
 } from 'lucide-react'
 
 const STATUS_CONFIG = {
@@ -138,6 +139,7 @@ function SignaturePad({ value, onChange, onClear }) {
 // MAIN COMPONENT
 // ============================================================
 export default function Quotes() {
+  const { user } = useDataStore()
   const [quotes, setQuotes] = useState([])
   const [clients, setClients] = useState([])
   const [contacts, setContacts] = useState([])
@@ -150,6 +152,13 @@ export default function Quotes() {
   const [items, setItems] = useState([])
   const [saving, setSaving] = useState(false)
   const [generatingPdf, setGeneratingPdf] = useState(false)
+
+  // === Send Wizard State ===
+  const [sendWizard, setSendWizard] = useState(null) // { quote, client, contact, items, pdfBlobUrl, pdfBase64 }
+  const [sendStep, setSendStep] = useState(1) // 1=aperçu PDF, 2=texte email, 3=recap+envoi
+  const [sendEmail, setSendEmail] = useState({ to: '', subject: '', body: '', customInstructions: '' })
+  const [sendLoading, setSendLoading] = useState(false)
+  const [sendSending, setSendSending] = useState(false)
 
   const emptyQuote = {
     client_id: '', contact_id: '', session_id: '',
@@ -353,6 +362,128 @@ export default function Quotes() {
     setGeneratingPdf(false)
   }
 
+  // ============================================================
+  // SEND WIZARD
+  // ============================================================
+  async function openSendWizard(quote) {
+    setSendLoading(true)
+    try {
+      // Load quote items
+      const loadedItems = await loadQuoteItems(quote.id)
+      // Client data
+      const clientData = quote.clients || clients.find(c => c.id === quote.client_id) || {}
+      // Contact data
+      let contactData = null
+      if (quote.contact_id) {
+        const { data } = await supabase.from('client_contacts').select('*').eq('id', quote.contact_id).single()
+        contactData = data
+      }
+      // All contacts for this client (for recipient selection)
+      let clientContacts = []
+      if (quote.client_id) {
+        const { data } = await supabase.from('client_contacts').select('*').eq('client_id', quote.client_id)
+          .order('is_primary', { ascending: false }).order('name')
+        clientContacts = data || []
+      }
+
+      // Generate PDF without downloading
+      const doc = await generateQuotePDF(quote, loadedItems, clientData, contactData, { skipSave: true })
+      const pdfBase64 = doc.output('base64')
+      const pdfBlob = doc.output('blob')
+      const pdfBlobUrl = URL.createObjectURL(pdfBlob)
+
+      // Find default recipient email
+      let defaultTo = ''
+      if (contactData?.email) {
+        defaultTo = contactData.email
+      } else if (clientData?.contact_email) {
+        defaultTo = clientData.contact_email
+      }
+
+      setSendWizard({
+        quote, client: clientData, contact: contactData, items: loadedItems,
+        pdfBlobUrl, pdfBase64, clientContacts
+      })
+      setSendEmail({ to: defaultTo, subject: '', body: '', customInstructions: '' })
+      setSendStep(1)
+    } catch (err) {
+      console.error('Erreur ouverture envoi:', err)
+      toast.error('Erreur: ' + err.message)
+    }
+    setSendLoading(false)
+  }
+
+  function closeSendWizard() {
+    if (sendWizard?.pdfBlobUrl) URL.revokeObjectURL(sendWizard.pdfBlobUrl)
+    setSendWizard(null)
+    setSendStep(1)
+    setSendEmail({ to: '', subject: '', body: '', customInstructions: '' })
+  }
+
+  async function generateEmailText() {
+    if (!sendWizard) return
+    setSendLoading(true)
+    try {
+      const { quote, client, contact, items } = sendWizard
+      const resp = await fetch('/api/generate-quote-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          quote, client, contact, items,
+          senderName: quote.created_by || 'Hicham Saidi',
+          customInstructions: sendEmail.customInstructions || ''
+        })
+      })
+      const data = await resp.json()
+      if (!resp.ok) throw new Error(data.error || 'Erreur génération')
+      setSendEmail(prev => ({ ...prev, subject: data.subject || '', body: data.body || '' }))
+      toast.success('Texte généré !')
+    } catch (err) {
+      console.error('Erreur génération email:', err)
+      toast.error('Erreur: ' + err.message)
+      // Fallback text
+      const { quote, client } = sendWizard
+      setSendEmail(prev => ({
+        ...prev,
+        subject: `Devis ${quote.reference} - Access Formation`,
+        body: `Bonjour,\n\nSuite à notre échange, veuillez trouver ci-joint notre devis ${quote.reference} relatif à votre projet de formation.\n\nNous restons à votre disposition pour tout complément d'information.\n\nBien cordialement`
+      }))
+    }
+    setSendLoading(false)
+  }
+
+  async function handleSendQuoteEmail() {
+    if (!sendWizard || !sendEmail.to || !sendEmail.subject || !sendEmail.body) {
+      return toast.error('Veuillez remplir tous les champs')
+    }
+    setSendSending(true)
+    try {
+      const { quote, pdfBase64 } = sendWizard
+      const resp = await fetch('/api/send-quote-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: user?.id,
+          to: sendEmail.to,
+          subject: sendEmail.subject,
+          body: sendEmail.body,
+          pdfBase64: pdfBase64,
+          pdfFilename: `${quote.reference}.pdf`,
+          quoteId: quote.id
+        })
+      })
+      const data = await resp.json()
+      if (!resp.ok) throw new Error(data.error || 'Erreur envoi')
+      toast.success('Devis envoyé par email !')
+      closeSendWizard()
+      loadAll() // Refresh pour voir le nouveau statut
+    } catch (err) {
+      console.error('Erreur envoi email:', err)
+      toast.error('Erreur: ' + err.message)
+    }
+    setSendSending(false)
+  }
+
   function updateItem(index, field, value) {
     const updated = [...items]
     updated[index] = { ...updated[index], [field]: value }
@@ -394,8 +525,12 @@ export default function Quotes() {
   }
 
   // ==================== RENDER ====================
-  if (mode === 'list') return renderList()
-  return renderForm()
+  return (
+    <>
+      {mode === 'list' ? renderList() : renderForm()}
+      {sendWizard && renderSendWizard()}
+    </>
+  )
 
   function renderList() {
     return (
@@ -488,10 +623,11 @@ export default function Quotes() {
                         className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-gray-50 rounded transition-colors">
                         <Copy size={16} />
                       </button>
-                      {q.status === 'draft' && (
-                        <button onClick={() => updateStatus(q.id, 'sent')} title="Marquer envoyé"
-                          className="p-1.5 text-gray-400 hover:text-green-600 hover:bg-gray-50 rounded transition-colors">
-                          <Send size={16} />
+                      {(q.status === 'draft' || q.status === 'sent') && (
+                        <button onClick={() => openSendWizard(q)} title={q.status === 'sent' ? 'Renvoyer par email' : 'Envoyer par email'}
+                          disabled={sendLoading}
+                          className="p-1.5 text-gray-400 hover:text-green-600 hover:bg-gray-50 rounded transition-colors disabled:opacity-50">
+                          {sendLoading ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
                         </button>
                       )}
                       <button onClick={() => deleteQuote(q.id)} title="Supprimer"
@@ -855,6 +991,238 @@ export default function Quotes() {
               className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-orange-500 text-white rounded-xl hover:bg-orange-600 transition-colors disabled:opacity-50 font-medium">
               <Download size={18} /> {generatingPdf ? 'Génération...' : 'Télécharger le PDF'}
             </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // ============================================================
+  // SEND WIZARD MODAL
+  // ============================================================
+  function renderSendWizard() {
+    const { quote, client, contact, pdfBlobUrl, clientContacts } = sendWizard
+    const steps = [
+      { num: 1, label: 'Aperçu PDF' },
+      { num: 2, label: 'Texte email' },
+      { num: 3, label: 'Envoyer' }
+    ]
+
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[92vh] flex flex-col mx-4">
+          {/* Header */}
+          <div className="flex items-center justify-between px-6 py-4 border-b">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">
+                <Mail className="inline w-5 h-5 mr-2 text-primary-600" />
+                Envoyer le devis {quote.reference}
+              </h2>
+              <p className="text-sm text-gray-500">{client?.name}</p>
+            </div>
+            <button onClick={closeSendWizard} className="p-2 hover:bg-gray-100 rounded-lg">
+              <X size={20} />
+            </button>
+          </div>
+
+          {/* Steps indicator */}
+          <div className="flex items-center justify-center gap-2 px-6 py-3 bg-gray-50 border-b">
+            {steps.map((s, i) => (
+              <div key={s.num} className="flex items-center gap-2">
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold transition-colors ${
+                  sendStep === s.num ? 'bg-primary-600 text-white' : 
+                  sendStep > s.num ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-500'
+                }`}>
+                  {sendStep > s.num ? <Check size={16} /> : s.num}
+                </div>
+                <span className={`text-sm ${sendStep === s.num ? 'font-semibold text-gray-900' : 'text-gray-500'}`}>
+                  {s.label}
+                </span>
+                {i < steps.length - 1 && <div className="w-8 h-px bg-gray-300 mx-1" />}
+              </div>
+            ))}
+          </div>
+
+          {/* Body */}
+          <div className="flex-1 overflow-y-auto p-6">
+            {/* STEP 1: Aperçu PDF */}
+            {sendStep === 1 && (
+              <div>
+                <p className="text-sm text-gray-600 mb-3">Vérifiez le devis avant envoi :</p>
+                <iframe
+                  src={pdfBlobUrl}
+                  className="w-full rounded-lg border border-gray-200"
+                  style={{ height: '55vh' }}
+                  title="Aperçu du devis"
+                />
+              </div>
+            )}
+
+            {/* STEP 2: Texte email IA */}
+            {sendStep === 2 && (
+              <div className="space-y-4">
+                {/* Destinataire */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Destinataire</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="email"
+                      value={sendEmail.to}
+                      onChange={(e) => setSendEmail(prev => ({ ...prev, to: e.target.value }))}
+                      placeholder="email@entreprise.fr"
+                      className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                    />
+                    {clientContacts && clientContacts.length > 0 && (
+                      <select
+                        className="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white"
+                        value=""
+                        onChange={(e) => {
+                          if (e.target.value) setSendEmail(prev => ({ ...prev, to: e.target.value }))
+                        }}
+                      >
+                        <option value="">Contacts...</option>
+                        {clientContacts.filter(c => c.email).map(c => (
+                          <option key={c.id} value={c.email}>
+                            {c.first_name || ''} {c.last_name || c.name || ''} — {c.email}
+                          </option>
+                        ))}
+                        {client?.contact_email && (
+                          <option value={client.contact_email}>Contact principal — {client.contact_email}</option>
+                        )}
+                      </select>
+                    )}
+                  </div>
+                </div>
+
+                {/* Objet */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Objet</label>
+                  <input
+                    type="text"
+                    value={sendEmail.subject}
+                    onChange={(e) => setSendEmail(prev => ({ ...prev, subject: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                  />
+                </div>
+
+                {/* Corps */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Corps du message</label>
+                  <textarea
+                    value={sendEmail.body}
+                    onChange={(e) => setSendEmail(prev => ({ ...prev, body: e.target.value }))}
+                    rows={10}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm font-sans"
+                  />
+                </div>
+
+                {/* Régénérer avec instructions */}
+                <div className="bg-blue-50 rounded-lg p-3">
+                  <label className="block text-xs font-medium text-blue-700 mb-1">
+                    Instructions pour régénérer (optionnel)
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={sendEmail.customInstructions}
+                      onChange={(e) => setSendEmail(prev => ({ ...prev, customInstructions: e.target.value }))}
+                      placeholder="Ex: ton plus formel, mentionner une date limite..."
+                      className="flex-1 px-3 py-2 border border-blue-200 rounded-lg text-sm bg-white"
+                    />
+                    <button
+                      onClick={generateEmailText}
+                      disabled={sendLoading}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
+                    >
+                      {sendLoading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+                      {sendEmail.body ? 'Régénérer' : 'Générer'}
+                    </button>
+                  </div>
+                </div>
+
+                <p className="text-xs text-gray-400">
+                  La signature sera ajoutée automatiquement selon votre compte email.
+                  BCC : contact@accessformation.pro
+                </p>
+              </div>
+            )}
+
+            {/* STEP 3: Récap & envoi */}
+            {sendStep === 3 && (
+              <div className="space-y-4">
+                <div className="bg-green-50 border border-green-200 rounded-xl p-5 space-y-3">
+                  <h3 className="font-semibold text-green-900">Récapitulatif</h3>
+                  <div className="grid grid-cols-[120px_1fr] gap-y-2 text-sm">
+                    <span className="text-gray-500">De :</span>
+                    <span className="font-medium">{quote.created_by} (Access Formation)</span>
+                    <span className="text-gray-500">À :</span>
+                    <span className="font-medium">{sendEmail.to}</span>
+                    <span className="text-gray-500">BCC :</span>
+                    <span className="text-gray-400">contact@accessformation.pro</span>
+                    <span className="text-gray-500">Objet :</span>
+                    <span className="font-medium">{sendEmail.subject}</span>
+                    <span className="text-gray-500">Pièce jointe :</span>
+                    <span className="flex items-center gap-1 text-orange-600">
+                      <FileText size={14} /> {quote.reference}.pdf
+                    </span>
+                  </div>
+                </div>
+
+                <div className="bg-gray-50 rounded-xl p-5">
+                  <h4 className="text-sm font-medium text-gray-700 mb-2">Aperçu du message :</h4>
+                  <div className="text-sm text-gray-600 whitespace-pre-wrap bg-white rounded-lg border p-4">
+                    {sendEmail.body}
+                  </div>
+                  <p className="text-xs text-gray-400 mt-2 italic">+ signature automatique</p>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Footer */}
+          <div className="flex items-center justify-between px-6 py-4 border-t bg-gray-50 rounded-b-2xl">
+            <button
+              onClick={() => sendStep > 1 ? setSendStep(sendStep - 1) : closeSendWizard()}
+              className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+            >
+              {sendStep === 1 ? 'Annuler' : '← Retour'}
+            </button>
+            <div className="flex gap-2">
+              {sendStep === 1 && (
+                <button
+                  onClick={() => { setSendStep(2); if (!sendEmail.body) generateEmailText() }}
+                  className="px-6 py-2.5 bg-primary-600 text-white rounded-lg text-sm font-medium hover:bg-primary-700 transition-colors flex items-center gap-2"
+                >
+                  PDF OK, continuer <ChevronDown size={14} className="-rotate-90" />
+                </button>
+              )}
+              {sendStep === 2 && (
+                <button
+                  onClick={() => {
+                    if (!sendEmail.to) return toast.error('Indiquez un destinataire')
+                    if (!sendEmail.subject) return toast.error('Indiquez un objet')
+                    if (!sendEmail.body) return toast.error('Générez ou rédigez le texte')
+                    setSendStep(3)
+                  }}
+                  className="px-6 py-2.5 bg-primary-600 text-white rounded-lg text-sm font-medium hover:bg-primary-700 transition-colors flex items-center gap-2"
+                >
+                  Continuer <ChevronDown size={14} className="-rotate-90" />
+                </button>
+              )}
+              {sendStep === 3 && (
+                <button
+                  onClick={handleSendQuoteEmail}
+                  disabled={sendSending}
+                  className="px-6 py-2.5 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition-colors disabled:opacity-50 flex items-center gap-2"
+                >
+                  {sendSending ? (
+                    <><Loader2 size={16} className="animate-spin" /> Envoi en cours...</>
+                  ) : (
+                    <><Send size={16} /> Envoyer le devis</>
+                  )}
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
