@@ -226,7 +226,7 @@ export default function Quotes() {
     const qDate = format(new Date(), 'yyyy-MM-dd')
     const vDate = calcValidityDate(qDate)
     setCurrentQuote({ ...emptyQuote, reference: ref, quote_date: qDate, validity_date: vDate, payment_deadline: vDate })
-    setItems([{ ...emptyItem, position: 0 }])
+    setItems([])
     setContacts([])
     setMode('create')
   }
@@ -240,7 +240,7 @@ export default function Quotes() {
       discount_label: quote.discount_label || '', tva_rate: quote.tva_rate || 20,
       tva_applicable: quote.tva_applicable !== false, signature_base64: quote.signature_base64 || null,
     })
-    setItems(loadedItems.length > 0 ? loadedItems : [{ ...emptyItem, position: 0 }])
+    setItems(loadedItems)
     setMode('edit')
   }
 
