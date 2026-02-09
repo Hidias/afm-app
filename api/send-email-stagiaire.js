@@ -157,6 +157,28 @@ export default async function handler(req, res) {
         email_type: 'stagiaire'
       }])
 
+    // 8b. Traçabilité CRM : ajouter dans l'historique client
+    try {
+      const { data: sessionData } = await supabase.from('sessions').select('client_id, reference').eq('id', sessionId).single()
+      if (sessionData?.client_id) {
+        const now = new Date()
+        const dateStr = now.toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' })
+        const timeStr = now.toLocaleTimeString('fr-FR', { timeZone: 'Europe/Paris', hour: '2-digit', minute: '2-digit' })
+        const authorName = emailConfig.email.includes('hicham') ? 'Hicham' : emailConfig.email.includes('maxime') ? 'Maxime' : 'Access Formation'
+
+        await supabase.from('client_interactions').insert({
+          client_id: sessionData.client_id,
+          type: 'email',
+          title: `Email stagiaire envoyé (${sessionData.reference || ''})`,
+          content: `Email stagiaire envoyé par ${authorName} le ${dateStr} à ${timeStr}\nSession : ${sessionData.reference || sessionId}\nDestinataire : ${to}\nObjet : ${subject}`,
+          author: authorName,
+        })
+        console.log('📋 Traçabilité CRM ajoutée pour client:', sessionData.client_id)
+      }
+    } catch (traceErr) {
+      console.error('Erreur traçabilité CRM (non bloquant):', traceErr.message)
+    }
+
     if (transporter) transporter.close()
 
     return res.status(200).json({
