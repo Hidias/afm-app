@@ -28,9 +28,13 @@ const PAYMENT_METHODS = [
 
 const PAYMENT_TERMS = [
   'À réception de facture',
+  'À la commande',
   'à 30 jours',
+  'à 30 jours fin de mois',
   'à 45 jours',
-  'à 60 jours'
+  'à 45 jours fin de mois',
+  'à 60 jours',
+  'à 60 jours fin de mois'
 ]
 
 const CONTACTS_LABEL = { 'Hicham Saidi': 'Hicham Saidi', 'Maxime Langlais': 'Maxime Langlais' }
