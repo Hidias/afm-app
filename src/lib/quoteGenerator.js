@@ -29,14 +29,14 @@ const CONTACTS = {
 }
 
 // ============================================================
-// LAYOUT CONSTANTS
+// LAYOUT
 // ============================================================
-const ML = 18               // margin left
-const MR = 192              // margin right (210-18)
-const FOOTER_SEP_Y = 271    // footer separator line
-// Bottom block (conditions+bank+legal) height ~38mm
-// Anchored just above footer: starts at 271 - 4 - 38 = 229
-const BOTTOM_BLOCK_Y = 229
+var ML = 18
+var MR = 192
+var FOOTER_SEP_Y = 271
+// Bottom block (conditions+bank+legal) = ~38mm
+// Anchored above footer: 271 - 4 - 38 = 229
+var BOTTOM_BLOCK_Y = 229
 
 // ============================================================
 // FORMAT HELPERS
@@ -47,31 +47,31 @@ function fmtDate(d) {
 }
 
 function fmtMoney(val) {
-  const num = Math.abs(parseFloat(val) || 0)
-  const fixed = num.toFixed(2)
-  const parts = fixed.split('.')
+  var num = Math.abs(parseFloat(val) || 0)
+  var fixed = num.toFixed(2)
+  var parts = fixed.split('.')
   parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, '.')
   return parts.join(',')
 }
 
 function fmtEuro(val) {
-  const prefix = parseFloat(val) < 0 ? '-' : ''
+  var prefix = parseFloat(val) < 0 ? '-' : ''
   return prefix + fmtMoney(val) + ' EUR'
 }
 
 // ============================================================
 // LOAD LOGO
 // ============================================================
-let logoCache = null
+var logoCache = null
 
 async function loadLogo() {
   if (logoCache) return logoCache
   try {
-    const resp = await fetch('/assets/logo-access.png')
-    const blob = await resp.blob()
-    return new Promise((resolve) => {
-      const reader = new FileReader()
-      reader.onload = () => { logoCache = reader.result; resolve(logoCache) }
+    var resp = await fetch('/assets/logo-access.png')
+    var blob = await resp.blob()
+    return new Promise(function (resolve) {
+      var reader = new FileReader()
+      reader.onload = function () { logoCache = reader.result; resolve(logoCache) }
       reader.readAsDataURL(blob)
     })
   } catch (e) {
@@ -81,7 +81,7 @@ async function loadLogo() {
 }
 
 // ============================================================
-// FOOTER (4 lines, fixed at bottom of every page)
+// FOOTER
 // ============================================================
 function addFooter(doc, font) {
   var cx = 105
@@ -100,17 +100,17 @@ function addFooter(doc, font) {
 
 // ============================================================
 // BOTTOM BLOCK (conditions + banque + mentions legales)
-// Anchored at fixed Y position, just above footer
+// Drawn at fixed Y position above footer
 // ============================================================
 function drawBottomBlock(doc, font, quote) {
   var y = BOTTOM_BLOCK_Y
 
-  // Thin separator
+  // Separator
   doc.setDrawColor(210, 210, 210)
   doc.setLineWidth(0.2)
   doc.line(ML, y - 2, MR, y - 2)
 
-  // -- Conditions de paiement --
+  // Conditions
   doc.setFontSize(7)
   doc.setTextColor(60, 60, 60)
   doc.setFont(font, 'normal')
@@ -127,7 +127,7 @@ function drawBottomBlock(doc, font, quote) {
     y += 3.5
   }
 
-  // -- Coordonnees bancaires --
+  // Bank
   y += 0.5
   doc.text('Banque :', ML, y)
   doc.text(ORG.bank_name, ML + 40, y)
@@ -135,10 +135,9 @@ function drawBottomBlock(doc, font, quote) {
   doc.text('BIC : ' + ORG.bic, ML + 40, y)
   y += 3
   doc.text('IBAN : ' + ORG.iban, ML + 40, y)
-
   y += 5
 
-  // -- Mentions legales --
+  // Legal
   doc.setFontSize(6)
   doc.setTextColor(100, 100, 100)
   doc.text(
@@ -157,37 +156,29 @@ function drawBottomBlock(doc, font, quote) {
 }
 
 // ============================================================
-// MAIN: GENERATE QUOTE PDF
+// MAIN
 // ============================================================
-export async function generateQuotePDF(quote, items, client, contact = null) {
+export async function generateQuotePDF(quote, items, client, contact) {
+  contact = contact || null
   var doc = new jsPDF()
   var FONT = 'helvetica'
-
   var createdBy = CONTACTS[quote.created_by] || CONTACTS['Hicham Saidi']
   var logo = await loadLogo()
-
   var y = 12
 
   // ─── LOGO ───
   if (logo) {
-    try {
-      doc.addImage(logo, 'PNG', ML, y, 52, 13)
-    } catch (e) {
-      doc.setFontSize(14)
-      doc.setFont(FONT, 'bold')
-      doc.setTextColor(233, 180, 76)
-      doc.text('ACCESS FORMATION', ML, y + 14)
-      doc.setTextColor(0, 0, 0)
+    try { doc.addImage(logo, 'PNG', ML, y, 52, 13) } catch (e) {
+      doc.setFontSize(14); doc.setFont(FONT, 'bold'); doc.setTextColor(233, 180, 76)
+      doc.text('ACCESS FORMATION', ML, y + 14); doc.setTextColor(0, 0, 0)
     }
   }
 
-  // ─── REFERENCE (top right) ───
+  // ─── REFERENCE ───
   doc.setTextColor(0, 0, 0)
-  doc.setFontSize(11)
-  doc.setFont(FONT, 'bold')
+  doc.setFontSize(11); doc.setFont(FONT, 'bold')
   doc.text('Devis ' + quote.reference, MR, y + 5, { align: 'right' })
-  doc.setFont(FONT, 'normal')
-  doc.setFontSize(9)
+  doc.setFont(FONT, 'normal'); doc.setFontSize(9)
   doc.text('En date du : ' + fmtDate(quote.quote_date), MR, y + 11, { align: 'right' })
   if (quote.client_reference) {
     doc.text('Ref. client : ' + quote.client_reference, MR, y + 17, { align: 'right' })
@@ -195,41 +186,26 @@ export async function generateQuotePDF(quote, items, client, contact = null) {
 
   y = 40
 
-  // ─── EMETTEUR (left) ───
-  doc.setFontSize(9)
-  doc.setFont(FONT, 'normal')
-  doc.setTextColor(80, 80, 80)
+  // ─── EMETTEUR ───
+  doc.setFontSize(9); doc.setFont(FONT, 'normal'); doc.setTextColor(80, 80, 80)
   doc.text(ORG.address_line1, ML, y)
   doc.text(ORG.address_line2, ML, y + 5)
   doc.text(ORG.country, ML, y + 10)
-  doc.setTextColor(0, 0, 0)
-  doc.setFont(FONT, 'bold')
+  doc.setTextColor(0, 0, 0); doc.setFont(FONT, 'bold')
   doc.text('Votre contact : ' + createdBy.name, ML, y + 18)
-  doc.setFont(FONT, 'normal')
-  doc.setTextColor(80, 80, 80)
+  doc.setFont(FONT, 'normal'); doc.setTextColor(80, 80, 80)
   doc.text('Tel : ' + createdBy.phone, ML, y + 23)
-  if (createdBy.email) {
-    doc.text('Email : ' + createdBy.email, ML, y + 28)
-  }
+  if (createdBy.email) doc.text('Email : ' + createdBy.email, ML, y + 28)
 
-  // ─── CLIENT (right) ───
-  var cX = 118
-  var cy = y
-  doc.setFontSize(10)
-  doc.setFont(FONT, 'bold')
-  doc.setTextColor(0, 0, 0)
-  doc.text(client?.name || '', cX, cy)
-  cy += 6
-  doc.setFont(FONT, 'normal')
-  doc.setFontSize(9)
-  doc.setTextColor(60, 60, 60)
+  // ─── CLIENT ───
+  var cX = 118; var cy = y
+  doc.setFontSize(10); doc.setFont(FONT, 'bold'); doc.setTextColor(0, 0, 0)
+  doc.text(client?.name || '', cX, cy); cy += 6
+  doc.setFont(FONT, 'normal'); doc.setFontSize(9); doc.setTextColor(60, 60, 60)
   if (contact) {
     var civ = contact.civilite || ''
     var cName = contact.name || ((contact.first_name || '') + ' ' + (contact.last_name || '')).trim()
-    if (cName) {
-      doc.text("A l'attention de " + (civ ? civ + ' ' : '') + cName, cX, cy)
-      cy += 5
-    }
+    if (cName) { doc.text("A l'attention de " + (civ ? civ + ' ' : '') + cName, cX, cy); cy += 5 }
   }
   if (client?.address) { doc.text(client.address, cX, cy); cy += 5 }
   var cityLine = [client?.postal_code, (client?.city || '').toUpperCase()].filter(Boolean).join(' ')
@@ -240,14 +216,11 @@ export async function generateQuotePDF(quote, items, client, contact = null) {
 
   // ─── OBJET ───
   if (quote.object) {
-    doc.setFontSize(9)
-    doc.setFont(FONT, 'normal')
-    doc.setTextColor(0, 0, 0)
-    doc.text('Objet : ' + quote.object, ML, y)
-    y += 8
+    doc.setFontSize(9); doc.setFont(FONT, 'normal'); doc.setTextColor(0, 0, 0)
+    doc.text('Objet : ' + quote.object, ML, y); y += 8
   }
 
-  // ─── TABLE ARTICLES ───
+  // ─── TABLE ───
   var tableBody = items.map(function (item) {
     var qty = parseFloat(item.quantity) || 0
     var pu = parseFloat(item.unit_price_ht) || 0
@@ -257,9 +230,7 @@ export async function generateQuotePDF(quote, items, client, contact = null) {
     var desc = item.description_title || ''
     if (item.description_detail) desc += ' :\n' + item.description_detail
     return [
-      item.code || '',
-      desc,
-      fmtMoney(qty),
+      item.code || '', desc, fmtMoney(qty),
       fmtMoney(pu) + '\n' + (item.unit || 'unite'),
       fmtMoney(tva) + ' %\n(' + fmtMoney(tvaAmt) + ')',
       fmtMoney(lineTotal)
@@ -283,8 +254,7 @@ export async function generateQuotePDF(quote, items, client, contact = null) {
       textColor: [40, 40, 40], valign: 'top',
     },
     columnStyles: {
-      0: { cellWidth: 22 },
-      1: { cellWidth: 'auto' },
+      0: { cellWidth: 22 }, 1: { cellWidth: 'auto' },
       2: { cellWidth: 16, halign: 'center' },
       3: { cellWidth: 22, halign: 'right' },
       4: { cellWidth: 22, halign: 'right', fontSize: 7 },
@@ -337,49 +307,48 @@ export async function generateQuotePDF(quote, items, client, contact = null) {
 
   // ─── NOTES ───
   if (quote.notes) {
-    doc.setFontSize(8)
-    doc.setFont(FONT, 'italic')
-    doc.setTextColor(80, 80, 80)
+    doc.setFontSize(8); doc.setFont(FONT, 'italic'); doc.setTextColor(80, 80, 80)
     doc.text('Note : ' + quote.notes, ML, y)
-    doc.setTextColor(0, 0, 0)
-    y += 6
+    doc.setTextColor(0, 0, 0); y += 6
   }
 
-  // ─── SIGNATURE (right-aligned, below totals) ───
-  // Signature block: title ~5mm + box 18mm = ~23mm total
-  var sigHeight = 25
+  // ─── SIGNATURE (ALWAYS right after totals/notes, right-aligned) ───
+  // Never pushed to next page separately — signature follows the content
   var sigX = 118
-  var sigW = MR - sigX // 74mm
+  var sigW = MR - sigX  // 74mm
 
-  // Check: does signature fit above the bottom block zone?
-  if (y + sigHeight > BOTTOM_BLOCK_Y - 3) {
-    // Doesn't fit => new page, signature + bottom block on page 2
-    doc.addPage()
-    y = 20
-  }
-
-  doc.setFontSize(7.5)
-  doc.setFont(FONT, 'bold')
-  doc.setTextColor(0, 80, 130)
+  doc.setFontSize(7.5); doc.setFont(FONT, 'bold'); doc.setTextColor(0, 80, 130)
   doc.text("Signature du client precedee de la mention", sigX + sigW / 2, y, { align: 'center' })
   doc.text("'Lu et approuve, bon pour accord' :", sigX + sigW / 2, y + 4, { align: 'center' })
   doc.setTextColor(0, 0, 0)
 
   var sigBoxY = y + 6
-  doc.setDrawColor(180, 180, 180)
-  doc.setLineWidth(0.3)
+  doc.setDrawColor(180, 180, 180); doc.setLineWidth(0.3)
   doc.rect(sigX, sigBoxY, sigW, 18)
 
   if (quote.signature_base64) {
-    try {
-      doc.addImage(quote.signature_base64, 'PNG', sigX + 2, sigBoxY + 1, sigW - 4, 16)
-    } catch (e) { /* ignore */ }
+    try { doc.addImage(quote.signature_base64, 'PNG', sigX + 2, sigBoxY + 1, sigW - 4, 16) } catch (e) { /* */ }
   }
 
-  // ─── BOTTOM BLOCK (anchored above footer on last page) ───
+  var afterSignatureY = sigBoxY + 18 + 3
+
+  // ─── BOTTOM BLOCK PLACEMENT ───
+  // Rule: bottom block is anchored at BOTTOM_BLOCK_Y (229) on the LAST page.
+  // If the signature ends before BOTTOM_BLOCK_Y, draw on same page.
+  // If the signature ends after BOTTOM_BLOCK_Y, need a new page for bottom block.
+  var lastContentPage = doc.internal.getNumberOfPages()
+
+  if (afterSignatureY > BOTTOM_BLOCK_Y - 2) {
+    // Signature overflows into the bottom block zone => new page for bottom block
+    doc.addPage()
+  }
+
+  // Draw bottom block on the current last page
+  var finalPage = doc.internal.getNumberOfPages()
+  doc.setPage(finalPage)
   drawBottomBlock(doc, FONT, quote)
 
-  // ─── FOOTER on all pages ───
+  // ─── FOOTER on ALL pages ───
   var totalPages = doc.internal.getNumberOfPages()
   for (var p = 1; p <= totalPages; p++) {
     doc.setPage(p)
