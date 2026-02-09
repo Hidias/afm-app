@@ -124,7 +124,7 @@ Nous vous remercions pour votre confiance et restons à votre disposition.`)
       if (emailType === 'before') {
         // ── CONVENTION ──
         addLog('Convention...')
-        const convention = generatePDF('convention', session, {
+        const convention = await generatePDF('convention', session, {
           trainees: traineesWithResult,
           trainer,
           costs: sessionCosts || []
@@ -162,13 +162,20 @@ Nous vous remercions pour votre confiance et restons à votre disposition.`)
           addLog('⚠️ Erreur récupération programme')
         }
 
-        // ── CONVOCATIONS (tous les stagiaires en un seul PDF) ──
-        addLog(`Convocations (${traineesWithResult.length} stagiaires)...`)
-        const convocations = await generateAllPDF('convocation', session, traineesWithResult, { trainer })
-        if (convocations) {
-          files.push({ id: 'convocations', name: convocations.filename, base64: convocations.base64, size: convocations.size })
-          addLog('✅ Convocations générées')
+        // ── CONVOCATIONS INDIVIDUELLES (un PDF par stagiaire) ──
+        addLog(`Convocations individuelles (${traineesWithResult.length} stagiaires)...`)
+        for (const trainee of traineesWithResult) {
+          try {
+            const convoc = await generatePDF('convocation', session, { trainee, trainer })
+            if (convoc) {
+              files.push({ id: `convocation_${trainee.id}`, name: convoc.filename, base64: convoc.base64, size: convoc.size })
+            }
+          } catch (err) {
+            console.error(`Erreur convocation ${trainee.last_name}:`, err)
+            addLog(`⚠️ Erreur convocation ${trainee.first_name} ${trainee.last_name}`)
+          }
         }
+        addLog(`✅ ${traineesWithResult.length} convocation(s) générée(s)`)
 
         // ── ANALYSE DU BESOIN (préfillée) ──
         addLog('Analyse du besoin...')
