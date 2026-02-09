@@ -21,6 +21,8 @@ export default function Settings() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [exporting, setExporting] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [importPreview, setImportPreview] = useState(null)
   
   const [form, setForm] = useState({
     name: '',
@@ -131,111 +133,71 @@ export default function Settings() {
     try {
       toast.loading('Chargement des données...', { id: 'export' })
       
-      // Charger TOUTES les tables en parallèle
-      const [
-        { data: organizationData },
-        { data: coursesData },
-        { data: clientsData },
-        { data: clientContactsData },
-        { data: traineesData },
-        { data: trainersData },
-        { data: trainerCertificatesData },
-        { data: trainerQualificationsData },
-        { data: sessionsData },
-        { data: sessionTraineesData },
-        { data: attendancesData },
-        { data: attendanceHalfdaysData },
-        { data: traineeObjectivesData },
-        { data: traineeEvaluationsData },
-        { data: trainerEvaluationsData },
-        { data: evaluationsColdData },
-        { data: nonConformitesData },
-        { data: sessionQualiopiData },
-        { data: sessionDocumentsData },
-        { data: themesData },
-        { data: themeQuestionsData },
-        { data: positioningTestsData },
-        { data: positioningAnswersData },
-      ] = await Promise.all([
-        supabase.from('organization_settings').select('*'),
-        supabase.from('courses').select('*'),
-        supabase.from('clients').select('*'),
-        supabase.from('client_contacts').select('*'),
-        supabase.from('trainees').select('*'),
-        supabase.from('trainers').select('*'),
-        supabase.from('trainer_certificates').select('*'),
-        supabase.from('trainer_qualifications').select('*'),
-        supabase.from('sessions').select('*'),
-        supabase.from('session_trainees').select('*'),
-        supabase.from('attendances').select('*'),
-        supabase.from('attendance_halfdays').select('*'),
-        supabase.from('trainee_objectives').select('*'),
-        supabase.from('trainee_evaluations').select('*'),
-        supabase.from('trainer_evaluations').select('*'),
-        supabase.from('evaluations_cold').select('*'),
-        supabase.from('non_conformites').select('*'),
-        supabase.from('session_qualiopi').select('*'),
-        supabase.from('session_documents').select('*'),
-        supabase.from('themes').select('*'),
-        supabase.from('theme_questions').select('*'),
-        supabase.from('positioning_tests').select('*'),
-        supabase.from('positioning_answers').select('*'),
-      ])
+      // Liste complète des tables à exporter (ordre : parents d'abord)
+      const tableNames = [
+        'organization_settings',
+        'courses', 'course_documents', 'course_equipment', 'course_questions',
+        'equipment_catalog',
+        'clients', 'client_contacts', 'client_interactions',
+        'trainees', 'trainee_info_sheets', 'trainee_documents',
+        'trainers', 'trainer_certificates', 'trainer_qualifications', 'trainer_interviews', 'trainer_trainings',
+        'sessions', 'session_trainees', 'session_equipment', 'session_costs', 'session_checklists',
+        'session_needs_analysis', 'session_qualiopi', 'session_documents', 'session_document_access',
+        'attendances', 'attendance_halfdays',
+        'trainee_objectives', 'trainee_evaluations', 'trainer_evaluations', 'evaluations_cold',
+        'sst_certifications',
+        'quotes', 'quote_items',
+        'non_conformites', 'reclamations',
+        'quality_documents', 'quality_alerts', 'qualiopi_documents',
+        'veille_qualiopi', 'veille_sources',
+        'processes', 'process_steps', 'process_connections', 'process_responsibles', 'process_versions',
+        'themes', 'theme_questions', 'training_themes',
+        'positioning_tests', 'positioning_answers',
+        'psh_requests',
+        'prospect_rdv', 'prospect_calls', 'prospect_needs_analysis',
+        'notifications', 'audit_logs',
+        'user_email_configs',
+      ]
       
-      // Construire l'objet d'export COMPLET
+      // Charger toutes les tables en parallèle
+      const results = await Promise.all(
+        tableNames.map(table => 
+          supabase.from(table).select('*').then(({ data, error }) => ({
+            table,
+            data: data || [],
+            error
+          }))
+        )
+      )
+      
+      // Construire l'objet d'export
       const exportData = {
         _metadata: {
           exportDate: new Date().toISOString(),
-          version: 'V2.7.0',
+          version: 'V2.8.0',
           description: 'Export complet Access Campus - Toutes les données',
+          tables: {},
         },
-        
-        // Configuration
-        organization_settings: organizationData || [],
-        
-        // Entités principales
-        courses: coursesData || [],
-        clients: clientsData || [],
-        client_contacts: clientContactsData || [],
-        trainees: traineesData || [],
-        trainers: trainersData || [],
-        trainer_certificates: trainerCertificatesData || [],
-        trainer_qualifications: trainerQualificationsData || [],
-        
-        // Sessions et inscriptions
-        sessions: sessionsData || [],
-        session_trainees: sessionTraineesData || [],
-        
-        // Présences et objectifs
-        attendances: attendancesData || [],
-        attendance_halfdays: attendanceHalfdaysData || [],
-        trainee_objectives: traineeObjectivesData || [],
-        
-        // Évaluations
-        trainee_evaluations: traineeEvaluationsData || [],
-        trainer_evaluations: trainerEvaluationsData || [],
-        evaluations_cold: evaluationsColdData || [],
-        
-        // Qualiopi
-        non_conformites: nonConformitesData || [],
-        session_qualiopi: sessionQualiopiData || [],
-        session_documents: sessionDocumentsData || [],
-        
-        // Tests de positionnement
-        themes: themesData || [],
-        theme_questions: themeQuestionsData || [],
-        positioning_tests: positioningTestsData || [],
-        positioning_answers: positioningAnswersData || [],
       }
       
-      // Statistiques
-      const stats = {
-        courses: (coursesData || []).length,
-        clients: (clientsData || []).length,
-        trainees: (traineesData || []).length,
-        trainers: (trainersData || []).length,
-        sessions: (sessionsData || []).length,
-        certificates: (trainerCertificatesData || []).length,
+      let totalRecords = 0
+      const failedTables = []
+      
+      results.forEach(({ table, data, error }) => {
+        if (error) {
+          // Table n'existe peut-être pas encore, on skip silencieusement
+          failedTables.push(table)
+        } else {
+          exportData[table] = data
+          exportData._metadata.tables[table] = data.length
+          totalRecords += data.length
+        }
+      })
+      
+      exportData._metadata.totalRecords = totalRecords
+      exportData._metadata.exportedTables = Object.keys(exportData._metadata.tables).length
+      if (failedTables.length > 0) {
+        exportData._metadata.skippedTables = failedTables
       }
       
       // Créer le fichier JSON
@@ -243,24 +205,148 @@ export default function Settings() {
       const blob = new Blob([json], { type: 'application/json' })
       const url = URL.createObjectURL(blob)
       
-      // Télécharger
       const a = document.createElement('a')
       a.href = url
       const date = new Date().toISOString().split('T')[0]
       const time = new Date().toTimeString().split(' ')[0].replace(/:/g, '-')
-      a.download = `access-campus-backup-complet-${date}_${time}.json`
+      a.download = `access-campus-backup-${date}_${time}.json`
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
       
-      toast.success(`Export complet réussi ! (${stats.courses} formations, ${stats.clients} clients, ${stats.trainees} stagiaires, ${stats.trainers} formateurs, ${stats.sessions} sessions, ${stats.certificates} certificats)`, { id: 'export', duration: 5000 })
+      const sizeMB = (json.length / 1024 / 1024).toFixed(1)
+      toast.success(`Export réussi ! ${totalRecords} enregistrements dans ${exportData._metadata.exportedTables} tables (${sizeMB} MB)`, { id: 'export', duration: 5000 })
     } catch (error) {
       console.error('Export error:', error)
       toast.error('Erreur lors de l\'export: ' + (error.message || 'Erreur inconnue'), { id: 'export' })
     } finally {
       setExporting(false)
     }
+  }
+
+  // ======== IMPORT / RESTAURATION ========
+  const handleImportFile = (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    
+    const reader = new FileReader()
+    reader.onload = (event) => {
+      try {
+        const data = JSON.parse(event.target.result)
+        
+        if (!data._metadata || !data._metadata.exportDate) {
+          toast.error('Fichier invalide : ce n\'est pas une sauvegarde Access Campus')
+          return
+        }
+        
+        // Compter les enregistrements par table
+        const tables = {}
+        let total = 0
+        Object.entries(data).forEach(([key, value]) => {
+          if (key !== '_metadata' && Array.isArray(value) && value.length > 0) {
+            tables[key] = value.length
+            total += value.length
+          }
+        })
+        
+        setImportPreview({
+          data,
+          fileName: file.name,
+          exportDate: data._metadata.exportDate,
+          version: data._metadata.version || 'Inconnue',
+          tables,
+          totalRecords: total,
+          tableCount: Object.keys(tables).length,
+        })
+      } catch (err) {
+        toast.error('Fichier JSON invalide')
+      }
+    }
+    reader.readAsText(file)
+    // Reset input pour pouvoir re-sélectionner le même fichier
+    e.target.value = ''
+  }
+
+  const handleImportConfirm = async () => {
+    if (!importPreview?.data) return
+    
+    setImporting(true)
+    const data = importPreview.data
+    
+    // Ordre d'insertion : parents d'abord, enfants ensuite (clés étrangères)
+    const insertionOrder = [
+      'organization_settings',
+      'equipment_catalog',
+      'courses', 'course_documents', 'course_equipment', 'course_questions',
+      'clients', 'client_contacts', 'client_interactions',
+      'trainees', 'trainee_info_sheets', 'trainee_documents',
+      'trainers', 'trainer_certificates', 'trainer_qualifications', 'trainer_interviews', 'trainer_trainings',
+      'themes', 'theme_questions', 'training_themes',
+      'sessions', 'session_trainees', 'session_equipment', 'session_costs', 'session_checklists',
+      'session_needs_analysis', 'session_qualiopi', 'session_documents', 'session_document_access',
+      'attendances', 'attendance_halfdays',
+      'trainee_objectives', 'trainee_evaluations', 'trainer_evaluations', 'evaluations_cold',
+      'sst_certifications',
+      'quotes', 'quote_items',
+      'non_conformites', 'reclamations',
+      'quality_documents', 'quality_alerts', 'qualiopi_documents',
+      'veille_qualiopi', 'veille_sources',
+      'processes', 'process_steps', 'process_connections', 'process_responsibles', 'process_versions',
+      'positioning_tests', 'positioning_answers',
+      'psh_requests',
+      'prospect_rdv', 'prospect_calls', 'prospect_needs_analysis',
+      'notifications', 'audit_logs',
+      'user_email_configs',
+    ]
+    
+    let imported = 0
+    let errors = 0
+    const errorDetails = []
+    
+    toast.loading('Import en cours...', { id: 'import' })
+    
+    for (const table of insertionOrder) {
+      const rows = data[table]
+      if (!Array.isArray(rows) || rows.length === 0) continue
+      
+      try {
+        // Upsert par lots de 500 pour éviter les timeouts
+        const batchSize = 500
+        for (let i = 0; i < rows.length; i += batchSize) {
+          const batch = rows.slice(i, i + batchSize)
+          const { error } = await supabase
+            .from(table)
+            .upsert(batch, { onConflict: 'id', ignoreDuplicates: false })
+          
+          if (error) throw error
+        }
+        imported += rows.length
+        toast.loading(`Import en cours... ${imported} enregistrements`, { id: 'import' })
+      } catch (err) {
+        console.error(`Import error on ${table}:`, err)
+        errors++
+        errorDetails.push(`${table}: ${err.message}`)
+      }
+    }
+    
+    setImporting(false)
+    setImportPreview(null)
+    
+    if (errors === 0) {
+      toast.success(`Import terminé ! ${imported} enregistrements restaurés`, { id: 'import', duration: 5000 })
+    } else {
+      toast.success(`Import partiel : ${imported} enregistrements OK, ${errors} tables en erreur`, { id: 'import', duration: 8000 })
+      console.warn('Import errors:', errorDetails)
+    }
+    
+    // Rafraîchir les données
+    fetchOrganization()
+    fetchCourses()
+    fetchClients()
+    fetchTrainees()
+    fetchTrainers()
+    fetchSessions()
   }
 
   const tabs = [
@@ -700,38 +786,134 @@ $$;`}
       <div className="card bg-white p-6">
         <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
           <Database className="w-5 h-5 text-green-600" />
-          Sauvegarde complète des données
+          Sauvegarde et restauration
         </h2>
-        <div className="text-sm text-gray-500 mb-4 space-y-2">
-          <p className="font-medium text-gray-700">Export complet de TOUTES vos données :</p>
-          <ul className="list-disc list-inside space-y-1 ml-2">
-            <li>Organisation, formations, clients, contacts</li>
-            <li>Stagiaires, formateurs, certificats</li>
-            <li>Sessions, inscriptions, présences, objectifs</li>
-            <li>Évaluations (chaud, froid, formateur)</li>
-            <li>Non-conformités, indicateurs Qualiopi</li>
-            <li>Tests de positionnement</li>
-          </ul>
-          <p className="text-xs mt-2 text-blue-600">💡 Conservez ce fichier JSON sur votre disque ou Google Drive comme sauvegarde.</p>
+        
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+          {/* Export */}
+          <div className="border rounded-lg p-4">
+            <h3 className="font-medium text-gray-800 mb-2 flex items-center gap-2">
+              <Download className="w-4 h-4 text-blue-600" />
+              Exporter (sauvegarde)
+            </h3>
+            <p className="text-sm text-gray-500 mb-3">
+              Télécharge un fichier JSON contenant toutes les données : clients, sessions, stagiaires, évaluations, devis, qualité, etc.
+            </p>
+            <p className="text-xs text-blue-600 mb-3">💡 Conservez ce fichier sur votre disque ou Google Drive.</p>
+            <button
+              onClick={handleExportAll}
+              disabled={exporting}
+              className="btn btn-primary flex items-center gap-2 w-full justify-center"
+            >
+              {exporting ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Export en cours...
+                </>
+              ) : (
+                <>
+                  <Download className="w-4 h-4" />
+                  Exporter toutes les données
+                </>
+              )}
+            </button>
+          </div>
+          
+          {/* Import */}
+          <div className="border rounded-lg p-4">
+            <h3 className="font-medium text-gray-800 mb-2 flex items-center gap-2">
+              <Upload className="w-4 h-4 text-orange-600" />
+              Importer (restauration)
+            </h3>
+            <p className="text-sm text-gray-500 mb-3">
+              Restaurez vos données depuis un fichier de sauvegarde JSON précédemment exporté.
+            </p>
+            <p className="text-xs text-orange-600 mb-3">⚠️ Les données existantes avec le même ID seront écrasées.</p>
+            <label className="btn btn-secondary flex items-center gap-2 w-full justify-center cursor-pointer">
+              <input
+                type="file"
+                accept=".json"
+                onChange={handleImportFile}
+                className="hidden"
+                disabled={importing}
+              />
+              <Upload className="w-4 h-4" />
+              Charger un fichier de sauvegarde
+            </label>
+          </div>
         </div>
-        <button
-          onClick={handleExportAll}
-          disabled={exporting}
-          className="btn btn-primary flex items-center gap-2"
-        >
-          {exporting ? (
-            <>
-              <Loader2 className="w-4 h-4 animate-spin" />
-              Export en cours...
-            </>
-          ) : (
-            <>
-              <Download className="w-4 h-4" />
-              Exporter toutes les données (JSON)
-            </>
-          )}
-        </button>
       </div>
+      
+      {/* Modal de confirmation d'import */}
+      {importPreview && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[80vh] overflow-hidden flex flex-col">
+            <div className="p-4 border-b bg-orange-50 flex items-center justify-between">
+              <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+                <Shield className="w-5 h-5 text-orange-600" />
+                Confirmer la restauration
+              </h3>
+              <button onClick={() => setImportPreview(null)} className="text-gray-400 hover:text-gray-600">✕</button>
+            </div>
+            <div className="p-4 overflow-y-auto flex-1 space-y-4">
+              <div className="bg-gray-50 rounded-lg p-3 text-sm space-y-1">
+                <p><strong>Fichier :</strong> {importPreview.fileName}</p>
+                <p><strong>Date d'export :</strong> {new Date(importPreview.exportDate).toLocaleString('fr-FR')}</p>
+                <p><strong>Version :</strong> {importPreview.version}</p>
+                <p><strong>Total :</strong> {importPreview.totalRecords.toLocaleString()} enregistrements dans {importPreview.tableCount} tables</p>
+              </div>
+              
+              <div>
+                <p className="text-sm font-medium text-gray-700 mb-2">Détail par table :</p>
+                <div className="max-h-48 overflow-y-auto border rounded-lg">
+                  <table className="w-full text-sm">
+                    <tbody>
+                      {Object.entries(importPreview.tables)
+                        .sort((a, b) => b[1] - a[1])
+                        .map(([table, count]) => (
+                          <tr key={table} className="border-b last:border-0">
+                            <td className="px-3 py-1.5 font-mono text-xs text-gray-600">{table}</td>
+                            <td className="px-3 py-1.5 text-right font-medium">{count}</td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              
+              <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 text-sm text-orange-800">
+                <strong>⚠️ Attention :</strong> Les enregistrements existants avec le même ID seront mis à jour avec les données du fichier. Les nouveaux seront ajoutés. Aucune donnée ne sera supprimée.
+              </div>
+            </div>
+            <div className="p-4 border-t bg-gray-50 flex gap-3 justify-end">
+              <button 
+                onClick={() => setImportPreview(null)} 
+                className="btn btn-secondary"
+                disabled={importing}
+              >
+                Annuler
+              </button>
+              <button 
+                onClick={handleImportConfirm} 
+                disabled={importing}
+                className="btn bg-orange-500 text-white hover:bg-orange-600 flex items-center gap-2"
+              >
+                {importing ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Import en cours...
+                  </>
+                ) : (
+                  <>
+                    <Upload className="w-4 h-4" />
+                    Restaurer les données
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       
       {/* Section À propos */}
       <div className="card bg-white p-6">
