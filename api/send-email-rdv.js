@@ -1,25 +1,17 @@
 // api/send-email-rdv.js
 // Envoie un email de compte-rendu via SMTP IONOS avec retry
+// Les PJ sont récupérées depuis Supabase Storage (pas en JSON body → évite la limite 4.5MB Vercel)
 
 import nodemailer from 'nodemailer'
 import { createClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
-
-// Augmenter la limite du body parser Vercel
-export const config = {
-  api: {
-    bodyParser: {
-      sizeLimit: '10mb'
-    }
-  }
-}
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 )
 
-// Fonction de déchiffrement AES-256
+// Déchiffrement AES-256
 function decrypt(encryptedText) {
   const algorithm = 'aes-256-cbc'
   const key = Buffer.from(process.env.ENCRYPTION_KEY, 'hex')
@@ -31,47 +23,28 @@ function decrypt(encryptedText) {
   return decrypted
 }
 
-// Fonction pour attendre (pour les retry)
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
 
-// Fonction d'envoi avec retry
 async function sendEmailWithRetry(transporter, mailOptions, maxRetries = 3) {
   let lastError = null
-  
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       console.log(`Tentative d'envoi ${attempt}/${maxRetries}`)
-      
-      // Vérifier la connexion
       await transporter.verify()
-      
-      // Envoyer l'email
       const info = await transporter.sendMail(mailOptions)
-      
       console.log('Email envoyé avec succès:', info.messageId)
       return info
-      
     } catch (error) {
       lastError = error
       console.error(`Tentative ${attempt} échouée:`, error.message)
-      
-      // Fermer la connexion en cas d'erreur
-      try {
-        transporter.close()
-      } catch (e) {
-        // Ignore
-      }
-      
-      // Si c'est pas la dernière tentative, attendre avant de retry
+      try { transporter.close() } catch (e) { /* ignore */ }
       if (attempt < maxRetries) {
-        const waitTime = attempt * 2000 // 2s, 4s, 6s
+        const waitTime = attempt * 2000
         console.log(`Attente de ${waitTime}ms avant nouvelle tentative...`)
         await sleep(waitTime)
       }
     }
   }
-  
-  // Toutes les tentatives ont échoué
   throw lastError
 }
 
@@ -81,15 +54,16 @@ export default async function handler(req, res) {
   }
 
   let transporter = null
+  const tempPaths = []
 
   try {
-    const { userId, to, subject, body, attachments = [], rdvId } = req.body
+    const { userId, to, subject, body, attachmentRefs = [], rdvId } = req.body
 
     if (!userId || !to || !subject || !body) {
       return res.status(400).json({ error: 'Paramètres manquants' })
     }
 
-    // 1. Récupérer la config SMTP de l'utilisateur
+    // 1. Récupérer la config SMTP
     const { data: emailConfig, error: configError } = await supabase
       .from('user_email_configs')
       .select('*')
@@ -104,37 +78,50 @@ export default async function handler(req, res) {
     // 2. Déchiffrer le mot de passe
     const smtpPassword = decrypt(emailConfig.smtp_password_encrypted)
 
-    // 3. Créer le transporteur SMTP avec timeouts plus longs
+    // 3. Créer le transporteur SMTP
     transporter = nodemailer.createTransport({
       host: emailConfig.smtp_host,
       port: emailConfig.smtp_port,
-      secure: emailConfig.smtp_secure, // false pour STARTTLS (587)
-      auth: {
-        user: emailConfig.email,
-        pass: smtpPassword
-      },
-      tls: {
-        rejectUnauthorized: false
-      },
-      connectionTimeout: 10000, // 10 secondes
-      greetingTimeout: 10000, // 10 secondes
-      socketTimeout: 30000, // 30 secondes
-      pool: false, // Pas de pool pour éviter les connexions concurrentes
+      secure: emailConfig.smtp_secure,
+      auth: { user: emailConfig.email, pass: smtpPassword },
+      tls: { rejectUnauthorized: false },
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 30000,
+      pool: false,
       maxConnections: 1,
       maxMessages: 1
     })
 
-    // 4. Préparer les pièces jointes
-    const mailAttachments = attachments.map(att => ({
-      filename: att.filename,
-      content: att.content,
-      encoding: att.encoding || 'base64'
-    }))
+    // 4. Télécharger les PJ depuis Supabase Storage
+    const mailAttachments = []
+    for (const ref of attachmentRefs) {
+      try {
+        console.log('Téléchargement PJ:', ref.storagePath)
+        const { data, error: dlError } = await supabase.storage
+          .from('email-attachments')
+          .download(ref.storagePath)
 
-    // 5. Préparer le corps avec signature texte
+        if (dlError) {
+          console.error('Erreur download PJ:', ref.storagePath, dlError.message)
+          continue
+        }
+
+        const buffer = Buffer.from(await data.arrayBuffer())
+        mailAttachments.push({
+          filename: ref.filename,
+          content: buffer
+        })
+        tempPaths.push(ref.storagePath)
+        console.log('✅ PJ chargée:', ref.filename, buffer.length, 'bytes')
+      } catch (err) {
+        console.error('Erreur PJ:', ref.filename, err.message)
+      }
+    }
+
+    // 5. Préparer le corps avec signature
     let htmlBody = body.replace(/\n/g, '<br>')
-    
-    // Ajouter la signature texte selon l'utilisateur
+
     const signatures = {
       'hicham.saidi@accessformation.pro': `
 <br><br>
@@ -157,16 +144,14 @@ Access Formation<br>
 <a href="mailto:maxime.langlais@accessformation.pro">maxime.langlais@accessformation.pro</a>
       `
     }
-    
-    // Ajouter la signature appropriée
-    const signature = signatures[emailConfig.email] || ''
-    htmlBody += signature
-    
+
+    htmlBody += signatures[emailConfig.email] || ''
+
     const mailOptions = {
       from: `"${emailConfig.email.split('@')[0]}" <${emailConfig.email}>`,
-      to: to,
+      to,
       bcc: 'contact@accessformation.pro',
-      subject: subject,
+      subject,
       text: body,
       html: htmlBody,
       attachments: mailAttachments
@@ -182,10 +167,10 @@ Access Formation<br>
         rdv_id: rdvId,
         to_email: to,
         to_name: to.split('@')[0],
-        subject: subject,
-        body: body,
+        subject,
+        body,
         resend_email_id: info.messageId,
-        attachments: attachments.map(a => ({ name: a.filename, size: a.size || 0 })),
+        attachments: attachmentRefs.map(a => ({ name: a.filename, size: a.size || 0 })),
         status: 'sent',
         created_by: userId
       }])
@@ -194,10 +179,20 @@ Access Formation<br>
       console.error('Erreur sauvegarde historique:', historyError)
     }
 
-    // 8. Fermer la connexion proprement
-    if (transporter) {
-      transporter.close()
+    // 8. Nettoyer les fichiers temporaires du Storage
+    if (tempPaths.length > 0) {
+      const { error: deleteError } = await supabase.storage
+        .from('email-attachments')
+        .remove(tempPaths)
+      if (deleteError) {
+        console.error('Erreur nettoyage Storage:', deleteError)
+      } else {
+        console.log('🧹 Fichiers temp nettoyés:', tempPaths.length)
+      }
     }
+
+    // 9. Fermer le transporteur
+    if (transporter) transporter.close()
 
     return res.status(200).json({
       success: true,
@@ -207,16 +202,18 @@ Access Formation<br>
 
   } catch (error) {
     console.error('Erreur envoi email:', error)
-    
-    // Fermer la connexion en cas d'erreur
-    if (transporter) {
+
+    // Nettoyage en cas d'erreur aussi
+    if (tempPaths.length > 0) {
       try {
-        transporter.close()
-      } catch (e) {
-        // Ignore
-      }
+        await supabase.storage.from('email-attachments').remove(tempPaths)
+      } catch (e) { /* ignore */ }
     }
-    
+
+    if (transporter) {
+      try { transporter.close() } catch (e) { /* ignore */ }
+    }
+
     return res.status(500).json({
       error: 'Erreur lors de l\'envoi de l\'email',
       details: error.message
