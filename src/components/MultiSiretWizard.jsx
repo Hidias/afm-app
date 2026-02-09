@@ -211,7 +211,7 @@ export default function MultiSiretWizard({ onClose, onCreated }) {
             .from('clients')
             .insert([{
               name: group.company_name,
-              siret: group.siret,
+              siret: group.siret.replace(/\s/g, ''),
               address: group.address || null,
               postal_code: group.postal_code || null,
               city: group.city || null,
