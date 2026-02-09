@@ -1,5 +1,5 @@
 // api/send-callback-reminder.js
-// Envoie un email de rappel phoning avec fichier .ics pour agenda
+// Envoie un email de rappel phoning avec fichier .ics OU une alerte prospect chaud
 
 import nodemailer from 'nodemailer'
 import { createClient } from '@supabase/supabase-js'
@@ -22,12 +22,10 @@ function decrypt(encryptedText) {
 }
 
 function generateICS({ prospectName, prospectPhone, contactName, callbackDate, callbackTime, callbackReason, callerName, notes }) {
-  // Construire la date/heure au format ICS (YYYYMMDDTHHMMSS)
   const [year, month, day] = callbackDate.split('-')
   const [hour, minute] = callbackTime.split(':')
   const dtStart = `${year}${month}${day}T${hour}${minute}00`
   
-  // Fin = 15 minutes après
   const endMinute = parseInt(minute) + 15
   const endHour = parseInt(hour) + Math.floor(endMinute / 60)
   const dtEnd = `${year}${month}${day}T${String(endHour).padStart(2, '0')}${String(endMinute % 60).padStart(2, '0')}00`
@@ -68,6 +66,69 @@ function generateICS({ prospectName, prospectPhone, contactName, callbackDate, c
   ].join('\r\n')
 }
 
+function buildCallbackEmail({ prospectName, prospectPhone, contactName, contactFunction, callbackDate, callbackTime, callbackReason, callerName, notes }) {
+  const dateFormatted = new Date(callbackDate).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })
+
+  const subject = `📞 Rappel : appeler ${prospectName} le ${dateFormatted} à ${callbackTime}`
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px;">
+      <h2 style="color: #e67e22;">📞 Rappel phoning programmé</h2>
+      <table style="border-collapse: collapse; width: 100%; margin: 15px 0;">
+        <tr><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold; width: 140px;">Entreprise</td><td style="padding: 8px; border-bottom: 1px solid #eee;">${prospectName}</td></tr>
+        <tr><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">Téléphone</td><td style="padding: 8px; border-bottom: 1px solid #eee;"><a href="tel:${prospectPhone}">${prospectPhone}</a></td></tr>
+        ${contactName ? `<tr><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">Contact</td><td style="padding: 8px; border-bottom: 1px solid #eee;">${contactName}${contactFunction ? ' — ' + contactFunction : ''}</td></tr>` : ''}
+        <tr><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">Date rappel</td><td style="padding: 8px; border-bottom: 1px solid #eee;">${dateFormatted} à ${callbackTime}</td></tr>
+        ${callbackReason ? `<tr><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">Raison</td><td style="padding: 8px; border-bottom: 1px solid #eee;">${callbackReason}</td></tr>` : ''}
+        <tr><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">Appelé par</td><td style="padding: 8px; border-bottom: 1px solid #eee;">${callerName}</td></tr>
+      </table>
+      ${notes ? `<p style="background: #f9f9f9; padding: 12px; border-radius: 6px; color: #555;"><strong>Notes :</strong> ${notes}</p>` : ''}
+      <p style="color: #888; font-size: 12px;">📎 Fichier .ics joint — ouvrez-le pour ajouter le rappel à votre agenda.</p>
+    </div>
+  `
+
+  const icsContent = generateICS({ prospectName, prospectPhone, contactName, callbackDate, callbackTime, callbackReason, callerName, notes })
+
+  const attachments = [{
+    filename: `rappel-${prospectName.replace(/[^a-zA-Z0-9]/g, '_')}.ics`,
+    content: icsContent,
+    contentType: 'text/calendar; method=REQUEST'
+  }]
+
+  return { subject, html, attachments }
+}
+
+function buildHotProspectEmail({ prospectName, prospectPhone, contactName, contactFunction, callbackReason, callerName, notes }) {
+  const now = new Date().toLocaleString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })
+
+  const subject = `🔥 PROSPECT CHAUD — ${prospectName}`
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px;">
+      <div style="background: linear-gradient(135deg, #ff6b35, #f7c948); padding: 20px; border-radius: 12px 12px 0 0;">
+        <h2 style="color: white; margin: 0;">🔥 Prospect chaud à rappeler !</h2>
+        <p style="color: rgba(255,255,255,0.9); margin: 5px 0 0 0;">${callerName} a identifié un prospect intéressé</p>
+      </div>
+      <div style="border: 1px solid #eee; border-top: none; border-radius: 0 0 12px 12px; padding: 20px;">
+        <table style="border-collapse: collapse; width: 100%; margin: 0 0 15px 0;">
+          <tr><td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold; width: 140px;">🏢 Entreprise</td><td style="padding: 10px; border-bottom: 1px solid #eee; font-size: 16px; font-weight: bold;">${prospectName}</td></tr>
+          <tr><td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold;">📞 Téléphone</td><td style="padding: 10px; border-bottom: 1px solid #eee;"><a href="tel:${prospectPhone}" style="color: #2563eb; font-size: 16px; font-weight: bold; text-decoration: none;">${prospectPhone}</a></td></tr>
+          ${contactName ? `<tr><td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold;">👤 Contact</td><td style="padding: 10px; border-bottom: 1px solid #eee;">${contactName}${contactFunction ? ' — ' + contactFunction : ''}</td></tr>` : ''}
+          ${callbackReason ? `<tr><td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold;">📋 Disponibilités</td><td style="padding: 10px; border-bottom: 1px solid #eee; color: #c2410c; font-weight: 500;">${callbackReason}</td></tr>` : ''}
+          <tr><td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold;">📅 Signalé le</td><td style="padding: 10px; border-bottom: 1px solid #eee;">${now}</td></tr>
+          <tr><td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold;">📞 Appelé par</td><td style="padding: 10px; border-bottom: 1px solid #eee;">${callerName}</td></tr>
+        </table>
+        ${notes ? `<div style="background: #fef3c7; padding: 12px; border-radius: 8px; border-left: 4px solid #f59e0b; margin-bottom: 15px;"><strong>📝 Notes :</strong><br/>${notes.replace(/\n/g, '<br/>')}</div>` : ''}
+        <div style="background: #fee2e2; padding: 12px; border-radius: 8px; text-align: center;">
+          <strong style="color: #dc2626;">⏰ Rappeler rapidement ce prospect !</strong>
+        </div>
+      </div>
+    </div>
+  `
+
+  return { subject, html, attachments: [] }
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' })
@@ -78,11 +139,17 @@ export default async function handler(req, res) {
   try {
     const { prospectName, prospectPhone, contactName, contactFunction, callbackDate, callbackTime, callbackReason, callerName, notes } = req.body
 
-    if (!prospectName || !callbackDate || !callbackTime) {
-      return res.status(400).json({ error: 'Paramètres manquants' })
+    if (!prospectName) {
+      return res.status(400).json({ error: 'Paramètres manquants: prospectName requis' })
     }
 
-    // Récupérer la config SMTP (utiliser celle de Hicham par défaut)
+    // Déterminer le type d'email : rappel classique (avec date+heure) ou prospect chaud
+    const isCallback = callbackDate && callbackTime
+    const emailData = isCallback
+      ? buildCallbackEmail({ prospectName, prospectPhone, contactName, contactFunction, callbackDate, callbackTime, callbackReason, callerName, notes })
+      : buildHotProspectEmail({ prospectName, prospectPhone, contactName, contactFunction, callbackReason, callerName, notes })
+
+    // Récupérer la config SMTP
     const { data: emailConfig, error: configError } = await supabase
       .from('user_email_configs')
       .select('*')
@@ -110,47 +177,22 @@ export default async function handler(req, res) {
       socketTimeout: 30000,
     })
 
-    // Générer le fichier .ics
-    const icsContent = generateICS({ prospectName, prospectPhone, contactName, callbackDate, callbackTime, callbackReason, callerName, notes })
-
-    const dateFormatted = new Date(callbackDate).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })
-
-    const htmlBody = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px;">
-        <h2 style="color: #e67e22;">📞 Rappel phoning programmé</h2>
-        <table style="border-collapse: collapse; width: 100%; margin: 15px 0;">
-          <tr><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold; width: 140px;">Entreprise</td><td style="padding: 8px; border-bottom: 1px solid #eee;">${prospectName}</td></tr>
-          <tr><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">Téléphone</td><td style="padding: 8px; border-bottom: 1px solid #eee;"><a href="tel:${prospectPhone}">${prospectPhone}</a></td></tr>
-          ${contactName ? `<tr><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">Contact</td><td style="padding: 8px; border-bottom: 1px solid #eee;">${contactName}${contactFunction ? ' — ' + contactFunction : ''}</td></tr>` : ''}
-          <tr><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">Date rappel</td><td style="padding: 8px; border-bottom: 1px solid #eee;">${dateFormatted} à ${callbackTime}</td></tr>
-          ${callbackReason ? `<tr><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">Raison</td><td style="padding: 8px; border-bottom: 1px solid #eee;">${callbackReason}</td></tr>` : ''}
-          <tr><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">Appelé par</td><td style="padding: 8px; border-bottom: 1px solid #eee;">${callerName}</td></tr>
-        </table>
-        ${notes ? `<p style="background: #f9f9f9; padding: 12px; border-radius: 6px; color: #555;"><strong>Notes :</strong> ${notes}</p>` : ''}
-        <p style="color: #888; font-size: 12px;">📎 Fichier .ics joint — ouvrez-le pour ajouter le rappel à votre agenda.</p>
-      </div>
-    `
-
     await transporter.verify()
 
     await transporter.sendMail({
       from: `"Access Formation" <${emailConfig.email}>`,
       to: 'contact@accessformation.pro',
-      subject: `📞 Rappel : appeler ${prospectName} le ${dateFormatted} à ${callbackTime}`,
-      html: htmlBody,
-      attachments: [{
-        filename: `rappel-${prospectName.replace(/[^a-zA-Z0-9]/g, '_')}.ics`,
-        content: icsContent,
-        contentType: 'text/calendar; method=REQUEST'
-      }]
+      subject: emailData.subject,
+      html: emailData.html,
+      attachments: emailData.attachments,
     })
 
     if (transporter) transporter.close()
 
-    return res.status(200).json({ success: true })
+    return res.status(200).json({ success: true, type: isCallback ? 'callback' : 'hot_prospect' })
 
   } catch (error) {
-    console.error('Erreur envoi rappel:', error)
+    console.error('Erreur envoi email:', error)
     if (transporter) try { transporter.close() } catch (e) {}
     return res.status(500).json({ error: error.message })
   }
