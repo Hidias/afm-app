@@ -90,7 +90,7 @@ export default async function handler(req, res) {
   let transporter = null
 
   try {
-    const { userId, to, subject, body, pdfBase64, pdfFilename, quoteId } = req.body || {}
+    const { userId, to, subject, body, pdfBase64, pdfFilename, quoteId, clientId, createdBy } = req.body || {}
 
     console.log('send-quote-email params:', { userId: !!userId, to: !!to, subject: !!subject, body: !!body, hasPdf: !!pdfBase64 })
 
@@ -182,7 +182,31 @@ export default async function handler(req, res) {
       }
     }
 
-    // 9. Fermer le transporteur
+    // 9. Traçabilité : ajouter dans l'historique client
+    if (clientId) {
+      const now = new Date()
+      const dateStr = now.toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' })
+      const timeStr = now.toLocaleTimeString('fr-FR', { timeZone: 'Europe/Paris', hour: '2-digit', minute: '2-digit' })
+      const authorName = (createdBy || 'Hicham Saidi').split(' ')[0]
+
+      const { error: interactionError } = await supabase
+        .from('client_interactions')
+        .insert({
+          client_id: clientId,
+          type: 'devis',
+          title: `Devis ${pdfFilename?.replace('.pdf', '') || ''} envoyé`,
+          content: `Devis envoyé par ${authorName} le ${dateStr} à ${timeStr}\nDestinataire : ${to}\nObjet : ${subject}`,
+          author: authorName,
+        })
+
+      if (interactionError) {
+        console.error('Erreur traçabilité:', interactionError)
+      } else {
+        console.log('Traçabilité ajoutée pour client:', clientId)
+      }
+    }
+
+    // 10. Fermer le transporteur
     try { transporter.close() } catch (e) { /* ignore */ }
 
     return res.status(200).json({
