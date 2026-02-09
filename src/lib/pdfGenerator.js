@@ -130,6 +130,24 @@ function getSessionContact(session) {
   }
 }
 
+// Helper pour obtenir le signataire de la convention
+// Priorité: 1) signatory_name/role de la session > 2) contact de la session (fallback)
+function getSessionSignatory(session) {
+  // 1. Signataire spécifique défini pour cette session
+  if (session?.signatory_name) {
+    return {
+      name: session.signatory_name,
+      role: session.signatory_role || '',
+    }
+  }
+  // 2. Fallback : utiliser le contact comme signataire
+  const contact = getSessionContact(session)
+  return {
+    name: contact.name,
+    role: contact.role,
+  }
+}
+
 // ============================================================
 // HELPERS - DESSINER DES FORMES (PAS DE CARACTÈRES UNICODE)
 // ============================================================
@@ -275,6 +293,7 @@ function generateConvention(session, trainees = [], trainer = null, costs = []) 
   const ref = session?.reference || ''
   const lieu = getLocation(session)
   const contact = getSessionContact(session)
+  const signatory = getSessionSignatory(session)
   
   let y = addHeader(doc, ref)
   y = addTitle(doc, 'CONVENTION DE FORMATION PROFESSIONNELLE', y)
@@ -345,7 +364,7 @@ function generateConvention(session, trainees = [], trainer = null, costs = []) 
   doc.setFontSize(9)
   doc.text(`Raison sociale : ${client.name || ''}`, 22, y); y += 4
   doc.text(`Adresse : ${client.address || ''}`, 22, y); y += 4
-  doc.text(`Représenté par : ${contact.name || ''}${contact.role ? '  |  Fonction : ' + contact.role : ''}`, 22, y); y += 4
+  doc.text(`Représenté par : ${signatory.name || ''}${signatory.role ? '  |  Fonction : ' + signatory.role : ''}`, 22, y); y += 4
   doc.text(`SIRET : ${client.siret || ''}`, 22, y); y += 4
   doc.setFont('helvetica', 'italic')
   doc.text('Ci-après dénommé « le Bénéficiaire »', 22, y)
@@ -612,6 +631,9 @@ function generateConvention(session, trainees = [], trainer = null, costs = []) 
   doc.text(ORG.name, col1X, y)
   doc.text(client.name || '', col2X, y)
   y += 5
+  doc.text(ORG.dirigeant, col1X, y)
+  if (signatory.name) doc.text(signatory.name + (signatory.role ? ', ' + signatory.role : ''), col2X, y)
+  y += 5
   
   doc.setFont('helvetica', 'italic')
   doc.setFontSize(8)
@@ -697,7 +719,10 @@ function generateConvocation(session, trainee, trainer = null) {
   
   doc.text(`Contact Access Formation : Pour toute question, contactez-nous au ${ORG.phone} ou par mail à ${ORG.email}`, 20, y, { maxWidth: 170 }); y += 8
   
-  if (client.contact_name) {
+  const convContact = getSessionContact(session)
+  if (convContact.name) {
+    doc.text(`Contact de votre entreprise : ${convContact.name}${convContact.role ? ' - ' + convContact.role : ''}`, 20, y, { maxWidth: 170 }); y += 10
+  } else if (client.contact_name) {
     doc.text(`Contact de votre entreprise : ${client.contact_name}${client.contact_function ? ' - ' + client.contact_function : ''}`, 20, y, { maxWidth: 170 }); y += 10
   }
   
@@ -2543,7 +2568,10 @@ function generateConvocationContent(doc, session, trainee, trainer, qrCodeDataUR
   
   doc.text(`Contact Access Formation : Pour toute question, contactez-nous au ${ORG.phone} ou par mail à ${ORG.email}`, 20, y, { maxWidth: 170 }); y += 8
   
-  if (client.contact_name) {
+  const convContact2 = getSessionContact(session)
+  if (convContact2.name) {
+    doc.text(`Contact de votre entreprise : ${convContact2.name}${convContact2.role ? ' - ' + convContact2.role : ''}`, 20, y, { maxWidth: 170 }); y += 10
+  } else if (client.contact_name) {
     doc.text(`Contact de votre entreprise : ${client.contact_name}${client.contact_function ? ' - ' + client.contact_function : ''}`, 20, y, { maxWidth: 170 }); y += 10
   }
   
