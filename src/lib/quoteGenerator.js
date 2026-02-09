@@ -83,7 +83,7 @@ async function loadLogo() {
 // ============================================================
 // FOOTER
 // ============================================================
-function addFooter(doc, font) {
+function addFooter(doc, font, pageNum, totalPages) {
   var cx = 105
   doc.setDrawColor(200, 200, 200)
   doc.setLineWidth(0.3)
@@ -95,6 +95,11 @@ function addFooter(doc, font) {
   doc.text("Declaration d'activite enregistree sous le numero 53 29 10261 29 aupres du prefet de la region Bretagne", cx, 279, { align: 'center' })
   doc.text('SARL au capital de 2.500 EUR - Siret : 943 563 866 00012 - Naf : 8559A - TVA : FR71943563866 - RCS 943 563 866 R.C.S. Quimper', cx, 283, { align: 'center' })
   doc.text('Tel : 02 46 56 57 54 - Email : contact@accessformation.pro', cx, 287, { align: 'center' })
+  // Page number bottom right
+  doc.setFont(font, 'bold')
+  doc.setFontSize(7)
+  doc.setTextColor(100, 100, 100)
+  doc.text('Page ' + pageNum + ' / ' + totalPages, MR, 291, { align: 'right' })
   doc.setTextColor(0, 0, 0)
 }
 
@@ -352,7 +357,7 @@ export async function generateQuotePDF(quote, items, client, contact) {
   var totalPages = doc.internal.getNumberOfPages()
   for (var p = 1; p <= totalPages; p++) {
     doc.setPage(p)
-    addFooter(doc, FONT)
+    addFooter(doc, FONT, p, totalPages)
   }
 
   doc.save(quote.reference + '.pdf')
