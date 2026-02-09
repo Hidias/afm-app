@@ -119,7 +119,7 @@ export default function Courses() {
   const fileInputRef = useRef(null)
   const programInputRef = useRef(null)
   const [form, setForm] = useState({
-    title: '', description: '', duration: '', objectives: '', content: '',
+    code: '', title: '', description: '', duration: '', objectives: '', content: '',
     prerequisites: '', target_audience: '', methods: '', price_per_day: '', price_ht: '', 
     material: '', trainer_equipment: '', theme_id: '', program_url: ''
   })
@@ -156,7 +156,7 @@ export default function Courses() {
   }
   
   const filtered = courses.filter(c => {
-    const searchFields = `${c.title || ''} ${c.description || ''} ${c.reference || ''} ${c.objectives || ''}`.toLowerCase()
+    const searchFields = `${c.title || ''} ${c.description || ''} ${c.reference || ''} ${c.code || ''} ${c.objectives || ''}`.toLowerCase()
     const matchSearch = !search || searchFields.includes(search.toLowerCase())
     const matchTheme = !themeFilter || c.theme_id === themeFilter
     return matchSearch && matchTheme
@@ -272,9 +272,68 @@ export default function Courses() {
     setForm({ ...form, program_url: '' })
   }
   
+  // Auto-génération de code formation basé sur le titre
+  const suggestCode = (title) => {
+    if (!title) return ''
+    const t = title.toLowerCase()
+    
+    // SST
+    if (t.includes('mac') && t.includes('sst')) return 'SST-MAC'
+    if (t.includes('sst') && (t.includes('initiale') || t.includes('formation initiale'))) return 'SST-FI'
+    if (t.includes('premiers secours') && t.includes('initiation')) return 'IGPS'
+    if (t.includes('initiation') && t.includes('gestes')) return 'IGPS'
+    if (t.includes('premiers secours')) return 'SST-GPS'
+    if (t.includes('sst')) return 'SST'
+    
+    // Incendie
+    if (t.includes('extincteur')) return 'INC-EXT'
+    if (t.includes('epi') || t.includes('equipier') || t.includes('première intervention')) return 'INC-EPI'
+    if (t.includes('evacuation') || t.includes('évacuation')) return 'INC-EVA'
+    if (t.includes('incendie')) return 'INC'
+    
+    // Électrique - habilitations
+    if (t.includes('b0') && t.includes('h0v')) return 'B0H0V'
+    if (t.includes('b0') && t.includes('h0')) return 'B0H0'
+    if (t.includes('bs') && t.includes('habilitation')) return 'BS'
+    if (t.includes('br') && t.includes('habilitation')) return 'BR'
+    if (t.includes('habilitation') || t.includes('électrique')) return 'ELE'
+    
+    // Manutention / Chariots
+    if (t.includes('r489')) return 'R489'
+    if (t.includes('r485')) return 'R485'
+    if (t.includes('r486')) return 'R486'
+    if (t.includes('r482')) return 'R482'
+    if (t.includes('chariot') || t.includes('caces')) return 'MAN'
+    
+    // Ergonomie
+    if (t.includes('prap')) return 'ERG-PRAP'
+    if (t.includes('gestes') && t.includes('postures')) return 'ERG-GP'
+    if (t.includes('ergonomie')) return 'ERG'
+    
+    // Travail en hauteur
+    if (t.includes('hauteur')) return 'HAU'
+    if (t.includes('echafaudage') || t.includes('échafaudage')) return 'HAU-ECH'
+    
+    return ''
+  }
+
+  // Vérifier unicité du code et ajouter un suffixe si nécessaire
+  const ensureUniqueCode = (code, currentId = null) => {
+    if (!code) return code
+    const existing = courses.filter(c => c.id !== currentId)
+    const taken = existing.map(c => (c.code || '').toUpperCase())
+    let candidate = code.toUpperCase()
+    if (!taken.includes(candidate)) return candidate
+    // Ajouter un suffixe numérique
+    let n = 2
+    while (taken.includes(candidate + n)) n++
+    return candidate + n
+  }
+
   const openForm = (course = null) => {
     if (course) {
       setForm({
+        code: course.code || '',
         title: course.title || '',
         description: course.description || '',
         duration: course.duration_hours || course.duration || '',
@@ -294,7 +353,7 @@ export default function Courses() {
       loadCourseEquipment(course.id)
     } else {
       setForm({
-        title: '', description: '', duration: '', objectives: '', content: '',
+        code: '', title: '', description: '', duration: '', objectives: '', content: '',
         prerequisites: '', target_audience: '', methods: '', price_per_day: '', price_ht: '', 
         material: '', trainer_equipment: '', theme_id: '', program_url: ''
       })
@@ -325,9 +384,15 @@ export default function Courses() {
       program_url: form.program_url || null,
     }
     
-    // Code auto pour nouvelle formation
-    if (!selectedCourse) {
-      data.code = `F${Date.now().toString(36).toUpperCase()}`
+    // Code formation
+    if (form.code) {
+      data.code = form.code.toUpperCase()
+    } else if (!selectedCourse) {
+      // Auto-suggestion si pas de code et nouvelle formation
+      const suggested = suggestCode(form.title)
+      data.code = ensureUniqueCode(suggested || 'FORM')
+    } else {
+      data.code = null
     }
     
     try {
@@ -538,14 +603,21 @@ export default function Courses() {
               <div key={course.id} className="card hover:shadow-md transition-shadow group">
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex-1">
-                    {theme && (
-                      <span 
-                        className="inline-block px-2 py-0.5 rounded text-xs text-white mb-2 font-medium"
-                        style={{ backgroundColor: getThemeColor(theme.name) }}
-                      >
-                        {theme.name}
-                      </span>
-                    )}
+                    <div className="flex items-center gap-2 mb-2 flex-wrap">
+                      {theme && (
+                        <span 
+                          className="inline-block px-2 py-0.5 rounded text-xs text-white font-medium"
+                          style={{ backgroundColor: getThemeColor(theme.name) }}
+                        >
+                          {theme.name}
+                        </span>
+                      )}
+                      {course.code && (
+                        <span className="inline-block px-2 py-0.5 rounded text-xs font-mono font-bold bg-gray-100 text-gray-700 border">
+                          {course.code}
+                        </span>
+                      )}
+                    </div>
                     <h3 className="font-semibold text-gray-900">{course.title}</h3>
                   </div>
                   <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -621,10 +693,42 @@ export default function Courses() {
                 </select>
               </div>
               
-              {/* Titre */}
-              <div>
-                <label className="label">Intitulé *</label>
-                <input type="text" className="input" value={form.title} onChange={(e) => setForm({...form, title: e.target.value})} />
+              {/* Code + Titre */}
+              <div className="grid grid-cols-4 gap-4">
+                <div className="col-span-1">
+                  <label className="label">Code</label>
+                  <div className="flex gap-1">
+                    <input 
+                      type="text" 
+                      className="input font-mono text-sm uppercase" 
+                      placeholder="SST-FI" 
+                      value={form.code} 
+                      onChange={(e) => setForm({...form, code: e.target.value.toUpperCase()})} 
+                    />
+                  </div>
+                  {!selectedCourse && !form.code && form.title && suggestCode(form.title) && (
+                    <button
+                      type="button"
+                      onClick={() => setForm({...form, code: ensureUniqueCode(suggestCode(form.title))})}
+                      className="text-xs text-blue-600 hover:underline mt-1"
+                    >
+                      Suggestion : {suggestCode(form.title)}
+                    </button>
+                  )}
+                </div>
+                <div className="col-span-3">
+                  <label className="label">Intitulé *</label>
+                  <input type="text" className="input" value={form.title} onChange={(e) => {
+                    const newTitle = e.target.value
+                    const updates = { title: newTitle }
+                    // Auto-suggest code si champ code vide et nouvelle formation
+                    if (!selectedCourse && !form.code) {
+                      const suggested = suggestCode(newTitle)
+                      if (suggested) updates.code = ensureUniqueCode(suggested)
+                    }
+                    setForm({...form, ...updates})
+                  }} />
+                </div>
               </div>
               
               {/* Description */}
