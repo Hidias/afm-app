@@ -166,8 +166,8 @@ export default function Quotes() {
   async function loadAll() {
     setLoading(true)
     const [quotesRes, clientsRes, coursesRes] = await Promise.all([
-      supabase.from('quotes').select('*, clients(name, siret, address, postal_code, city, phone, email)').order('quote_date', { ascending: false }),
-      supabase.from('clients').select('id, name, siret, address, postal_code, city, phone, email').order('name'),
+      supabase.from('quotes').select('*, clients(name, siret, address, postal_code, city, contact_phone, contact_email)').order('quote_date', { ascending: false }),
+      supabase.from('clients').select('id, name, siret, address, postal_code, city, contact_phone, contact_email, status').order('name'),
       supabase.from('courses').select('id, title, code, price_ht, duration_hours, duration_days, description').order('title')
     ])
     setQuotes(quotesRes.data || [])
