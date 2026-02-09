@@ -186,6 +186,7 @@ Nous vous remercions pour votre confiance et restons à votre disposition.`)
             analysis_date: new Date().toISOString().split('T')[0],
             location_type: session?.is_intra ? 'client' : 'nos_locaux',
             location_client_address: session?.is_intra ? (session?.clients?.address || '') : '',
+            location_name: session?.location_name || '',
             preferred_dates: startDate === endDate ? startDate : `${startDate} au ${endDate}`
           }
           const analyseBytes = await getNeedsAnalysisPDFBytes(session, analysisData, false, null)
