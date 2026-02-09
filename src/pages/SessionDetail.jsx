@@ -2363,7 +2363,7 @@ ${trainer ? `${trainer.first_name} ${trainer.last_name}` : 'Access Formation'}`
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
         <div>
           <Link to="/sessions" className="text-sm text-gray-500 hover:text-gray-700 flex items-center gap-1 mb-2"><ArrowLeft className="w-4 h-4" />Retour</Link>
           <div className="flex items-center gap-3 flex-wrap">
@@ -2410,7 +2410,7 @@ ${trainer ? `${trainer.first_name} ${trainer.last_name}` : 'Access Formation'}`
       </div>
       
       {/* Infos */}
-      <div className="grid md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="card">
           <h3 className="font-medium text-gray-900 mb-2 flex items-center gap-2"><Calendar className="w-4 h-4" />Dates</h3>
           <p className="text-sm text-gray-600">{format(new Date(session.start_date), 'd MMM yyyy', { locale: fr })}{session.end_date !== session.start_date && ` - ${format(new Date(session.end_date), 'd MMM yyyy', { locale: fr })}`}</p>
@@ -2546,7 +2546,7 @@ ${trainer ? `${trainer.first_name} ${trainer.last_name}` : 'Access Formation'}`
       
       {/* Tabs */}
       <div className="border-b border-gray-200">
-        <nav className="flex gap-4 overflow-x-auto">
+        <nav className="flex gap-2 sm:gap-4 overflow-x-auto pb-px -mb-px">
           {[
             { id: 'overview', label: 'Stagiaires' },
             { id: 'presence', label: 'Présence' },
@@ -2560,7 +2560,7 @@ ${trainer ? `${trainer.first_name} ${trainer.last_name}` : 'Access Formation'}`
             { id: 'scans', label: 'Scans uploadés' },
             { id: 'attendance', label: 'QR Émargement' },
           ].map(tab => (
-            <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`pb-3 px-1 text-sm font-medium border-b-2 -mb-px whitespace-nowrap ${activeTab === tab.id ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>{tab.label}</button>
+            <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`pb-3 pt-2 px-2 text-sm font-medium border-b-2 whitespace-nowrap ${activeTab === tab.id ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>{tab.label}</button>
           ))}
         </nav>
       </div>
