@@ -1470,7 +1470,7 @@ export default function SessionDetail() {
     if (session?.is_intra && session?.clients?.address) {
       return session.clients.address
     }
-    return session?.location || 'À définir'
+    return session?.location_name || session?.location || 'À définir'
   }
   
   const handlePresenceChange = async (traineeId, date, present) => {
