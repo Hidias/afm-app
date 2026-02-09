@@ -485,12 +485,13 @@ export default function Trainees() {
       </div>
       
       <div className="card overflow-hidden">
-        <table className="w-full">
+        <div className="overflow-x-auto">
+        <table className="w-full min-w-[600px]">
           <thead className="bg-gray-50">
             <tr>
               <th className="text-left py-3 px-4 font-medium text-gray-600">Prénom NOM</th>
-              <th className="text-left py-3 px-4 font-medium text-gray-600">Email</th>
-              <th className="text-left py-3 px-4 font-medium text-gray-600">Téléphone</th>
+              <th className="text-left py-3 px-4 font-medium text-gray-600 hidden sm:table-cell">Email</th>
+              <th className="text-left py-3 px-4 font-medium text-gray-600 hidden md:table-cell">Téléphone</th>
               <th className="text-left py-3 px-4 font-medium text-gray-600">Entreprise</th>
               <th className="text-right py-3 px-4 font-medium text-gray-600">Actions</th>
             </tr>
@@ -508,8 +509,8 @@ export default function Trainees() {
                     )}
                   </div>
                 </td>
-                <td className="py-3 px-4 text-gray-600">{t.email || '-'}</td>
-                <td className="py-3 px-4 text-gray-600">{t.phone || '-'}</td>
+                <td className="py-3 px-4 text-gray-600 hidden sm:table-cell">{t.email || '-'}</td>
+                <td className="py-3 px-4 text-gray-600 hidden md:table-cell">{t.phone || '-'}</td>
                 <td className="py-3 px-4 text-gray-600">{t.clients?.name || '-'}</td>
                 <td className="py-3 px-4 text-right">
                   <div className="flex justify-end gap-1">
@@ -524,6 +525,7 @@ export default function Trainees() {
             {filtered.length === 0 && <tr><td colSpan={5} className="py-8 text-center text-gray-500">Aucun stagiaire</td></tr>}
           </tbody>
         </table>
+        </div>
       </div>
       
       {/* Modal Aperçu */}
