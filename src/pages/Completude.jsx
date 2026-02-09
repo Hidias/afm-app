@@ -906,8 +906,8 @@ export default function Completude() {
               </button>
               
               {isExpanded && (
-                <div className="border-t">
-                  <table className="w-full">
+                <div className="border-t overflow-x-auto">
+                  <table className="w-full min-w-[700px]">
                     <thead className="bg-gray-50">
                       <tr>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Priorité</th>
