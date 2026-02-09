@@ -5,6 +5,15 @@ import nodemailer from 'nodemailer'
 import { createClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
 
+// Augmenter la limite du body parser Vercel
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: '10mb'
+    }
+  }
+}
+
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
