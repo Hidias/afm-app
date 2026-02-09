@@ -31,16 +31,12 @@ const CONTACTS = {
 // ============================================================
 // LAYOUT CONSTANTS
 // ============================================================
-const MARGIN_LEFT = 18
-const MARGIN_RIGHT = 192
-
-// Footer at fixed positions: separator Y=271, text Y=275-287
-const FOOTER_SEPARATOR_Y = 271
-
-// Bottom block (conditions + bank + legal) is anchored just above footer
-// It takes approximately 43mm of height
-// So it starts around Y=224 on a standard page
-const BOTTOM_BLOCK_START_Y = 224
+const ML = 18               // margin left
+const MR = 192              // margin right (210-18)
+const FOOTER_SEP_Y = 271    // footer separator line
+// Bottom block (conditions+bank+legal) height ~38mm
+// Anchored just above footer: starts at 271 - 4 - 38 = 229
+const BOTTOM_BLOCK_Y = 229
 
 // ============================================================
 // FORMAT HELPERS
@@ -85,54 +81,37 @@ async function loadLogo() {
 }
 
 // ============================================================
-// FOOTER
+// FOOTER (4 lines, fixed at bottom of every page)
 // ============================================================
 function addFooter(doc, font) {
-  const cx = 105
-
+  var cx = 105
   doc.setDrawColor(200, 200, 200)
   doc.setLineWidth(0.3)
-  doc.line(MARGIN_LEFT, FOOTER_SEPARATOR_Y, MARGIN_RIGHT, FOOTER_SEPARATOR_Y)
-
+  doc.line(ML, FOOTER_SEP_Y, MR, FOOTER_SEP_Y)
   doc.setFont(font, 'normal')
   doc.setFontSize(7)
   doc.setTextColor(120, 120, 120)
-
-  doc.text(
-    'Access Formation - 24 Rue Kerbleiz - 29900 Concarneau - France',
-    cx, 275, { align: 'center' }
-  )
-  doc.text(
-    "Declaration d'activite enregistree sous le numero 53 29 10261 29 aupres du prefet de la region Bretagne",
-    cx, 279, { align: 'center' }
-  )
-  doc.text(
-    'SARL au capital de 2.500 EUR - Siret : 943 563 866 00012 - Naf : 8559A - TVA : FR71943563866 - RCS 943 563 866 R.C.S. Quimper',
-    cx, 283, { align: 'center' }
-  )
-  doc.text(
-    'Tel : 02 46 56 57 54 - Email : contact@accessformation.pro',
-    cx, 287, { align: 'center' }
-  )
-
+  doc.text('Access Formation - 24 Rue Kerbleiz - 29900 Concarneau - France', cx, 275, { align: 'center' })
+  doc.text("Declaration d'activite enregistree sous le numero 53 29 10261 29 aupres du prefet de la region Bretagne", cx, 279, { align: 'center' })
+  doc.text('SARL au capital de 2.500 EUR - Siret : 943 563 866 00012 - Naf : 8559A - TVA : FR71943563866 - RCS 943 563 866 R.C.S. Quimper', cx, 283, { align: 'center' })
+  doc.text('Tel : 02 46 56 57 54 - Email : contact@accessformation.pro', cx, 287, { align: 'center' })
   doc.setTextColor(0, 0, 0)
 }
 
 // ============================================================
-// DRAW BOTTOM BLOCK - anchored above footer on the last page
-// Contains: conditions de paiement + coordonnees bancaires + mentions legales
+// BOTTOM BLOCK (conditions + banque + mentions legales)
+// Anchored at fixed Y position, just above footer
 // ============================================================
 function drawBottomBlock(doc, font, quote) {
-  const mL = MARGIN_LEFT
-  let y = BOTTOM_BLOCK_START_Y
+  var y = BOTTOM_BLOCK_Y
 
-  // Light separator
-  doc.setDrawColor(220, 220, 220)
+  // Thin separator
+  doc.setDrawColor(210, 210, 210)
   doc.setLineWidth(0.2)
-  doc.line(mL, y - 2, MARGIN_RIGHT, y - 2)
+  doc.line(ML, y - 2, MR, y - 2)
 
-  // --- Conditions de paiement ---
-  doc.setFontSize(7.5)
+  // -- Conditions de paiement --
+  doc.setFontSize(7)
   doc.setTextColor(60, 60, 60)
   doc.setFont(font, 'normal')
 
@@ -143,38 +122,37 @@ function drawBottomBlock(doc, font, quote) {
     ['Date limite de reglement :', fmtDate(quote.payment_deadline)],
   ]
   for (var i = 0; i < conds.length; i++) {
-    doc.text(conds[i][0], mL, y)
-    doc.text(conds[i][1], mL + 42, y)
-    y += 4
+    doc.text(conds[i][0], ML, y)
+    doc.text(conds[i][1], ML + 40, y)
+    y += 3.5
   }
 
-  // --- Coordonnees bancaires ---
-  y += 1
-  doc.text('Banque :', mL, y)
-  doc.text(ORG.bank_name, mL + 42, y)
-  y += 4
-  doc.text('BIC : ' + ORG.bic, mL + 42, y)
+  // -- Coordonnees bancaires --
+  y += 0.5
+  doc.text('Banque :', ML, y)
+  doc.text(ORG.bank_name, ML + 40, y)
   y += 3.5
-  doc.text('IBAN : ' + ORG.iban, mL + 42, y)
+  doc.text('BIC : ' + ORG.bic, ML + 40, y)
+  y += 3
+  doc.text('IBAN : ' + ORG.iban, ML + 40, y)
 
-  y += 6
+  y += 5
 
-  // --- Mentions legales ---
-  doc.setFontSize(6.5)
+  // -- Mentions legales --
+  doc.setFontSize(6)
   doc.setTextColor(100, 100, 100)
-  doc.setFont(font, 'normal')
   doc.text(
     "En cas de retard de paiement, des penalites seront exigibles au taux legal majore de 10 points, ainsi qu'une indemnite forfaitaire de 40 EUR",
-    mL, y
+    ML, y
   )
-  y += 3
-  doc.text("pour frais de recouvrement (art. L441-10 du Code de commerce).", mL, y)
-  y += 4
+  y += 2.5
+  doc.text("pour frais de recouvrement (art. L441-10 du Code de commerce).", ML, y)
+  y += 3.5
   if (quote.tva_applicable !== false) {
-    doc.text("TVA exigible d'apres les encaissements (article 269, 2-c du CGI).", mL, y)
+    doc.text("TVA exigible d'apres les encaissements (article 269, 2-c du CGI).", ML, y)
   } else {
     doc.setFont(font, 'bold')
-    doc.text("TVA non applicable conformement a l'article 261 du CGI.", mL, y)
+    doc.text("TVA non applicable conformement a l'article 261 du CGI.", ML, y)
   }
 }
 
@@ -182,122 +160,102 @@ function drawBottomBlock(doc, font, quote) {
 // MAIN: GENERATE QUOTE PDF
 // ============================================================
 export async function generateQuotePDF(quote, items, client, contact = null) {
-  const doc = new jsPDF()
-  const FONT = 'helvetica'
-  const mL = MARGIN_LEFT
-  const mR = MARGIN_RIGHT
+  var doc = new jsPDF()
+  var FONT = 'helvetica'
 
-  const createdBy = CONTACTS[quote.created_by] || CONTACTS['Hicham Saidi']
-  const logo = await loadLogo()
+  var createdBy = CONTACTS[quote.created_by] || CONTACTS['Hicham Saidi']
+  var logo = await loadLogo()
 
-  let y = 12
+  var y = 12
 
-  // ───────────────────────────────────────────────
-  // LOGO top left
-  // ───────────────────────────────────────────────
+  // ─── LOGO ───
   if (logo) {
     try {
-      doc.addImage(logo, 'PNG', mL, y, 52, 13)
+      doc.addImage(logo, 'PNG', ML, y, 52, 13)
     } catch (e) {
       doc.setFontSize(14)
       doc.setFont(FONT, 'bold')
       doc.setTextColor(233, 180, 76)
-      doc.text('ACCESS FORMATION', mL, y + 14)
+      doc.text('ACCESS FORMATION', ML, y + 14)
       doc.setTextColor(0, 0, 0)
     }
   }
 
-  // ───────────────────────────────────────────────
-  // REFERENCE top right
-  // ───────────────────────────────────────────────
+  // ─── REFERENCE (top right) ───
   doc.setTextColor(0, 0, 0)
   doc.setFontSize(11)
   doc.setFont(FONT, 'bold')
-  doc.text('Devis ' + quote.reference, mR, y + 5, { align: 'right' })
+  doc.text('Devis ' + quote.reference, MR, y + 5, { align: 'right' })
   doc.setFont(FONT, 'normal')
   doc.setFontSize(9)
-  doc.text('En date du : ' + fmtDate(quote.quote_date), mR, y + 11, { align: 'right' })
+  doc.text('En date du : ' + fmtDate(quote.quote_date), MR, y + 11, { align: 'right' })
   if (quote.client_reference) {
-    doc.text('Ref. client : ' + quote.client_reference, mR, y + 17, { align: 'right' })
+    doc.text('Ref. client : ' + quote.client_reference, MR, y + 17, { align: 'right' })
   }
 
   y = 40
 
-  // ───────────────────────────────────────────────
-  // SENDER (left column)
-  // ───────────────────────────────────────────────
+  // ─── EMETTEUR (left) ───
   doc.setFontSize(9)
   doc.setFont(FONT, 'normal')
   doc.setTextColor(80, 80, 80)
-  doc.text(ORG.address_line1, mL, y)
-  doc.text(ORG.address_line2, mL, y + 5)
-  doc.text(ORG.country, mL, y + 10)
-
+  doc.text(ORG.address_line1, ML, y)
+  doc.text(ORG.address_line2, ML, y + 5)
+  doc.text(ORG.country, ML, y + 10)
   doc.setTextColor(0, 0, 0)
   doc.setFont(FONT, 'bold')
-  doc.text('Votre contact : ' + createdBy.name, mL, y + 18)
+  doc.text('Votre contact : ' + createdBy.name, ML, y + 18)
   doc.setFont(FONT, 'normal')
   doc.setTextColor(80, 80, 80)
-  doc.text('Tel : ' + createdBy.phone, mL, y + 23)
+  doc.text('Tel : ' + createdBy.phone, ML, y + 23)
   if (createdBy.email) {
-    doc.text('Email : ' + createdBy.email, mL, y + 28)
+    doc.text('Email : ' + createdBy.email, ML, y + 28)
   }
 
-  // ───────────────────────────────────────────────
-  // CLIENT (right column)
-  // ───────────────────────────────────────────────
-  const cX = 118
-  let cy = y
+  // ─── CLIENT (right) ───
+  var cX = 118
+  var cy = y
   doc.setFontSize(10)
   doc.setFont(FONT, 'bold')
   doc.setTextColor(0, 0, 0)
   doc.text(client?.name || '', cX, cy)
   cy += 6
-
   doc.setFont(FONT, 'normal')
   doc.setFontSize(9)
   doc.setTextColor(60, 60, 60)
   if (contact) {
-    const civ = contact.civilite || ''
-    const cName = contact.name || ((contact.first_name || '') + ' ' + (contact.last_name || '')).trim()
+    var civ = contact.civilite || ''
+    var cName = contact.name || ((contact.first_name || '') + ' ' + (contact.last_name || '')).trim()
     if (cName) {
       doc.text("A l'attention de " + (civ ? civ + ' ' : '') + cName, cX, cy)
       cy += 5
     }
   }
   if (client?.address) { doc.text(client.address, cX, cy); cy += 5 }
-  const cityLine = [client?.postal_code, (client?.city || '').toUpperCase()].filter(Boolean).join(' ')
+  var cityLine = [client?.postal_code, (client?.city || '').toUpperCase()].filter(Boolean).join(' ')
   if (cityLine) { doc.text(cityLine, cX, cy); cy += 5 }
   doc.text('France', cX, cy)
 
   y = 82
 
-  // ───────────────────────────────────────────────
-  // OBJET
-  // ───────────────────────────────────────────────
+  // ─── OBJET ───
   if (quote.object) {
     doc.setFontSize(9)
     doc.setFont(FONT, 'normal')
     doc.setTextColor(0, 0, 0)
-    doc.text('Objet : ' + quote.object, mL, y)
+    doc.text('Objet : ' + quote.object, ML, y)
     y += 8
   }
 
-  // ───────────────────────────────────────────────
-  // TABLE ITEMS
-  // ───────────────────────────────────────────────
-  const tableBody = items.map(item => {
-    const qty = parseFloat(item.quantity) || 0
-    const pu = parseFloat(item.unit_price_ht) || 0
-    const tva = parseFloat(item.tva_rate) || 20
-    const lineTotal = qty * pu
-    const tvaAmt = lineTotal * tva / 100
-
-    let desc = item.description_title || ''
-    if (item.description_detail) {
-      desc += ' :\n' + item.description_detail
-    }
-
+  // ─── TABLE ARTICLES ───
+  var tableBody = items.map(function (item) {
+    var qty = parseFloat(item.quantity) || 0
+    var pu = parseFloat(item.unit_price_ht) || 0
+    var tva = parseFloat(item.tva_rate) || 20
+    var lineTotal = qty * pu
+    var tvaAmt = lineTotal * tva / 100
+    var desc = item.description_title || ''
+    if (item.description_detail) desc += ' :\n' + item.description_detail
     return [
       item.code || '',
       desc,
@@ -310,28 +268,19 @@ export async function generateQuotePDF(quote, items, client, contact = null) {
 
   doc.autoTable({
     startY: y,
-    margin: { left: mL, right: 18 },
+    margin: { left: ML, right: 18 },
     head: [['Nom / Code', 'Description', 'Qte', 'PU HT', 'TVA', 'Total HT']],
     body: tableBody,
     theme: 'grid',
     headStyles: {
-      fillColor: [240, 240, 240],
-      textColor: [50, 50, 50],
-      fontStyle: 'bold',
-      fontSize: 8,
-      font: FONT,
-      lineWidth: 0.3,
-      lineColor: [180, 180, 180],
-      cellPadding: 3,
+      fillColor: [240, 240, 240], textColor: [50, 50, 50],
+      fontStyle: 'bold', fontSize: 8, font: FONT,
+      lineWidth: 0.3, lineColor: [180, 180, 180], cellPadding: 3,
     },
     bodyStyles: {
-      fontSize: 8,
-      font: FONT,
-      cellPadding: 3,
-      lineWidth: 0.2,
-      lineColor: [200, 200, 200],
-      textColor: [40, 40, 40],
-      valign: 'top',
+      fontSize: 8, font: FONT, cellPadding: 3,
+      lineWidth: 0.2, lineColor: [200, 200, 200],
+      textColor: [40, 40, 40], valign: 'top',
     },
     columnStyles: {
       0: { cellWidth: 22 },
@@ -343,19 +292,19 @@ export async function generateQuotePDF(quote, items, client, contact = null) {
     },
   })
 
-  y = doc.lastAutoTable.finalY + 6
+  y = doc.lastAutoTable.finalY + 4
 
-  // ───────────────────────────────────────────────
-  // TOTALS
-  // ───────────────────────────────────────────────
-  const hasDiscount = parseFloat(quote.discount_percent) > 0
-  const subtotalHt = items.reduce((s, it) => s + (parseFloat(it.quantity) || 0) * (parseFloat(it.unit_price_ht) || 0), 0)
-  const discountAmt = subtotalHt * (parseFloat(quote.discount_percent) || 0) / 100
-  const totalHt = subtotalHt - discountAmt
-  const totalTva = quote.tva_applicable !== false ? totalHt * (parseFloat(quote.tva_rate) || 20) / 100 : 0
-  const totalTtc = totalHt + totalTva
+  // ─── TOTAUX (compact) ───
+  var hasDiscount = parseFloat(quote.discount_percent) > 0
+  var subtotalHt = items.reduce(function (s, it) {
+    return s + (parseFloat(it.quantity) || 0) * (parseFloat(it.unit_price_ht) || 0)
+  }, 0)
+  var discountAmt = subtotalHt * (parseFloat(quote.discount_percent) || 0) / 100
+  var totalHt = subtotalHt - discountAmt
+  var totalTva = quote.tva_applicable !== false ? totalHt * (parseFloat(quote.tva_rate) || 20) / 100 : 0
+  var totalTtc = totalHt + totalTva
 
-  const totRows = []
+  var totRows = []
   if (hasDiscount) {
     totRows.push(['Montant total HT', fmtEuro(subtotalHt)])
     totRows.push(['Reduction HT (' + fmtMoney(quote.discount_percent) + '%)', '-' + fmtEuro(discountAmt)])
@@ -377,78 +326,63 @@ export async function generateQuotePDF(quote, items, client, contact = null) {
     margin: { left: 118, right: 18 },
     body: totRows,
     theme: 'plain',
-    styles: { fontSize: 9, font: FONT, cellPadding: 2, textColor: [30, 30, 30] },
+    styles: { fontSize: 9, font: FONT, cellPadding: 1.5, textColor: [30, 30, 30] },
     columnStyles: {
       0: { halign: 'right' },
       1: { halign: 'right', cellWidth: 34 },
     },
   })
 
-  y = doc.lastAutoTable.finalY + 8
+  y = doc.lastAutoTable.finalY + 5
 
-  // ───────────────────────────────────────────────
-  // NOTES
-  // ───────────────────────────────────────────────
+  // ─── NOTES ───
   if (quote.notes) {
     doc.setFontSize(8)
     doc.setFont(FONT, 'italic')
     doc.setTextColor(80, 80, 80)
-    doc.text('Note : ' + quote.notes, mL, y)
+    doc.text('Note : ' + quote.notes, ML, y)
     doc.setTextColor(0, 0, 0)
-    y += 7
+    y += 6
   }
 
-  // ───────────────────────────────────────────────
-  // SIGNATURE - below totals/notes
-  // Signature block = ~35mm (title 8mm + box 22mm + margin 5mm)
-  // Must not overlap the bottom block which starts at Y=224
-  // If signature would go past Y=219, push to next page
-  // ───────────────────────────────────────────────
-  const SIG_TOTAL_HEIGHT = 35
+  // ─── SIGNATURE (right-aligned, below totals) ───
+  // Signature block: title ~5mm + box 18mm = ~23mm total
+  var sigHeight = 25
+  var sigX = 118
+  var sigW = MR - sigX // 74mm
 
-  if (y + SIG_TOTAL_HEIGHT > BOTTOM_BLOCK_START_Y - 5) {
-    // Not enough room on this page for signature above the bottom block
-    // Draw the bottom block on current page, then new page for signature
-    drawBottomBlock(doc, FONT, quote)
-    addFooter(doc, FONT)
+  // Check: does signature fit above the bottom block zone?
+  if (y + sigHeight > BOTTOM_BLOCK_Y - 3) {
+    // Doesn't fit => new page, signature + bottom block on page 2
     doc.addPage()
     y = 20
   }
 
-  // Draw signature block (centered or left-aligned)
-  const sigX = mL
-  const sigW = 80
-
-  doc.setFontSize(8)
+  doc.setFontSize(7.5)
   doc.setFont(FONT, 'bold')
   doc.setTextColor(0, 80, 130)
   doc.text("Signature du client precedee de la mention", sigX + sigW / 2, y, { align: 'center' })
   doc.text("'Lu et approuve, bon pour accord' :", sigX + sigW / 2, y + 4, { align: 'center' })
   doc.setTextColor(0, 0, 0)
 
-  const sigBoxY = y + 7
+  var sigBoxY = y + 6
   doc.setDrawColor(180, 180, 180)
   doc.setLineWidth(0.3)
-  doc.rect(sigX, sigBoxY, sigW, 22)
+  doc.rect(sigX, sigBoxY, sigW, 18)
 
   if (quote.signature_base64) {
     try {
-      doc.addImage(quote.signature_base64, 'PNG', sigX + 2, sigBoxY + 1, sigW - 4, 20)
+      doc.addImage(quote.signature_base64, 'PNG', sigX + 2, sigBoxY + 1, sigW - 4, 16)
     } catch (e) { /* ignore */ }
   }
 
-  // ───────────────────────────────────────────────
-  // BOTTOM BLOCK - anchored above footer on LAST page
-  // (conditions paiement + banque + mentions legales)
-  // ───────────────────────────────────────────────
+  // ─── BOTTOM BLOCK (anchored above footer on last page) ───
   drawBottomBlock(doc, FONT, quote)
 
-  // ───────────────────────────────────────────────
-  // FOOTER on ALL pages
-  // ───────────────────────────────────────────────
+  // ─── FOOTER on all pages ───
   var totalPages = doc.internal.getNumberOfPages()
-  for (var i = 1; i <= totalPages; i++) {
-    doc.setPage(i)
+  for (var p = 1; p <= totalPages; p++) {
+    doc.setPage(p)
     addFooter(doc, FONT)
   }
 
