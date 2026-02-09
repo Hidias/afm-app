@@ -187,8 +187,9 @@ export default function CompteRenduModal({ rdv, client, analysisData: analysisDa
     try {
       const { data: { user } } = await supabase.auth.getUser()
       
-      // Préparer les pièces jointes
-      const attachments = []
+      // Préparer les pièces jointes via Supabase Storage (évite la limite 4.5MB Vercel)
+      const attachmentRefs = []
+      const tempPaths = [] // Pour nettoyage après envoi
       
       // 1. PDF de l'analyse des besoins
       if (attachPDF && rdv?.client_id) {
@@ -200,36 +201,50 @@ export default function CompteRenduModal({ rdv, client, analysisData: analysisDa
               false,
               organization
             )
-            const pdfBase64 = btoa(
-              new Uint8Array(pdfBytes).reduce((data, byte) => data + String.fromCharCode(byte), '')
-            )
-            attachments.push({
-              filename: `Analyse_Besoin_${(client?.name || 'Client').replace(/\s/g, '_')}.pdf`,
-              content: pdfBase64,
-              encoding: 'base64',
-              size: pdfBytes.byteLength
-            })
-            console.log('✅ PDF analyse de besoins généré:', pdfBytes.byteLength, 'bytes')
+            const filename = `Analyse_Besoin_${(client?.name || 'Client').replace(/\s/g, '_')}.pdf`
+            const storagePath = `temp-email/${user.id}/${Date.now()}_${filename}`
+            
+            const { error: uploadError } = await supabase.storage
+              .from('email-attachments')
+              .upload(storagePath, new Blob([pdfBytes], { type: 'application/pdf' }))
+            
+            if (uploadError) throw new Error('Upload PDF analyse échoué: ' + uploadError.message)
+            
+            attachmentRefs.push({ filename, storagePath, size: pdfBytes.byteLength })
+            tempPaths.push(storagePath)
+            console.log('✅ PDF analyse uploadé:', storagePath, pdfBytes.byteLength, 'bytes')
           } else {
             console.log('ℹ️ Pas d\'analyse de besoins trouvée pour ce client')
           }
         } catch (pdfError) {
-          console.error('Erreur génération PDF analyse:', pdfError)
-          toast.error('Impossible de générer le PDF d\'analyse')
+          console.error('Erreur génération/upload PDF analyse:', pdfError)
+          toast.error('Impossible de préparer le PDF d\'analyse')
         }
       }
       
       // 2. Fichiers uploadés par l'utilisateur
-      uploadedFiles.forEach(file => {
-        attachments.push({
-          filename: file.name,
-          content: file.base64,
-          encoding: 'base64',
-          size: file.size
-        })
-      })
+      for (const file of uploadedFiles) {
+        try {
+          const storagePath = `temp-email/${user.id}/${Date.now()}_${file.name}`
+          // Reconvertir base64 en blob
+          const byteChars = atob(file.base64)
+          const byteArray = new Uint8Array(byteChars.length)
+          for (let i = 0; i < byteChars.length; i++) byteArray[i] = byteChars.charCodeAt(i)
+          
+          const { error: uploadError } = await supabase.storage
+            .from('email-attachments')
+            .upload(storagePath, new Blob([byteArray]))
+          
+          if (uploadError) throw new Error('Upload échoué: ' + uploadError.message)
+          
+          attachmentRefs.push({ filename: file.name, storagePath, size: file.size })
+          tempPaths.push(storagePath)
+        } catch (fileError) {
+          console.error('Erreur upload fichier:', fileError)
+        }
+      }
 
-      // Envoyer via l'API
+      // Envoyer via l'API (payload léger, sans base64)
       const response = await fetch('/api/send-email-rdv', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -238,7 +253,7 @@ export default function CompteRenduModal({ rdv, client, analysisData: analysisDa
           to: toEmail,
           subject: emailSubject,
           body: emailBody,
-          attachments,
+          attachmentRefs,
           rdvId: rdv.id
         })
       })
