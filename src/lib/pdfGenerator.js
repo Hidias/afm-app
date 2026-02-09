@@ -2201,7 +2201,7 @@ export async function downloadDocument(docType, session, options = {}) {
     case 'convocation': {
       doc = new jsPDF()
       let qrCodeDataURL = null
-      if (session?.attendance_token && trainee?.access_code) {
+      if (session?.attendance_token) {
         try {
           const portalURL = `https://app.accessformation.pro/#/portail/${session.attendance_token}`
           qrCodeDataURL = await QRCode.toDataURL(portalURL, { width: 150, margin: 1 })
@@ -2337,7 +2337,7 @@ export async function generatePDF(docType, session, options = {}) {
     case 'convocation': {
       doc = new jsPDF()
       let qrCodeDataURL = null
-      if (session?.attendance_token && trainee?.access_code) {
+      if (session?.attendance_token) {
         try {
           const portalURL = `https://app.accessformation.pro/#/portail/${session.attendance_token}`
           qrCodeDataURL = await QRCode.toDataURL(portalURL, { width: 150, margin: 1 })
@@ -2605,7 +2605,7 @@ function generateConvocationContent(doc, session, trainee, trainer, qrCodeDataUR
   console.log('11. access_code?', trainee?.access_code)
   console.log('12. Condition OK?', (qrCodeDataURL && trainee?.access_code) ? 'OUI - QR va être ajouté' : 'NON - PAS de QR')
   
-  if (qrCodeDataURL && trainee?.access_code) {
+  if (qrCodeDataURL) {
     console.log('13. ✅ AJOUT DU QR CODE!')
     const qrSize = 30 // 30x30mm
     const qrX = pw - 20 - qrSize // Aligné à droite avec marge 20
@@ -2624,7 +2624,9 @@ function generateConvocationContent(doc, session, trainee, trainer, qrCodeDataUR
     doc.text('au portail stagiaire', qrX + qrSize/2, y + qrSize + 6, { align: 'center' })
     doc.setFontSize(10)
     doc.setFont('helvetica', 'bold')
-    doc.text(`Code : ${trainee.access_code}`, qrX + qrSize/2, y + qrSize + 11, { align: 'center' })
+    if (trainee?.access_code) {
+      doc.text(`Code : ${trainee.access_code}`, qrX + qrSize/2, y + qrSize + 11, { align: 'center' })
+    }
   }
   
   addFooter(doc, DOC_CODES.convocation)
