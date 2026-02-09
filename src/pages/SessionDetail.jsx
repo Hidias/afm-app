@@ -1470,7 +1470,7 @@ export default function SessionDetail() {
     if (session?.is_intra && session?.clients?.address) {
       return session.clients.address
     }
-    return session?.location_name || session?.location || 'À définir'
+    return session?.location || 'À définir'
   }
   
   const handlePresenceChange = async (traineeId, date, present) => {
@@ -2060,7 +2060,7 @@ export default function SessionDetail() {
     let enrichedTrainee = trainee
     if (trainee) {
       const stData = session.session_trainees?.find(st => st.trainee_id === trainee.id)
-      enrichedTrainee = { ...trainee, result: stData?.result || traineeResults[trainee.id] || null }
+      enrichedTrainee = { ...trainee, result: stData?.result || traineeResults[trainee.id] || null, access_code: stData?.access_code || trainee.access_code || null }
     }
     
     // Ajouter les coûts pour la convention
