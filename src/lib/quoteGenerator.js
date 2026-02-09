@@ -29,6 +29,26 @@ const CONTACTS = {
 }
 
 // ============================================================
+// LAYOUT CONSTANTS
+// ============================================================
+const PAGE_WIDTH = 210
+const PAGE_HEIGHT = 297
+const MARGIN_LEFT = 18
+const MARGIN_RIGHT = 192 // PAGE_WIDTH - 18
+const FOOTER_SEPARATOR_Y = 271
+const FOOTER_START_Y = 275
+// Safe content zone: must not go below this Y before the bottom block
+const SAFE_CONTENT_BOTTOM = 265
+
+// Bottom block heights (approximate)
+const BLOCK_NOTE_HEIGHT = 7
+const BLOCK_CONDITIONS_HEIGHT = 32 // 4 rows x 4mm + bank details ~12mm
+const BLOCK_SIGNATURE_HEIGHT = 30  // title (8mm) + box (22mm)
+const BLOCK_LEGAL_HEIGHT = 12      // 3 lines of legal text
+const BLOCK_SPACING = 8            // spacing between note/conditions and legal
+const BOTTOM_BLOCK_TOTAL = BLOCK_CONDITIONS_HEIGHT + BLOCK_LEGAL_HEIGHT + BLOCK_SPACING + 10
+
+// ============================================================
 // FORMAT HELPERS
 // ============================================================
 function fmtDate(d) {
@@ -49,8 +69,6 @@ function fmtEuro(val) {
   const prefix = parseFloat(val) < 0 ? '-' : ''
   return prefix + fmtMoney(val) + ' EUR'
 }
-
-// Font: helvetica (built-in jsPDF, no accent support but reliable)
 
 // ============================================================
 // LOAD LOGO
@@ -74,17 +92,61 @@ async function loadLogo() {
 }
 
 // ============================================================
+// FOOTER - drawn on every page
+// ============================================================
+function addFooter(doc, font) {
+  const cx = 105
+
+  doc.setDrawColor(200, 200, 200)
+  doc.setLineWidth(0.3)
+  doc.line(MARGIN_LEFT, FOOTER_SEPARATOR_Y, MARGIN_RIGHT, FOOTER_SEPARATOR_Y)
+
+  doc.setFont(font, 'normal')
+  doc.setFontSize(7)
+  doc.setTextColor(120, 120, 120)
+
+  doc.text(
+    'Access Formation - 24 Rue Kerbleiz - 29900 Concarneau - France',
+    cx, 275, { align: 'center' }
+  )
+  doc.text(
+    "Declaration d'activite enregistree sous le numero 53 29 10261 29 aupres du prefet de la region Bretagne",
+    cx, 279, { align: 'center' }
+  )
+  doc.text(
+    'SARL au capital de 2.500 EUR - Siret : 943 563 866 00012 - Naf : 8559A - TVA : FR71943563866 - RCS 943 563 866 R.C.S. Quimper',
+    cx, 283, { align: 'center' }
+  )
+  doc.text(
+    'Tel : 02 46 56 57 54 - Email : contact@accessformation.pro',
+    cx, 287, { align: 'center' }
+  )
+
+  doc.setTextColor(0, 0, 0)
+}
+
+// ============================================================
+// CHECK PAGE BREAK - ensures enough space, adds page if needed
+// ============================================================
+function ensureSpace(doc, currentY, neededHeight, font) {
+  // neededHeight = how much vertical space we need from currentY
+  // If it would overlap the footer zone, add a new page
+  if (currentY + neededHeight > FOOTER_SEPARATOR_Y - 6) {
+    addFooter(doc, font)
+    doc.addPage()
+    return 20 // reset Y on new page
+  }
+  return currentY
+}
+
+// ============================================================
 // MAIN: GENERATE QUOTE PDF
 // ============================================================
 export async function generateQuotePDF(quote, items, client, contact = null) {
   const doc = new jsPDF()
-
   const FONT = 'helvetica'
-
-  const pw = 210
-  const ph = 297
-  const mL = 18
-  const mR = pw - 18
+  const mL = MARGIN_LEFT
+  const mR = MARGIN_RIGHT
 
   const createdBy = CONTACTS[quote.created_by] || CONTACTS['Hicham Saidi']
   const logo = await loadLogo()
@@ -240,6 +302,10 @@ export async function generateQuotePDF(quote, items, client, contact = null) {
       4: { cellWidth: 22, halign: 'right', fontSize: 7 },
       5: { cellWidth: 22, halign: 'right', fontStyle: 'bold' },
     },
+    // Handle page break within the table: add footer on each page
+    didDrawPage: function (data) {
+      // Footer will be added at the end on all pages
+    },
   })
 
   y = doc.lastAutoTable.finalY + 6
@@ -286,24 +352,45 @@ export async function generateQuotePDF(quote, items, client, contact = null) {
   y = doc.lastAutoTable.finalY + 8
 
   // ───────────────────────────────────────────────
+  // CALCULATE BOTTOM BLOCK HEIGHT
+  // We need to know if everything fits before the footer
+  // Bottom block = notes + conditions/signature side-by-side + legal mentions
+  // ───────────────────────────────────────────────
+  const hasNotes = !!quote.notes
+  const hasBank = !!ORG.bank_name
+
+  // Estimate total height needed for the bottom block
+  let bottomBlockHeight = 0
+  if (hasNotes) bottomBlockHeight += BLOCK_NOTE_HEIGHT
+  // Conditions (left) + Signature (right) side by side
+  // Conditions: 4 rows (4mm each) = 16mm + bank details (~12mm) = ~28mm
+  // Signature: title (8mm) + box (22mm) = 30mm
+  // Take the max of both = ~30mm
+  const conditionsHeight = 16 + (hasBank ? 12 : 0) // ~28mm with bank
+  const signatureHeight = 8 + 22 // title + box = 30mm
+  const sideBySideHeight = Math.max(conditionsHeight, signatureHeight)
+  bottomBlockHeight += sideBySideHeight + 4 // +4mm spacing after
+  bottomBlockHeight += BLOCK_LEGAL_HEIGHT // legal mentions ~12mm
+  bottomBlockHeight += 10 // safety margin before footer
+
+  // Check if bottom block fits on current page
+  y = ensureSpace(doc, y, bottomBlockHeight, FONT)
+
+  // ───────────────────────────────────────────────
   // NOTES
   // ───────────────────────────────────────────────
-  if (quote.notes) {
-    if (y > 230) { addFooter(doc, FONT); doc.addPage(); y = 20 }
+  if (hasNotes) {
     doc.setFontSize(8)
     doc.setFont(FONT, 'italic')
     doc.setTextColor(80, 80, 80)
     doc.text('Note : ' + quote.notes, mL, y)
     doc.setTextColor(0, 0, 0)
-    y += 7
+    y += BLOCK_NOTE_HEIGHT
   }
 
   // ───────────────────────────────────────────────
   // SIGNATURE (right) + CONDITIONS (left) - SIDE BY SIDE
-  // Total block height: ~50mm. Footer at 271. Max y = 220.
   // ───────────────────────────────────────────────
-  if (y > 210) { addFooter(doc, FONT); doc.addPage(); y = 20 }
-
   const blockStartY = y
 
   // --- RIGHT: Signature ---
@@ -329,6 +416,7 @@ export async function generateQuotePDF(quote, items, client, contact = null) {
   }
 
   // --- LEFT: Payment conditions ---
+  let condY = blockStartY
   doc.setFontSize(7.5)
   doc.setTextColor(60, 60, 60)
   doc.setFont(FONT, 'normal')
@@ -339,30 +427,34 @@ export async function generateQuotePDF(quote, items, client, contact = null) {
     ['Delai de reglement :', quote.payment_terms || 'a 30 jours'],
     ['Date limite de reglement :', fmtDate(quote.payment_deadline)],
   ]
-  conds.forEach(function(row) {
-    doc.text(row[0], mL, y)
-    doc.text(row[1], mL + 42, y)
-    y += 4
+  conds.forEach(function (row) {
+    doc.text(row[0], mL, condY)
+    doc.text(row[1], mL + 42, condY)
+    condY += 4
   })
 
   // Bank details (left side, below conditions)
-  y += 1
-  doc.text('Banque :', mL, y)
-  doc.text(ORG.bank_name, mL + 42, y)
-  y += 4
-  doc.text('BIC : ' + ORG.bic, mL + 42, y)
-  y += 3.5
-  doc.text('IBAN : ' + ORG.iban, mL + 42, y)
+  if (hasBank) {
+    condY += 1
+    doc.text('Banque :', mL, condY)
+    doc.text(ORG.bank_name, mL + 42, condY)
+    condY += 4
+    doc.text('BIC : ' + ORG.bic, mL + 42, condY)
+    condY += 3.5
+    doc.text('IBAN : ' + ORG.iban, mL + 42, condY)
+    condY += 4
+  }
 
   // Move y below both columns (whichever is taller)
   const sigEndY = sigBoxY + 22 + 4
-  y = Math.max(y + 6, sigEndY)
+  y = Math.max(condY + 4, sigEndY)
 
   // ───────────────────────────────────────────────
   // LEGAL MENTIONS (full width below)
   // ───────────────────────────────────────────────
   doc.setFontSize(6.5)
   doc.setTextColor(100, 100, 100)
+  doc.setFont(FONT, 'normal')
   doc.text(
     "En cas de retard de paiement, des penalites seront exigibles au taux legal majore de 10 points, ainsi qu'une indemnite forfaitaire de 40 EUR",
     mL, y
@@ -378,7 +470,7 @@ export async function generateQuotePDF(quote, items, client, contact = null) {
   }
 
   // ───────────────────────────────────────────────
-  // FOOTER on all pages
+  // FOOTER on ALL pages
   // ───────────────────────────────────────────────
   var totalPages = doc.internal.getNumberOfPages()
   for (var i = 1; i <= totalPages; i++) {
@@ -388,38 +480,4 @@ export async function generateQuotePDF(quote, items, client, contact = null) {
 
   doc.save(quote.reference + '.pdf')
   return doc
-}
-
-// ============================================================
-// FOOTER
-// ============================================================
-function addFooter(doc, font) {
-  var cx = 105
-
-  doc.setDrawColor(200, 200, 200)
-  doc.setLineWidth(0.3)
-  doc.line(18, 271, 192, 271)
-
-  doc.setFont(font, 'normal')
-  doc.setFontSize(7)
-  doc.setTextColor(120, 120, 120)
-
-  doc.text(
-    'Access Formation - 24 Rue Kerbleiz - 29900 Concarneau - France',
-    cx, 275, { align: 'center' }
-  )
-  doc.text(
-    "Declaration d'activite enregistree sous le numero 53 29 10261 29 aupres du prefet de la region Bretagne",
-    cx, 279, { align: 'center' }
-  )
-  doc.text(
-    'SARL au capital de 2.500 EUR - Siret : 943 563 866 00012 - Naf : 8559A - TVA : FR71943563866 - RCS 943 563 866 R.C.S. Quimper',
-    cx, 283, { align: 'center' }
-  )
-  doc.text(
-    'Tel : 02 46 56 57 54 - Email : contact@accessformation.pro',
-    cx, 287, { align: 'center' }
-  )
-
-  doc.setTextColor(0, 0, 0)
 }
