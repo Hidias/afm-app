@@ -42,6 +42,8 @@ export default function Sessions() {
     course_id: '',
     client_id: '',
     contact_id: '', // ID du contact spécifique (optionnel)
+    signatory_name: '', // Signataire convention (si différent du contact)
+    signatory_role: '', // Fonction du signataire
     start_date: '',
     end_date: '',
     start_time: '09:00',
@@ -147,7 +149,7 @@ export default function Sessions() {
         setClientContacts([])
       }
       // Reset contact_id quand le client change
-      setFormData(prev => ({ ...prev, contact_id: '' }))
+      setFormData(prev => ({ ...prev, contact_id: '', signatory_name: '', signatory_role: '' }))
     }
     loadContacts()
   }, [formData.client_id])
@@ -167,6 +169,8 @@ export default function Sessions() {
       course_id: '',
       client_id: '',
       contact_id: '',
+      signatory_name: '',
+      signatory_role: '',
       start_date: '',
       end_date: '',
       start_time: '09:00',
@@ -208,6 +212,8 @@ export default function Sessions() {
       course_id: formData.course_id,
       client_id: formData.client_id,
       contact_id: formData.contact_id || null, // Contact spécifique (optionnel)
+      signatory_name: formData.signatory_name || null,
+      signatory_role: formData.signatory_role || null,
       start_date: formData.start_date,
       end_date: formData.end_date,
       start_time: formData.start_time,
@@ -456,7 +462,32 @@ export default function Sessions() {
                     )}
                   </select>
                   <p className="text-xs text-blue-600 mt-1">
-                    Ce contact sera utilisé pour la convention et les convocations
+                    Ce contact sera mentionné sur les convocations
+                  </p>
+                  <div className="grid grid-cols-2 gap-3 mt-3">
+                    <div>
+                      <label className="label text-xs text-blue-800">Signataire convention</label>
+                      <input
+                        type="text"
+                        value={formData.signatory_name}
+                        onChange={(e) => setFormData({ ...formData, signatory_name: e.target.value })}
+                        className="input"
+                        placeholder="Ex: Frédéric LE REGENT"
+                      />
+                    </div>
+                    <div>
+                      <label className="label text-xs text-blue-800">Fonction signataire</label>
+                      <input
+                        type="text"
+                        value={formData.signatory_role}
+                        onChange={(e) => setFormData({ ...formData, signatory_role: e.target.value })}
+                        className="input"
+                        placeholder="Ex: Dirigeant"
+                      />
+                    </div>
+                  </div>
+                  <p className="text-xs text-blue-600 mt-1">
+                    Si vide, le contact ci-dessus sera utilisé comme signataire sur la convention
                   </p>
                 </div>
               )}
