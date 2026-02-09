@@ -449,7 +449,7 @@ export default function SessionDetail() {
         end_date: formatDate(found.end_date),
         start_time: found.start_time || '09:00',
         end_time: found.end_time || '17:00',
-        location: found.location_name || found.location || '',
+        location_name: found.location_name || found.location || '',
         status: found.status,
         notes: found.notes || '',
         total_price: found.total_price || '',
@@ -1470,7 +1470,7 @@ export default function SessionDetail() {
     if (session?.is_intra && session?.clients?.address) {
       return session.clients.address
     }
-    return session?.location || 'À définir'
+    return session?.location_name || session?.location || 'À définir'
   }
   
   const handlePresenceChange = async (traineeId, date, present) => {
@@ -4253,8 +4253,8 @@ ${trainer ? `${trainer.first_name} ${trainer.last_name}` : 'Access Formation'}`
                   <input 
                     type="text" 
                     className="input" 
-                    value={editForm.is_intra ? (session?.clients?.address || 'Adresse client non renseignée') : editForm.location} 
-                    onChange={(e) => setEditForm({...editForm, location: e.target.value})}
+                    value={editForm.is_intra ? (session?.clients?.address || 'Adresse client non renseignée') : editForm.location_name} 
+                    onChange={(e) => setEditForm({...editForm, location_name: e.target.value})}
                     disabled={editForm.is_intra}
                   />
                 </div>
