@@ -93,11 +93,12 @@ export default function ClientDetail() {
   }
 
   async function loadFormations() {
-    const { data } = await supabase.from('sessions').select(`
+    const { data, error } = await supabase.from('sessions').select(`
       id, reference, start_date, end_date, status, location, notes,
       courses(id, title, code, duration_hours),
-      session_trainees(id, status, trainee_id, trainees(first_name, last_name))
+      session_trainees(id, trainee_id, result, trainees(first_name, last_name))
     `).eq('client_id', id).order('start_date', { ascending: false })
+    if (error) console.error('loadFormations error:', error)
     setFormations(data || [])
   }
 
@@ -227,7 +228,7 @@ export default function ClientDetail() {
   if (!client) return <div className="p-6"><Link to="/clients" className="text-primary-600 hover:underline flex items-center gap-1"><ArrowLeft className="w-4 h-4" /> Retour</Link><p className="mt-4 text-gray-500">Client introuvable</p></div>
 
   const timeline = getMergedTimeline()
-  const upcomingSessions = formations.filter(f => f.status === 'planned' || f.status === 'in_progress')
+  const upcomingSessions = formations.filter(f => f.status === 'planned' || f.status === 'in_progress' || f.status === 'draft')
   const pastSessions = formations.filter(f => f.status === 'completed' || f.status === 'cancelled')
   const docContact = contacts.find(c => c.is_document_contact)
 
@@ -567,8 +568,8 @@ export default function ClientDetail() {
                               </p>
                             </div>
                             <div className="text-right">
-                              <span className={'px-2 py-0.5 rounded text-xs font-medium ' + (s.status === 'in_progress' ? 'bg-yellow-100 text-yellow-700' : 'bg-blue-100 text-blue-700')}>
-                                {s.status === 'in_progress' ? '🔄 En cours' : '📅 Planifiée'}
+                              <span className={'px-2 py-0.5 rounded text-xs font-medium ' + (s.status === 'in_progress' ? 'bg-yellow-100 text-yellow-700' : s.status === 'draft' ? 'bg-gray-100 text-gray-600' : 'bg-blue-100 text-blue-700')}>
+                                {s.status === 'in_progress' ? '🔄 En cours' : s.status === 'draft' ? '📝 Brouillon' : '📅 Planifiée'}
                               </span>
                               {s.session_trainees?.length > 0 && <p className="text-xs text-gray-400 mt-1">{s.session_trainees.length} stagiaire{s.session_trainees.length > 1 ? 's' : ''}</p>}
                             </div>
