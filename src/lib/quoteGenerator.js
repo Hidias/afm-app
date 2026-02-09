@@ -289,7 +289,7 @@ export async function generateQuotePDF(quote, items, client, contact = null) {
   // NOTES
   // ───────────────────────────────────────────────
   if (quote.notes) {
-    if (y > ph - 100) { addFooter(doc, FONT); doc.addPage(); y = 20 }
+    if (y > 200) { addFooter(doc, FONT); doc.addPage(); y = 20 }
     doc.setFontSize(8)
     doc.setFont(FONT, 'italic')
     doc.setTextColor(80, 80, 80)
@@ -301,7 +301,7 @@ export async function generateQuotePDF(quote, items, client, contact = null) {
   // ───────────────────────────────────────────────
   // SIGNATURE BLOCK
   // ───────────────────────────────────────────────
-  if (y > ph - 85) { addFooter(doc, FONT); doc.addPage(); y = 20 }
+  if (y > 175) { addFooter(doc, FONT); doc.addPage(); y = 20 }
 
   const sigX = 110
   const sigW = mR - sigX
@@ -328,8 +328,9 @@ export async function generateQuotePDF(quote, items, client, contact = null) {
 
   // ───────────────────────────────────────────────
   // PAYMENT CONDITIONS
+  // Need ~65mm for conditions + bank + legal. Footer starts at y=271.
   // ───────────────────────────────────────────────
-  if (y > ph - 55) { addFooter(doc, FONT); doc.addPage(); y = 20 }
+  if (y > 200) { addFooter(doc, FONT); doc.addPage(); y = 20 }
 
   doc.setFontSize(8)
   doc.setTextColor(60, 60, 60)
