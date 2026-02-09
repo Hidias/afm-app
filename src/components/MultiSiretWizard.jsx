@@ -219,7 +219,7 @@ export default function MultiSiretWizard({ onClose, onCreated }) {
               contact_function: common.contact_role || null,
               contact_email: common.contact_email || null,
               contact_phone: common.contact_phone || null,
-              status: 'active',
+              status: 'actif',
             }])
             .select()
             .single()
@@ -283,7 +283,6 @@ export default function MultiSiretWizard({ onClose, onCreated }) {
               first_name: t.first_name,
               last_name: t.last_name,
               birth_date: t.birth_date || null,
-              birth_place: t.birth_place || null,
               social_security_number: t.social_security_number || null,
               gender: t.gender || 'male',
               client_id: clientId,
@@ -303,7 +302,7 @@ export default function MultiSiretWizard({ onClose, onCreated }) {
           }
         }
         
-        // 4. Session: créer
+        // 4. Session: créer (colonnes alignées sur store.js createSession)
         const reference = `SES-${Date.now().toString(36).toUpperCase()}-${gi + 1}`
         const generateHexToken = (bytes = 32) => {
           const arr = new Uint8Array(bytes)
@@ -322,11 +321,12 @@ export default function MultiSiretWizard({ onClose, onCreated }) {
           end_time: common.end_time,
           location_name: common.location || null,
           is_intra: common.is_intra,
+          is_remote: false,
+          day_type: 'full',
           status: 'planned',
+          notes: null,
           signatory_name: common.signatory_name || null,
           signatory_role: common.signatory_role || null,
-          funding_type: common.funding_type || 'none',
-          funding_details: common.funding_details || null,
           reference,
           attendance_token: generateHexToken(32),
         }
