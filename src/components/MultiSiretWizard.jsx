@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { X, Plus, Trash2, Building2, Users, FileCheck, ChevronRight, ChevronLeft, Search, CheckCircle, AlertCircle, Loader2 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
-import useStore from '../lib/store'
+import { useDataStore as useStore } from '../lib/store'
 import toast from 'react-hot-toast'
 
 const FUNDING_TYPES = [
