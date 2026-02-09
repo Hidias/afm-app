@@ -179,6 +179,30 @@ Access Formation<br>
       console.error('Erreur sauvegarde historique:', historyError)
     }
 
+    // 8b. Traçabilité CRM : ajouter dans l'historique client
+    if (rdvId) {
+      try {
+        const { data: rdvData } = await supabase.from('prospect_rdv').select('client_id, contact_name').eq('id', rdvId).single()
+        if (rdvData?.client_id) {
+          const now = new Date()
+          const dateStr = now.toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' })
+          const timeStr = now.toLocaleTimeString('fr-FR', { timeZone: 'Europe/Paris', hour: '2-digit', minute: '2-digit' })
+          const authorName = emailConfig.email.includes('hicham') ? 'Hicham' : emailConfig.email.includes('maxime') ? 'Maxime' : 'Access Formation'
+
+          await supabase.from('client_interactions').insert({
+            client_id: rdvData.client_id,
+            type: 'email',
+            title: 'Email post-RDV envoyé',
+            content: `Email envoyé par ${authorName} le ${dateStr} à ${timeStr}\nDestinataire : ${to}\nObjet : ${subject}`,
+            author: authorName,
+          })
+          console.log('📋 Traçabilité CRM ajoutée pour client:', rdvData.client_id)
+        }
+      } catch (traceErr) {
+        console.error('Erreur traçabilité CRM (non bloquant):', traceErr.message)
+      }
+    }
+
     // 8. Nettoyer les fichiers temporaires du Storage
     if (tempPaths.length > 0) {
       const { error: deleteError } = await supabase.storage
