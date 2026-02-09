@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
+import { Link } from 'react-router-dom'
 import { useDataStore } from '../lib/store'
 import { supabase } from '../lib/supabase'
 import { Plus, Search, Edit, Trash2, X, Save, Building2, Mail, Phone, MapPin, User, Eye, Users, Upload, FileSpreadsheet, FileText, RefreshCw, CheckCircle, AlertCircle } from 'lucide-react'
@@ -699,7 +700,9 @@ export default function Clients() {
           <div key={client.id} className="card hover:shadow-lg transition-shadow">
             <div className="flex items-start justify-between mb-3">
               <div className="flex-1">
-                <h3 className="font-semibold text-gray-900 mb-1">{client.name}</h3>
+                <h3 className="font-semibold text-gray-900 mb-1">
+                  <Link to={`/clients/${client.id}`} className="hover:text-primary-600 hover:underline">{client.name}</Link>
+                </h3>
                 {client.address && (
                   <div className="flex items-center gap-1 text-sm text-gray-600 mb-1">
                     <MapPin className="w-3.5 h-3.5" />
@@ -720,9 +723,9 @@ export default function Clients() {
                 )}
               </div>
               <div className="flex gap-1">
-                <button onClick={() => openPreview(client)} className="p-1.5 text-gray-400 hover:text-primary hover:bg-gray-50 rounded transition-colors">
+                <Link to={`/clients/${client.id}`} className="p-1.5 text-gray-400 hover:text-primary hover:bg-gray-50 rounded transition-colors" title="Voir la fiche">
                   <Eye className="w-4 h-4" />
-                </button>
+                </Link>
                 <button onClick={() => openForm(client)} className="p-1.5 text-gray-400 hover:text-primary hover:bg-gray-50 rounded transition-colors">
                   <Edit className="w-4 h-4" />
                 </button>
