@@ -5,16 +5,33 @@
 @layer base {
   html {
     font-family: 'Inter', system-ui, sans-serif;
+    /* Safe area support for notch/Dynamic Island */
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
   }
   
   body {
     @apply bg-gray-50 text-gray-900;
+    /* Prevent pull-to-refresh on iOS when scrolling modals */
+    overscroll-behavior-y: contain;
+  }
+
+  /* ============================================
+     iOS ZOOM PREVENTION
+     iOS Safari zooms in when focusing inputs
+     with font-size < 16px. Force 16px on focus.
+     ============================================ */
+  @supports (-webkit-touch-callout: none) {
+    input, select, textarea {
+      font-size: 16px !important;
+    }
   }
 }
 
 @layer components {
   .btn {
     @apply px-4 py-2 rounded-lg font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2;
+    /* Minimum touch target 44px (Apple HIG) */
+    min-height: 44px;
   }
   
   .btn-primary {
@@ -39,6 +56,9 @@
   
   .input {
     @apply w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-accent-500 focus:border-transparent;
+    /* Prevent iOS zoom on focus */
+    font-size: 16px;
+    min-height: 44px;
   }
   
   .label {
@@ -94,6 +114,7 @@
 /* Tables */
 .table-container {
   @apply overflow-x-auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 table {
@@ -102,6 +123,7 @@ table {
 
 th {
   @apply text-left font-medium text-gray-500 uppercase tracking-wider px-4 py-3 bg-gray-50;
+  white-space: nowrap;
 }
 
 td {
@@ -130,4 +152,64 @@ tr:hover td {
 /* Campus Toast Styles */
 .campus-toast {
   @apply bg-primary-500 text-white;
+}
+
+/* ============================================
+   MOBILE / TABLET IMPROVEMENTS
+   ============================================ */
+
+/* Horizontal scroll indicator (subtle scrollbar) */
+.overflow-x-auto {
+  -webkit-overflow-scrolling: touch;
+}
+
+.overflow-x-auto::-webkit-scrollbar {
+  height: 4px;
+}
+
+.overflow-x-auto::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.overflow-x-auto::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 2px;
+}
+
+/* Tab bars - scrollable on mobile */
+nav.overflow-x-auto {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+nav.overflow-x-auto::-webkit-scrollbar {
+  display: none;
+}
+
+/* Prevent text selection on tap (buttons/nav) */
+button, a, nav {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Fix iOS Safari bottom bar overlap */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .fixed.bottom-0,
+  .sticky.bottom-0 {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+/* Improve touch targets for small buttons */
+@media (pointer: coarse) {
+  /* Coarse pointer = touch device */
+  button, [role="button"], a {
+    min-height: 36px;
+    min-width: 36px;
+  }
+  
+  /* Table action buttons */
+  td button, td a {
+    min-height: 32px;
+    min-width: 32px;
+  }
 }
