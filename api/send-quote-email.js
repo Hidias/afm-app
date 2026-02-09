@@ -5,6 +5,15 @@ import { createClient } from '@supabase/supabase-js'
 import nodemailer from 'nodemailer'
 import crypto from 'crypto'
 
+// Augmenter la limite du body parser Vercel (défaut 4.5MB)
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: '10mb'
+    }
+  }
+}
+
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -148,12 +157,14 @@ export default async function handler(req, res) {
 
     // 6. Pièce jointe PDF
     if (pdfBase64 && pdfFilename) {
+      console.log('PDF attachment:', pdfFilename, 'base64 length:', pdfBase64.length)
       mailOptions.attachments.push({
         filename: pdfFilename,
-        content: pdfBase64,
-        encoding: 'base64',
+        content: Buffer.from(pdfBase64, 'base64'),
         contentType: 'application/pdf'
       })
+    } else {
+      console.warn('Pas de PJ PDF!', { hasPdfBase64: !!pdfBase64, hasPdfFilename: !!pdfFilename, base64Length: pdfBase64?.length || 0 })
     }
 
     // 7. Envoyer avec retry
