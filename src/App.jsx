@@ -30,6 +30,7 @@ import VeilleQualiopi from './pages/VeilleQualiopi'
 import Qualiopi from './pages/Qualiopi'
 import AuditLogs from './pages/AuditLogs'
 import Changelog from './pages/Changelog'
+import Quotes from './pages/Quotes'
 import QualiteEditables from './pages/QualiteEditables'
 import Completude from './pages/Completude'
 import Login from './pages/Login'
@@ -144,6 +145,7 @@ export default function App() {
           <Route index element={<Dashboard />} />
           <Route path="clients" element={<Clients />} />
           <Route path="clients/:id" element={<ClientDetail />} />
+          <Route path="devis" element={<Quotes />} />
           {/* ========== NOUVEAU : Routes Prospection ========== */}
           <Route path="prospection" element={<ProspectionTabs />} />
           <Route path="prospection/:id" element={<ProspectRDVDetail />} />
