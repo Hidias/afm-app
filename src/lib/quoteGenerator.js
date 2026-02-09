@@ -24,7 +24,7 @@ const ORG = {
 }
 
 const CONTACTS = {
-  'Hicham Saidi': { name: 'Hicham Saidi', phone: '02 46 56 57 54', email: null },
+  'Hicham Saidi': { name: 'Hicham Saidi', phone: '02 46 56 57 54', email: 'hicham.saidi@accessformation.pro' },
   'Maxime Langlais': { name: 'Maxime Langlais', phone: '02 46 56 57 54', email: 'maxime.langlais@accessformation.pro' },
 }
 
