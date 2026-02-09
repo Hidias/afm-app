@@ -133,19 +133,11 @@ function getSessionContact(session) {
 // Helper pour obtenir le signataire de la convention
 // Priorité: 1) signatory_name/role de la session > 2) contact de la session (fallback)
 function getSessionSignatory(session) {
-  // 1. Signataire spécifique défini pour cette session
   if (session?.signatory_name) {
-    return {
-      name: session.signatory_name,
-      role: session.signatory_role || '',
-    }
+    return { name: session.signatory_name, role: session.signatory_role || '' }
   }
-  // 2. Fallback : utiliser le contact comme signataire
   const contact = getSessionContact(session)
-  return {
-    name: contact.name,
-    role: contact.role,
-  }
+  return { name: contact.name, role: contact.role }
 }
 
 // ============================================================
