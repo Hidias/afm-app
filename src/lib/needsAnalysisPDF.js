@@ -389,7 +389,9 @@ export const downloadNeedsAnalysisPDF = async (session, analysisData = null, bla
   
   if (!blank && analysisData) {
     // VERSION REMPLIE
-    if (analysisData.location_type) {
+    if (analysisData.location_name) {
+      doc.text(`Lieu : ${safe(analysisData.location_name)}`, margin, yPos)
+    } else if (analysisData.location_type) {
       const locationText = analysisData.location_type === 'client' 
         ? `Chez le client (${safe(analysisData.location_client_address, '')})`
         : 'Dans nos locaux (Access Formation)'
@@ -830,7 +832,9 @@ export const getNeedsAnalysisPDFBytes = async (session, analysisData = null, bla
   doc.setFontSize(9)
 
   if (!blank && analysisData) {
-    if (analysisData.location_type) {
+    if (analysisData.location_name) {
+      doc.text(`Lieu : ${safe(analysisData.location_name)}`, margin, yPos)
+    } else if (analysisData.location_type) {
       const locationText = analysisData.location_type === 'client' 
         ? `Chez le client (${safe(analysisData.location_client_address, '')})` 
         : 'Dans nos locaux (Access Formation)'
