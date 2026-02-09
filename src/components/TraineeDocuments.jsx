@@ -14,36 +14,39 @@ export default function TraineeDocuments({ session, traineeId, onBack }) {
   const [downloading, setDownloading] = useState({})
 
   useEffect(() => {
-    if (session?.id && session?.course_id) {
-      loadDocuments()
+    const courseId = session?.course_id || session?.courses?.id
+    if (session?.id && courseId) {
+      loadDocuments(courseId)
     }
   }, [session])
 
-  const loadDocuments = async () => {
+  const loadDocuments = async (courseId) => {
     try {
-      // Charger les documents stagiaires activés pour cette session
+      // Charger les documents stagiaires pour cette formation
       const { data: docData, error: docError } = await supabase
         .from('course_documents')
         .select('*')
-        .eq('course_id', session.course_id)
+        .eq('course_id', courseId)
         .eq('type', 'document_stagiaire')
 
       if (docError) throw docError
 
       if (docData && docData.length > 0) {
-        // Vérifier si activé pour cette session
+        // Vérifier quels documents sont activés pour cette session
+        const docIds = docData.map(d => d.id)
         const { data: accessData, error: accessError } = await supabase
           .from('session_document_access')
-          .select('*')
+          .select('document_id')
           .eq('session_id', session.id)
-          .eq('document_id', docData[0].id)
           .eq('is_active', true)
-          .maybeSingle()
+          .in('document_id', docIds)
 
-        if (accessError && accessError.code !== 'PGRST116') throw accessError
+        if (accessError) throw accessError
 
-        if (accessData) {
-          setDocuments(docData)
+        if (accessData && accessData.length > 0) {
+          // Ne garder que les documents activés
+          const activeDocIds = new Set(accessData.map(a => a.document_id))
+          setDocuments(docData.filter(d => activeDocIds.has(d.id)))
         } else {
           setDocuments([])
         }
