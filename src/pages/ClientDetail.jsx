@@ -94,7 +94,7 @@ export default function ClientDetail() {
 
   async function loadFormations() {
     const { data, error } = await supabase.from('sessions').select(`
-      id, reference, start_date, end_date, status, location, notes,
+      id, reference, start_date, end_date, status, notes,
       courses(id, title, code, duration_hours),
       session_trainees(id, trainee_id, result, trainees(first_name, last_name))
     `).eq('client_id', id).order('start_date', { ascending: false })
@@ -564,7 +564,6 @@ export default function ClientDetail() {
                               <p className="font-medium text-gray-900 text-sm">{s.courses?.title || s.reference}</p>
                               <p className="text-xs text-gray-500 mt-0.5">
                                 {format(new Date(s.start_date), 'dd MMM', { locale: fr })} — {format(new Date(s.end_date), 'dd MMM yyyy', { locale: fr })}
-                                {s.location ? ' · ' + s.location : ''}
                               </p>
                             </div>
                             <div className="text-right">
