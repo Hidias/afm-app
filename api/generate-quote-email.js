@@ -51,6 +51,7 @@ REGLES :
 - Mentionner que le devis est en piece jointe
 - Inviter a revenir vers nous pour toute question
 - NE PAS inclure de signature (elle sera ajoutee automatiquement)
+- NE PAS inclure de formule de politesse finale (cordialement, bien a vous, etc.) car elle est ajoutee automatiquement avec la signature
 - PAS de formule trop longue ou pompeuse
 - Langue : francais
 
