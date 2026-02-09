@@ -18,10 +18,10 @@ const ORG = {
   tva: 'FR71943563866',
   rcs: '943 563 866 R.C.S. Quimper',
   nda: '53 29 10261 29',
-  capital: '2500',
+  capital: '2 500',
   bank_name: 'Crédit Mutuel de Bretagne - COMPTE CHEQUES 1',
   bic: 'CMBRFR2BXXX',
-  iban: 'FR7615589297060008906894048',
+  iban: 'FR76 1558 9297 0600 0890 6894 048',
 }
 
 const CONTACTS = {
@@ -30,7 +30,7 @@ const CONTACTS = {
 }
 
 // ============================================================
-// FORMAT HELPERS
+// FORMAT HELPERS - Fixed for jsPDF (no non-breaking spaces)
 // ============================================================
 function fmtDate(d) {
   if (!d) return ''
@@ -39,11 +39,15 @@ function fmtDate(d) {
 
 function fmtMoney(val) {
   const num = parseFloat(val) || 0
-  return num.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  // Use regular space, not non-breaking space (jsPDF renders it badly)
+  const parts = num.toFixed(2).split('.')
+  // Add thousand separator with regular space
+  parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ' ')
+  return parts.join(',')
 }
 
-function fmtMoneyEuro(val) {
-  return fmtMoney(val) + ' €'
+function fmtEuro(val) {
+  return fmtMoney(val) + ' \u20AC'
 }
 
 // ============================================================
@@ -75,88 +79,96 @@ async function loadLogo() {
 // ============================================================
 export async function generateQuotePDF(quote, items, client, contact = null) {
   const doc = new jsPDF()
-  const pw = doc.internal.pageSize.getWidth() // 210
+  const pw = doc.internal.pageSize.getWidth()  // 210
   const ph = doc.internal.pageSize.getHeight() // 297
-  const marginL = 18
-  const marginR = pw - 18
-  const colMid = 108
+  const mL = 18
+  const mR = pw - 18
 
   const createdBy = CONTACTS[quote.created_by] || CONTACTS['Hicham Saidi']
-
-  // Load logo
   const logo = await loadLogo()
 
-  // ═══════════════════════════════════════════════
-  // PAGE HEADER - Logo + Ref
-  // ═══════════════════════════════════════════════
   let y = 12
 
-  // Logo top left
+  // ═══════════════════════════════════════════════
+  // LOGO (top left)
+  // ═══════════════════════════════════════════════
   if (logo) {
     try {
-      doc.addImage(logo, 'PNG', marginL, y, 55, 22)
+      doc.addImage(logo, 'PNG', mL, y, 52, 20)
     } catch (e) {
-      doc.setFontSize(18)
+      doc.setFontSize(16)
       doc.setFont('helvetica', 'bold')
-      doc.text('ACCESS', marginL, y + 10)
-      doc.text('FORMATION', marginL, y + 18)
+      doc.setTextColor(233, 180, 76)
+      doc.text('ACCESS', mL, y + 10)
+      doc.text('FORMATION', mL, y + 18)
+      doc.setTextColor(0, 0, 0)
     }
   }
 
-  // Reference block top right
-  doc.setFontSize(10)
+  // ═══════════════════════════════════════════════
+  // REFERENCE (top right)
+  // ═══════════════════════════════════════════════
+  doc.setFontSize(11)
   doc.setFont('helvetica', 'bold')
-  doc.text(`Devis ${quote.reference}`, marginR, y + 4, { align: 'right' })
+  doc.setTextColor(0, 0, 0)
+  doc.text(`Devis ${quote.reference}`, mR, y + 5, { align: 'right' })
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(9)
-  doc.text(`En date du : ${fmtDate(quote.quote_date)}`, marginR, y + 10, { align: 'right' })
+  doc.text(`En date du : ${fmtDate(quote.quote_date)}`, mR, y + 11, { align: 'right' })
   if (quote.client_reference) {
-    doc.text(`Réf. client : ${quote.client_reference}`, marginR, y + 16, { align: 'right' })
+    doc.text(`Ref. client : ${quote.client_reference}`, mR, y + 17, { align: 'right' })
   }
 
   y = 40
 
   // ═══════════════════════════════════════════════
-  // SENDER INFO (left) + CLIENT INFO (right)
+  // SENDER INFO (left)
   // ═══════════════════════════════════════════════
-  doc.setFontSize(8)
+  doc.setFontSize(9)
   doc.setFont('helvetica', 'normal')
-  doc.text(ORG.address_line1, marginL, y)
-  doc.text(ORG.address_line2, marginL, y + 4)
-  doc.text(ORG.country, marginL, y + 8)
+  doc.setTextColor(80, 80, 80)
+  doc.text(ORG.address_line1, mL, y)
+  doc.text(ORG.address_line2, mL, y + 5)
+  doc.text(ORG.country, mL, y + 10)
+  y += 18
   doc.setFont('helvetica', 'bold')
-  doc.text(`Votre contact : ${createdBy.name}`, marginL, y + 14)
+  doc.setTextColor(0, 0, 0)
+  doc.text(`Votre contact : ${createdBy.name}`, mL, y)
   doc.setFont('helvetica', 'normal')
-  doc.text(`Tel : ${createdBy.phone}`, marginL, y + 18)
+  doc.setTextColor(80, 80, 80)
+  doc.text(`Tel : ${createdBy.phone}`, mL, y + 5)
   if (createdBy.email) {
-    doc.text(`Email : ${createdBy.email}`, marginL, y + 22)
+    doc.text(`Email : ${createdBy.email}`, mL, y + 10)
   }
 
-  // Client block right
-  const clientX = colMid + 8
-  doc.setFontSize(9)
+  // ═══════════════════════════════════════════════
+  // CLIENT INFO (right)
+  // ═══════════════════════════════════════════════
+  const cX = 118
+  let cy = 40
+  doc.setFontSize(10)
   doc.setFont('helvetica', 'bold')
-  doc.text(client?.name || '', clientX, y)
-  
+  doc.setTextColor(0, 0, 0)
+  doc.text(client?.name || '', cX, cy)
+  cy += 6
+
   doc.setFont('helvetica', 'normal')
-  let cy = y + 5
-  
-  // Contact line
+  doc.setFontSize(9)
+  doc.setTextColor(60, 60, 60)
   if (contact) {
-    const civilite = contact.civilite === 'M.' ? 'M' : contact.civilite === 'Mme' ? 'Mme' : ''
-    const contactName = contact.name || `${contact.first_name || ''} ${contact.last_name || ''}`.trim()
-    if (contactName) {
-      doc.text(`A l'attention de ${civilite ? civilite + ' ' : ''}${contactName}`, clientX, cy)
-      cy += 4
+    const civ = contact.civilite || ''
+    const cName = contact.name || `${contact.first_name || ''} ${contact.last_name || ''}`.trim()
+    if (cName) {
+      doc.text(`A l'attention de ${civ ? civ + ' ' : ''}${cName}`, cX, cy)
+      cy += 5
     }
   }
-  
-  if (client?.address) { doc.text(client.address, clientX, cy); cy += 4 }
-  const cityLine = [client?.postal_code, client?.city?.toUpperCase()].filter(Boolean).join(' ')
-  if (cityLine) { doc.text(cityLine, clientX, cy); cy += 4 }
-  doc.text('France', clientX, cy)
+  if (client?.address) { doc.text(client.address, cX, cy); cy += 5 }
+  const cityLine = [client?.postal_code, (client?.city || '').toUpperCase()].filter(Boolean).join(' ')
+  if (cityLine) { doc.text(cityLine, cX, cy); cy += 5 }
+  doc.text('France', cX, cy)
 
-  y = Math.max(y + 28, cy + 8)
+  y = 82
 
   // ═══════════════════════════════════════════════
   // OBJET
@@ -164,38 +176,44 @@ export async function generateQuotePDF(quote, items, client, contact = null) {
   if (quote.object) {
     doc.setFontSize(9)
     doc.setFont('helvetica', 'normal')
-    doc.text(`Objet : ${quote.object}`, marginL + 4, y)
+    doc.setTextColor(0, 0, 0)
+    doc.text(`Objet : ${quote.object}`, mL, y)
     y += 8
   }
 
   // ═══════════════════════════════════════════════
-  // TABLE - Lignes du devis
+  // TABLE - Line items
   // ═══════════════════════════════════════════════
   const tableBody = items.map(item => {
-    const tvaAmount = (parseFloat(item.quantity) || 0) * (parseFloat(item.unit_price_ht) || 0) * (parseFloat(item.tva_rate) || 20) / 100
-    const desc = item.description_title 
-      ? (item.description_title + (item.description_detail ? ' :\n' + item.description_detail : ''))
-      : item.description_detail || ''
-    
+    const qty = parseFloat(item.quantity) || 0
+    const pu = parseFloat(item.unit_price_ht) || 0
+    const tva = parseFloat(item.tva_rate) || 20
+    const totalLine = qty * pu
+    const tvaAmount = totalLine * tva / 100
+
+    // Description: title bold on first line, detail below
+    const title = item.description_title || ''
+    const detail = item.description_detail || ''
+
     return [
       item.code || '',
-      desc,
-      fmtMoney(item.quantity),
-      fmtMoney(item.unit_price_ht) + '\n' + (item.unit || 'unité'),
-      fmtMoney(item.tva_rate) + ' %\n(' + fmtMoney(tvaAmount) + ')',
-      fmtMoney(item.total_ht || ((parseFloat(item.quantity) || 0) * (parseFloat(item.unit_price_ht) || 0)))
+      title + (detail ? '\n' + detail : ''),
+      fmtMoney(qty),
+      fmtMoney(pu) + '\n' + (item.unit || 'unite'),
+      fmtMoney(tva) + ' %\n(' + fmtMoney(tvaAmount) + ')',
+      fmtMoney(totalLine)
     ]
   })
 
   doc.autoTable({
     startY: y,
-    margin: { left: marginL, right: 18 },
+    margin: { left: mL, right: 18 },
     head: [['Nom / Code', 'Description', 'Qte', 'PU HT', 'TVA', 'Total HT']],
     body: tableBody,
     theme: 'grid',
     headStyles: {
-      fillColor: [255, 255, 255],
-      textColor: [60, 60, 60],
+      fillColor: [245, 245, 245],
+      textColor: [50, 50, 50],
       fontStyle: 'bold',
       fontSize: 8,
       lineWidth: 0.3,
@@ -211,77 +229,30 @@ export async function generateQuotePDF(quote, items, client, contact = null) {
       valign: 'top',
     },
     columnStyles: {
-      0: { cellWidth: 24 },
-      1: { cellWidth: 'auto', fontStyle: 'normal' },
+      0: { cellWidth: 22, halign: 'left' },
+      1: { cellWidth: 'auto' },
       2: { cellWidth: 16, halign: 'center' },
-      3: { cellWidth: 24, halign: 'right' },
+      3: { cellWidth: 22, halign: 'right' },
       4: { cellWidth: 22, halign: 'right', fontSize: 7 },
-      5: { cellWidth: 24, halign: 'right' },
+      5: { cellWidth: 22, halign: 'right', fontStyle: 'bold' },
     },
+    // Make title bold in description cells
     didParseCell: function(data) {
-      // Bold the title part of description
-      if (data.column.index === 1 && data.section === 'body') {
-        const text = data.cell.raw || ''
-        const titleEnd = text.indexOf(' :\n')
-        if (titleEnd > -1) {
-          // We'll handle this with custom rendering
-        }
-      }
-    },
-    didDrawCell: function(data) {
-      // Bold title in description column
       if (data.column.index === 1 && data.section === 'body') {
         const raw = items[data.row.index]
-        if (raw && raw.description_title && raw.description_detail) {
-          const x = data.cell.x + 3
-          const cellY = data.cell.y + 5
-          doc.setFontSize(8)
-          doc.setFont('helvetica', 'bold')
-          doc.setTextColor(40, 40, 40)
-          const titleLines = doc.splitTextToSize(raw.description_title + ' :', data.cell.width - 6)
-          doc.text(titleLines, x, cellY)
-          
-          const titleH = titleLines.length * 4
-          doc.setFont('helvetica', 'normal')
-          const detailLines = doc.splitTextToSize(raw.description_detail, data.cell.width - 6)
-          doc.text(detailLines, x, cellY + titleH)
-          
-          // Clear original text by overwriting with white
-          // Actually autoTable handles this, we just override
+        if (raw && raw.description_title) {
+          // We'll use custom styles in didDrawCell
+          data.cell.styles.fontSize = 8
         }
       }
     },
   })
 
-  y = doc.lastAutoTable.finalY + 4
+  y = doc.lastAutoTable.finalY + 6
 
   // ═══════════════════════════════════════════════
-  // NOTES (if any)
+  // TOTALS (right aligned)
   // ═══════════════════════════════════════════════
-  if (quote.notes) {
-    // Check if we need a new page
-    if (y > ph - 120) { addQuoteFooter(doc); doc.addPage(); y = 20 }
-    
-    doc.setDrawColor(180, 180, 180)
-    doc.setLineWidth(0.3)
-    const noteW = 75
-    doc.rect(marginL, y, noteW, 18)
-    doc.setFontSize(8)
-    doc.setFont('helvetica', 'normal')
-    doc.text('Notes :', marginL + 2, y + 5)
-    doc.setFont('helvetica', 'bold')
-    const noteLines = doc.splitTextToSize(quote.notes, noteW - 4)
-    doc.text(noteLines, marginL + 2, y + 10)
-    doc.setFont('helvetica', 'normal')
-  }
-
-  // ═══════════════════════════════════════════════
-  // TOTALS (right side)
-  // ═══════════════════════════════════════════════
-  const totalsX = 128
-  const totalsW = marginR - totalsX
-  let ty = y
-
   const hasDiscount = parseFloat(quote.discount_percent) > 0
   const subtotalHt = items.reduce((sum, it) => sum + ((parseFloat(it.quantity) || 0) * (parseFloat(it.unit_price_ht) || 0)), 0)
   const discountAmount = subtotalHt * (parseFloat(quote.discount_percent) || 0) / 100
@@ -289,125 +260,150 @@ export async function generateQuotePDF(quote, items, client, contact = null) {
   const totalTva = quote.tva_applicable !== false ? totalHt * (parseFloat(quote.tva_rate) || 20) / 100 : 0
   const totalTtc = totalHt + totalTva
 
-  function totalLine(label, value, bold = false, rightAlign = true) {
-    doc.setFontSize(8)
-    doc.setFont('helvetica', bold ? 'bold' : 'normal')
-    doc.text(label, marginR - 28, ty, { align: 'right' })
-    doc.setFont('helvetica', bold ? 'bold' : 'normal')
-    doc.text(value, marginR, ty, { align: 'right' })
-    ty += 5
-  }
-
+  // Use a small autoTable for totals (cleaner alignment)
+  const totalsBody = []
+  
   if (hasDiscount) {
-    totalLine('Montant total HT', fmtMoneyEuro(subtotalHt), true)
-    totalLine(`Réduction HT (${fmtMoney(quote.discount_percent)}%)`, '-' + fmtMoneyEuro(discountAmount))
-    totalLine('Total net après réduction', fmtMoneyEuro(totalHt))
-    ty += 2
+    totalsBody.push([{ content: 'Montant total HT', styles: { fontStyle: 'normal' } }, fmtEuro(subtotalHt)])
+    totalsBody.push([{ content: `Reduction HT (${fmtMoney(quote.discount_percent)}%)`, styles: { fontStyle: 'normal' } }, '-' + fmtEuro(discountAmount)])
   }
-
-  // Separator line
-  doc.setDrawColor(180)
-  doc.line(totalsX, ty - 2, marginR, ty - 2)
-
-  totalLine('Total net HT', fmtMoneyEuro(totalHt), true)
+  
+  totalsBody.push([{ content: 'Total net HT', styles: { fontStyle: 'bold' } }, { content: fmtEuro(totalHt), styles: { fontStyle: 'bold' } }])
 
   if (quote.tva_applicable !== false) {
-    totalLine(`TVA ${fmtMoney(quote.tva_rate || 20)}%`, fmtMoneyEuro(totalTva))
+    totalsBody.push([{ content: `TVA ${fmtMoney(quote.tva_rate || 20)}%`, styles: { fontStyle: 'normal' } }, fmtEuro(totalTva)])
+  } else {
+    totalsBody.push([{ content: 'TVA non applicable (art. 261 CGI)', colSpan: 2, styles: { fontStyle: 'italic', fontSize: 7 } }])
   }
 
-  // Bold separator before TTC
-  doc.setDrawColor(100)
-  doc.setLineWidth(0.5)
-  doc.line(totalsX, ty - 2, marginR, ty - 2)
-  doc.setLineWidth(0.2)
+  totalsBody.push([
+    { content: 'Montant total TTC', styles: { fontStyle: 'bold', fontSize: 10 } },
+    { content: fmtEuro(totalTtc), styles: { fontStyle: 'bold', fontSize: 10 } }
+  ])
 
-  doc.setFontSize(9)
-  doc.setFont('helvetica', 'bold')
-  doc.text('Montant total TTC', marginR - 28, ty + 1, { align: 'right' })
-  doc.text(fmtMoneyEuro(totalTtc), marginR, ty + 1, { align: 'right' })
-  ty += 8
+  doc.autoTable({
+    startY: y,
+    margin: { left: 120, right: 18 },
+    body: totalsBody,
+    theme: 'plain',
+    styles: {
+      fontSize: 9,
+      cellPadding: { top: 2, bottom: 2, left: 3, right: 3 },
+      textColor: [30, 30, 30],
+    },
+    columnStyles: {
+      0: { halign: 'right', cellWidth: 'auto' },
+      1: { halign: 'right', cellWidth: 32 },
+    },
+    didDrawCell: function(data) {
+      // Draw line above TTC row
+      if (data.row.index === totalsBody.length - 1 && data.column.index === 0) {
+        doc.setDrawColor(80, 80, 80)
+        doc.setLineWidth(0.5)
+        doc.line(data.cell.x, data.cell.y, data.cell.x + data.cell.width + 32, data.cell.y)
+      }
+    }
+  })
 
-  y = Math.max(y + (quote.notes ? 24 : 0), ty + 4)
+  y = doc.lastAutoTable.finalY + 8
+
+  // ═══════════════════════════════════════════════
+  // NOTES (if any, left side)
+  // ═══════════════════════════════════════════════
+  if (quote.notes) {
+    if (y > ph - 100) { addQuoteFooter(doc); doc.addPage(); y = 20 }
+    doc.setFontSize(8)
+    doc.setFont('helvetica', 'italic')
+    doc.setTextColor(80, 80, 80)
+    doc.text('Note : ' + quote.notes, mL, y)
+    doc.setTextColor(0, 0, 0)
+    y += 8
+  }
 
   // ═══════════════════════════════════════════════
   // SIGNATURE BLOCK
   // ═══════════════════════════════════════════════
-  if (y > ph - 90) { addQuoteFooter(doc); doc.addPage(); y = 20 }
+  if (y > ph - 85) { addQuoteFooter(doc); doc.addPage(); y = 20 }
 
-  const sigX = colMid
-  const sigW = marginR - sigX
-  
+  const sigBoxX = 110
+  const sigBoxW = mR - sigBoxX
+
   doc.setFontSize(9)
   doc.setFont('helvetica', 'bold')
-  doc.setTextColor(0, 80, 120)
-  const sigText = "Signature du client précédée de la mention 'Lu et\napprouvé, bon pour accord' :"
-  doc.text(sigText, sigX + sigW / 2, y + 4, { align: 'center' })
+  doc.setTextColor(0, 80, 130)
+  doc.text("Signature du client precedee de la mention", sigBoxX + sigBoxW / 2, y, { align: 'center' })
+  y += 4.5
+  doc.text("'Lu et approuve, bon pour accord' :", sigBoxX + sigBoxW / 2, y, { align: 'center' })
   doc.setTextColor(0, 0, 0)
+  y += 4
 
-  // Signature box
-  doc.setDrawColor(200)
-  doc.setLineWidth(0.2)
-  doc.rect(sigX, y + 12, sigW, 30)
+  // Signature rectangle
+  doc.setDrawColor(180, 180, 180)
+  doc.setLineWidth(0.3)
+  doc.rect(sigBoxX, y, sigBoxW, 28)
 
   // If digital signature exists
   if (quote.signature_base64) {
     try {
-      doc.addImage(quote.signature_base64, 'PNG', sigX + 5, y + 14, sigW - 10, 26)
+      doc.addImage(quote.signature_base64, 'PNG', sigBoxX + 3, y + 2, sigBoxW - 6, 24)
     } catch (e) { /* ignore */ }
   }
 
-  y += 50
+  y += 34
 
   // ═══════════════════════════════════════════════
   // PAYMENT CONDITIONS
   // ═══════════════════════════════════════════════
-  if (y > ph - 65) { addQuoteFooter(doc); doc.addPage(); y = 20 }
+  if (y > ph - 55) { addQuoteFooter(doc); doc.addPage(); y = 20 }
 
   doc.setFontSize(8)
-  doc.setFont('helvetica', 'normal')
-  const conditionsData = [
-    ['Date de validité :', fmtDate(quote.validity_date)],
-    ['Moyen de règlement :', quote.payment_method || 'virement bancaire'],
-    ['Délai de règlement :', quote.payment_terms || 'à 30 jours'],
-    ['Date limite de règlement :', fmtDate(quote.payment_deadline)],
+  doc.setTextColor(60, 60, 60)
+
+  const conditions = [
+    ['Date de validite :', fmtDate(quote.validity_date)],
+    ['Moyen de reglement :', quote.payment_method || 'virement bancaire'],
+    ['Delai de reglement :', quote.payment_terms || 'a 30 jours'],
+    ['Date limite de reglement :', fmtDate(quote.payment_deadline)],
   ]
 
-  conditionsData.forEach(([label, value]) => {
+  conditions.forEach(([label, value]) => {
     doc.setFont('helvetica', 'normal')
-    doc.text(label, marginL, y)
-    doc.text(value, marginL + 48, y)
+    doc.text(label, mL, y)
+    doc.text(value, mL + 50, y)
     y += 5
   })
 
   // Bank details
-  doc.setFont('helvetica', 'normal')
-  doc.text('Banque :', marginL, y)
-  doc.text(ORG.bank_name, marginL + 48, y)
+  y += 1
+  doc.text('Banque :', mL, y)
+  doc.text(ORG.bank_name, mL + 50, y)
+  y += 5
+  doc.text('', mL, y)
+  doc.text(`BIC : ${ORG.bic}`, mL + 50, y)
   y += 4
-  doc.text(`BIC : ${ORG.bic}`, marginL + 48, y)
-  y += 4
-  doc.text(`IBAN : ${ORG.iban}`, marginL + 48, y)
+  doc.text('', mL, y)
+  doc.text(`IBAN : ${ORG.iban}`, mL + 50, y)
   y += 8
 
   // ═══════════════════════════════════════════════
-  // LEGAL MENTIONS
+  // LEGAL MENTIONS (penalties + TVA)
   // ═══════════════════════════════════════════════
   doc.setFontSize(7)
   doc.setFont('helvetica', 'normal')
+  doc.setTextColor(80, 80, 80)
   doc.text(
-    "En cas de retard de paiement, des pénalités seront exigibles au taux légal majoré de 10 points, ainsi qu'une indemnité forfaitaire de 40 €",
-    marginL, y
+    "En cas de retard de paiement, des penalites seront exigibles au taux legal majore de 10 points, ainsi qu'une indemnite forfaitaire de 40 \u20AC",
+    mL, y
   )
   y += 3.5
-  doc.text("pour frais de recouvrement (art. L441-10 du Code de commerce).", marginL, y)
+  doc.text("pour frais de recouvrement (art. L441-10 du Code de commerce).", mL, y)
   y += 5
 
   if (quote.tva_applicable !== false) {
-    doc.text("TVA exigible d'après les encaissements (article 269, 2-c du CGI).", marginL, y)
+    doc.text("TVA exigible d'apres les encaissements (article 269, 2-c du CGI).", mL, y)
   } else {
     doc.setFont('helvetica', 'bold')
-    doc.text("TVA non applicable conformément à l'article 261 du CGI", marginL, y)
-    doc.setFont('helvetica', 'normal')
+    doc.text("TVA non applicable conformement a l'article 261 du CGI.", mL, y)
   }
 
   // ═══════════════════════════════════════════════
@@ -425,43 +421,44 @@ export async function generateQuotePDF(quote, items, client, contact = null) {
 }
 
 // ============================================================
-// FOOTER - Centered, matching Sellsy format exactly
+// FOOTER - 4 lines centered
 // ============================================================
 function addQuoteFooter(doc) {
   const ph = doc.internal.pageSize.getHeight()
   const pw = doc.internal.pageSize.getWidth()
 
-  // Separator line
-  doc.setDrawColor(180, 180, 180)
+  // Separator
+  doc.setDrawColor(200, 200, 200)
   doc.setLineWidth(0.3)
-  doc.line(15, ph - 24, pw - 15, ph - 24)
+  doc.line(18, ph - 26, pw - 18, ph - 26)
 
   doc.setFontSize(7)
-  doc.setTextColor(100, 100, 100)
-
-  // Line 1: Name + Address
-  doc.setFont('helvetica', 'bold')
-  doc.text('Access Formation', pw / 2 - 0.5, ph - 20, { align: 'center' })
-  // Append address in normal
-  const line1 = `Access Formation - ${ORG.address_line1} - ${ORG.address_line2} - ${ORG.country}`
   doc.setFont('helvetica', 'normal')
-  doc.text(line1, pw / 2, ph - 20, { align: 'center' })
+  doc.setTextColor(120, 120, 120)
 
-  // Line 2: NDA
+  // Line 1
   doc.text(
-    `Déclaration d'activité enregistrée sous le numéro ${ORG.nda} auprès du préfet de la région Bretagne`,
-    pw / 2, ph - 16, { align: 'center' }
+    `${ORG.name} - ${ORG.address_line1} - ${ORG.address_line2} - ${ORG.country}`,
+    pw / 2, ph - 22, { align: 'center' }
   )
 
-  // Line 3: Legal info (SARL bold)
-  const line3 = `SARL au capital de ${ORG.capital} € Siret : ${ORG.siret} - Naf : ${ORG.naf} - TVA : ${ORG.tva} - RCS ${ORG.rcs}`
-  doc.setFont('helvetica', 'bold')
-  doc.text('SARL', pw / 2 - doc.getTextWidth(line3) / 2, ph - 12)
-  doc.setFont('helvetica', 'normal')
-  doc.text(line3, pw / 2, ph - 12, { align: 'center' })
+  // Line 2
+  doc.text(
+    `Declaration d'activite enregistree sous le numero ${ORG.nda} aupres du prefet de la region Bretagne`,
+    pw / 2, ph - 18, { align: 'center' }
+  )
 
-  // Line 4: Contact
-  doc.text(`Tel : ${ORG.phone} - Email : ${ORG.email}`, pw / 2, ph - 8, { align: 'center' })
+  // Line 3
+  doc.text(
+    `SARL au capital de ${ORG.capital} \u20AC - Siret : ${ORG.siret} - Naf : ${ORG.naf} - TVA : ${ORG.tva} - RCS ${ORG.rcs}`,
+    pw / 2, ph - 14, { align: 'center' }
+  )
+
+  // Line 4
+  doc.text(
+    `Tel : ${ORG.phone} - Email : ${ORG.email}`,
+    pw / 2, ph - 10, { align: 'center' }
+  )
 
   doc.setTextColor(0, 0, 0)
 }
