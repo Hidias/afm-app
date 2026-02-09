@@ -492,7 +492,7 @@ export default function NonConformites() {
               <button onClick={resetFormNC} className="p-2 hover:bg-gray-200 rounded-lg"><X className="w-5 h-5" /></button>
             </div>
             <form onSubmit={handleSubmitNC} className="p-4 overflow-y-auto flex-1 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium mb-1">Source *</label>
                   <select value={formDataNC.source} onChange={e => setFormDataNC({...formDataNC, source: e.target.value})} className="input w-full">
@@ -514,7 +514,7 @@ export default function NonConformites() {
                 <label className="block text-sm font-medium mb-1">Description</label>
                 <textarea value={formDataNC.description} onChange={e => setFormDataNC({...formDataNC, description: e.target.value})} className="input w-full h-20" />
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium mb-1">Session liée</label>
                   <select value={formDataNC.session_id} onChange={e => setFormDataNC({...formDataNC, session_id: e.target.value})} className="input w-full">
@@ -535,7 +535,7 @@ export default function NonConformites() {
                 <label className="block text-sm font-medium mb-1">Action corrective</label>
                 <textarea value={formDataNC.corrective_action} onChange={e => setFormDataNC({...formDataNC, corrective_action: e.target.value})} className="input w-full h-16" />
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium mb-1">Responsable action</label>
                   <input type="text" value={formDataNC.action_responsible} onChange={e => setFormDataNC({...formDataNC, action_responsible: e.target.value})} className="input w-full" />
@@ -569,7 +569,7 @@ export default function NonConformites() {
               <button onClick={resetFormRecl} className="p-2 hover:bg-gray-200 rounded-lg"><X className="w-5 h-5" /></button>
             </div>
             <form onSubmit={handleSubmitRecl} className="p-4 overflow-y-auto flex-1 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium mb-1">Source *</label>
                   <select value={formDataRecl.source} onChange={e => setFormDataRecl({...formDataRecl, source: e.target.value})} className="input w-full">
@@ -591,7 +591,7 @@ export default function NonConformites() {
                 <label className="block text-sm font-medium mb-1">Description</label>
                 <textarea value={formDataRecl.description} onChange={e => setFormDataRecl({...formDataRecl, description: e.target.value})} className="input w-full h-20" />
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium mb-1">Session liée</label>
                   <select value={formDataRecl.session_id} onChange={e => setFormDataRecl({...formDataRecl, session_id: e.target.value})} className="input w-full">
