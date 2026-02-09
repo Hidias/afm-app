@@ -154,6 +154,8 @@ export default function MarinePhoning() {
   const [createRdv, setCreateRdv] = useState(false)
   const [rdvAssignedTo, setRdvAssignedTo] = useState('Hicham')
   const [rdvDate, setRdvDate] = useState('')
+  const [rdvDispoNote, setRdvDispoNote] = useState('')
+  const [rdvUrgency, setRdvUrgency] = useState('')
   const [needsCallback, setNeedsCallback] = useState(false)
   const [callbackDate, setCallbackDate] = useState('')
   const [callbackTime, setCallbackTime] = useState('14:00')
@@ -235,6 +237,8 @@ export default function MarinePhoning() {
     setCreateRdv(false)
     setRdvAssignedTo('Hicham')
     setRdvDate('')
+    setRdvDispoNote('')
+    setRdvUrgency('')
     setNeedsCallback(false)
     setCallbackDate('')
     setCallbackTime('14:00')
@@ -357,21 +361,54 @@ export default function MarinePhoning() {
       if (contactFunction) clientUpdates.contact_function = contactFunction
       if (Object.keys(clientUpdates).length > 0) await supabase.from('clients').update(clientUpdates).eq('id', clientId)
 
-      if (createRdv && rdvDate) {
+      if (createRdv) {
+        const isMarine = callerName === 'Marine'
+        const dispoInfo = isMarine ? (rdvUrgency ? rdvUrgency + '. ' : '') + (rdvDispoNote || '') : ''
+        const rdvNotes = isMarine
+          ? '🔥 Prospect chaud signalé par Marine\n' + (dispoInfo ? 'Disponibilités : ' + dispoInfo + '\n' : '') + (contactName ? 'Contact : ' + contactName + (contactFunction ? ' (' + contactFunction + ')' : '') + '\n' : '') + (notes ? '\nNotes : ' + notes : '')
+          : 'Créé par ' + callerName + ' suite à appel.\n\nNotes:\n' + notes
+
         const { data: insertedRdv, error: rdvError } = await supabase.from('prospect_rdv').insert({
-          client_id: clientId, rdv_date: rdvDate, rdv_type: 'decouverte', conducted_by: rdvAssignedTo, status: 'a_prendre',
+          client_id: clientId,
+          rdv_date: isMarine ? null : rdvDate || null,
+          rdv_type: 'decouverte',
+          conducted_by: isMarine ? null : rdvAssignedTo,
+          status: 'a_prendre',
           contact_name: contactName || null, contact_email: contactEmail || null, contact_phone: contactMobile || null,
           formations_interet: formationsSelected.length > 0 ? formationsSelected : null,
-          notes: 'Créé par ' + callerName + ' suite à appel.\n\nNotes:\n' + notes,
+          notes: rdvNotes,
           temperature: 'chaud', source: 'phoning_' + callerName.toLowerCase().replace(' ', '_'),
         }).select().single()
         if (rdvError) throw rdvError
         await supabase.from('prospect_calls').update({ rdv_id: insertedRdv.id }).eq('id', insertedCall.id)
+
+        const notifMessage = isMarine
+          ? 'Marine a un prospect chaud : ' + current.name + (current.city ? ' (' + current.city + ')' : '') + (dispoInfo ? ' • Dispo : ' + dispoInfo : '') + (formationsSelected.length > 0 ? ' • ' + formationsSelected.join(', ') : '') + (contactName ? ' • Contact : ' + contactName : '')
+          : callerName + ' a décroché un RDV pour ' + rdvAssignedTo + ' le ' + new Date(rdvDate).toLocaleDateString('fr-FR') + (formationsSelected.length > 0 ? ' • ' + formationsSelected.join(', ') : '')
+
         await supabase.from('notifications').insert({
-          title: '🔥 Nouveau RDV — ' + current.name,
-          message: callerName + ' a décroché un RDV pour ' + rdvAssignedTo + ' le ' + new Date(rdvDate).toLocaleDateString('fr-FR') + (formationsSelected.length > 0 ? ' • ' + formationsSelected.join(', ') : ''),
+          title: '🔥 ' + (isMarine ? 'Prospect chaud' : 'Nouveau RDV') + ' — ' + current.name,
+          message: notifMessage,
           type: 'rdv_phoning', link: '/prospection/' + insertedRdv.id,
         })
+
+        // Email alerte prospect chaud / RDV
+        try {
+          await fetch('/api/send-callback-reminder', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              prospectName: current.name,
+              prospectPhone: current.phone,
+              contactName,
+              contactFunction,
+              callbackDate: isMarine ? null : rdvDate,
+              callbackTime: null,
+              callbackReason: isMarine ? '🔥 PROSPECT CHAUD — ' + (rdvUrgency || '') + (rdvDispoNote ? ' — Dispo : ' + rdvDispoNote : '') : '📅 RDV planifié pour ' + rdvAssignedTo,
+              callerName,
+              notes: (formationsSelected.length > 0 ? 'Formations : ' + formationsSelected.join(', ') + '\n' : '') + (notes || ''),
+            })
+          })
+        } catch (emailErr) { console.error('Erreur email RDV:', emailErr) }
       }
 
       let newStatus = callResult === 'chaud' ? 'rdv_pris' : callResult === 'froid' ? 'pas_interesse' : callResult === 'wrong_number' ? 'numero_errone' : 'a_rappeler'
@@ -381,7 +418,7 @@ export default function MarinePhoning() {
       }).eq('siren', current.siren)
 
       let message = '✅ Appel enregistré'
-      if (createRdv) message += ' • RDV créé pour ' + rdvAssignedTo
+      if (createRdv) message += callerName === 'Marine' ? ' • 🔥 Alerte prospect chaud envoyée' : ' • RDV créé pour ' + rdvAssignedTo
       if (needsCallback) {
         message += ' • Rappel programmé'
         await supabase.from('notifications').insert({
@@ -863,14 +900,31 @@ export default function MarinePhoning() {
                 <div className="bg-green-50 rounded-lg p-3">
                   <label className="flex items-center gap-2 cursor-pointer mb-2">
                     <input type="checkbox" checked={createRdv} onChange={e => setCreateRdv(e.target.checked)} className="rounded" />
-                    <span className="font-semibold text-gray-900 text-sm">📅 Créer RDV</span>
+                    <span className="font-semibold text-gray-900 text-sm">{callerName === 'Marine' ? '🔥 Signaler prospect chaud' : '📅 Créer RDV'}</span>
                   </label>
-                  {createRdv && <div className="grid grid-cols-2 gap-3">
-                    <input type="date" value={rdvDate} onChange={e => setRdvDate(e.target.value)} min={new Date().toISOString().split('T')[0]} className="w-full px-3 py-2 border rounded-lg text-sm" />
-                    <div className="flex gap-2">{['Hicham', 'Maxime'].map(name => (
-                      <button key={name} onClick={() => setRdvAssignedTo(name)} className={'flex-1 px-3 py-2 rounded-lg border text-sm ' + (rdvAssignedTo === name ? 'bg-primary-500 text-white border-primary-500' : 'bg-white text-gray-700 border-gray-300')}>{name}</button>
-                    ))}</div>
-                  </div>}
+                  {createRdv && callerName === 'Marine' && (
+                    <div className="space-y-2">
+                      <div className="flex gap-2">
+                        {['🔴 Urgent', '🌅 Matin', '🌇 Après-midi', '📅 Semaine pro.'].map(u => (
+                          <button key={u} onClick={() => setRdvUrgency(rdvUrgency === u ? '' : u)}
+                            className={'flex-1 px-2 py-1.5 rounded-lg border text-xs font-medium transition-colors ' + (rdvUrgency === u ? 'bg-green-500 text-white border-green-500' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50')}>
+                            {u}
+                          </button>
+                        ))}
+                      </div>
+                      <input type="text" value={rdvDispoNote} onChange={e => setRdvDispoNote(e.target.value)}
+                        placeholder="Dispo du prospect (ex: mardi ou jeudi matin, demander Mme Dupont)"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent" />
+                    </div>
+                  )}
+                  {createRdv && callerName !== 'Marine' && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <input type="date" value={rdvDate} onChange={e => setRdvDate(e.target.value)} min={new Date().toISOString().split('T')[0]} className="w-full px-3 py-2 border rounded-lg text-sm" />
+                      <div className="flex gap-2">{['Hicham', 'Maxime'].map(name => (
+                        <button key={name} onClick={() => setRdvAssignedTo(name)} className={'flex-1 px-3 py-2 rounded-lg border text-sm ' + (rdvAssignedTo === name ? 'bg-primary-500 text-white border-primary-500' : 'bg-white text-gray-700 border-gray-300')}>{name}</button>
+                      ))}</div>
+                    </div>
+                  )}
                 </div>
               )}
 
