@@ -386,12 +386,20 @@ export default function Quotes() {
 
       // Generate PDF without downloading
       const doc = await generateQuotePDF(quote, loadedItems, clientData, contactData, { skipSave: true })
-      const pdfBase64 = doc.output('base64')
       const pdfBlob = doc.output('blob')
       const pdfBlobUrl = URL.createObjectURL(pdfBlob)
 
+      // Convert blob to base64 (doc.output('base64') is unreliable)
+      const pdfBase64 = await new Promise((resolve) => {
+        const reader = new FileReader()
+        reader.onload = () => {
+          const dataUrl = reader.result
+          resolve(dataUrl.split(',')[1]) // Remove "data:application/pdf;base64," prefix
+        }
+        reader.readAsDataURL(pdfBlob)
+      })
+
       console.log('=== DEBUG PDF GEN ===')
-      console.log('doc type:', typeof doc)
       console.log('pdfBase64 length:', pdfBase64?.length || 0)
       console.log('pdfBlob size:', pdfBlob?.size || 0)
 
