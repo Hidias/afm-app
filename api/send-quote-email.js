@@ -156,7 +156,7 @@ export default async function handler(req, res) {
     if (quoteId) {
       const { error: updateError } = await supabase
         .from('quotes')
-        .update({ status: 'envoye', updated_at: new Date().toISOString() })
+        .update({ status: 'sent', updated_at: new Date().toISOString() })
         .eq('id', quoteId)
 
       if (updateError) {
