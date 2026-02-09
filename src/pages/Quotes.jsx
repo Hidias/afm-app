@@ -390,6 +390,11 @@ export default function Quotes() {
       const pdfBlob = doc.output('blob')
       const pdfBlobUrl = URL.createObjectURL(pdfBlob)
 
+      console.log('=== DEBUG PDF GEN ===')
+      console.log('doc type:', typeof doc)
+      console.log('pdfBase64 length:', pdfBase64?.length || 0)
+      console.log('pdfBlob size:', pdfBlob?.size || 0)
+
       // Find default recipient email
       let defaultTo = ''
       if (contactData?.email) {
@@ -462,6 +467,10 @@ export default function Quotes() {
         throw new Error('Session expirée. Reconnectez-vous.')
       }
       const { quote, pdfBase64 } = sendWizard
+      console.log('=== DEBUG ENVOI DEVIS ===')
+      console.log('pdfBase64 exists:', !!pdfBase64)
+      console.log('pdfBase64 length:', pdfBase64?.length || 0)
+      console.log('pdfBase64 first 50 chars:', pdfBase64?.substring(0, 50))
       const resp = await fetch('/api/send-quote-email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
