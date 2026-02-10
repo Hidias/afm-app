@@ -8,7 +8,7 @@ const LABELS = {
   q1_priority: {
     title: '🎯 Priorité #1',
     options: {
-      sst_mac: '🩺 Secourisme (SST/MAC)',
+      sst_mac: '🩺 Secourisme',
       incendie: '🔥 Incendie',
       les_deux: '✅ Les deux',
       a_cadrer: '🤔 À cadrer',
@@ -17,9 +17,9 @@ const LABELS = {
   q2_trigger: {
     title: '⚡ Déclencheur',
     options: {
-      conformite: '📋 Mise en conformité',
-      turnover: '👥 Nouveaux entrants',
-      audit: '🔍 Audit / assurance',
+      conformite: '📋 Conformité',
+      turnover: '👥 Turnover',
+      audit: '🔍 Audit',
       accident: '⚠️ Accident',
       renouvellement: '🔄 Renouvellement',
     }
@@ -27,11 +27,11 @@ const LABELS = {
   q3_constraint: {
     title: '🧩 Contrainte',
     options: {
-      planning: '📅 Planning / équipes',
+      planning: '📅 Planning',
       multi_sites: '🏢 Multi-sites',
-      terrain: '🔧 Besoin terrain',
-      niveaux: '🌍 Niveaux hétérogènes',
-      budget: '💶 Budget / financement',
+      terrain: '🔧 Terrain',
+      niveaux: '🌍 Niveaux/langue',
+      budget: '💶 Budget',
     }
   },
 }
@@ -43,18 +43,19 @@ export default function BniAdmin() {
   const [code, setCode] = useState('')
   const [responses, setResponses] = useState([])
   const [loading, setLoading] = useState(true)
-  const [showQR, setShowQR] = useState(false)
   const qrCanvasRef = useRef(null)
+  const [newParticipant, setNewParticipant] = useState(null)
 
-  // Generate QR code
   useEffect(() => {
-    if (showQR && qrCanvasRef.current) {
-      QRCode.toCanvas(qrCanvasRef.current, 'https://app.accessformation.pro/#/bni', {
-        width: 300, margin: 2, color: { dark: '#0F2034', light: '#FFFFFF' },
-        errorCorrectionLevel: 'H'
-      })
+    if (authed && qrCanvasRef.current) {
+      setTimeout(() => {
+        QRCode.toCanvas(qrCanvasRef.current, 'https://app.accessformation.pro/#/bni', {
+          width: 220, margin: 2, color: { dark: '#0F2034', light: '#FFFFFF' },
+          errorCorrectionLevel: 'H'
+        })
+      }, 100)
     }
-  }, [showQR])
+  }, [authed, loading])
 
   const loadResponses = useCallback(async () => {
     try {
@@ -70,17 +71,22 @@ export default function BniAdmin() {
   useEffect(() => {
     if (!authed) return
     loadResponses()
-    const interval = setInterval(loadResponses, 3000) // Refresh every 3s
+    const interval = setInterval(loadResponses, 2000)
     return () => clearInterval(interval)
   }, [authed, loadResponses])
 
-  // Also subscribe to real-time
   useEffect(() => {
     if (!authed) return
     const channel = supabase
       .channel('bni_live')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'bni_responses' }, (payload) => {
-        setResponses(prev => [payload.new, ...prev])
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bni_responses' }, (payload) => {
+        if (payload.eventType === 'INSERT') {
+          setResponses(prev => [payload.new, ...prev.filter(r => r.id !== payload.new.id)])
+          setNewParticipant(payload.new.first_name)
+          setTimeout(() => setNewParticipant(null), 3000)
+        } else if (payload.eventType === 'UPDATE') {
+          setResponses(prev => prev.map(r => r.id === payload.new.id ? payload.new : r))
+        }
       })
       .subscribe()
     return () => supabase.removeChannel(channel)
@@ -92,7 +98,7 @@ export default function BniAdmin() {
       const val = r[field]
       if (val) counts[val] = (counts[val] || 0) + 1
     })
-    const total = responses.length || 1
+    const total = responses.filter(r => r[field]).length || 1
     return Object.entries(LABELS[field].options).map(([key, label], i) => ({
       key, label, count: counts[key] || 0, pct: Math.round(((counts[key] || 0) / total) * 100),
       color: BAR_COLORS[i % BAR_COLORS.length]
@@ -123,145 +129,175 @@ export default function BniAdmin() {
   }
 
   return (
-    <div className="min-h-screen p-4 md:p-6" style={{ background: 'linear-gradient(135deg, #0A1628, #132B3E)', fontFamily: "'Inter', sans-serif" }}>
-      {/* Header */}
-      <div className="max-w-6xl mx-auto">
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h1 className="text-2xl font-bold text-white">📊 BNI Live Dashboard</h1>
-            <p className="text-white/50 text-sm">Mise à jour automatique</p>
-          </div>
-          <div className="text-right">
-            <div className="text-4xl font-bold text-amber-400">{responses.length}</div>
-            <div className="text-white/50 text-xs">participant{responses.length > 1 ? 's' : ''}</div>
-          </div>
+    <div className="min-h-screen" style={{ background: 'linear-gradient(135deg, #0A1628, #132B3E)', fontFamily: "'Inter', sans-serif" }}>
+      
+      {newParticipant && (
+        <div className="fixed top-4 right-4 z-50 bg-emerald-500 text-white px-5 py-3 rounded-xl shadow-xl animate-slideDown font-medium">
+          🙋 {newParticipant} vient de rejoindre !
         </div>
+      )}
 
-        {/* QR Code toggle */}
-        <div className="mb-6 flex gap-3">
-          <button onClick={() => setShowQR(!showQR)} className="px-4 py-2 bg-white/10 border border-white/20 text-white rounded-xl text-sm hover:bg-white/15 transition-colors">
-            {showQR ? '✕ Fermer' : '📱 QR Code pour Canva'}
-          </button>
-          <a href="#/bni" target="_blank" className="px-4 py-2 bg-amber-500/20 border border-amber-500/30 text-amber-400 rounded-xl text-sm hover:bg-amber-500/30 transition-colors">
-            🔗 Ouvrir le quiz
-          </a>
-        </div>
+      <div className="flex flex-col lg:flex-row min-h-screen">
+        
+        {/* LEFT PANEL — QR Code + Participant count */}
+        <div className="lg:w-80 lg:min-h-screen bg-white/5 border-b lg:border-b-0 lg:border-r border-white/10 flex flex-col items-center justify-center p-6 lg:p-8 shrink-0">
+          <div className="flex items-center gap-3 mb-4">
+            <img src={import.meta.env.BASE_URL + 'assets/bni/logo-af.png'} alt="AF" className="h-10 w-10 rounded-lg object-cover" />
+            <span className="text-white font-bold text-lg">Access Formation</span>
+          </div>
 
-        {showQR && (
-          <div className="mb-6 bg-white rounded-2xl p-6 text-center inline-block">
+          <div className="bg-white rounded-2xl p-4 mb-4 shadow-xl">
             <canvas ref={qrCanvasRef} />
-            <p className="text-gray-600 text-sm mt-2 font-medium">app.accessformation.pro/#/bni</p>
-            <p className="text-gray-400 text-xs mt-1">Capture d'écran → coller dans Canva</p>
           </div>
-        )}
 
-        {loading ? (
-          <div className="text-center text-white/50 py-20">Chargement...</div>
-        ) : responses.length === 0 ? (
-          <div className="text-center py-20">
-            <div className="text-6xl mb-4">⏳</div>
-            <p className="text-white/60 text-xl">En attente des premières réponses...</p>
-            <p className="text-white/30 mt-2">Les données apparaîtront ici en temps réel</p>
-          </div>
-        ) : (
-          <>
-            {/* Stats Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-              {['q1_priority', 'q2_trigger', 'q3_constraint'].map(field => {
-                const stats = getStats(field)
-                const maxCount = Math.max(...stats.map(s => s.count), 1)
-                return (
-                  <div key={field} className="bg-white/5 rounded-2xl p-5 border border-white/10">
-                    <h3 className="text-white font-bold text-lg mb-4">{LABELS[field].title}</h3>
-                    <div className="space-y-3">
-                      {stats.map(s => (
-                        <div key={s.key}>
-                          <div className="flex justify-between text-sm mb-1">
-                            <span className="text-white/80 truncate">{s.label}</span>
-                            <span className="text-white font-bold ml-2">{s.count} <span className="text-white/40 font-normal">({s.pct}%)</span></span>
-                          </div>
-                          <div className="w-full h-6 bg-white/5 rounded-lg overflow-hidden">
-                            <div
-                              className="h-full rounded-lg transition-all duration-1000 ease-out flex items-center pl-2"
-                              style={{
-                                width: `${Math.max((s.count / maxCount) * 100, s.count > 0 ? 8 : 0)}%`,
-                                backgroundColor: s.color + '90',
-                                boxShadow: s.count > 0 ? `0 0 12px ${s.color}40` : 'none'
-                              }}
-                            >
-                              {s.count > 0 && <span className="text-white text-xs font-bold">{s.count}</span>}
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )
-              })}
+          <p className="text-white/50 text-sm mb-6">Scannez pour participer</p>
+
+          <div className="text-center">
+            <div className="text-6xl font-bold text-amber-400 leading-none" style={{ fontVariantNumeric: 'tabular-nums' }}>
+              {responses.length}
             </div>
+            <div className="text-white/50 text-sm mt-1">participant{responses.length > 1 ? 's' : ''}</div>
+          </div>
 
-            {/* Latest participants */}
-            <div className="bg-white/5 rounded-2xl p-5 border border-white/10">
-              <h3 className="text-white font-bold text-lg mb-4">👥 Participants ({responses.length})</h3>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-white/50 border-b border-white/10">
-                      <th className="text-left py-2 px-2">#</th>
-                      <th className="text-left py-2 px-2">Nom</th>
-                      <th className="text-left py-2 px-2">Priorité</th>
-                      <th className="text-left py-2 px-2">Déclencheur</th>
-                      <th className="text-left py-2 px-2">Contrainte</th>
-                      <th className="text-left py-2 px-2">Heure</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {responses.map((r, i) => (
-                      <tr key={r.id} className={`border-b border-white/5 ${i === 0 ? 'bg-amber-500/10' : ''}`}>
-                        <td className="py-2 px-2 text-white/40">{responses.length - i}</td>
-                        <td className="py-2 px-2 text-white font-medium">{r.first_name} {r.last_name}</td>
-                        <td className="py-2 px-2 text-white/70">{LABELS.q1_priority.options[r.q1_priority] || '-'}</td>
-                        <td className="py-2 px-2 text-white/70">{LABELS.q2_trigger.options[r.q2_trigger] || '-'}</td>
-                        <td className="py-2 px-2 text-white/70">{LABELS.q3_constraint.options[r.q3_constraint] || '-'}</td>
-                        <td className="py-2 px-2 text-white/40">{new Date(r.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+          {responses.length > 0 && (
+            <div className="mt-6 w-full max-w-xs">
+              <div className="text-white/40 text-xs mb-2 text-center">Derniers arrivés</div>
+              <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                {responses.slice(0, 8).map((r, i) => (
+                  <div key={r.id} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm ${i === 0 ? 'bg-amber-500/20 text-amber-300' : 'text-white/60'}`}>
+                    <span className="text-base">{i === 0 ? '🆕' : '👤'}</span>
+                    <span className="font-medium">{r.first_name} {r.last_name?.charAt(0)}.</span>
+                    <span className="ml-auto text-xs text-white/30">
+                      {new Date(r.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </div>
+                ))}
               </div>
             </div>
+          )}
+        </div>
 
-            {/* Quick insight */}
-            <div className="mt-6 bg-amber-500/10 border border-amber-500/20 rounded-2xl p-5">
-              <h3 className="text-amber-400 font-bold mb-2">💡 Insight rapide</h3>
-              <p className="text-white/80 text-sm">
-                {(() => {
-                  const q1Stats = getStats('q1_priority')
-                  const topQ1 = q1Stats.reduce((a, b) => a.count > b.count ? a : b)
-                  const q2Stats = getStats('q2_trigger')
-                  const topQ2 = q2Stats.reduce((a, b) => a.count > b.count ? a : b)
-                  return `${topQ1.pct}% priorité ${topQ1.label.split(' ').slice(1).join(' ')}, déclencheur principal : ${topQ2.label.split(' ').slice(1).join(' ')} (${topQ2.pct}%)`
-                })()}
-              </p>
-            </div>
+        {/* RIGHT PANEL — Live Stats */}
+        <div className="flex-1 p-4 lg:p-6 overflow-y-auto">
+          <div className="max-w-4xl mx-auto">
+            
+            <h1 className="text-xl font-bold text-white mb-4">📊 Résultats en direct</h1>
 
-            {/* Danger button */}
-            <div className="mt-8 text-center">
-              <button
-                onClick={async () => {
-                  if (confirm('⚠️ Supprimer TOUTES les réponses BNI ? Cette action est irréversible.')) {
-                    await supabase.from('bni_responses').delete().neq('id', '00000000-0000-0000-0000-000000000000')
-                    setResponses([])
-                  }
-                }}
-                className="px-6 py-3 bg-red-500/20 border border-red-500/30 text-red-400 rounded-xl text-sm hover:bg-red-500/30 transition-colors"
-              >
-                🗑️ Réinitialiser les réponses
-              </button>
-            </div>
-          </>
-        )}
+            {loading ? (
+              <div className="text-center text-white/50 py-20">Chargement...</div>
+            ) : responses.length === 0 ? (
+              <div className="text-center py-20">
+                <div className="text-6xl mb-4">⏳</div>
+                <p className="text-white/60 text-xl">En attente des premières réponses...</p>
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                  {['q1_priority', 'q2_trigger', 'q3_constraint'].map(field => {
+                    const stats = getStats(field)
+                    const maxCount = Math.max(...stats.map(s => s.count), 1)
+                    const answered = responses.filter(r => r[field]).length
+                    return (
+                      <div key={field} className="bg-white/5 rounded-2xl p-4 border border-white/10">
+                        <div className="flex items-center justify-between mb-3">
+                          <h3 className="text-white font-bold text-base">{LABELS[field].title}</h3>
+                          <span className="text-white/30 text-xs">{answered} rép.</span>
+                        </div>
+                        <div className="space-y-2.5">
+                          {stats.map(s => (
+                            <div key={s.key}>
+                              <div className="flex justify-between text-xs mb-1">
+                                <span className="text-white/70">{s.label}</span>
+                                <span className="text-white font-bold">{s.count > 0 ? `${s.pct}%` : ''}</span>
+                              </div>
+                              <div className="w-full h-5 bg-white/5 rounded-lg overflow-hidden">
+                                <div
+                                  className="h-full rounded-lg transition-all duration-700 ease-out"
+                                  style={{
+                                    width: `${Math.max((s.count / maxCount) * 100, s.count > 0 ? 5 : 0)}%`,
+                                    backgroundColor: s.color + '90',
+                                    boxShadow: s.count > 0 ? `0 0 10px ${s.color}30` : 'none'
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+
+                <div className="bg-white/5 rounded-2xl p-4 border border-white/10">
+                  <h3 className="text-white font-bold mb-3">👥 Détail participants</h3>
+                  <div className="overflow-x-auto -mx-4 px-4">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-white/40 border-b border-white/10 text-xs">
+                          <th className="text-left py-2 pr-2">Nom</th>
+                          <th className="text-left py-2 px-2">Priorité</th>
+                          <th className="text-left py-2 px-2">Déclencheur</th>
+                          <th className="text-left py-2 px-2">Contrainte</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {responses.map((r, i) => (
+                          <tr key={r.id} className={`border-b border-white/5 ${i === 0 ? 'bg-amber-500/10' : ''}`}>
+                            <td className="py-2 pr-2 text-white font-medium whitespace-nowrap">
+                              {r.first_name} {r.last_name}
+                            </td>
+                            <td className="py-2 px-2 text-white/60 text-xs">
+                              {r.q1_priority ? LABELS.q1_priority.options[r.q1_priority] : <span className="text-white/20">...</span>}
+                            </td>
+                            <td className="py-2 px-2 text-white/60 text-xs">
+                              {r.q2_trigger ? LABELS.q2_trigger.options[r.q2_trigger] : <span className="text-white/20">...</span>}
+                            </td>
+                            <td className="py-2 px-2 text-white/60 text-xs">
+                              {r.q3_constraint ? LABELS.q3_constraint.options[r.q3_constraint] : <span className="text-white/20">...</span>}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {responses.filter(r => r.q1_priority).length >= 3 && (
+                  <div className="mt-4 bg-amber-500/10 border border-amber-500/20 rounded-2xl p-4">
+                    <h3 className="text-amber-400 font-bold text-sm mb-1">💡 Insight</h3>
+                    <p className="text-white/80 text-sm">
+                      {(() => {
+                        const q1Stats = getStats('q1_priority')
+                        const topQ1 = q1Stats.reduce((a, b) => a.count > b.count ? a : b)
+                        return `${topQ1.pct}% ont choisi « ${topQ1.label} » comme priorité`
+                      })()}
+                    </p>
+                  </div>
+                )}
+
+                <div className="mt-6 flex gap-3">
+                  <button
+                    onClick={async () => {
+                      if (confirm('Supprimer TOUTES les réponses BNI ?')) {
+                        await supabase.from('bni_responses').delete().neq('id', '00000000-0000-0000-0000-000000000000')
+                        setResponses([])
+                      }
+                    }}
+                    className="px-4 py-2 bg-red-500/20 border border-red-500/30 text-red-400 rounded-xl text-xs hover:bg-red-500/30 transition-colors"
+                  >
+                    🗑️ Réinitialiser
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
       </div>
+
+      <style>{`
+        @keyframes slideDown { from { opacity: 0; transform: translateY(-20px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-slideDown { animation: slideDown 0.4s ease-out; }
+      `}</style>
     </div>
   )
 }
