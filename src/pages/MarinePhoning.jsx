@@ -445,6 +445,24 @@ export default function MarinePhoning() {
     } finally { setSaving(false) }
   }
 
+  async function handleResetStatus() {
+    if (!current) return
+    setSaving(true)
+    try {
+      await supabase.from('prospection_massive').update({
+        prospection_status: 'a_appeler', contacted: false, contacted_at: null, updated_at: new Date().toISOString()
+      }).eq('siren', current.siren)
+      toast.success('↩️ Remis dans la file')
+      setCurrent(null)
+      await loadProspects()
+      loadDailyStats()
+      loadTodayCallbacks()
+    } catch (error) {
+      console.error('Erreur:', error)
+      toast.error('Erreur: ' + error.message)
+    } finally { setSaving(false) }
+  }
+
   async function handleQuickAction(result) {
     if (!current) return
     setSaving(true)
@@ -830,17 +848,17 @@ export default function MarinePhoning() {
             {current && <div className="p-4 space-y-4">
               {/* Quick actions */}
               <div className="flex gap-2">
-                <button onClick={() => handleQuickAction('no_answer')} disabled={saving}
-                  className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 border border-gray-300">
-                  <PhoneOff className="w-4 h-4" /> Injoignable
+                <button onClick={() => current?.prospection_status === 'a_rappeler' ? handleResetStatus() : handleQuickAction('no_answer')} disabled={saving}
+                  className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 border ${current?.prospection_status === 'a_rappeler' ? 'bg-gray-700 text-white border-gray-700 ring-2 ring-gray-400' : 'bg-gray-100 hover:bg-gray-200 text-gray-700 border-gray-300'}`}>
+                  <PhoneOff className="w-4 h-4" /> {current?.prospection_status === 'a_rappeler' ? '↩️ Annuler' : 'Injoignable'}
                 </button>
-                <button onClick={() => handleQuickAction('wrong_number')} disabled={saving}
-                  className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 bg-red-50 hover:bg-red-100 text-red-700 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 border border-red-200">
-                  <XCircle className="w-4 h-4" /> N° erroné
+                <button onClick={() => current?.prospection_status === 'numero_errone' ? handleResetStatus() : handleQuickAction('wrong_number')} disabled={saving}
+                  className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 border ${current?.prospection_status === 'numero_errone' ? 'bg-red-700 text-white border-red-700 ring-2 ring-red-400' : 'bg-red-50 hover:bg-red-100 text-red-700 border-red-200'}`}>
+                  <XCircle className="w-4 h-4" /> {current?.prospection_status === 'numero_errone' ? '↩️ Annuler' : 'N° erroné'}
                 </button>
-                <button onClick={() => handleQuickAction('froid')} disabled={saving}
-                  className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 border border-blue-200">
-                  <Snowflake className="w-4 h-4" /> Pas intéressé
+                <button onClick={() => current?.prospection_status === 'pas_interesse' ? handleResetStatus() : handleQuickAction('froid')} disabled={saving}
+                  className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 border ${current?.prospection_status === 'pas_interesse' ? 'bg-blue-700 text-white border-blue-700 ring-2 ring-blue-400' : 'bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-200'}`}>
+                  <Snowflake className="w-4 h-4" /> {current?.prospection_status === 'pas_interesse' ? '↩️ Annuler' : 'Pas intéressé'}
                 </button>
               </div>
 
