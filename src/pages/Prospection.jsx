@@ -420,7 +420,7 @@ export default function Prospection() {
                 Réalisés ({rdvsRealises.length})
               </h2>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {rdvsRealises.slice(0, 6).map(rdv => <RdvCard key={rdv.id} rdv={rdv} />)}
+                {rdvsRealises.map(rdv => <RdvCard key={rdv.id} rdv={rdv} />)}
               </div>
             </div>
           )}
