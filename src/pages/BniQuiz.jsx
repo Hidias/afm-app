@@ -370,10 +370,13 @@ END:VCARD`
             {!funPage && !unlocked && (
               <>
                 {/* Locked state */}
-                <div className="text-6xl mb-6">🔒</div>
-                <h2 className="text-2xl font-bold text-white mb-3">Merci {firstName} !</h2>
-                <p className="text-white/60 text-lg mb-8">
-                  Je vous donnerai le code<br />à la fin de ma présentation 😉
+                <div className="text-5xl mb-4">🤝</div>
+                <h2 className="text-2xl font-bold text-white mb-4">Merci {firstName} !</h2>
+                <p className="text-amber-400 font-semibold text-lg mb-3 italic">
+                  « Qui donne reçoit »
+                </p>
+                <p className="text-white/60 text-base mb-8 leading-relaxed">
+                  Tu vas recevoir un code à la fin de la conférence d'un des membres de la plus belle des sphères, qui te donnera accès au Saint Graal ! 🏆
                 </p>
                 <button
                   onClick={() => setFunPage(true)}
@@ -381,16 +384,21 @@ END:VCARD`
                 >
                   🔓 Accès documents
                 </button>
-                <p className="text-white/30 text-xs mt-4">Patience...</p>
+                <p className="text-white/40 text-sm mt-4">Ne ferme pas cette page 📱</p>
+                <p className="text-white/30 text-xs mt-1">Patience et verrouille ton téléphone 😉</p>
               </>
             )}
 
             {funPage && !unlocked && (
               <>
-                {/* Fun page */}
-                <div className="text-6xl mb-4 animate-bounce">😄</div>
-                <h2 className="text-2xl font-bold text-white mb-2">Je t'avais dit de ne pas appuyer !</h2>
-                <p className="text-white/50 mb-6">Allez, tape le code...</p>
+                {/* Fun page with logos + code input */}
+                <div className="flex items-center justify-center gap-5 mb-6">
+                  <img src={import.meta.env.BASE_URL + 'assets/bni/logo-af.png'} alt="Access Formation" className="h-16 w-16 rounded-xl object-cover shadow-xl" />
+                  <div className="text-white/30 text-xl font-light">×</div>
+                  <img src={import.meta.env.BASE_URL + 'assets/bni/logo-bni.png'} alt="BNI" className="h-16 rounded-xl object-cover shadow-xl" />
+                </div>
+                <h2 className="text-2xl font-bold text-white mb-2">🏆 Le Saint Graal</h2>
+                <p className="text-white/50 mb-6">Entre le code pour débloquer tes documents</p>
                 <form onSubmit={handleCodeSubmit} className="space-y-4">
                   <input
                     type="tel"
