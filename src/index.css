@@ -176,14 +176,20 @@ tr:hover td {
   border-radius: 2px;
 }
 
-/* Tab bars - scrollable on mobile */
+/* Tab bars - scrollable on mobile with visible thin scrollbar */
 nav.overflow-x-auto {
-  scrollbar-width: none;
-  -ms-overflow-style: none;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
 }
 
 nav.overflow-x-auto::-webkit-scrollbar {
-  display: none;
+  height: 3px;
+}
+
+nav.overflow-x-auto::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 2px;
 }
 
 /* Prevent text selection on tap (buttons/nav) */
