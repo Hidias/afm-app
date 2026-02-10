@@ -124,6 +124,7 @@ export default function BniQuiz() {
   const [participantCount, setParticipantCount] = useState(0)
   const [slideDir, setSlideDir] = useState('right')
   const [animKey, setAnimKey] = useState(0)
+  const [responseId, setResponseId] = useState(null)
 
   // Load participant count
   useEffect(() => {
@@ -146,36 +147,40 @@ export default function BniQuiz() {
   }
 
   async function handleAnswer(questionId, value) {
-    setAnswers(prev => ({ ...prev, [questionId]: value }))
-    // Small delay for visual feedback
-    setTimeout(async () => {
-      if (step === 3) {
-        // Last question — save to Supabase
-        const finalAnswers = { ...answers, [questionId]: value }
-        setSaving(true)
-        try {
-          await supabase.from('bni_responses').insert({
-            first_name: firstName.trim(),
-            last_name: lastName.trim(),
-            q1_priority: finalAnswers.q1_priority || null,
-            q2_trigger: finalAnswers.q2_trigger || null,
-            q3_constraint: finalAnswers.q3_constraint || null,
-          })
-        } catch (e) {
-          console.error('Save error:', e)
-        }
-        // Also save locally as backup
-        try {
-          const existing = JSON.parse(localStorage.getItem('bni_responses') || '[]')
-          existing.push({ firstName, lastName, ...finalAnswers, ts: new Date().toISOString() })
-          localStorage.setItem('bni_responses', JSON.stringify(existing))
-        } catch (e) { /* silent */ }
-        setSaving(false)
-        goNext()
+    const newAnswers = { ...answers, [questionId]: value }
+    setAnswers(newAnswers)
+    
+    // Send immediately to Supabase
+    try {
+      if (!responseId) {
+        // First question — INSERT new row
+        const { data } = await supabase.from('bni_responses').insert({
+          first_name: firstName.trim(),
+          last_name: lastName.trim(),
+          [questionId]: value,
+        }).select('id').single()
+        if (data) setResponseId(data.id)
       } else {
-        goNext()
+        // Q2 or Q3 — UPDATE existing row
+        await supabase.from('bni_responses').update({
+          [questionId]: value,
+        }).eq('id', responseId)
       }
-    }, 300)
+    } catch (e) {
+      console.error('Save error:', e)
+    }
+
+    // Also save locally as backup
+    try {
+      const existing = JSON.parse(localStorage.getItem('bni_responses') || '[]')
+      const entry = { firstName, lastName, ...newAnswers, ts: new Date().toISOString() }
+      const idx = existing.findIndex(x => x.firstName === firstName && x.lastName === lastName)
+      if (idx >= 0) existing[idx] = entry; else existing.push(entry)
+      localStorage.setItem('bni_responses', JSON.stringify(existing))
+    } catch (e) { /* silent */ }
+
+    // Small delay for visual feedback then advance
+    setTimeout(() => goNext(), 300)
   }
 
   function handleCodeSubmit(e) {
