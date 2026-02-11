@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom'
 import { useDataStore } from '../lib/store'
 import { supabase } from '../lib/supabase'
 import { 
-  Calendar, Plus, Search, MapPin, Users, Clock, ChevronRight, X, Trash2, Copy, Building2
+  Calendar, Plus, Search, MapPin, Users, Clock, ChevronRight, ChevronDown, X, Trash2, Copy, Building2, Euro
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
@@ -36,6 +36,9 @@ export default function Sessions() {
   // Filtres stagiaires
   const [traineeSearch, setTraineeSearch] = useState('')
   const [traineeClientFilter, setTraineeClientFilter] = useState('')
+  
+  // Inter-sessions toggle
+  const [expandedGroups, setExpandedGroups] = useState({})
   
   // Contacts du client sélectionné
   const [clientContacts, setClientContacts] = useState([])
@@ -165,6 +168,50 @@ export default function Sessions() {
     
     return matchSearch && matchStatus
   })
+  
+  // Regrouper les sessions inter-entreprises
+  const groupedSessions = useMemo(() => {
+    const interGroups = {}
+    const soloSessions = []
+    
+    filteredSessions.forEach(session => {
+      if (session.inter_group_id) {
+        if (!interGroups[session.inter_group_id]) {
+          interGroups[session.inter_group_id] = {
+            id: session.inter_group_id,
+            sessions: [],
+            course: session.courses,
+            start_date: session.start_date,
+            end_date: session.end_date,
+            location: session.location,
+            inter_total_price: session.inter_total_price,
+          }
+        }
+        interGroups[session.inter_group_id].sessions.push(session)
+      } else {
+        soloSessions.push({ type: 'solo', session })
+      }
+    })
+    
+    // Combiner : inter-groupes + sessions solo, triées par date
+    const items = [
+      ...Object.values(interGroups).map(g => ({ type: 'group', group: g })),
+      ...soloSessions,
+    ]
+    
+    // Trier par date de début décroissante
+    items.sort((a, b) => {
+      const dateA = a.type === 'group' ? a.group.start_date : a.session.start_date
+      const dateB = b.type === 'group' ? b.group.start_date : b.session.start_date
+      return (dateB || '').localeCompare(dateA || '')
+    })
+    
+    return items
+  }, [filteredSessions])
+  
+  const toggleGroup = (groupId) => {
+    setExpandedGroups(prev => ({ ...prev, [groupId]: !prev[groupId] }))
+  }
   
   const resetForm = () => {
     setFormData({
@@ -326,77 +373,211 @@ export default function Sessions() {
           <div className="card p-8 text-center">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mx-auto"></div>
           </div>
-        ) : filteredSessions.length === 0 ? (
+        ) : groupedSessions.length === 0 ? (
           <div className="card p-8 text-center text-gray-500">
             {search || statusFilter ? 'Aucun résultat' : 'Aucune session - Créez-en une !'}
           </div>
         ) : (
-          filteredSessions.map((session) => (
-            <Link
-              key={session.id}
-              to={`/sessions/${session.id}`}
-              className="card block hover:shadow-md transition-shadow group"
-            >
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-3 mb-2 flex-wrap">
-                    <span className="text-sm font-mono text-gray-500">{session.reference}</span>
-                    <span className={`badge ${statusLabels[session.status]?.class || 'badge-gray'}`}>
-                      {statusLabels[session.status]?.label || session.status}
-                    </span>
-                    {session.is_intra && (
-                      <span className="badge bg-purple-100 text-purple-700">Intra</span>
-                    )}
+          groupedSessions.map((item) => {
+            // ─── Session inter-entreprises groupée ───────────────
+            if (item.type === 'group') {
+              const { group } = item
+              const isExpanded = expandedGroups[group.id]
+              const totalTrainees = group.sessions.reduce((sum, s) => sum + (s.session_trainees?.length || 0), 0)
+              const totalPrice = parseFloat(group.inter_total_price) || group.sessions.reduce((sum, s) => sum + (parseFloat(s.total_price) || 0), 0)
+              
+              return (
+                <div key={group.id} className="rounded-xl border-2 border-purple-200 bg-purple-50/30 overflow-hidden">
+                  {/* En-tête du groupe */}
+                  <div
+                    className="px-5 py-4 cursor-pointer hover:bg-purple-50 transition-colors"
+                    onClick={() => toggleGroup(group.id)}
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                          <span className="badge bg-purple-100 text-purple-700 flex items-center gap-1">
+                            <Building2 className="w-3 h-3" />
+                            Inter-entreprises • {group.sessions.length} entreprises
+                          </span>
+                          {(() => {
+                            const statuses = [...new Set(group.sessions.map(s => s.status))]
+                            if (statuses.length === 1) {
+                              return <span className={`badge ${statusLabels[statuses[0]]?.class || 'badge-gray'}`}>
+                                {statusLabels[statuses[0]]?.label || statuses[0]}
+                              </span>
+                            }
+                            return null
+                          })()}
+                        </div>
+                        
+                        <h3 className="font-semibold text-gray-900 text-lg">
+                          {group.course?.title || 'Formation'}
+                        </h3>
+                        
+                        {/* Badges entreprises */}
+                        <div className="flex flex-wrap gap-1.5 mt-2">
+                          {group.sessions.map(s => (
+                            <span key={s.id} className="inline-flex items-center gap-1 text-xs bg-white border border-purple-200 text-purple-700 px-2 py-0.5 rounded-full">
+                              {s.clients?.name || '?'}
+                              <span className="text-purple-400">({s.session_trainees?.length || 0})</span>
+                            </span>
+                          ))}
+                        </div>
+                        
+                        <div className="flex flex-wrap items-center gap-4 mt-2.5 text-sm text-gray-500">
+                          <span className="flex items-center gap-1">
+                            <Calendar className="w-4 h-4" />
+                            {group.start_date ? format(new Date(group.start_date), 'd MMM yyyy', { locale: fr }) : 'Date à définir'}
+                            {group.end_date && group.end_date !== group.start_date && (
+                              <> - {format(new Date(group.end_date), 'd MMM yyyy', { locale: fr })}</>
+                            )}
+                          </span>
+                          {group.location && (
+                            <span className="flex items-center gap-1">
+                              <MapPin className="w-4 h-4" />
+                              {group.location}
+                            </span>
+                          )}
+                          <span className="flex items-center gap-1">
+                            <Users className="w-4 h-4" />
+                            {totalTrainees} stagiaire(s)
+                          </span>
+                          {totalPrice > 0 && (
+                            <span className="flex items-center gap-1 font-medium text-green-700">
+                              <Euro className="w-4 h-4" />
+                              {totalPrice.toFixed(2)}€ HT
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center gap-1 mt-1">
+                        <ChevronDown className={`w-5 h-5 text-purple-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                      </div>
+                    </div>
                   </div>
                   
-                  <h3 className="font-semibold text-gray-900 text-lg">
-                    {session.courses?.title || 'Formation'}
-                  </h3>
-                  <p className="text-gray-600">{session.clients?.name}</p>
-                  
-                  <div className="flex flex-wrap items-center gap-4 mt-3 text-sm text-gray-500">
-                    <span className="flex items-center gap-1">
-                      <Calendar className="w-4 h-4" />
-                      {session.start_date ? format(new Date(session.start_date), 'd MMM yyyy', { locale: fr }) : 'Date à définir'}
-                      {session.end_date && session.end_date !== session.start_date && (
-                        <> - {format(new Date(session.end_date), 'd MMM yyyy', { locale: fr })}</>
-                      )}
-                    </span>
-                    
-                    {session.location && (
-                      <span className="flex items-center gap-1">
-                        <MapPin className="w-4 h-4" />
-                        {session.location}
+                  {/* Sessions du groupe (dépliées) */}
+                  {isExpanded && (
+                    <div className="border-t border-purple-200 divide-y divide-purple-100">
+                      {group.sessions.map(session => (
+                        <Link
+                          key={session.id}
+                          to={`/sessions/${session.id}`}
+                          className="block px-5 py-3 hover:bg-white/80 transition-colors group"
+                        >
+                          <div className="flex items-center justify-between gap-4">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-sm font-mono text-gray-400">{session.reference}</span>
+                                <span className={`badge text-xs ${statusLabels[session.status]?.class || 'badge-gray'}`}>
+                                  {statusLabels[session.status]?.label || session.status}
+                                </span>
+                              </div>
+                              <p className="font-medium text-gray-900 mt-0.5">{session.clients?.name}</p>
+                              <div className="flex items-center gap-3 mt-1 text-sm text-gray-500">
+                                <span>{session.session_trainees?.length || 0} stagiaire(s)</span>
+                                {session.total_price && (
+                                  <span className="text-green-700 font-medium">{parseFloat(session.total_price).toFixed(2)}€ HT</span>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={(e) => handleDuplicate(session.id, e)}
+                                className="p-1.5 hover:bg-gray-100 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
+                                title="Dupliquer"
+                              >
+                                <Copy className="w-4 h-4 text-gray-500" />
+                              </button>
+                              <button
+                                onClick={(e) => handleDelete(session.id, e)}
+                                className="p-1.5 hover:bg-red-50 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
+                                title="Supprimer"
+                              >
+                                <Trash2 className="w-4 h-4 text-red-500" />
+                              </button>
+                              <ChevronRight className="w-4 h-4 text-gray-400" />
+                            </div>
+                          </div>
+                        </Link>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            }
+            
+            // ─── Session solo (classique) ────────────────────────
+            const session = item.session
+            return (
+              <Link
+                key={session.id}
+                to={`/sessions/${session.id}`}
+                className="card block hover:shadow-md transition-shadow group"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-3 mb-2 flex-wrap">
+                      <span className="text-sm font-mono text-gray-500">{session.reference}</span>
+                      <span className={`badge ${statusLabels[session.status]?.class || 'badge-gray'}`}>
+                        {statusLabels[session.status]?.label || session.status}
                       </span>
-                    )}
+                      {session.is_intra && (
+                        <span className="badge bg-purple-100 text-purple-700">Intra</span>
+                      )}
+                    </div>
                     
-                    <span className="flex items-center gap-1">
-                      <Users className="w-4 h-4" />
-                      {session.session_trainees?.length || 0} stagiaire(s)
-                    </span>
+                    <h3 className="font-semibold text-gray-900 text-lg">
+                      {session.courses?.title || 'Formation'}
+                    </h3>
+                    <p className="text-gray-600">{session.clients?.name}</p>
+                    
+                    <div className="flex flex-wrap items-center gap-4 mt-3 text-sm text-gray-500">
+                      <span className="flex items-center gap-1">
+                        <Calendar className="w-4 h-4" />
+                        {session.start_date ? format(new Date(session.start_date), 'd MMM yyyy', { locale: fr }) : 'Date à définir'}
+                        {session.end_date && session.end_date !== session.start_date && (
+                          <> - {format(new Date(session.end_date), 'd MMM yyyy', { locale: fr })}</>
+                        )}
+                      </span>
+                      
+                      {session.location && (
+                        <span className="flex items-center gap-1">
+                          <MapPin className="w-4 h-4" />
+                          {session.location}
+                        </span>
+                      )}
+                      
+                      <span className="flex items-center gap-1">
+                        <Users className="w-4 h-4" />
+                        {session.session_trainees?.length || 0} stagiaire(s)
+                      </span>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={(e) => handleDuplicate(session.id, e)}
+                      className="p-2 hover:bg-gray-100 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
+                      title="Dupliquer"
+                    >
+                      <Copy className="w-4 h-4 text-gray-500" />
+                    </button>
+                    <button
+                      onClick={(e) => handleDelete(session.id, e)}
+                      className="p-2 hover:bg-red-50 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
+                      title="Supprimer"
+                    >
+                      <Trash2 className="w-4 h-4 text-red-500" />
+                    </button>
+                    <ChevronRight className="w-5 h-5 text-gray-400" />
                   </div>
                 </div>
-                
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={(e) => handleDuplicate(session.id, e)}
-                    className="p-2 hover:bg-gray-100 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
-                    title="Dupliquer"
-                  >
-                    <Copy className="w-4 h-4 text-gray-500" />
-                  </button>
-                  <button
-                    onClick={(e) => handleDelete(session.id, e)}
-                    className="p-2 hover:bg-red-50 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
-                    title="Supprimer"
-                  >
-                    <Trash2 className="w-4 h-4 text-red-500" />
-                  </button>
-                  <ChevronRight className="w-5 h-5 text-gray-400" />
-                </div>
-              </div>
-            </Link>
-          ))
+              </Link>
+            )
+          })
         )}
       </div>
       
