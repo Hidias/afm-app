@@ -51,8 +51,7 @@ import PublicInfoSheet from './pages/public/InfoSheet'
 import PublicHotEvaluation from './pages/public/HotEvaluation'
 import TraineePortal from './pages/public/TraineePortal'
 import PublicReclamation from './pages/public/Reclamation'
-import BniQuiz from './pages/BniQuiz'
-import BniAdmin from './pages/BniAdmin'
+
 
 // Composant de protection des routes
 function PrivateRoute({ children }) {
@@ -116,10 +115,6 @@ export default function App() {
         
         {/* Formulaire de réclamation public */}
         <Route path="/reclamation" element={<PublicReclamation />} />
-        
-        {/* BNI Quiz & Admin */}
-        <Route path="/bni" element={<BniQuiz />} />
-        <Route path="/bni-admin" element={<BniAdmin />} />
         
         {/* QR Code Unifié - Portail Stagiaire */}
         <Route path="/portail/:token" element={<TraineePortal />} />
