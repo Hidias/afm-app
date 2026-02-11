@@ -313,9 +313,12 @@ export default function EnrichissementRapide() {
       if (res.ok) {
         const data = await res.json()
         setLusha(data)
-        // Auto-remplir le site web si trouvé
-        if (data.siege && !siteWeb && !prospect.site_web) {
-          // Le site vient du siège API
+        // Auto-remplir le site web si trouvé via API
+        if (data.domain && !siteWeb && !prospect.site_web) {
+          const site = 'www.' + data.domain
+          setSiteWeb(site)
+          // Auto-scraper le site pour trouver tél + email
+          setTimeout(() => autoScrape(site), 500)
         }
       }
     } catch (err) {
@@ -394,6 +397,41 @@ export default function EnrichissementRapide() {
     } finally {
       setScraping(false)
     }
+  }
+
+  // 🔍 Auto-scrape (appelé automatiquement quand site web trouvé)
+  async function autoScrape(url) {
+    if (!url || scraping) return
+    setScraping(true)
+    try {
+      const res = await fetch('/api/scrape-phone', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url })
+      })
+      const data = await res.json()
+      if (data.success) {
+        if (data.phone) setPhone(data.phone)
+        if (data.email) setEmail(data.email)
+      }
+    } catch (err) {
+      console.error('Erreur auto-scrape:', err)
+    } finally {
+      setScraping(false)
+    }
+  }
+
+  // 🔍 Recherche coordonnées : tente Google → scrape
+  async function rechercherCoordonnees() {
+    if (!current) return
+    // Si on a un site web, scraper directement
+    if (siteWeb) {
+      scrapeWebsite()
+      return
+    }
+    // Sinon ouvrir Google pour chercher le site
+    const query = `${current.name} ${current.city || ''} site officiel`
+    window.open(`https://www.google.com/search?q=${encodeURIComponent(query)}`, '_blank')
   }
 
   // ─── Navigation & sauvegarde ────────────────────────────────────────────
@@ -721,16 +759,15 @@ export default function EnrichissementRapide() {
                           <p className="text-sm text-amber-700 mb-2">Aucun dirigeant trouvé</p>
                         )}
 
-                        {/* Tous les dirigeants */}
-                        {lusha.tous_dirigeants?.length > 1 && (
-                          <div className="text-xs text-gray-500 mb-2">
-                            Aussi : {lusha.tous_dirigeants
-                              .filter(d => d.nom && d.nom !== lusha.dirigeant_nom)
-                              .slice(0, 3)
-                              .map(d => `${d.prenom || ''} ${d.nom} (${d.qualite || '?'})`.trim())
-                              .join(' • ')}
-                          </div>
-                        )}
+                        {/* Autres dirigeants */}
+                        {(() => {
+                          const autres = (lusha.tous_dirigeants || []).filter(d => d.nom && d.nom !== lusha.dirigeant_nom)
+                          return autres.length > 0 && (
+                            <div className="text-xs text-gray-500 mb-2">
+                              Aussi : {autres.slice(0, 3).map(d => `${d.prenom || ''} ${d.nom} (${d.qualite || '?'})`.trim()).join(' • ')}
+                            </div>
+                          )
+                        })()}
 
                         {/* Email patterns */}
                         {lusha.email_patterns?.length > 0 && (
@@ -759,6 +796,12 @@ export default function EnrichissementRapide() {
                             Domaine : {lusha.domain} — pas de dirigeant pour générer les patterns
                           </p>
                         )}
+
+                        {!lusha.domain && !lusha.email_patterns?.length && lusha.dirigeant_nom && (
+                          <p className="text-xs text-amber-600 mt-2">
+                            💡 Pas de site web trouvé — entre un site ci-dessous pour générer les emails du dirigeant
+                          </p>
+                        )}
                       </div>
 
                       {/* Infos complémentaires */}
@@ -770,9 +813,30 @@ export default function EnrichissementRapide() {
                           <p className="text-green-600">✓ Active</p>
                         )}
                         {lusha.etat_administratif === 'C' && (
-                          <p className="text-red-600">✗ Cessée</p>
+                          <p className="text-red-600 font-semibold">✗ Cessée</p>
                         )}
                       </div>
+                    </div>
+
+                    {/* Bouton rechercher coordonnées */}
+                    <div className="mt-3 pt-3 border-t border-amber-200 flex items-center gap-2">
+                      <button onClick={rechercherCoordonnees}
+                        disabled={scraping}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50">
+                        {scraping ? (
+                          <><Loader className="w-3.5 h-3.5 animate-spin" /> Recherche...</>
+                        ) : (
+                          <><Search className="w-3.5 h-3.5" /> {siteWeb ? 'Scraper le site' : 'Chercher coordonnées'}</>
+                        )}
+                      </button>
+                      {siteWeb && lusha.dirigeant_nom && !lusha.email_patterns?.length && (
+                        <button onClick={() => enrichViaAPI({ ...current, site_web: siteWeb })}
+                          disabled={lushaLoading}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-100 hover:bg-amber-200 text-amber-700 rounded-lg text-sm font-medium transition-colors">
+                          <Mail className="w-3.5 h-3.5" /> Générer emails
+                        </button>
+                      )}
+                      {scraping && <span className="text-xs text-amber-600">⏳ Scraping du site en cours...</span>}
                     </div>
                   </div>
                 ) : (
