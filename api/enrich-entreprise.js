@@ -107,7 +107,7 @@ export default async function handler(req, res) {
   
   try {
     // 1. Appel API Recherche Entreprises (GRATUIT, pas de clé)
-    const query = siren ? `siren:${siren}` : `siret:${siret}`
+    const query = siren || siret
     const resp = await fetch(
       `https://recherche-entreprises.api.gouv.fr/search?q=${query}&per_page=1`,
       { headers: { Accept: 'application/json' } }
