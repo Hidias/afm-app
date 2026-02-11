@@ -534,6 +534,16 @@ function generateConvention(session, trainees = [], trainer = null, costs = []) 
   
   // Construire le texte de l'article 3
   let article3Text = `Coût de la formation : ${coutFormationHT.toFixed(2)} € HT`
+  
+  // ─── Mention inter-entreprises ───────────────────────────
+  const isInter = session?.inter_group_id && session?.inter_total_price
+  if (isInter) {
+    const interTotal = parseFloat(session.inter_total_price)
+    const nbStagiaires = trainees.length || 1
+    const prixParTete = interTotal > 0 && nbStagiaires > 0 ? (coutFormationHT / nbStagiaires) : 0
+    article3Text += `\n(${nbStagiaires} stagiaire${nbStagiaires > 1 ? 's' : ''} × ${prixParTete.toFixed(2)} €/stagiaire — session inter-entreprises : ${interTotal.toFixed(2)} € HT global)`
+  }
+  
   if (costDetails.length > 0) {
     article3Text += `\n\nCoûts supplémentaires :`
     costDetails.forEach(c => {
