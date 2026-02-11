@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { X, Plus, Trash2, Building2, Users, FileCheck, ChevronRight, ChevronLeft, Search, CheckCircle, AlertCircle, Loader2 } from 'lucide-react'
+import { X, Plus, Trash2, Building2, Users, FileCheck, ChevronRight, ChevronLeft, Search, CheckCircle, AlertCircle, Loader2, Euro } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useDataStore as useStore } from '../lib/store'
 import toast from 'react-hot-toast'
@@ -64,6 +64,8 @@ export default function MultiSiretWizard({ onClose, onCreated }) {
     contact_role: '',
     contact_email: '',
     contact_phone: '',
+    price_mode: 'global',    // 'global' = prix total réparti | 'per_trainee' = prix unitaire
+    price_amount: '',        // montant saisi (total ou unitaire selon mode)
   })
   
   // Step 2: Groups (one per SIRET)
@@ -200,6 +202,30 @@ export default function MultiSiretWizard({ onClose, onCreated }) {
     try {
       const selectedCourse = courses.find(c => c.id === common.course_id)
       
+      // ─── Calcul des prix inter ───────────────────────────────
+      const interGroupId = crypto.randomUUID()
+      const totalTraineesAll = groups.reduce((sum, g) => sum + g.trainees.length, 0)
+      const priceAmount = parseFloat(common.price_amount) || 0
+      
+      let interTotalPrice, pricePerHead
+      if (common.price_mode === 'global') {
+        interTotalPrice = priceAmount
+        pricePerHead = totalTraineesAll > 0 ? priceAmount / totalTraineesAll : 0
+      } else {
+        pricePerHead = priceAmount
+        interTotalPrice = priceAmount * totalTraineesAll
+      }
+      
+      // Arrondi intelligent : le dernier groupe récupère le centime
+      const groupPrices = groups.map((g, i) => {
+        const raw = pricePerHead * g.trainees.length
+        return Math.round(raw * 100) / 100
+      })
+      // Ajuster le dernier pour que la somme tombe juste
+      const sumPrices = groupPrices.reduce((a, b) => a + b, 0)
+      const diff = Math.round((interTotalPrice - sumPrices) * 100) / 100
+      if (groupPrices.length > 0) groupPrices[groupPrices.length - 1] += diff
+      
       for (let gi = 0; gi < groups.length; gi++) {
         const group = groups[gi]
         const groupLabel = `${group.company_name} (${group.siret})`
@@ -329,6 +355,11 @@ export default function MultiSiretWizard({ onClose, onCreated }) {
           signatory_role: common.signatory_role || null,
           reference,
           attendance_token: generateHexToken(32),
+          // Prix inter-entreprises
+          total_price: groupPrices[gi] || null,
+          inter_group_id: groups.length > 1 ? interGroupId : null,
+          inter_total_price: groups.length > 1 ? interTotalPrice : null,
+          price_mode: common.price_mode,
         }
         
         const { data: newSession, error: sessionErr } = await supabase
@@ -357,7 +388,7 @@ export default function MultiSiretWizard({ onClose, onCreated }) {
           }
         }
         
-        log(`✅ Session créée: ${selectedCourse?.title} — ${group.company_name} (${traineeIds.length} stagiaires)`)
+        log(`✅ Session créée: ${selectedCourse?.title} — ${group.company_name} (${traineeIds.length} stagiaires • ${groupPrices[gi]?.toFixed(2) || '0.00'}€ HT)`)
       }
       
       log(`🎉 Terminé ! ${groups.length} sessions créées`)
@@ -472,6 +503,71 @@ export default function MultiSiretWizard({ onClose, onCreated }) {
                   <div>
                     <label className="label">Précisions financement</label>
                     <input type="text" className="input" value={common.funding_details} onChange={e => setCommon({...common, funding_details: e.target.value})} placeholder="Ex: OPCO Atlas..." />
+                  </div>
+                </div>
+                
+                {/* Tarification inter */}
+                <div className="p-4 bg-green-50 border border-green-200 rounded-lg space-y-3">
+                  <p className="font-medium text-green-800 text-sm flex items-center gap-2">
+                    <Euro className="w-4 h-4" /> Tarification de la session
+                  </p>
+                  <div className="flex gap-2 mb-3">
+                    <button
+                      type="button"
+                      onClick={() => setCommon({...common, price_mode: 'global'})}
+                      className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium border-2 transition-colors ${
+                        common.price_mode === 'global' 
+                          ? 'border-green-500 bg-green-100 text-green-800' 
+                          : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
+                      }`}
+                    >
+                      💰 Prix global session
+                      <span className="block text-xs font-normal mt-0.5 opacity-75">Réparti entre les entreprises</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCommon({...common, price_mode: 'per_trainee'})}
+                      className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium border-2 transition-colors ${
+                        common.price_mode === 'per_trainee' 
+                          ? 'border-green-500 bg-green-100 text-green-800' 
+                          : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
+                      }`}
+                    >
+                      👤 Prix par stagiaire
+                      <span className="block text-xs font-normal mt-0.5 opacity-75">Multiplié par le nombre</span>
+                    </button>
+                  </div>
+                  <div>
+                    <label className="label text-xs">
+                      {common.price_mode === 'global' ? 'Prix total de la session HT (€)' : 'Prix par stagiaire HT (€)'}
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        className="input pr-8"
+                        value={common.price_amount}
+                        onChange={e => setCommon({...common, price_amount: e.target.value})}
+                        placeholder={common.price_mode === 'global' ? 'Ex: 600' : 'Ex: 120'}
+                      />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">€ HT</span>
+                    </div>
+                    {common.price_amount && groups.length > 0 && (
+                      <p className="text-xs text-green-700 mt-1.5">
+                        {(() => {
+                          const amount = parseFloat(common.price_amount) || 0
+                          const totalTraineesCount = groups.reduce((sum, g) => sum + g.trainees.length, 0)
+                          if (common.price_mode === 'global' && totalTraineesCount > 0) {
+                            const perHead = amount / totalTraineesCount
+                            return `→ ${perHead.toFixed(2)}€ par stagiaire × ${totalTraineesCount} stagiaires = ${amount.toFixed(2)}€ HT`
+                          } else if (common.price_mode === 'per_trainee' && totalTraineesCount > 0) {
+                            return `→ ${amount.toFixed(2)}€ × ${totalTraineesCount} stagiaires = ${(amount * totalTraineesCount).toFixed(2)}€ HT total`
+                          }
+                          return ''
+                        })()}
+                      </p>
+                    )}
                   </div>
                 </div>
                 
@@ -691,6 +787,19 @@ export default function MultiSiretWizard({ onClose, onCreated }) {
                       )}
                     </div>
                     <p className="text-sm text-gray-500 mb-2">→ 1 convention + 1 session + {group.trainees.length} convocation{group.trainees.length > 1 ? 's' : ''}</p>
+                    {/* Prix de cette entreprise */}
+                    {common.price_amount && (() => {
+                      const amount = parseFloat(common.price_amount) || 0
+                      const perHead = common.price_mode === 'global' 
+                        ? (totalTrainees > 0 ? amount / totalTrainees : 0)
+                        : amount
+                      const groupTotal = Math.round(perHead * group.trainees.length * 100) / 100
+                      return (
+                        <p className="text-sm font-medium text-green-700 mb-2">
+                          💰 {groupTotal.toFixed(2)}€ HT ({group.trainees.length} × {perHead.toFixed(2)}€/stagiaire)
+                        </p>
+                      )
+                    })()}
                     <div className="flex flex-wrap gap-1">
                       {group.trainees.map(t => (
                         <span key={t.id} className={`text-xs px-2 py-1 rounded-full ${t.matched_trainee ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'}`}>
@@ -705,6 +814,11 @@ export default function MultiSiretWizard({ onClose, onCreated }) {
                 <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
                   <p className="text-sm text-amber-800 font-medium">
                     Résumé : {groups.length} session{groups.length > 1 ? 's' : ''} • {groups.length} convention{groups.length > 1 ? 's' : ''} • {totalTrainees} stagiaire{totalTrainees > 1 ? 's' : ''}
+                    {common.price_amount && (() => {
+                      const amount = parseFloat(common.price_amount) || 0
+                      const total = common.price_mode === 'global' ? amount : amount * totalTrainees
+                      return ` • ${total.toFixed(2)}€ HT total`
+                    })()}
                   </p>
                 </div>
               </div>
