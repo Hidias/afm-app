@@ -1,113 +1,50 @@
 /**
  * ============================================================================
- * ENRICHISSEMENT RAPIDE - Semi-automatisé via Pages Jaunes
+ * ENRICHISSEMENT RAPIDE v3 — Mini-Lusha
  * ============================================================================
  * 
- * Mode turbo : ouvre PJ dans un nouvel onglet (IP résidentielle = pas de blocage),
- * l'utilisateur copie le téléphone et le colle ici.
+ * Enrichissement semi-automatique avec 3 API intégrées :
+ *   1. API Recherche Entreprises → dirigeant, email patterns (GRATUIT)
+ *   2. API La Bonne Boîte → signal recrutement géolocalisé
+ *   3. API Offres d'Emploi → offres actives par département
+ * 
+ * + Fallback manuel : Pages Jaunes, Google, Societe.com
  * 
  * Raccourcis clavier :
  * - Entrée : Sauvegarder et passer au suivant
- * - Échap : Passer sans sauvegarder
+ * - Échap  : Passer sans sauvegarder
  * - Ctrl+O : Ouvrir Pages Jaunes
  * ============================================================================
  */
 
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { 
   Search, SkipForward, Save, ExternalLink, Phone, Mail, Globe,
-  ChevronRight, Zap, CheckCircle, XCircle, RefreshCw, Filter, Loader
+  Zap, CheckCircle, XCircle, RefreshCw, Loader, User, Briefcase,
+  TrendingUp, Building2, MapPin, ChevronDown, ChevronUp, Copy, Check
 } from 'lucide-react'
 
-// Mapping code NAF (division 2 chiffres) → libellé secteur d'activité
+// ─── Constantes & helpers ───────────────────────────────────────────────────
+
 const NAF_LABELS = {
-  '01': 'Culture et production animale',
-  '02': 'Sylviculture et exploitation forestière',
-  '03': 'Pêche et aquaculture',
-  '05': 'Extraction de houille et lignite',
-  '06': 'Extraction d\'hydrocarbures',
-  '07': 'Extraction de minerais métalliques',
-  '08': 'Autres industries extractives',
-  '09': 'Services de soutien aux industries extractives',
-  '10': 'Industries alimentaires',
-  '11': 'Fabrication de boissons',
-  '12': 'Fabrication de produits à base de tabac',
-  '13': 'Fabrication de textiles',
-  '14': 'Industrie de l\'habillement',
-  '15': 'Industrie du cuir et de la chaussure',
-  '16': 'Travail du bois (menuiserie, charpente)',
-  '17': 'Industrie du papier et du carton',
-  '18': 'Imprimerie et reproduction',
-  '20': 'Industrie chimique',
-  '21': 'Industrie pharmaceutique',
-  '22': 'Fabrication de produits en caoutchouc et plastique',
-  '23': 'Fabrication de produits minéraux non métalliques',
-  '24': 'Métallurgie',
-  '25': 'Fabrication de produits métalliques',
-  '26': 'Fabrication de produits informatiques et électroniques',
-  '27': 'Fabrication d\'équipements électriques',
-  '28': 'Fabrication de machines et équipements',
-  '29': 'Industrie automobile',
-  '30': 'Fabrication de matériels de transport',
-  '31': 'Fabrication de meubles',
-  '32': 'Autres industries manufacturières',
-  '33': 'Réparation et installation de machines',
-  '35': 'Production et distribution d\'électricité, gaz',
-  '36': 'Captage, traitement et distribution d\'eau',
-  '37': 'Collecte et traitement des eaux usées',
-  '38': 'Collecte, traitement et élimination des déchets',
-  '39': 'Dépollution et gestion des déchets',
-  '41': 'Construction de bâtiments',
-  '42': 'Génie civil',
-  '43': 'Travaux de construction spécialisés',
-  '45': 'Commerce et réparation automobiles',
-  '46': 'Commerce de gros',
-  '47': 'Commerce de détail',
-  '49': 'Transports terrestres',
-  '50': 'Transports par eau',
-  '51': 'Transports aériens',
-  '52': 'Entreposage et services auxiliaires des transports',
-  '53': 'Activités de poste et de courrier',
-  '55': 'Hébergement',
-  '56': 'Restauration',
-  '58': 'Édition',
-  '59': 'Production de films, vidéo, musique',
-  '60': 'Programmation et diffusion',
-  '61': 'Télécommunications',
-  '62': 'Programmation et conseil informatique',
-  '63': 'Services d\'information',
-  '64': 'Services financiers (banque)',
-  '65': 'Assurance',
-  '66': 'Activités auxiliaires de services financiers',
-  '68': 'Activités immobilières',
-  '69': 'Activités juridiques et comptables',
-  '70': 'Conseil de gestion',
-  '71': 'Architecture, ingénierie, contrôle technique',
-  '72': 'Recherche-développement scientifique',
-  '73': 'Publicité et études de marché',
-  '74': 'Autres activités spécialisées (design, photo)',
-  '75': 'Activités vétérinaires',
-  '77': 'Activités de location',
-  '78': 'Activités liées à l\'emploi (intérim)',
-  '79': 'Agences de voyage et voyagistes',
-  '80': 'Enquêtes et sécurité',
-  '81': 'Services relatifs aux bâtiments (nettoyage)',
-  '82': 'Services administratifs et de soutien',
-  '84': 'Administration publique et défense',
-  '85': 'Enseignement',
-  '86': 'Activités pour la santé humaine',
-  '87': 'Hébergement médico-social et social',
-  '88': 'Action sociale sans hébergement',
-  '90': 'Activités créatives, artistiques et de spectacle',
-  '91': 'Bibliothèques, musées et patrimoine',
-  '92': 'Organisation de jeux de hasard',
-  '93': 'Activités sportives, récréatives et de loisirs',
-  '94': 'Activités des organisations associatives',
-  '95': 'Réparation d\'ordinateurs et de biens personnels',
-  '96': 'Autres services personnels (coiffure, beauté)',
-  '97': 'Activités des ménages en tant qu\'employeurs',
-  '99': 'Organisations et organismes extraterritoriaux',
+  '01': 'Culture et production animale', '02': 'Sylviculture', '03': 'Pêche et aquaculture',
+  '10': 'Industries alimentaires', '11': 'Fabrication de boissons', '13': 'Fabrication de textiles',
+  '14': 'Industrie de l\'habillement', '16': 'Travail du bois', '18': 'Imprimerie',
+  '20': 'Industrie chimique', '22': 'Caoutchouc et plastique', '23': 'Produits minéraux',
+  '24': 'Métallurgie', '25': 'Produits métalliques', '28': 'Machines et équipements',
+  '29': 'Industrie automobile', '31': 'Fabrication de meubles', '33': 'Réparation de machines',
+  '35': 'Électricité, gaz', '38': 'Collecte et traitement des déchets',
+  '41': 'Construction de bâtiments', '42': 'Génie civil', '43': 'Travaux de construction spécialisés',
+  '45': 'Commerce et réparation auto', '46': 'Commerce de gros', '47': 'Commerce de détail',
+  '49': 'Transports terrestres', '52': 'Entreposage et transports', '55': 'Hébergement',
+  '56': 'Restauration', '62': 'Programmation informatique', '64': 'Services financiers',
+  '68': 'Activités immobilières', '69': 'Juridique et comptable', '70': 'Conseil de gestion',
+  '71': 'Architecture, ingénierie', '73': 'Publicité', '77': 'Location',
+  '78': 'Intérim', '80': 'Enquêtes et sécurité', '81': 'Services bâtiments (nettoyage)',
+  '82': 'Services administratifs', '85': 'Enseignement', '86': 'Santé',
+  '87': 'Hébergement médico-social', '88': 'Action sociale', '93': 'Activités sportives',
+  '96': 'Autres services personnels',
 }
 
 function getNafLabel(naf) {
@@ -117,10 +54,9 @@ function getNafLabel(naf) {
 }
 
 const EFFECTIF_LABELS = {
-  '00': '0 sal.', '01': '1-2 sal.', '02': '3-5 sal.', '03': '6-9 sal.',
-  '11': '10-19 sal.', '12': '20-49 sal.', '21': '50-99 sal.', '22': '100-199 sal.',
-  '31': '200-249 sal.', '32': '250-499 sal.', '41': '500-999 sal.', '42': '1000-1999 sal.',
-  '51': '2000-4999 sal.', '52': '5000-9999 sal.', '53': '10000+ sal.',
+  '00': '0 sal.', '01': '1-2', '02': '3-5', '03': '6-9',
+  '11': '10-19', '12': '20-49', '21': '50-99', '22': '100-199',
+  '31': '200-249', '32': '250-499', '41': '500-999', '42': '1000+',
 }
 
 function getEffectifLabel(code) {
@@ -128,30 +64,24 @@ function getEffectifLabel(code) {
   return EFFECTIF_LABELS[String(code)] || code + ' sal.'
 }
 
-// Points de départ pour tri par proximité
 const BASES = {
   concarneau: { name: 'Concarneau', who: 'Hicham', lat: 47.8742, lng: -3.9196 },
   derval: { name: 'Derval', who: 'Maxime', lat: 47.6639, lng: -1.6689 },
 }
 
-// Centroïdes approximatifs des départements bretons + limitrophes
 const DEPT_CENTERS = {
-  '22': { lat: 48.45, lng: -2.99 }, // Côtes-d'Armor
-  '29': { lat: 48.39, lng: -4.32 }, // Finistère
-  '35': { lat: 48.11, lng: -1.67 }, // Ille-et-Vilaine
-  '44': { lat: 47.25, lng: -1.57 }, // Loire-Atlantique
-  '49': { lat: 47.47, lng: -0.55 }, // Maine-et-Loire
-  '53': { lat: 48.07, lng: -0.77 }, // Mayenne
-  '56': { lat: 47.75, lng: -2.76 }, // Morbihan
-  '72': { lat: 47.99, lng: 0.20 },  // Sarthe
-  '85': { lat: 46.67, lng: -1.43 }, // Vendée
+  '22': { lat: 48.45, lng: -2.99 }, '29': { lat: 48.39, lng: -4.32 },
+  '35': { lat: 48.11, lng: -1.67 }, '44': { lat: 47.25, lng: -1.57 },
+  '49': { lat: 47.47, lng: -0.55 }, '53': { lat: 48.07, lng: -0.77 },
+  '56': { lat: 47.75, lng: -2.76 }, '72': { lat: 47.99, lng: 0.20 },
+  '85': { lat: 46.67, lng: -1.43 },
 }
 
 const SORT_MODES = [
-  { id: 'smart', label: '🎯 Priorité', desc: 'Potentiel pondéré par distance' },
-  { id: 'proche', label: '📏 Proximité', desc: 'Distance croissante' },
-  { id: 'gros', label: '🏢 Effectif', desc: 'Effectif décroissant' },
-  { id: 'score', label: '⭐ Score', desc: 'Quality score' },
+  { id: 'smart', label: '🎯 Priorité' },
+  { id: 'proche', label: '📏 Proximité' },
+  { id: 'gros', label: '🏢 Effectif' },
+  { id: 'score', label: '⭐ Score' },
 ]
 
 function distanceKm(lat1, lon1, lat2, lon2) {
@@ -164,18 +94,24 @@ function distanceKm(lat1, lon1, lat2, lon2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 }
 
+// ─── Composant principal ────────────────────────────────────────────────────
+
 export default function EnrichissementRapide() {
+  // État principal
   const [prospects, setProspects] = useState([])
   const [currentIndex, setCurrentIndex] = useState(0)
   const [phone, setPhone] = useState('')
   const [email, setEmail] = useState('')
   const [siteWeb, setSiteWeb] = useState('')
-  const [scraping, setScraping] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+
+  // Stats
   const [dbStats, setDbStats] = useState({ done: 0, phones: 0, emails: 0, excluded: 0 })
   const [sessionStats, setSessionStats] = useState({ done: 0, phones: 0, emails: 0, excluded: 0 })
   const [totalRemaining, setTotalRemaining] = useState(0)
+
+  // Filtres
   const [departementFilter, setDepartementFilter] = useState('')
   const [proximityBase, setProximityBase] = useState('concarneau')
   const [sortMode, setSortMode] = useState('smart')
@@ -183,15 +119,23 @@ export default function EnrichissementRapide() {
   const [searchTerm, setSearchTerm] = useState('')
   const [searchResults, setSearchResults] = useState(null)
   const [searching, setSearching] = useState(false)
-  const [enriching, setEnriching] = useState(false)
-  const [enrichResult, setEnrichResult] = useState(null)
-  const [enrichCooldown, setEnrichCooldown] = useState(0)
-  const phoneRef = useRef(null)
 
-  // Départements importés (hardcodé car la requête SELECT departement sur 273k lignes ne retourne que 1000 rows par défaut)
+  // Mini-Lusha : enrichissement API
+  const [lusha, setLusha] = useState(null)          // résultat enrich-entreprise
+  const [lushaLoading, setLushaLoading] = useState(false)
+  const [signaux, setSignaux] = useState(null)       // résultat offres-emploi
+  const [signauxLoading, setSignauxLoading] = useState(false)
+  const [showSignaux, setShowSignaux] = useState(false)
+  const [copiedEmail, setCopiedEmail] = useState(null)
+
+  // Scraping
+  const [scraping, setScraping] = useState(false)
+
+  const phoneRef = useRef(null)
   const departements = ['22', '29', '35', '44', '49', '53', '56', '72', '85']
 
-  // Charger les stats globales depuis la base
+  // ─── Stats globales ─────────────────────────────────────────────────────
+
   async function loadStats() {
     const [
       { count: doneCount },
@@ -199,9 +143,9 @@ export default function EnrichissementRapide() {
       { count: emailCount },
       { count: excludedCount },
     ] = await Promise.all([
-      supabase.from('prospection_massive').select('id', { count: 'exact', head: true }).eq('enrichment_status', 'done').eq('phone_source', 'manual_pj'),
-      supabase.from('prospection_massive').select('id', { count: 'exact', head: true }).not('phone', 'is', null).eq('phone_source', 'manual_pj'),
-      supabase.from('prospection_massive').select('id', { count: 'exact', head: true }).not('email', 'is', null).eq('email_source', 'manual_pj'),
+      supabase.from('prospection_massive').select('id', { count: 'exact', head: true }).eq('enrichment_status', 'done'),
+      supabase.from('prospection_massive').select('id', { count: 'exact', head: true }).not('phone', 'is', null),
+      supabase.from('prospection_massive').select('id', { count: 'exact', head: true }).not('email', 'is', null),
       supabase.from('prospection_massive').select('id', { count: 'exact', head: true }).eq('enrichment_status', 'failed').eq('enrichment_attempts', 99),
     ])
     setDbStats({
@@ -214,13 +158,11 @@ export default function EnrichissementRapide() {
 
   useEffect(() => { loadStats() }, [])
 
-  // Recherche dans tout l'import massif
+  // ─── Recherche ──────────────────────────────────────────────────────────
+
   async function handleSearch(term) {
     setSearchTerm(term)
-    if (!term || term.length < 2) {
-      setSearchResults(null)
-      return
-    }
+    if (!term || term.length < 2) { setSearchResults(null); return }
     setSearching(true)
     try {
       const isNumeric = /^\d+$/.test(term.replace(/\s/g, ''))
@@ -229,19 +171,14 @@ export default function EnrichissementRapide() {
         .select('id, siret, siren, name, city, postal_code, address, naf, phone, email, site_web, departement, effectif, quality_score, enrichment_status')
         .order('quality_score', { ascending: false })
         .limit(50)
-
       if (isNumeric) {
-        // Recherche par SIRET/SIREN
         const clean = term.replace(/\s/g, '')
         query = query.or(`siret.ilike.%${clean}%,siren.ilike.%${clean}%`)
       } else {
         query = query.or(`name.ilike.%${term}%,city.ilike.%${term}%`)
       }
-
       const { data, error } = await query
       if (error) throw error
-
-      // Dédupliquer par SIREN
       const seen = new Set()
       const unique = (data || []).filter(p => {
         if (seen.has(p.siren)) return false
@@ -259,7 +196,6 @@ export default function EnrichissementRapide() {
   function selectSearchResult(prospect) {
     setSearchResults(null)
     setSearchTerm('')
-    // Injecter dans la file et afficher
     setProspects([prospect])
     setCurrentIndex(0)
     resetFields()
@@ -268,15 +204,13 @@ export default function EnrichissementRapide() {
     if (prospect.site_web) setSiteWeb(prospect.site_web)
   }
 
-  // Charger un batch de prospects
+  // ─── Chargement des prospects ───────────────────────────────────────────
+
   const loadProspects = useCallback(async () => {
     setLoading(true)
-    
-    // Calculer les départements dans le rayon depuis la base choisie
     const base = BASES[proximityBase]
     let nearbyDepts = null
     if (base && radiusFilter > 0) {
-      // Marge +50km car centroïde ≠ position exacte de l'entreprise
       const marginRadius = radiusFilter + 50
       nearbyDepts = Object.entries(DEPT_CENTERS)
         .filter(([_, center]) => distanceKm(base.lat, base.lng, center.lat, center.lng) <= marginRadius)
@@ -291,7 +225,6 @@ export default function EnrichissementRapide() {
       .order('quality_score', { ascending: false })
       .limit(200)
 
-    // Filtre département : soit manuel, soit par proximité
     if (departementFilter) {
       query = query.eq('departement', departementFilter)
     } else if (nearbyDepts && nearbyDepts.length > 0) {
@@ -299,14 +232,8 @@ export default function EnrichissementRapide() {
     }
 
     const { data, error } = await query
+    if (error) { console.error('Erreur chargement:', error); setLoading(false); return }
 
-    if (error) {
-      console.error('Erreur chargement:', error)
-      setLoading(false)
-      return
-    }
-
-    // Dédupliquer par SIREN ET par nom (garder le premier = meilleur score)
     const seenSiren = new Set()
     const seenName = new Set()
     const unique = (data || []).filter(p => {
@@ -318,7 +245,6 @@ export default function EnrichissementRapide() {
       return true
     }).slice(0, 50)
 
-    // Calculer distance depuis centroïde département
     if (base) {
       unique.forEach(p => {
         const dept = p.departement || (p.postal_code || '').slice(0, 2)
@@ -329,44 +255,29 @@ export default function EnrichissementRapide() {
           ? (eff * 2 + (p.quality_score || 50)) / Math.sqrt(p._dist)
           : (eff * 2 + (p.quality_score || 50)) * 0.5
       })
-
-      // Tri selon le mode
-      if (sortMode === 'smart') {
-        unique.sort((a, b) => b._smart - a._smart)
-      } else if (sortMode === 'proche') {
-        unique.sort((a, b) => (a._dist ?? 9999) - (b._dist ?? 9999))
-      } else if (sortMode === 'gros') {
-        unique.sort((a, b) => (parseInt(b.effectif) || 0) - (parseInt(a.effectif) || 0))
-      }
-      // score = already sorted by quality_score from DB
+      if (sortMode === 'smart') unique.sort((a, b) => b._smart - a._smart)
+      else if (sortMode === 'proche') unique.sort((a, b) => (a._dist ?? 9999) - (b._dist ?? 9999))
+      else if (sortMode === 'gros') unique.sort((a, b) => (parseInt(b.effectif) || 0) - (parseInt(a.effectif) || 0))
     }
 
     setProspects(unique)
     setCurrentIndex(0)
     resetFields()
 
-    // Compter le total restant (approximatif)
     let countQuery = supabase
       .from('prospection_massive')
       .select('id', { count: 'exact', head: true })
       .is('phone', null)
       .or('enrichment_status.is.null,enrichment_status.eq.pending,enrichment_status.eq.enriching')
-
-    if (departementFilter) {
-      countQuery = countQuery.eq('departement', departementFilter)
-    } else if (nearbyDepts && nearbyDepts.length > 0) {
-      countQuery = countQuery.in('departement', nearbyDepts)
-    }
-
+    if (departementFilter) countQuery = countQuery.eq('departement', departementFilter)
+    else if (nearbyDepts && nearbyDepts.length > 0) countQuery = countQuery.in('departement', nearbyDepts)
     const { count } = await countQuery
     setTotalRemaining(count || 0)
 
     setLoading(false)
   }, [departementFilter, proximityBase, sortMode, radiusFilter])
 
-  useEffect(() => {
-    loadProspects()
-  }, [loadProspects])
+  useEffect(() => { loadProspects() }, [loadProspects])
 
   const current = prospects[currentIndex]
 
@@ -374,10 +285,96 @@ export default function EnrichissementRapide() {
     setPhone('')
     setEmail('')
     setSiteWeb('')
-    setEnrichResult(null)
+    setLusha(null)
+    setSignaux(null)
+    setShowSignaux(false)
+    setCopiedEmail(null)
   }
 
-  // 🔍 Scraper le site web pour extraire téléphone + email
+  // ─── Mini-Lusha : Auto-enrichissement API ───────────────────────────────
+
+  useEffect(() => {
+    if (!current?.siren) return
+    enrichViaAPI(current)
+  }, [current?.siren])
+
+  async function enrichViaAPI(prospect) {
+    setLushaLoading(true)
+    setLusha(null)
+    try {
+      const res = await fetch('/api/enrich-entreprise', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          siren: prospect.siren,
+          site_web: prospect.site_web || siteWeb 
+        })
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setLusha(data)
+        // Auto-remplir le site web si trouvé
+        if (data.siege && !siteWeb && !prospect.site_web) {
+          // Le site vient du siège API
+        }
+      }
+    } catch (err) {
+      console.error('Erreur enrichissement API:', err)
+    } finally {
+      setLushaLoading(false)
+    }
+  }
+
+  // Charger les signaux recrutement
+  async function loadSignaux() {
+    if (!current) return
+    if (signaux) { setShowSignaux(!showSignaux); return }
+    
+    setSignauxLoading(true)
+    setShowSignaux(true)
+    try {
+      const dept = current.departement || (current.postal_code || '').slice(0, 2)
+      const nafCode = current.naf ? current.naf.replace(/\./g, '').substring(0, 2) : null
+      
+      const res = await fetch('/api/offres-emploi', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ departement: dept, ...(nafCode ? { codeNAF: nafCode } : {}) })
+      })
+      if (res.ok) {
+        const data = await res.json()
+        // Chercher si cette entreprise est dans les résultats
+        const normName = (current.name || '').toUpperCase().replace(/[^A-Z0-9]/g, '')
+        const match = data.entreprises?.find(e => {
+          const en = (e.nom || '').toUpperCase().replace(/[^A-Z0-9]/g, '')
+          return en === normName || en.includes(normName) || normName.includes(en)
+        })
+        setSignaux({
+          total_offres: data.total_offres,
+          total_entreprises: data.entreprises_qui_recrutent,
+          match: match || null,
+          top5: (data.entreprises || []).slice(0, 5),
+          departement: dept,
+          secteur: nafCode ? getNafLabel(current.naf) : null,
+        })
+      }
+    } catch (err) {
+      console.error('Erreur signaux:', err)
+    } finally {
+      setSignauxLoading(false)
+    }
+  }
+
+  // Copier un email pattern
+  function copyEmail(emailAddr) {
+    navigator.clipboard.writeText(emailAddr)
+    setCopiedEmail(emailAddr)
+    setEmail(emailAddr)
+    setTimeout(() => setCopiedEmail(null), 2000)
+  }
+
+  // ─── Scraper site web ───────────────────────────────────────────────────
+
   async function scrapeWebsite() {
     if (!siteWeb || scraping) return
     setScraping(true)
@@ -399,98 +396,23 @@ export default function EnrichissementRapide() {
     }
   }
 
-  // ⚡ Auto-enrichir via Anthropic API + web_search
-  // Timeout 10s — si trop long, bascule en recherche manuelle
-  // Cooldown 30s entre chaque recherche pour éviter les rate limits
-  async function autoEnrich() {
-    if (!current || enriching || enrichCooldown > 0) return
-    setEnriching(true)
-    setEnrichResult(null)
+  // ─── Navigation & sauvegarde ────────────────────────────────────────────
 
-    // Timeout 10s côté frontend
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 10000)
-
-    try {
-      const response = await fetch('/api/auto-enrich', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: current.name,
-          city: current.city,
-          postal_code: current.postal_code,
-          siren: current.siren,
-          site_web: siteWeb || current.site_web,
-        }),
-        signal: controller.signal,
-      })
-
-      clearTimeout(timeout)
-
-      if (!response.ok) {
-        throw new Error(response.status === 504 ? 'timeout' : `Erreur ${response.status}`)
-      }
-
-      const data = await response.json()
-
-      if (data.error && data.message?.includes('Rate limit')) {
-        setEnrichResult({ error: true, message: '⏳ Trop rapide — fais une recherche manuelle ou attends le cooldown' })
-      } else {
-        setEnrichResult(data)
-        if (data.phone && !phone) setPhone(data.phone)
-        if (data.site_web && !siteWeb) setSiteWeb(data.site_web)
-        if (data.email && !email) setEmail(data.email)
-        if (!data.phone) setTimeout(() => phoneRef.current?.focus(), 100)
-      }
-
-    } catch (error) {
-      clearTimeout(timeout)
-      console.error('Auto-enrich error:', error)
-      if (error.name === 'AbortError') {
-        setEnrichResult({ error: true, message: '⏳ Trop long — passe en recherche manuelle ↓', timeout: true })
-      } else {
-        setEnrichResult({ error: true, message: error.message })
-      }
-    } finally {
-      setEnriching(false)
-      // Lancer cooldown 60s (limite API : 10K tokens/min)
-      startCooldown()
-    }
-  }
-
-  function startCooldown() {
-    setEnrichCooldown(60)
-    const interval = setInterval(() => {
-      setEnrichCooldown(prev => {
-        if (prev <= 1) { clearInterval(interval); return 0 }
-        return prev - 1
-      })
-    }, 1000)
-  }
-
-  // Passer au prospect suivant
   function goNext() {
     resetFields()
     if (currentIndex < prospects.length - 1) {
       setCurrentIndex(prev => prev + 1)
     } else {
-      // Recharger un nouveau batch
       loadProspects()
     }
-    // Focus sur le champ téléphone
     setTimeout(() => phoneRef.current?.focus(), 100)
   }
 
-  // Sauvegarder les données
   async function handleSave() {
     if (!current) return
-    if (!phone && !email && !siteWeb) {
-      goNext()
-      return
-    }
+    if (!phone && !email && !siteWeb) { goNext(); return }
 
     setSaving(true)
-
     const update = {
       updated_at: new Date().toISOString(),
       enrichment_status: 'done',
@@ -499,27 +421,29 @@ export default function EnrichissementRapide() {
     }
 
     if (phone) {
-      // Normaliser le téléphone
       let cleanPhone = phone.replace(/[\s.\-()]/g, '')
       if (cleanPhone.startsWith('+33')) cleanPhone = '0' + cleanPhone.slice(3)
       if (cleanPhone.startsWith('0033')) cleanPhone = '0' + cleanPhone.slice(4)
-      
       if (/^0[1-9]\d{8}$/.test(cleanPhone)) {
         update.phone = cleanPhone.replace(/(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/, '$1 $2 $3 $4 $5')
-        update.phone_source = 'manual_pj'
       } else {
         update.phone = phone.trim()
-        update.phone_source = 'manual_pj'
       }
+      update.phone_source = 'manual_pj'
     }
 
     if (email) {
       update.email = email.trim().toLowerCase()
-      update.email_source = 'manual_pj'
+      update.email_source = lusha?.email_patterns?.includes(email.trim().toLowerCase()) ? 'api_pattern' : 'manual_pj'
     }
 
-    if (siteWeb) {
-      update.site_web = siteWeb.trim()
+    if (siteWeb) update.site_web = siteWeb.trim()
+
+    // Sauvegarder le dirigeant si trouvé via API
+    if (lusha?.dirigeant_nom) {
+      update.dirigeant_nom = lusha.dirigeant_nom
+      update.dirigeant_prenom = lusha.dirigeant_prenom
+      update.dirigeant_fonction = lusha.dirigeant_qualite
     }
 
     const { error } = await supabase
@@ -527,7 +451,7 @@ export default function EnrichissementRapide() {
       .update(update)
       .eq('siren', current.siren)
 
-    // Aussi marquer les autres entités avec le même nom comme done
+    // Marquer les doublons (même nom)
     if (!error && current.name) {
       await supabase
         .from('prospection_massive')
@@ -535,9 +459,9 @@ export default function EnrichissementRapide() {
           enrichment_status: 'done',
           enrichment_last_attempt: new Date().toISOString(),
           enrichment_attempts: 99,
-          ...(update.phone ? { phone: update.phone, phone_source: 'manual_pj' } : {}),
+          ...(update.phone ? { phone: update.phone, phone_source: update.phone_source } : {}),
           ...(update.site_web ? { site_web: update.site_web } : {}),
-          ...(update.email ? { email: update.email, email_source: 'manual_pj' } : {}),
+          ...(update.email ? { email: update.email, email_source: update.email_source } : {}),
         })
         .ilike('name', current.name)
         .neq('siren', current.siren)
@@ -557,16 +481,10 @@ export default function EnrichissementRapide() {
     goNext()
   }
 
-  // Passer sans sauvegarder
-  function handleSkip() {
-    if (!current) return
-    goNext()
-  }
+  function handleSkip() { if (current) goNext() }
 
-  // Marquer comme introuvable / exclu
   async function handleNotFound() {
     if (!current) return
-
     await supabase
       .from('prospection_massive')
       .update({
@@ -576,458 +494,444 @@ export default function EnrichissementRapide() {
         updated_at: new Date().toISOString(),
       })
       .eq('siren', current.siren)
-
     setSessionStats(prev => ({ ...prev, excluded: prev.excluded + 1 }))
     setTotalRemaining(prev => prev - 1)
     goNext()
   }
 
-  // Ouvrir Pages Jaunes
+  // ─── Liens externes ────────────────────────────────────────────────────
+
   function openPJ() {
     if (!current) return
-    const cleanName = current.name
-      .replace(/\b(SAS|SARL|SA|EURL|SCI|SNC|SASU)\b/gi, '')
-      .replace(/[^\w\sÀ-ÿ-]/g, '')
-      .trim()
-    const city = current.city || ''
-    const url = `https://www.pagesjaunes.fr/pagesblanches/recherche?quoiqui=${encodeURIComponent(cleanName)}&ou=${encodeURIComponent(city)}`
-    window.open(url, '_blank')
+    const cleanName = current.name.replace(/\b(SAS|SARL|SA|EURL|SCI|SNC|SASU)\b/gi, '').replace(/[^\w\sÀ-ÿ-]/g, '').trim()
+    window.open(`https://www.pagesjaunes.fr/pagesblanches/recherche?quoiqui=${encodeURIComponent(cleanName)}&ou=${encodeURIComponent(current.city || '')}`, '_blank')
   }
 
-  // Ouvrir recherche Google
   function openGoogle() {
     if (!current) return
-    const query = `${current.name} ${current.city || ''} téléphone`
-    window.open(`https://www.google.com/search?q=${encodeURIComponent(query)}`, '_blank')
+    window.open(`https://www.google.com/search?q=${encodeURIComponent(`${current.name} ${current.city || ''} téléphone`)}`, '_blank')
   }
 
-  // Ouvrir Societe.com
   function openSociete() {
     if (!current) return
-    const query = current.siren || current.siret?.slice(0, 9) || current.name
-    window.open(`https://www.societe.com/cgi-bin/search?champs=${encodeURIComponent(query)}`, '_blank')
+    window.open(`https://www.societe.com/cgi-bin/search?champs=${encodeURIComponent(current.siren || current.name)}`, '_blank')
   }
 
-  // Raccourcis clavier
+  // ─── Raccourcis clavier ─────────────────────────────────────────────────
+
   useEffect(() => {
     function handleKeyDown(e) {
-      // Ignorer si on tape dans un input
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') {
-        if (e.key === 'Enter') {
-          e.preventDefault()
-          handleSave()
-        }
-        if (e.key === 'Escape') {
-          e.preventDefault()
-          handleSkip()
-        }
+        if (e.key === 'Enter') { e.preventDefault(); handleSave() }
+        if (e.key === 'Escape') { e.preventDefault(); handleSkip() }
         return
       }
-
-      if (e.ctrlKey && e.key === 'o') {
-        e.preventDefault()
-        openPJ()
-      }
-      if (e.ctrlKey && e.key === 'e') {
-        e.preventDefault()
-        autoEnrich()
-      }
-      if (e.key === 'Enter') {
-        e.preventDefault()
-        handleSave()
-      }
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        handleSkip()
-      }
+      if (e.ctrlKey && e.key === 'o') { e.preventDefault(); openPJ() }
+      if (e.key === 'Enter') { e.preventDefault(); handleSave() }
+      if (e.key === 'Escape') { e.preventDefault(); handleSkip() }
     }
-
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [current, phone, email, siteWeb, enriching, enrichCooldown])
+  }, [current, phone, email, siteWeb])
 
-  // Focus auto sur le champ téléphone
-  useEffect(() => {
-    if (current && phoneRef.current) {
-      phoneRef.current.focus()
-    }
-  }, [currentIndex])
+  // ─── RENDU ──────────────────────────────────────────────────────────────
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <RefreshCw className="w-8 h-8 animate-spin text-primary-600" />
-        <span className="ml-3 text-lg">Chargement des prospects...</span>
+      <div className="flex items-center justify-center h-96">
+        <div className="text-center">
+          <Loader className="w-8 h-8 animate-spin text-primary-600 mx-auto mb-3" />
+          <p className="text-gray-500">Chargement des prospects...</p>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="max-w-4xl mx-auto">
-      {/* Header Stats */}
-      <div className="mb-6">
-        <div className="flex items-center justify-between mb-4">
+    <div className="max-w-5xl mx-auto">
+      {/* ─── Header + Stats ─────────────────────────────────────────── */}
+      <div className="mb-4">
+        <div className="flex items-center justify-between mb-3">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">⚡ Enrichissement Rapide</h1>
-            <p className="text-gray-600 mt-1">
+            <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+              <Zap className="w-6 h-6 text-amber-500" />
+              Mini-Lusha
+              <span className="text-sm font-normal text-gray-400 ml-2">Enrichissement intelligent</span>
+            </h1>
+            <p className="text-gray-500 text-sm mt-0.5">
               {totalRemaining.toLocaleString()} prospects restants
               {radiusFilter > 0 && ` • ≤ ${radiusFilter}km de ${BASES[proximityBase].name}`}
-              {radiusFilter > 0 && (() => {
-                const base = BASES[proximityBase]
-                const marginRadius = radiusFilter + 50
-                const depts = Object.entries(DEPT_CENTERS)
-                  .filter(([_, c]) => distanceKm(base.lat, base.lng, c.lat, c.lng) <= marginRadius)
-                  .map(([d]) => d).sort()
-                return <span className="text-gray-400"> (dép. {depts.join(', ')})</span>
-              })()}
             </p>
           </div>
+          <button onClick={loadProspects}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors">
+            <RefreshCw className="w-3.5 h-3.5" /> Recharger
+          </button>
         </div>
 
-        {/* Contrôles tri + filtres */}
-        <div className="bg-white rounded-lg border border-gray-200 p-3 mb-4 space-y-3">
-          {/* Ligne 1 : Mode de tri */}
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs text-gray-500 font-medium mr-1">Trier :</span>
-            <div className="flex bg-gray-100 rounded-lg p-0.5">
-              {SORT_MODES.map(m => (
-                <button key={m.id} onClick={() => setSortMode(m.id)}
-                  className={'px-3 py-1.5 rounded-md text-xs font-medium transition-colors ' +
-                    (sortMode === m.id ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700')}
-                  title={m.desc}>
-                  {m.label}
-                </button>
-              ))}
+        {/* Stats compactes */}
+        <div className="grid grid-cols-4 gap-2 mb-3">
+          {[
+            { label: 'Enrichis', val: dbStats.done + sessionStats.done, session: sessionStats.done, color: 'text-primary-600' },
+            { label: '📞 Tels', val: dbStats.phones + sessionStats.phones, session: sessionStats.phones, color: 'text-green-600' },
+            { label: '📧 Emails', val: dbStats.emails + sessionStats.emails, session: sessionStats.emails, color: 'text-blue-600' },
+            { label: '🚫 Exclus', val: dbStats.excluded + sessionStats.excluded, session: sessionStats.excluded, color: 'text-red-400' },
+          ].map(s => (
+            <div key={s.label} className="bg-white rounded-lg border border-gray-200 px-3 py-2 text-center">
+              <p className={`text-xl font-bold ${s.color}`}>{s.val}</p>
+              <p className="text-xs text-gray-500">{s.label}</p>
+              {s.session > 0 && <p className="text-xs text-gray-400">+{s.session}</p>}
             </div>
-          </div>
-
-          {/* Ligne 2 : Base + Rayon + Département */}
-          <div className="flex items-center gap-3 flex-wrap">
-            <div className="flex bg-gray-100 rounded-lg p-0.5">
-              {Object.entries(BASES).map(([key, val]) => (
-                <button key={key} onClick={() => setProximityBase(key)}
-                  className={'px-3 py-1.5 rounded-md text-xs font-medium transition-colors ' +
-                    (proximityBase === key ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700')}>
-                  📍 {val.name} ({val.who})
-                </button>
-              ))}
-            </div>
-            <select value={radiusFilter} onChange={(e) => setRadiusFilter(parseInt(e.target.value))}
-              className="border rounded-lg px-3 py-1.5 text-sm">
-              <option value="0">Pas de limite</option>
-              <option value="30">≤ 30 km</option>
-              <option value="50">≤ 50 km</option>
-              <option value="100">≤ 100 km</option>
-              <option value="150">≤ 150 km</option>
-              <option value="200">≤ 200 km</option>
-            </select>
-            <select value={departementFilter} onChange={(e) => setDepartementFilter(e.target.value)}
-              className="border rounded-lg px-3 py-1.5 text-sm">
-              <option value="">Tous les dép.</option>
-              {departements.map(d => (
-                <option key={d} value={d}>{d}</option>
-              ))}
-            </select>
-            <span className="text-xs text-gray-400 ml-auto">{prospects.length} chargés</span>
-          </div>
+          ))}
         </div>
 
-        {/* Barre de recherche */}
-        <div className="relative mb-4">
+        {/* Filtres compacts */}
+        <div className="bg-white rounded-lg border border-gray-200 p-2.5 mb-3 flex items-center gap-2 flex-wrap text-xs">
+          <div className="flex bg-gray-100 rounded-md p-0.5">
+            {SORT_MODES.map(m => (
+              <button key={m.id} onClick={() => setSortMode(m.id)}
+                className={'px-2.5 py-1 rounded-md font-medium transition-colors ' +
+                  (sortMode === m.id ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700')}>
+                {m.label}
+              </button>
+            ))}
+          </div>
+          <div className="flex bg-gray-100 rounded-md p-0.5">
+            {Object.entries(BASES).map(([key, val]) => (
+              <button key={key} onClick={() => setProximityBase(key)}
+                className={'px-2.5 py-1 rounded-md font-medium transition-colors ' +
+                  (proximityBase === key ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700')}>
+                📍 {val.name}
+              </button>
+            ))}
+          </div>
+          <select value={radiusFilter} onChange={(e) => setRadiusFilter(parseInt(e.target.value))}
+            className="border rounded-md px-2 py-1 text-xs">
+            <option value="0">∞ km</option>
+            <option value="30">≤ 30km</option>
+            <option value="50">≤ 50km</option>
+            <option value="100">≤ 100km</option>
+            <option value="150">≤ 150km</option>
+          </select>
+          <select value={departementFilter} onChange={(e) => setDepartementFilter(e.target.value)}
+            className="border rounded-md px-2 py-1 text-xs">
+            <option value="">Tous dép.</option>
+            {departements.map(d => <option key={d} value={d}>{d}</option>)}
+          </select>
+          <span className="text-gray-400 ml-auto">{prospects.length} chargés</span>
+        </div>
+
+        {/* Recherche */}
+        <div className="relative mb-3">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => handleSearch(e.target.value)}
+          <input type="text" value={searchTerm} onChange={(e) => handleSearch(e.target.value)}
             placeholder="Rechercher par nom, ville ou SIRET..."
-            className="w-full pl-10 pr-10 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent text-sm"
-          />
+            className="w-full pl-10 pr-10 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent text-sm" />
           {searchTerm && (
             <button onClick={() => { setSearchTerm(''); setSearchResults(null) }}
               className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
               <XCircle className="w-4 h-4" />
             </button>
           )}
-          
-          {/* Résultats de recherche */}
           {searchResults !== null && (
-            <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white rounded-lg shadow-lg border border-gray-200 max-h-80 overflow-y-auto">
+            <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white rounded-lg shadow-lg border border-gray-200 max-h-72 overflow-y-auto">
               {searching ? (
-                <div className="p-4 text-center text-gray-500 text-sm">
-                  <RefreshCw className="w-4 h-4 animate-spin inline mr-2" />Recherche...
-                </div>
+                <div className="p-4 text-center text-gray-500 text-sm"><RefreshCw className="w-4 h-4 animate-spin inline mr-2" />Recherche...</div>
               ) : searchResults.length === 0 ? (
                 <div className="p-4 text-center text-gray-500 text-sm">Aucun résultat</div>
               ) : (
                 searchResults.map(p => (
                   <button key={p.id} onClick={() => selectSearchResult(p)}
-                    className="w-full text-left px-4 py-3 hover:bg-gray-50 border-b border-gray-100 last:border-0">
+                    className="w-full text-left px-4 py-2.5 hover:bg-gray-50 border-b border-gray-100 last:border-0">
                     <div className="flex items-center justify-between">
                       <span className="font-medium text-gray-900 text-sm">{p.name}</span>
                       <span className="flex items-center gap-2 text-xs">
-                        {p.enrichment_status === 'done' && <span className="text-green-600 bg-green-50 px-2 py-0.5 rounded">✓ Enrichi</span>}
-                        {p.enrichment_status === 'failed' && <span className="text-red-600 bg-red-50 px-2 py-0.5 rounded">✗ Exclu</span>}
-                        {(!p.enrichment_status || p.enrichment_status === 'pending') && <span className="text-gray-400 bg-gray-50 px-2 py-0.5 rounded">En attente</span>}
-                        <span className="text-gray-400">{p.quality_score}</span>
+                        {p.enrichment_status === 'done' && <span className="text-green-600 bg-green-50 px-1.5 py-0.5 rounded">✓ Enrichi</span>}
+                        {p.enrichment_status === 'failed' && <span className="text-red-600 bg-red-50 px-1.5 py-0.5 rounded">✗ Exclu</span>}
                       </span>
                     </div>
                     <div className="text-xs text-gray-500 mt-0.5">
                       📍 {p.city} ({p.departement}) {p.effectif && '• 👥 ' + getEffectifLabel(p.effectif)} {p.phone && '• 📞 ' + p.phone}
                     </div>
-                    <div className="text-xs text-gray-400">SIRET: {p.siret} {p.naf && '• ' + getNafLabel(p.naf)}</div>
                   </button>
                 ))
               )}
             </div>
           )}
         </div>
-
-        <div className="grid grid-cols-4 gap-3">
-          <div className="bg-white rounded-lg shadow p-3 text-center">
-            <p className="text-2xl font-bold text-primary-600">{dbStats.done + sessionStats.done}</p>
-            <p className="text-xs text-gray-500">Enrichis</p>
-            {sessionStats.done > 0 && <p className="text-xs text-primary-400">+{sessionStats.done} cette session</p>}
-          </div>
-          <div className="bg-white rounded-lg shadow p-3 text-center">
-            <p className="text-2xl font-bold text-green-600">{dbStats.phones + sessionStats.phones}</p>
-            <p className="text-xs text-gray-500">📞 Tels</p>
-            {sessionStats.phones > 0 && <p className="text-xs text-green-400">+{sessionStats.phones} cette session</p>}
-          </div>
-          <div className="bg-white rounded-lg shadow p-3 text-center">
-            <p className="text-2xl font-bold text-blue-600">{dbStats.emails + sessionStats.emails}</p>
-            <p className="text-xs text-gray-500">📧 Emails</p>
-            {sessionStats.emails > 0 && <p className="text-xs text-blue-400">+{sessionStats.emails} cette session</p>}
-          </div>
-          <div className="bg-white rounded-lg shadow p-3 text-center">
-            <p className="text-2xl font-bold text-red-400">{dbStats.excluded + sessionStats.excluded}</p>
-            <p className="text-xs text-gray-500">🚫 Supprimés</p>
-            {sessionStats.excluded > 0 && <p className="text-xs text-red-300">+{sessionStats.excluded} cette session</p>}
-          </div>
-        </div>
       </div>
 
+      {/* ─── Fiche Prospect ─────────────────────────────────────────── */}
       {!current ? (
-        <div className="bg-white rounded-lg shadow p-12 text-center">
+        <div className="bg-white rounded-xl shadow p-12 text-center">
           <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
           <h2 className="text-xl font-semibold mb-2">Tout est enrichi !</h2>
           <p className="text-gray-600">Aucun prospect restant à traiter.</p>
         </div>
       ) : (
         <>
-          {/* Fiche Prospect */}
-          <div className="bg-white rounded-lg shadow p-6 mb-4">
-            <div className="flex items-start justify-between mb-4">
-              <div>
-                <h2 className="text-xl font-bold text-gray-900">{current.name}</h2>
-                <div className="flex items-center gap-4 mt-2 text-sm text-gray-600">
-                  <span>📍 {current.city} ({current.postal_code?.slice(0, 2)})</span>
-                  {current.effectif && <span>👥 {getEffectifLabel(current.effectif)}</span>}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+            {/* En-tête prospect */}
+            <div className="px-6 py-4 border-b border-gray-100 bg-gray-50/50">
+              <div className="flex items-start justify-between">
+                <div>
+                  <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                    <Building2 className="w-5 h-5 text-gray-400" />
+                    {current.name}
+                  </h2>
+                  <div className="flex items-center gap-3 mt-1.5 text-sm text-gray-600 flex-wrap">
+                    <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5" /> {current.city} ({current.postal_code?.slice(0, 2)})</span>
+                    {current.effectif && <span>👥 {getEffectifLabel(current.effectif)}</span>}
+                    {current.naf && <span className="text-gray-400">{getNafLabel(current.naf)}</span>}
+                  </div>
+                  {current.address && <p className="text-xs text-gray-400 mt-1">{current.address}</p>}
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    SIREN: {current.siren} • Score: {current.quality_score}
+                    {current._dist != null && <span className="ml-2 text-primary-600 font-medium">📏 ~{Math.round(current._dist)}km</span>}
+                  </p>
                 </div>
-                {current.address && (
-                  <p className="text-sm text-gray-500 mt-1">🏠 {current.address}</p>
-                )}
-                {current.naf && (
-                  <p className="text-sm text-gray-500 mt-1">🏭 {getNafLabel(current.naf)}</p>
-                )}
-                <p className="text-xs text-gray-400 mt-1">
-                  SIRET: {current.siret} • Score: {current.quality_score}
-                  {current._dist != null && (
-                    <span className="ml-2 text-primary-600 font-medium">• 📏 ~{Math.round(current._dist)} km de {BASES[proximityBase].name}</span>
-                  )}
-                  {sortMode === 'smart' && current._smart && (
-                    <span className="ml-2 text-amber-600 font-medium">• 🎯 {Math.round(current._smart)}</span>
-                  )}
-                </p>
-              </div>
-              <div className="text-sm text-gray-400">
-                {currentIndex + 1} / {prospects.length}
+                <span className="text-sm text-gray-400 bg-white px-2.5 py-1 rounded-lg border border-gray-200">
+                  {currentIndex + 1}/{prospects.length}
+                </span>
               </div>
             </div>
 
-            {/* ⚡ AUTO-ENRICHIR — masqué temporairement */}
-            {false && <button
-              onClick={autoEnrich}
-              disabled={enriching || enrichCooldown > 0}
-              className={`w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium text-sm mb-3 transition-all ${
-                enriching
-                  ? 'bg-purple-100 text-purple-400 cursor-wait'
-                  : enrichCooldown > 0
-                    ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                    : 'bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white'
-              }`}
-            >
-              {enriching ? (
-                <><Loader className="w-4 h-4 animate-spin" /> Recherche en cours...</>
-              ) : enrichCooldown > 0 ? (
-                <>⏳ Dispo dans {enrichCooldown}s</>
-              ) : (
-                <><Zap className="w-4 h-4" /> Auto-enrichir (Ctrl+E)</>
-              )}
-            </button>}
+            <div className="p-6">
+              {/* ─── Bloc Mini-Lusha : Dirigeant + Emails ───────────── */}
+              <div className="mb-5">
+                {lushaLoading ? (
+                  <div className="flex items-center gap-2 text-sm text-gray-400 py-3">
+                    <Loader className="w-4 h-4 animate-spin" /> Recherche du dirigeant...
+                  </div>
+                ) : lusha ? (
+                  <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-lg p-4">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        {lusha.dirigeant_nom ? (
+                          <div className="flex items-center gap-2 mb-2">
+                            <User className="w-4 h-4 text-amber-600" />
+                            <span className="font-semibold text-gray-900">
+                              {lusha.dirigeant_prenom} {lusha.dirigeant_nom}
+                            </span>
+                            <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
+                              {lusha.dirigeant_qualite}
+                            </span>
+                          </div>
+                        ) : (
+                          <p className="text-sm text-amber-700 mb-2">Aucun dirigeant trouvé</p>
+                        )}
 
-            {/* Résultat auto-enrichissement */}
-            {enrichResult && !enrichResult.error && (
-              <div className={`rounded-lg px-4 py-2 text-sm mb-3 ${
-                (enrichResult.phone || enrichResult.site_web || enrichResult.email)
-                  ? 'bg-green-50 border border-green-200 text-green-800'
-                  : 'bg-orange-50 border border-orange-200 text-orange-700'
-              }`}>
-                {(enrichResult.phone || enrichResult.site_web || enrichResult.email) ? (
-                  <>✅ Trouvé : {[enrichResult.phone && 'tél', enrichResult.site_web && 'site', enrichResult.email && 'email'].filter(Boolean).join(', ')} — via {[...new Set(enrichResult.sources || [])].join(' + ')}</>
+                        {/* Tous les dirigeants */}
+                        {lusha.tous_dirigeants?.length > 1 && (
+                          <div className="text-xs text-gray-500 mb-2">
+                            Aussi : {lusha.tous_dirigeants
+                              .filter(d => d.nom && d.nom !== lusha.dirigeant_nom)
+                              .slice(0, 3)
+                              .map(d => `${d.prenom || ''} ${d.nom} (${d.qualite || '?'})`.trim())
+                              .join(' • ')}
+                          </div>
+                        )}
+
+                        {/* Email patterns */}
+                        {lusha.email_patterns?.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5 mt-2">
+                            <span className="text-xs text-gray-500 flex items-center gap-1 mr-1">
+                              <Mail className="w-3 h-3" /> Emails possibles :
+                            </span>
+                            {lusha.email_patterns.slice(0, 6).map(ep => (
+                              <button key={ep} onClick={() => copyEmail(ep)}
+                                className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md transition-all ${
+                                  copiedEmail === ep
+                                    ? 'bg-green-100 text-green-700 border border-green-300'
+                                    : email === ep
+                                      ? 'bg-blue-100 text-blue-700 border border-blue-300'
+                                      : 'bg-white text-gray-600 border border-gray-200 hover:border-amber-300 hover:bg-amber-50'
+                                }`}>
+                                {copiedEmail === ep ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                                {ep}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+
+                        {lusha.domain && !lusha.email_patterns?.length && (
+                          <p className="text-xs text-amber-600 mt-1">
+                            Domaine : {lusha.domain} — pas de dirigeant pour générer les patterns
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Infos complémentaires */}
+                      <div className="text-right text-xs text-gray-500 ml-4 shrink-0">
+                        {lusha.effectif_actuel && lusha.effectif_actuel !== 'NN' && (
+                          <p>Effectif API : <strong>{lusha.effectif_actuel}</strong></p>
+                        )}
+                        {lusha.etat_administratif === 'A' && (
+                          <p className="text-green-600">✓ Active</p>
+                        )}
+                        {lusha.etat_administratif === 'C' && (
+                          <p className="text-red-600">✗ Cessée</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
                 ) : (
-                  <>🤷 Rien trouvé — utilise Pages Jaunes / Google ci-dessous ↓</>
+                  <div className="text-sm text-gray-400 py-2">
+                    Pas de données API disponibles
+                  </div>
                 )}
               </div>
-            )}
-            {enrichResult?.error && (
-              <div className="rounded-lg px-4 py-3 text-sm mb-3 bg-orange-50 border border-orange-200 text-orange-700">
-                {enrichResult.timeout
-                  ? <>⏳ Trop long — <strong>passe en recherche manuelle</strong> avec les boutons ci-dessous ↓</>
-                  : <>⚠️ {enrichResult.message || 'Erreur'} — utilise les boutons ci-dessous ↓</>
-                }
-              </div>
-            )}
 
-            {/* Boutons de recherche manuelle */}
-            <div className="flex gap-2 mb-6">
-              <button
-                onClick={openPJ}
-                className="flex items-center gap-2 px-4 py-2 bg-yellow-500 hover:bg-yellow-600 text-white rounded-lg font-medium transition-colors"
-              >
-                <ExternalLink className="w-4 h-4" />
-                Pages Jaunes
-              </button>
-              <button
-                onClick={openGoogle}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium transition-colors"
-              >
-                <Search className="w-4 h-4" />
-                Google
-              </button>
-              <button
-                onClick={openSociete}
-                className="flex items-center gap-2 px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-medium transition-colors"
-              >
-                <ExternalLink className="w-4 h-4" />
-                Societe.com
-              </button>
+              {/* ─── Signaux recrutement ────────────────────────────── */}
+              <div className="mb-5">
+                <button onClick={loadSignaux}
+                  className="flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-primary-600 transition-colors">
+                  {signauxLoading ? (
+                    <Loader className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <TrendingUp className="w-4 h-4" />
+                  )}
+                  Signaux recrutement
+                  {signaux && (
+                    <span className={`text-xs px-1.5 py-0.5 rounded-full ${
+                      signaux.match ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+                    }`}>
+                      {signaux.match ? `${signaux.match.count} offre(s) !` : `${signaux.total_offres} dans le secteur`}
+                    </span>
+                  )}
+                  {showSignaux ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                </button>
+                
+                {showSignaux && signaux && (
+                  <div className="mt-2 bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm">
+                    {signaux.match ? (
+                      <div className="mb-2">
+                        <p className="font-semibold text-green-700 flex items-center gap-1">
+                          <Briefcase className="w-4 h-4" />
+                          🔥 Cette entreprise recrute ! {signaux.match.count} offre(s) active(s)
+                        </p>
+                        <div className="mt-1 text-xs text-gray-600">
+                          {signaux.match.offres?.slice(0, 3).map((o, i) => (
+                            <p key={i} className="ml-5">• {o.intitule || o.titre} ({o.lieu || ''})</p>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-blue-700 mb-2">
+                        Pas d'offre directe, mais <strong>{signaux.total_offres} offres</strong> dans le dép. {signaux.departement}
+                        {signaux.secteur && <> en <strong>{signaux.secteur}</strong></>}
+                      </p>
+                    )}
+                    {signaux.top5?.length > 0 && (
+                      <details className="text-xs text-gray-600">
+                        <summary className="cursor-pointer text-blue-600 hover:text-blue-800">
+                          Top recruteurs du secteur ({signaux.total_entreprises} entreprises)
+                        </summary>
+                        <div className="mt-1 ml-4">
+                          {signaux.top5.map((e, i) => (
+                            <p key={i}>{e.nom} — {e.count} offre(s)</p>
+                          ))}
+                        </div>
+                      </details>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* ─── Recherche manuelle ─────────────────────────────── */}
+              <div className="flex gap-2 mb-5">
+                <button onClick={openPJ}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-yellow-500 hover:bg-yellow-600 text-white rounded-lg text-sm font-medium transition-colors">
+                  <ExternalLink className="w-3.5 h-3.5" /> Pages Jaunes
+                </button>
+                <button onClick={openGoogle}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-sm font-medium transition-colors">
+                  <Search className="w-3.5 h-3.5" /> Google
+                </button>
+                <button onClick={openSociete}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-600 hover:bg-gray-700 text-white rounded-lg text-sm font-medium transition-colors">
+                  <ExternalLink className="w-3.5 h-3.5" /> Societe.com
+                </button>
+              </div>
+
+              {/* ─── Champs de saisie ──────────────────────────────── */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1">
+                    <Phone className="w-4 h-4" /> Téléphone
+                  </label>
+                  <input ref={phoneRef} type="tel" value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="02 98 12 34 56"
+                    className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                </div>
+                <div>
+                  <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1">
+                    <Mail className="w-4 h-4" /> Email
+                    {lusha?.email_patterns?.includes(email) && (
+                      <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">pattern</span>
+                    )}
+                  </label>
+                  <input type="email" value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="contact@entreprise.fr"
+                    className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                </div>
+                <div>
+                  <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1">
+                    <Globe className="w-4 h-4" /> Site web
+                  </label>
+                  <div className="flex gap-2">
+                    <input type="url" value={siteWeb}
+                      onChange={(e) => setSiteWeb(e.target.value)}
+                      onBlur={() => { if (siteWeb && !phone) scrapeWebsite() }}
+                      placeholder="www.entreprise.fr"
+                      className="flex-1 border rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                    {siteWeb && (
+                      <button onClick={scrapeWebsite} disabled={scraping}
+                        className="px-3 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 text-sm font-medium whitespace-nowrap">
+                        {scraping ? '⏳' : '🔍'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
 
-            {/* Champs de saisie */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1">
-                  <Phone className="w-4 h-4" />
-                  Téléphone
-                  {enrichResult?.phone && phone === enrichResult.phone && (
-                    <span className="text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full">auto</span>
-                  )}
-                </label>
-                <input
-                  ref={phoneRef}
-                  type="tel"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  placeholder="02 98 12 34 56"
-                  className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                />
-              </div>
-              <div>
-                <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1">
-                  <Mail className="w-4 h-4" />
-                  Email
-                  {enrichResult?.email && email === enrichResult.email && (
-                    <span className="text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full">auto</span>
-                  )}
-                </label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="contact@entreprise.fr"
-                  className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                />
-              </div>
-              <div>
-                <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1">
-                  <Globe className="w-4 h-4" />
-                  Site web
-                  {enrichResult?.site_web && siteWeb === enrichResult.site_web && (
-                    <span className="text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full">auto</span>
-                  )}
-                </label>
-                <div className="flex gap-2">
-                <input
-                  type="url"
-                  value={siteWeb}
-                  onChange={(e) => setSiteWeb(e.target.value)}
-                  onBlur={() => { if (siteWeb && !phone) scrapeWebsite() }}
-                  placeholder="www.entreprise.fr"
-                  className="flex-1 border rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                />
-                {siteWeb && (
-                  <button
-                    type="button"
-                    onClick={scrapeWebsite}
-                    disabled={scraping}
-                    className="px-3 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 text-sm font-medium whitespace-nowrap"
-                    title="Chercher tél + email sur le site"
-                  >
-                    {scraping ? '⏳' : '🔍 Scraper'}
-                  </button>
-                )}
-                </div>
+            {/* ─── Actions ──────────────────────────────────────────── */}
+            <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
+              <button onClick={handleNotFound}
+                className="flex items-center gap-2 px-4 py-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg font-medium text-sm transition-colors">
+                <XCircle className="w-4 h-4" /> Exclure
+              </button>
+              <div className="flex gap-3">
+                <button onClick={handleSkip}
+                  className="flex items-center gap-2 px-4 py-2.5 bg-gray-200 hover:bg-gray-300 rounded-lg font-medium text-sm transition-colors">
+                  <SkipForward className="w-4 h-4" /> Passer
+                  <kbd className="text-xs bg-gray-300 px-1.5 py-0.5 rounded ml-1">Échap</kbd>
+                </button>
+                <button onClick={handleSave}
+                  disabled={saving || (!phone && !email && !siteWeb)}
+                  className={`flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium text-sm transition-colors ${
+                    saving || (!phone && !email && !siteWeb)
+                      ? 'bg-gray-300 cursor-not-allowed text-gray-500'
+                      : 'bg-green-600 hover:bg-green-700 text-white'
+                  }`}>
+                  {saving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                  Sauvegarder
+                  <kbd className="text-xs bg-green-700 px-1.5 py-0.5 rounded ml-1">Entrée</kbd>
+                </button>
               </div>
             </div>
           </div>
 
-          {/* Boutons d'action */}
-          <div className="flex items-center justify-between">
-            <button
-              onClick={handleNotFound}
-              className="flex items-center gap-2 px-4 py-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg font-medium transition-colors"
-            >
-              <XCircle className="w-5 h-5" />
-              Exclure (fermé / pas intéressé)
-            </button>
-
-            <div className="flex gap-3">
-              <button
-                onClick={handleSkip}
-                className="flex items-center gap-2 px-5 py-3 bg-gray-200 hover:bg-gray-300 rounded-lg font-medium transition-colors"
-              >
-                <SkipForward className="w-5 h-5" />
-                Passer
-                <span className="text-xs text-gray-500 ml-1">(Échap)</span>
-              </button>
-              <button
-                onClick={handleSave}
-                disabled={saving || (!phone && !email && !siteWeb)}
-                className={`flex items-center gap-2 px-6 py-3 rounded-lg font-medium transition-colors ${
-                  saving || (!phone && !email && !siteWeb)
-                    ? 'bg-gray-300 cursor-not-allowed'
-                    : 'bg-green-600 hover:bg-green-700 text-white'
-                }`}
-              >
-                {saving ? (
-                  <RefreshCw className="w-5 h-5 animate-spin" />
-                ) : (
-                  <Save className="w-5 h-5" />
-                )}
-                Sauvegarder & Suivant
-                <span className="text-xs text-green-200 ml-1">(Entrée)</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Raccourcis clavier */}
-          <div className="mt-6 text-center text-xs text-gray-400">
-            <span className="inline-flex items-center gap-4">
-              <span><kbd className="px-1.5 py-0.5 bg-gray-100 rounded text-gray-600">Entrée</kbd> Sauvegarder</span>
-              <span><kbd className="px-1.5 py-0.5 bg-gray-100 rounded text-gray-600">Échap</kbd> Passer</span>
-              <span><kbd className="px-1.5 py-0.5 bg-purple-100 rounded text-purple-600">Ctrl+E</kbd> Auto-enrichir</span>
-              <span><kbd className="px-1.5 py-0.5 bg-gray-100 rounded text-gray-600">Ctrl+O</kbd> Ouvrir PJ</span>
-            </span>
+          {/* Raccourcis */}
+          <div className="mt-3 text-center text-xs text-gray-400">
+            <kbd className="px-1.5 py-0.5 bg-gray-100 rounded">Entrée</kbd> Sauvegarder
+            <span className="mx-3">•</span>
+            <kbd className="px-1.5 py-0.5 bg-gray-100 rounded">Échap</kbd> Passer
+            <span className="mx-3">•</span>
+            <kbd className="px-1.5 py-0.5 bg-gray-100 rounded">Ctrl+O</kbd> Pages Jaunes
           </div>
         </>
       )}
