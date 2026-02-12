@@ -7,7 +7,7 @@ import { generateQuotePDF } from '../lib/quoteGenerator'
 import {
   Plus, Search, FileText, ArrowLeft, Trash2, Save, Send, Copy,
   ChevronDown, ChevronUp, Eye, MoreHorizontal, Check, X, Edit2,
-  Download, RefreshCw, Building2, GripVertical, Pen, Mail, Loader2
+  Download, RefreshCw, Building2, GripVertical, Pen, Mail, Loader2, Paperclip
 } from 'lucide-react'
 
 const STATUS_CONFIG = {
@@ -157,6 +157,7 @@ export default function Quotes() {
   const [sendEmail, setSendEmail] = useState({ to: '', subject: '', body: '', customInstructions: '' })
   const [sendLoading, setSendLoading] = useState(false)
   const [sendSending, setSendSending] = useState(false)
+  const [sendAttachments, setSendAttachments] = useState([]) // [{filename, base64, type:'program'|'manual', courseTitle?, enabled:true}]
 
   const emptyQuote = {
     client_id: '', contact_id: '', session_id: '',
@@ -420,6 +421,43 @@ export default function Quotes() {
       })
       setSendEmail({ to: defaultTo, subject: '', body: '', customInstructions: '' })
       setSendStep(1)
+
+      // Auto-detect programs for items with course_id
+      const programAttachments = []
+      const courseIds = [...new Set(loadedItems.filter(it => it.course_id).map(it => it.course_id))]
+      if (courseIds.length > 0) {
+        const { data: coursesData } = await supabase
+          .from('courses')
+          .select('id, title, code, program_url')
+          .in('id', courseIds)
+        
+        for (const course of (coursesData || [])) {
+          if (course.program_url) {
+            try {
+              // Download program PDF from Supabase storage URL
+              const resp = await fetch(course.program_url)
+              if (resp.ok) {
+                const blob = await resp.blob()
+                const progBase64 = await new Promise((resolve) => {
+                  const reader = new FileReader()
+                  reader.onload = () => resolve(reader.result.split(',')[1])
+                  reader.readAsDataURL(blob)
+                })
+                programAttachments.push({
+                  filename: `Programme_${course.code || course.title.replace(/\s+/g, '_')}.pdf`,
+                  base64: progBase64,
+                  type: 'program',
+                  courseTitle: course.title,
+                  enabled: true
+                })
+              }
+            } catch (err) {
+              console.warn('Impossible de charger le programme pour', course.title, err)
+            }
+          }
+        }
+      }
+      setSendAttachments(programAttachments)
     } catch (err) {
       console.error('Erreur ouverture envoi:', err)
       toast.error('Erreur: ' + err.message)
@@ -432,6 +470,7 @@ export default function Quotes() {
     setSendWizard(null)
     setSendStep(1)
     setSendEmail({ to: '', subject: '', body: '', customInstructions: '' })
+    setSendAttachments([])
   }
 
   async function generateEmailText() {
@@ -439,13 +478,16 @@ export default function Quotes() {
     setSendLoading(true)
     try {
       const { quote, client, contact, items } = sendWizard
+      const enabledPrograms = sendAttachments.filter(a => a.type === 'program' && a.enabled)
       const resp = await fetch('/api/generate-quote-email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           quote, client, contact, items,
           senderName: quote.created_by || 'Hicham Saidi',
-          customInstructions: sendEmail.customInstructions || ''
+          customInstructions: sendEmail.customInstructions || '',
+          hasPrograms: enabledPrograms.length > 0,
+          programTitles: enabledPrograms.map(p => p.courseTitle)
         })
       })
       const data = await resp.json()
@@ -457,10 +499,14 @@ export default function Quotes() {
       toast.error('Erreur: ' + err.message)
       // Fallback text
       const { quote, client } = sendWizard
+      const hasProgs = sendAttachments.some(a => a.type === 'program' && a.enabled)
+      const pjText = hasProgs 
+        ? 'notre devis ainsi que les programmes de formation correspondants'
+        : 'notre devis'
       setSendEmail(prev => ({
         ...prev,
         subject: `Devis ${quote.reference} - Access Formation`,
-        body: `Bonjour,\n\nSuite à notre échange, veuillez trouver ci-joint notre devis ${quote.reference} relatif à votre projet de formation.\n\nNous restons à votre disposition pour tout complément d'information.\n\nBien cordialement`
+        body: `Bonjour,\n\nSuite à notre échange, veuillez trouver ci-joint ${pjText} (réf. ${quote.reference}).\n\nNous restons à votre disposition pour tout complément d'information.`
       }))
     }
     setSendLoading(false)
@@ -478,6 +524,11 @@ export default function Quotes() {
         throw new Error('Session expirée. Reconnectez-vous.')
       }
       const { quote, pdfBase64 } = sendWizard
+      // Build extra attachments (programs + manual, only enabled ones)
+      const extraAttachments = sendAttachments
+        .filter(att => att.enabled)
+        .map(att => ({ filename: att.filename, base64: att.base64 }))
+
       const resp = await fetch('/api/send-quote-email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -488,6 +539,7 @@ export default function Quotes() {
           body: sendEmail.body,
           pdfBase64: pdfBase64,
           pdfFilename: `${quote.reference}.pdf`,
+          extraAttachments,
           quoteId: quote.id,
           clientId: quote.client_id,
           createdBy: quote.created_by
@@ -1094,9 +1146,87 @@ export default function Quotes() {
                 <iframe
                   src={pdfBlobUrl}
                   className="w-full rounded-lg border border-gray-200"
-                  style={{ height: '55vh' }}
+                  style={{ height: '40vh' }}
                   title="Aperçu du devis"
                 />
+
+                {/* ─── Pièces jointes ─────────────────── */}
+                <div className="mt-4 bg-gray-50 rounded-xl p-4 border">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                      <Paperclip size={16} /> Pièces jointes
+                    </h3>
+                    <label className="px-3 py-1.5 bg-primary-50 text-primary-700 border border-primary-200 rounded-lg text-xs font-medium cursor-pointer hover:bg-primary-100 transition-colors">
+                      + Ajouter un fichier
+                      <input type="file" className="hidden" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0]
+                          if (!file) return
+                          if (file.size > 5 * 1024 * 1024) return toast.error('Fichier trop lourd (max 5 Mo)')
+                          const base64 = await new Promise((resolve) => {
+                            const reader = new FileReader()
+                            reader.onload = () => resolve(reader.result.split(',')[1])
+                            reader.readAsDataURL(file)
+                          })
+                          setSendAttachments(prev => [...prev, {
+                            filename: file.name,
+                            base64,
+                            type: 'manual',
+                            enabled: true
+                          }])
+                          e.target.value = ''
+                          toast.success(`${file.name} ajouté`)
+                        }}
+                      />
+                    </label>
+                  </div>
+
+                  {/* Devis (toujours inclus) */}
+                  <div className="flex items-center gap-3 py-2 px-3 bg-white rounded-lg border border-gray-200 mb-2">
+                    <FileText size={16} className="text-orange-500 flex-shrink-0" />
+                    <span className="text-sm font-medium text-gray-800 flex-1">{quote.reference}.pdf</span>
+                    <span className="text-xs text-gray-400">Devis</span>
+                    <Check size={14} className="text-green-500" />
+                  </div>
+
+                  {/* Programmes auto-détectés + manuels */}
+                  {sendAttachments.map((att, idx) => (
+                    <div key={idx} className={`flex items-center gap-3 py-2 px-3 rounded-lg border mb-2 ${
+                      att.enabled ? 'bg-white border-gray-200' : 'bg-gray-100 border-gray-200 opacity-60'
+                    }`}>
+                      <FileText size={16} className={att.type === 'program' ? 'text-blue-500 flex-shrink-0' : 'text-purple-500 flex-shrink-0'} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-800 truncate">{att.filename}</p>
+                        {att.courseTitle && <p className="text-xs text-gray-400 truncate">{att.courseTitle}</p>}
+                      </div>
+                      <span className="text-xs text-gray-400 flex-shrink-0">
+                        {att.type === 'program' ? 'Programme' : 'Manuel'}
+                      </span>
+                      <button
+                        onClick={() => setSendAttachments(prev => prev.map((a, i) => i === idx ? { ...a, enabled: !a.enabled } : a))}
+                        className={`w-7 h-7 flex items-center justify-center rounded-md border transition-colors ${
+                          att.enabled ? 'bg-green-50 border-green-300 text-green-600' : 'bg-gray-100 border-gray-300 text-gray-400'
+                        }`}
+                        title={att.enabled ? 'Désactiver' : 'Activer'}
+                      >
+                        {att.enabled ? <Check size={14} /> : <X size={14} />}
+                      </button>
+                      {att.type === 'manual' && (
+                        <button
+                          onClick={() => setSendAttachments(prev => prev.filter((_, i) => i !== idx))}
+                          className="w-7 h-7 flex items-center justify-center rounded-md text-red-400 hover:bg-red-50 hover:text-red-600 transition-colors"
+                          title="Supprimer"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+
+                  {sendAttachments.length === 0 && (
+                    <p className="text-xs text-gray-400 mt-1">Aucun programme détecté. Ajoutez des fichiers manuellement si besoin.</p>
+                  )}
+                </div>
               </div>
             )}
 
@@ -1203,10 +1333,17 @@ export default function Quotes() {
                     <span className="text-gray-400">contact@accessformation.pro</span>
                     <span className="text-gray-500">Objet :</span>
                     <span className="font-medium">{sendEmail.subject}</span>
-                    <span className="text-gray-500">Pièce jointe :</span>
-                    <span className="flex items-center gap-1 text-orange-600">
-                      <FileText size={14} /> {quote.reference}.pdf
-                    </span>
+                    <span className="text-gray-500">Pièces jointes :</span>
+                    <div className="space-y-1">
+                      <span className="flex items-center gap-1 text-orange-600">
+                        <FileText size={14} /> {quote.reference}.pdf
+                      </span>
+                      {sendAttachments.filter(a => a.enabled).map((att, i) => (
+                        <span key={i} className="flex items-center gap-1 text-blue-600">
+                          <FileText size={14} /> {att.filename}
+                        </span>
+                      ))}
+                    </div>
                   </div>
                 </div>
 
