@@ -127,14 +127,14 @@ export default function ClientDetail() {
         throw new Error(errData.error || `Erreur API (${resp.status})`)
       }
       const data = await resp.json()
-      // Le proxy retourne { opco_name, opco_siren, status, idcc, naf_code, url }
       if (data.status === 'OK' && data.opco_name) {
         setEditForm(prev => ({ ...prev, opco_name: data.opco_name }))
-        toast.success(`OPCO détecté : ${data.opco_name}`)
-      } else if (data.status === 'NOT_FOUND') {
-        toast.error('OPCO non trouvé pour ce SIRET')
+        const extra = data.convention ? ` (${data.convention})` : ''
+        toast.success(`OPCO détecté : ${data.opco_name}${extra}`)
+      } else if (data.status === 'IDCC_FOUND_NO_OPCO') {
+        toast.error(data.message || `Convention trouvée (IDCC ${data.idcc}) mais OPCO non identifié`)
       } else {
-        toast.error(`Résultat inattendu : ${data.status || 'inconnu'}`)
+        toast.error(data.message || 'OPCO non trouvé pour ce SIRET')
       }
     } catch (err) {
       console.error('Erreur détection OPCO:', err)
@@ -356,6 +356,9 @@ export default function ClientDetail() {
                     className="flex-1 px-3 py-2 border rounded-lg text-sm">
                     <option value="">— Aucun OPCO —</option>
                     {OPCO_LIST.map(o => <option key={o} value={o}>{o}</option>)}
+                    {editForm.opco_name && !OPCO_LIST.includes(editForm.opco_name) && (
+                      <option value={editForm.opco_name}>{editForm.opco_name} (détecté)</option>
+                    )}
                   </select>
                   <button onClick={autoDetectOpco} disabled={detectingOpco || !(editForm.siret || '').replace(/\s/g, '')}
                     title="Détecter l'OPCO depuis le SIRET"
