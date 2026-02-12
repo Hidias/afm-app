@@ -111,7 +111,10 @@ export default function Dashboard() {
   const [dashData, setDashData] = useState({
     nonConformites: [], qualityAlerts: [], reclamations: [],
     purgeStats: null, rdvsAPrendre: [], callbacksToday: [], quotes: [],
-    notifications: [], evaluationsHot: [], sstCertifications: [], trainingThemes: [],
+    notifications: [],
+    // ✅ TABLE CORRECTE: trainee_evaluations (pas evaluations_hot)
+    traineeEvaluations: [],
+    sstCertifications: [], trainingThemes: [],
   })
 
   // ─── Widget config loading ─────────────────────────────
@@ -128,7 +131,6 @@ export default function Dashboard() {
     if (data && data.length > 0) {
       setWidgetConfigs(data)
     } else {
-      // Fallback si table pas encore créée
       setWidgetConfigs(Object.values(WIDGET_REGISTRY).map((w, i) => ({
         widget_id: w.id, position: i, size: w.defaultSize, visible: w.id !== 'recent_messages',
       })))
@@ -175,21 +177,18 @@ export default function Dashboard() {
   const loadData = async () => {
     await Promise.all([fetchClients(), fetchCourses(), fetchTrainees(), fetchSessions()])
     
-    const [ncR, alertsR, reclR, rdvR, cbR, quotesR, notifR, evalHotR, sstR, themesR] = await Promise.all([
+    const [ncR, alertsR, reclR, rdvR, cbR, quotesR, notifR, traineeEvalsR, sstR, themesR] = await Promise.all([
       supabase.from('non_conformites').select('*').in('status', ['open', 'in_progress']).order('created_at', { ascending: false }),
       supabase.from('quality_alerts').select('*').eq('status', 'pending').order('created_at', { ascending: false }).limit(10),
-      // ✅ FIX: reclamations — pas de trainee_id dans cette table
-      supabase.from('reclamations').select('id, reference, subject, description, created_at, session_id, status').in('status', ['open', 'in_progress']).order('created_at', { ascending: false }).limit(10),
+      // ✅ reclamations — pas de trainee_id
+      supabase.from('reclamations').select('id, reference, subject, description, created_at, session_id, status, date_reception').in('status', ['open', 'in_progress']).order('created_at', { ascending: false }).limit(10),
       supabase.from('prospect_rdv').select('*, clients(name)').eq('status', 'a_prendre').order('created_at', { ascending: false }),
       supabase.from('prospect_calls').select('*, clients(name)').eq('needs_callback', true).gte('callback_date', new Date().toISOString().split('T')[0]).order('callback_date').order('callback_time').limit(20),
-      // ✅ table quotes (pas devis)
       supabase.from('quotes').select('*, clients(name)').order('created_at', { ascending: false }).limit(50),
       supabase.from('notifications').select('*').order('created_at', { ascending: false }).limit(20),
-      // ✅ evaluations_hot pour satisfaction + would_recommend
-      supabase.from('evaluations_hot').select('session_id, trainee_id, q1_objectives, q2_content, q3_pedagogy, q4_trainer, q5_organization, q6_materials, would_recommend, submitted_at'),
-      // ✅ sst_certifications pour recyclages
+      // ✅ TABLE CORRECTE: trainee_evaluations (la vraie table des évals à chaud)
+      supabase.from('trainee_evaluations').select('session_id, trainee_id, q_org_documents, q_org_accueil, q_org_locaux, q_org_materiel, q_contenu_organisation, q_contenu_supports, q_contenu_duree, q_contenu_programme, q_formateur_pedagogie, q_formateur_expertise, q_formateur_progression, q_formateur_moyens, q_global_adequation, q_global_competences, would_recommend, questionnaire_submitted, submitted_at'),
       supabase.from('sst_certifications').select('id, session_id, trainee_id, formation_type, candidat_certifie, date_certification, created_at'),
-      // ✅ training_themes pour répartition
       supabase.from('training_themes').select('id, code, name, color'),
     ])
     
@@ -231,7 +230,9 @@ export default function Dashboard() {
       nonConformites: ncR.data || [], qualityAlerts: enrichedAlerts, reclamations: enrichedRecl,
       purgeStats, rdvsAPrendre: rdvR.data || [],
       callbacksToday: cbR.data || [], quotes: quotesR.data || [], notifications: notifR.data || [],
-      evaluationsHot: evalHotR.data || [], sstCertifications: sstR.data || [],
+      // ✅ La bonne table
+      traineeEvaluations: traineeEvalsR.data || [],
+      sstCertifications: sstR.data || [],
       trainingThemes: themesR.data || [],
     })
     setLoading(false)
@@ -265,80 +266,70 @@ export default function Dashboard() {
   const sessionsInProgress = useMemo(() => sessions.filter(s => s.status === 'in_progress'), [sessions])
   const completedSessions = useMemo(() => sessions.filter(s => s.status === 'completed'), [sessions])
   
-  // ✅ Personnes formées = stagiaires avec presence_complete OU result renseigné
+  // ✅ Personnes formées = presence_complete || early_departure || result renseigné
   const personnesFormees = useMemo(() => completedSessions.reduce((t, s) => {
     return t + (s.session_trainees || []).filter(st => 
       st.presence_complete === true || st.early_departure === true || st.result
     ).length
   }, 0), [completedSessions])
   
-  // ✅ J+90 évaluations à froid
+  // J+90 évaluations à froid
   const sessionsJ90 = useMemo(() => sessions.filter(s => {
     if (s.status !== 'completed' || !s.end_date) return false
     const days = differenceInDays(today, new Date(s.end_date))
     if (days < 85 || days > 95) return false
     const formed = (s.session_trainees || []).filter(st => st.presence_complete || st.early_departure || st.result)
-    if (formed.length === 0) return false
-    const sentCount = formed.filter(st => st.cold_eval_sent_individual === true).length
-    return sentCount < formed.length
+    return formed.length > 0
   }), [sessions])
   
-  // ✅ FIX: Émargements incomplets — sessions en cours où presence_complete est encore NULL
-  // (attendance_day_X sont tous NULL dans la base, donc on utilise presence_complete)
+  // ✅ Émargements incomplets — sessions en cours avec stagiaires sans presence_complete
   const incompleteAttendance = useMemo(() => {
     return sessions.filter(s => {
       if (s.status !== 'in_progress') return false
       const sts = s.session_trainees || []
       if (sts.length === 0) return false
-      // Session en cours avec des stagiaires dont la présence n'est pas encore validée
-      return sts.some(st => st.presence_complete === null || st.presence_complete === undefined)
+      return sts.some(st => st.presence_complete !== true && st.early_departure !== true)
     })
   }, [sessions])
   
-  // ✅ FIX: Évaluations en attente — cross-ref avec evaluations_hot
-  // Un stagiaire a fait son éval si: evaluation_completed === true OU il existe une ligne dans evaluations_hot
-  const evaluationsPending = useMemo(() => {
-    // Construire un Set des (session_id + trainee_id) ayant une éval hot
-    const evalHotSet = new Set()
-    dashData.evaluationsHot.forEach(ev => {
-      evalHotSet.add(`${ev.session_id}_${ev.trainee_id}`)
+  // ✅ Évaluations en attente — cross-ref avec trainee_evaluations (la VRAIE table)
+  // Un stagiaire a fait son éval si il existe une ligne dans trainee_evaluations avec questionnaire_submitted=true
+  const traineeEvalSet = useMemo(() => {
+    const s = new Set()
+    dashData.traineeEvaluations.forEach(ev => {
+      if (ev.questionnaire_submitted || ev.submitted_at) {
+        s.add(`${ev.session_id}_${ev.trainee_id}`)
+      }
     })
-    
+    return s
+  }, [dashData.traineeEvaluations])
+  
+  const evaluationsPending = useMemo(() => {
     return completedSessions.filter(s => {
       const formed = (s.session_trainees || []).filter(st => 
-        st.presence_complete || st.early_departure || st.result
+        st.presence_complete === true || st.early_departure === true || st.result
       )
       if (formed.length === 0) return false
-      const withEval = formed.filter(st => 
-        st.evaluation_completed === true || evalHotSet.has(`${s.id}_${st.trainee_id}`)
-      )
+      const withEval = formed.filter(st => traineeEvalSet.has(`${s.id}_${st.trainee_id}`))
       return withEval.length < formed.length
     })
-  }, [completedSessions, dashData.evaluationsHot])
+  }, [completedSessions, traineeEvalSet])
   
-  // Nombre d'évals complétées pour le rendu du widget
   const getEvalCount = (session) => {
-    const evalHotSet = new Set()
-    dashData.evaluationsHot.forEach(ev => {
-      evalHotSet.add(`${ev.session_id}_${ev.trainee_id}`)
-    })
     const formed = (session.session_trainees || []).filter(st => 
-      st.presence_complete || st.early_departure || st.result
+      st.presence_complete === true || st.early_departure === true || st.result
     )
-    const withEval = formed.filter(st => 
-      st.evaluation_completed === true || evalHotSet.has(`${session.id}_${st.trainee_id}`)
-    )
+    const withEval = formed.filter(st => traineeEvalSet.has(`${session.id}_${st.trainee_id}`))
     return { done: withEval.length, total: formed.length }
   }
   
-  // ✅ Certifications SST expirantes via sst_certifications (date_certification + 24 mois)
+  // Certifications SST expirantes (24 mois)
   const certifExpiring = useMemo(() => {
     const in3m = addDays(today, 90)
     return dashData.sstCertifications
       .filter(cert => {
         if (!cert.candidat_certifie || !cert.date_certification) return false
-        const certDate = new Date(cert.date_certification)
-        const expiry = new Date(certDate)
+        const expiry = new Date(cert.date_certification)
         expiry.setMonth(expiry.getMonth() + 24)
         return isAfter(expiry, today) && isBefore(expiry, in3m)
       })
@@ -351,7 +342,7 @@ export default function Dashboard() {
       .sort((a, b) => a.expiry - b.expiry)
   }, [dashData.sstCertifications, trainees])
   
-  // ✅ Documents manquants via convention_sent + convocation_sent_at
+  // Documents manquants
   const documentsMissing = useMemo(() => {
     const issues = []
     sessionsUpcoming30.forEach(s => {
@@ -367,7 +358,7 @@ export default function Dashboard() {
     return issues
   }, [sessionsUpcoming30])
   
-  // ✅ Positionnements via positioning_test_completed
+  // Positionnements via positioning_test_completed
   const positioningPending = useMemo(() => {
     let count = 0
     sessions.filter(s => s.status === 'planned' || s.status === 'in_progress').forEach(s => {
@@ -383,7 +374,7 @@ export default function Dashboard() {
     return count
   }, [sessions])
   
-  // ✅ Pipeline devis via table quotes
+  // Pipeline devis
   const quotesPipeline = useMemo(() => {
     const q = dashData.quotes
     return {
@@ -437,7 +428,7 @@ export default function Dashboard() {
     return months
   }, [sessions])
   
-  // ✅ Répartition par thème via training_themes
+  // Répartition par thème
   const themeDistribution = useMemo(() => {
     const themeMap = {}
     dashData.trainingThemes.forEach(t => { themeMap[t.id] = t.name })
@@ -455,21 +446,31 @@ export default function Dashboard() {
   
   const hoursRealized = useMemo(() => completedSessions.reduce((s, se) => s + (parseFloat(se.courses?.duration_hours) || 0), 0), [completedSessions])
   
-  // ✅ FIX: Indicateurs qualité
-  // Satisfaction + Recommandation = evaluations_hot
-  // Présence = session_trainees.presence_complete
-  // Réussite = session_trainees.result === 'acquired'
+  // ✅ Indicateurs qualité — utilise trainee_evaluations (14 critères q_org/q_contenu/q_formateur/q_global)
   const qualityStats = useMemo(() => {
-    const evals = dashData.evaluationsHot
+    const evals = dashData.traineeEvaluations
     const hasEvalData = evals.length > 0
     
-    let totalScore = 0, countScore = 0, recYes = 0, recTotal = 0
+    // Satisfaction = moyenne des 14 critères sur tous les questionnaires soumis
+    const scoringKeys = [
+      'q_org_documents', 'q_org_accueil', 'q_org_locaux', 'q_org_materiel',
+      'q_contenu_organisation', 'q_contenu_supports', 'q_contenu_duree', 'q_contenu_programme',
+      'q_formateur_pedagogie', 'q_formateur_expertise', 'q_formateur_progression', 'q_formateur_moyens',
+      'q_global_adequation', 'q_global_competences'
+    ]
+    
+    let totalScore = 0, countScore = 0
     evals.forEach(ev => {
-      const scores = [ev.q1_objectives, ev.q2_content, ev.q3_pedagogy, ev.q4_trainer, ev.q5_organization, ev.q6_materials].filter(v => v != null)
+      const scores = scoringKeys.map(k => ev[k]).filter(v => v != null && !isNaN(v) && Number(v) > 0)
       if (scores.length > 0) {
-        totalScore += scores.reduce((s, v) => s + v, 0) / scores.length
+        totalScore += scores.reduce((s, v) => s + Number(v), 0) / scores.length
         countScore++
       }
+    })
+    
+    // Recommandation
+    let recYes = 0, recTotal = 0
+    evals.forEach(ev => {
       if (ev.would_recommend !== null && ev.would_recommend !== undefined) {
         recTotal++
         if (ev.would_recommend) recYes++
@@ -485,7 +486,7 @@ export default function Dashboard() {
       })
     })
     
-    // ✅ FIX: Réussite via result === 'acquired'
+    // ✅ Réussite via result === 'acquired'
     let successTotal = 0, successOk = 0
     completedSessions.forEach(s => {
       (s.session_trainees || []).forEach(st => {
@@ -501,11 +502,11 @@ export default function Dashboard() {
       presence: presTotal > 0 ? Math.round((presOk / presTotal) * 100) : null,
       success: successTotal > 0 ? Math.round((successOk / successTotal) * 100) : null,
       recommendation: recTotal > 0 ? Math.round((recYes / recTotal) * 100) : null,
-      nbEvals: evals.length,
+      nbEvals: evals.filter(e => e.questionnaire_submitted || e.submitted_at).length,
       hasEvalData,
       hasPresenceData: presTotal > 0,
     }
-  }, [dashData.evaluationsHot, completedSessions])
+  }, [dashData.traineeEvaluations, completedSessions])
   
   // Rappels automatiques
   const autoReminders = useMemo(() => {
@@ -517,9 +518,19 @@ export default function Dashboard() {
     return r
   }, [sessionsWithoutTrainer, sessionsJ90, dashData.purgeStats, documentsMissing])
   
+  // ✅ Audit Qualiopi — Initial 3 février 2026, Surveillance 18 mois après
   const qualiopiAudit = useMemo(() => {
-    const d = new Date('2026-02-28')
-    return { daysLeft: differenceInDays(d, today), date: d }
+    const initialDate = new Date('2026-02-03')
+    const initialPassed = isBefore(initialDate, today) || differenceInDays(initialDate, today) === 0
+    const surveillanceDate = new Date('2027-08-03')
+    const targetDate = initialPassed ? surveillanceDate : initialDate
+    return { 
+      daysLeft: differenceInDays(targetDate, today), 
+      date: targetDate,
+      initialDate,
+      initialPassed,
+      isSurveillance: initialPassed,
+    }
   }, [])
 
   // ─── Config management ─────────────────────────────────
@@ -639,7 +650,7 @@ export default function Dashboard() {
         return incompleteAttendance.length === 0 ? <div className="text-center py-3"><CheckCircle className="w-6 h-6 text-green-500 mx-auto mb-1" /><p className="text-sm text-gray-500">Tout est à jour</p></div> : (
           <div className="space-y-2 max-h-48 overflow-y-auto">{incompleteAttendance.slice(0, 8).map(s => {
             const total = (s.session_trainees || []).length
-            const missing = (s.session_trainees || []).filter(st => st.presence_complete === null || st.presence_complete === undefined).length
+            const missing = (s.session_trainees || []).filter(st => st.presence_complete !== true && st.early_departure !== true).length
             return (
               <Link key={s.id} to={`/sessions/${s.id}`} className="flex items-center justify-between p-2 rounded-lg bg-red-50 hover:bg-red-100 border border-red-100 text-sm transition-colors">
                 <span className="truncate font-medium text-gray-800">{s.courses?.title}</span>
@@ -829,10 +840,17 @@ export default function Dashboard() {
       case 'qualiopi_audit':
         return (
           <div className="text-center space-y-3">
-            <p className={`text-4xl font-bold ${qualiopiAudit.daysLeft <= 7 ? 'text-red-600' : qualiopiAudit.daysLeft <= 30 ? 'text-orange-600' : 'text-emerald-600'}`}>
-              {qualiopiAudit.daysLeft > 0 ? `J-${qualiopiAudit.daysLeft}` : qualiopiAudit.daysLeft === 0 ? "AUJOURD'HUI" : 'PASSÉ'}
+            {qualiopiAudit.initialPassed && (
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-green-100 text-green-700 text-xs font-medium">
+                <CheckCircle className="w-3.5 h-3.5" /> Audit initial réussi — {format(qualiopiAudit.initialDate, 'd MMM yyyy', { locale: fr })}
+              </div>
+            )}
+            <p className={`text-4xl font-bold ${qualiopiAudit.daysLeft <= 30 ? 'text-orange-600' : qualiopiAudit.daysLeft <= 90 ? 'text-amber-600' : 'text-emerald-600'}`}>
+              J-{qualiopiAudit.daysLeft}
             </p>
-            <p className="text-sm text-gray-500">Audit: {format(qualiopiAudit.date, 'd MMMM yyyy', { locale: fr })}</p>
+            <p className="text-sm text-gray-500">
+              {qualiopiAudit.isSurveillance ? 'Audit de surveillance' : 'Audit initial'}: {format(qualiopiAudit.date, 'd MMMM yyyy', { locale: fr })}
+            </p>
             <p className="text-xs text-gray-400">Céline Le Fur — Certifopac</p>
             <Link to="/qualiopi" className="inline-flex items-center gap-1 text-xs text-primary-600 hover:underline">Checklist <ArrowRight className="w-3 h-3" /></Link>
           </div>
@@ -1017,7 +1035,7 @@ export default function Dashboard() {
       
       {/* Footer */}
       <div className="text-center text-xs text-gray-400 p-4 bg-primary-500/5 rounded-lg border border-primary-500/10">
-        <p className="font-medium text-primary-600">Access Campus — Version 3.2.0</p>
+        <p className="font-medium text-primary-600">Access Campus — Version 3.3.0</p>
         <p>© {new Date().getFullYear()} Access Formation — Tous droits réservés</p>
         <p>Données protégées conformément au RGPD</p>
       </div>
