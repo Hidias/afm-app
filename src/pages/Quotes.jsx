@@ -607,13 +607,14 @@ export default function Quotes() {
 
   // Sync search term with selected client name
   useEffect(() => {
+    if (!currentQuote) { setClientSearchTerm(''); return }
     if (currentQuote.client_id) {
       const c = clients.find(x => x.id === currentQuote.client_id)
       setClientSearchTerm(c?.name || '')
     } else {
       setClientSearchTerm('')
     }
-  }, [currentQuote.client_id, clients])
+  }, [currentQuote?.client_id, clients])
 
   const clientComboResults = useMemo(() => {
     const term = clientSearchTerm.trim().toLowerCase()
