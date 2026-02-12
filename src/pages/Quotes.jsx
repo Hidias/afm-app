@@ -140,7 +140,7 @@ function SignaturePad({ value, onChange, onClear }) {
 // MAIN COMPONENT
 // ============================================================
 export default function Quotes() {
-  const { createSession, trainers: storeTrainers } = useDataStore()
+  const { createSession, trainers: storeTrainers, fetchTrainers } = useDataStore()
   const [quotes, setQuotes] = useState([])
   const [clients, setClients] = useState([])
   const [contacts, setContacts] = useState([])
@@ -476,6 +476,10 @@ export default function Quotes() {
   // ============================================================
   async function openSessionWizard(quote) {
     try {
+      // Ensure trainers are loaded
+      if (!storeTrainers?.length) await fetchTrainers()
+      const currentTrainers = useDataStore.getState().trainers
+
       const loadedItems = await loadQuoteItems(quote.id)
       const formationItems = loadedItems.filter(it => it.course_id)
       if (formationItems.length === 0) {
@@ -494,8 +498,10 @@ export default function Quotes() {
         selected: true,
         startDate: '',
         endDate: '',
-        trainerId: storeTrainers?.[0]?.id || '',
-        trainerName: storeTrainers?.[0]?.name || 'Hicham Saidi',
+        startTime: '09:00',
+        endTime: '17:00',
+        trainerId: currentTrainers?.[0]?.id || '',
+        trainerName: currentTrainers?.[0]?.name || 'Hicham Saidi',
         location: client.city || '',
         nbParticipants: parseInt(f.item.quantity) || 1,
         totalPriceHt: parseFloat(f.item.total_ht) || 0,
@@ -535,8 +541,8 @@ export default function Quotes() {
           trainer_ids: trainer ? [trainer.id] : [],
           start_date: sel.startDate,
           end_date: sel.endDate,
-          start_time: '09:00',
-          end_time: '17:00',
+          start_time: sel.startTime || '09:00',
+          end_time: sel.endTime || '17:00',
           location: sel.location || client.city || '',
           location_city: sel.location || client.city || null,
           is_intra: true,
@@ -552,11 +558,14 @@ export default function Quotes() {
           continue
         }
 
-        // Set total_price directly (avoid double store refresh)
-        if (newSession?.id && sel.totalPriceHt) {
-          await supabase.from('sessions').update({ total_price: sel.totalPriceHt }).eq('id', newSession.id)
-        }
+        // Set total_price and max_participants (not in store's createSession)
         if (newSession?.id) {
+          const extraUpdates = {}
+          if (sel.totalPriceHt) extraUpdates.total_price = sel.totalPriceHt
+          if (sel.nbParticipants) extraUpdates.max_participants = sel.nbParticipants
+          if (Object.keys(extraUpdates).length > 0) {
+            await supabase.from('sessions').update(extraUpdates).eq('id', newSession.id)
+          }
           createdSessions.push({ ...newSession, courseTitle: course.title })
         }
       }
@@ -1727,6 +1736,20 @@ export default function Quotes() {
                             className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500" />
                         </div>
                         <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Heure début</label>
+                          <input type="time" value={sel.startTime}
+                            onChange={(e) => updateSessionSelection(idx, 'startTime', e.target.value)}
+                            className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Heure fin</label>
+                          <input type="time" value={sel.endTime}
+                            onChange={(e) => updateSessionSelection(idx, 'endTime', e.target.value)}
+                            className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500" />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
+                        <div>
                           <label className="block text-xs font-medium text-gray-600 mb-1">Formateur</label>
                           <select value={sel.trainerName}
                             onChange={(e) => {
@@ -1748,8 +1771,6 @@ export default function Quotes() {
                             onChange={(e) => updateSessionSelection(idx, 'nbParticipants', parseInt(e.target.value) || 1)}
                             className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500" />
                         </div>
-                      </div>
-                      <div className="grid grid-cols-2 gap-3 mt-3">
                         <div>
                           <label className="block text-xs font-medium text-gray-600 mb-1">
                             <MapPin size={12} className="inline mr-1" />Lieu
