@@ -4,10 +4,12 @@ import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import toast from 'react-hot-toast'
 import { generateQuotePDF } from '../lib/quoteGenerator'
+import { useDataStore } from '../lib/store'
 import {
   Plus, Search, FileText, ArrowLeft, Trash2, Save, Send, Copy,
   ChevronDown, ChevronUp, Eye, MoreHorizontal, Check, X, Edit2,
-  Download, RefreshCw, Building2, GripVertical, Pen, Mail, Loader2, Paperclip
+  Download, RefreshCw, Building2, GripVertical, Pen, Mail, Loader2, Paperclip,
+  GraduationCap, Calendar, MapPin, Users
 } from 'lucide-react'
 
 const STATUS_CONFIG = {
@@ -138,6 +140,7 @@ function SignaturePad({ value, onChange, onClear }) {
 // MAIN COMPONENT
 // ============================================================
 export default function Quotes() {
+  const { createSession, trainers: storeTrainers } = useDataStore()
   const [quotes, setQuotes] = useState([])
   const [clients, setClients] = useState([])
   const [contacts, setContacts] = useState([])
@@ -162,6 +165,11 @@ export default function Quotes() {
   const [sendLoading, setSendLoading] = useState(false)
   const [sendSending, setSendSending] = useState(false)
   const [sendAttachments, setSendAttachments] = useState([]) // [{filename, base64, type:'program'|'manual', courseTitle?, enabled:true}]
+
+  // === Session Generation State ===
+  const [sessionWizard, setSessionWizard] = useState(null) // { quote, client, formations: [{item, course}] }
+  const [sessionSelections, setSessionSelections] = useState([]) // [{courseId, selected, startDate, endDate, trainerId, location, nbParticipants}]
+  const [sessionCreating, setSessionCreating] = useState(false)
 
   const emptyQuote = {
     client_id: '', contact_id: '', session_id: '',
@@ -463,6 +471,114 @@ export default function Quotes() {
     setSendAttachments([])
   }
 
+  // ============================================================
+  // SESSION GENERATION FROM ACCEPTED QUOTE
+  // ============================================================
+  async function openSessionWizard(quote) {
+    try {
+      const loadedItems = await loadQuoteItems(quote.id)
+      const formationItems = loadedItems.filter(it => it.course_id)
+      if (formationItems.length === 0) {
+        return toast.error('Aucune formation dans ce devis')
+      }
+      const client = clients.find(c => c.id === quote.client_id) || {}
+      const formations = formationItems.map(item => {
+        const course = courses.find(c => c.id === item.course_id)
+        return { item, course }
+      }).filter(f => f.course)
+
+      setSessionWizard({ quote, client, formations })
+      setSessionSelections(formations.map(f => ({
+        courseId: f.course.id,
+        itemId: f.item.id,
+        selected: true,
+        startDate: '',
+        endDate: '',
+        trainerId: storeTrainers?.[0]?.id || '',
+        trainerName: storeTrainers?.[0]?.name || 'Hicham Saidi',
+        location: client.city || '',
+        nbParticipants: parseInt(f.item.quantity) || 1,
+        totalPriceHt: parseFloat(f.item.total_ht) || 0,
+      })))
+    } catch (err) {
+      console.error('Erreur ouverture session wizard:', err)
+      toast.error('Erreur: ' + err.message)
+    }
+  }
+
+  function updateSessionSelection(index, field, value) {
+    setSessionSelections(prev => prev.map((s, i) => i === index ? { ...s, [field]: value } : s))
+  }
+
+  async function handleCreateSessions() {
+    const selected = sessionSelections.filter(s => s.selected)
+    if (selected.length === 0) return toast.error('Sélectionnez au moins une formation')
+    const missing = selected.filter(s => !s.startDate || !s.endDate)
+    if (missing.length > 0) return toast.error('Renseignez les dates pour chaque formation sélectionnée')
+
+    setSessionCreating(true)
+    try {
+      const { quote, client } = sessionWizard
+      const createdSessions = []
+
+      for (const sel of selected) {
+        const formation = sessionWizard.formations.find(f => f.course.id === sel.courseId)
+        if (!formation) continue
+        const course = formation.course
+        const trainer = storeTrainers?.find(t => t.name === sel.trainerName || t.id === sel.trainerId) || null
+
+        // Use store's createSession (handles reference, token, refresh)
+        const { data: newSession, error } = await createSession({
+          course_id: course.id,
+          client_id: quote.client_id,
+          contact_id: quote.contact_id || null,
+          trainer_ids: trainer ? [trainer.id] : [],
+          start_date: sel.startDate,
+          end_date: sel.endDate,
+          start_time: '09:00',
+          end_time: '17:00',
+          location: sel.location || client.city || '',
+          location_city: sel.location || client.city || null,
+          is_intra: true,
+          status: 'planned',
+          day_type: 'full',
+          notes: `Créée depuis devis ${quote.reference}`,
+          funding_type: 'none',
+        })
+
+        if (error) {
+          console.error('Erreur création session:', error)
+          toast.error(`Erreur pour ${course.title}: ${error.message}`)
+          continue
+        }
+
+        // Set total_price directly (avoid double store refresh)
+        if (newSession?.id && sel.totalPriceHt) {
+          await supabase.from('sessions').update({ total_price: sel.totalPriceHt }).eq('id', newSession.id)
+        }
+        if (newSession?.id) {
+          createdSessions.push({ ...newSession, courseTitle: course.title })
+        }
+      }
+
+      if (createdSessions.length > 0) {
+        // Add note to quote with session references
+        await supabase.from('quotes').update({
+          notes: (quote.notes ? quote.notes + '\n' : '') + `Sessions créées le ${format(new Date(), 'dd/MM/yyyy')} : ${createdSessions.map(s => s.reference).join(', ')}`,
+          updated_at: new Date().toISOString()
+        }).eq('id', quote.id)
+
+        toast.success(`${createdSessions.length} session${createdSessions.length > 1 ? 's' : ''} créée${createdSessions.length > 1 ? 's' : ''} !`, { duration: 4000 })
+        setSessionWizard(null)
+        loadAll()
+      }
+    } catch (err) {
+      console.error('Erreur création sessions:', err)
+      toast.error('Erreur: ' + err.message)
+    }
+    setSessionCreating(false)
+  }
+
   async function generateEmailText() {
     if (!sendWizard) return
     setSendLoading(true)
@@ -655,6 +771,7 @@ export default function Quotes() {
     <>
       {mode === 'list' ? renderList() : renderForm()}
       {sendWizard && renderSendWizard()}
+      {sessionWizard && renderSessionWizard()}
     </>
   )
 
@@ -754,6 +871,12 @@ export default function Quotes() {
                           disabled={sendLoading}
                           className="p-1.5 text-gray-400 hover:text-green-600 hover:bg-gray-50 rounded transition-colors disabled:opacity-50">
                           {sendLoading ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+                        </button>
+                      )}
+                      {q.status === 'accepted' && (
+                        <button onClick={() => openSessionWizard(q)} title="Générer une session"
+                          className="p-1.5 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors">
+                          <GraduationCap size={16} />
                         </button>
                       )}
                       <button onClick={() => deleteQuote(q.id)} title="Supprimer"
@@ -1512,6 +1635,162 @@ export default function Quotes() {
                   )}
                 </button>
               )}
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // ============================================================
+  // SESSION GENERATION WIZARD MODAL
+  // ============================================================
+  function renderSessionWizard() {
+    const { quote, client, formations } = sessionWizard
+    const selectedCount = sessionSelections.filter(s => s.selected).length
+
+    return (
+      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
+          {/* Header */}
+          <div className="px-6 py-4 border-b bg-gradient-to-r from-emerald-50 to-green-50 flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                <GraduationCap size={22} className="text-emerald-600" />
+                Générer des sessions
+              </h2>
+              <p className="text-sm text-gray-500 mt-0.5">
+                Devis {quote.reference} — {client.name}
+              </p>
+            </div>
+            <button onClick={() => setSessionWizard(null)} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+              <X size={20} />
+            </button>
+          </div>
+
+          {/* Body */}
+          <div className="flex-1 overflow-y-auto p-6 space-y-4">
+            {formations.map((f, idx) => {
+              const sel = sessionSelections[idx]
+              if (!sel) return null
+              const course = f.course
+              return (
+                <div key={f.item.id}
+                  className={`border rounded-xl transition-all ${sel.selected ? 'border-emerald-300 bg-emerald-50/30 shadow-sm' : 'border-gray-200 bg-gray-50/50 opacity-60'}`}
+                >
+                  {/* Formation header + checkbox */}
+                  <div className="px-4 py-3 flex items-center gap-3 cursor-pointer"
+                    onClick={() => updateSessionSelection(idx, 'selected', !sel.selected)}>
+                    <input type="checkbox" checked={sel.selected} readOnly
+                      className="w-5 h-5 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500" />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-gray-900">{course.title}</p>
+                      <div className="flex items-center gap-3 text-xs text-gray-500 mt-0.5">
+                        <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded">{course.code}</span>
+                        {course.duration_days && <span>{course.duration_days}j ({course.duration_hours}h)</span>}
+                        <span className="flex items-center gap-1"><Users size={12} /> {sel.nbParticipants} stagiaire{sel.nbParticipants > 1 ? 's' : ''}</span>
+                        <span className="font-medium text-emerald-700">{money(sel.totalPriceHt)} HT</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Configuration (visible si sélectionné) */}
+                  {sel.selected && (
+                    <div className="px-4 pb-4 pt-1 border-t border-emerald-200/50">
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">
+                            <Calendar size={12} className="inline mr-1" />Date début *
+                          </label>
+                          <input type="date" value={sel.startDate}
+                            onChange={(e) => {
+                              updateSessionSelection(idx, 'startDate', e.target.value)
+                              // Auto-calc end date based on duration
+                              if (e.target.value && course.duration_days) {
+                                const start = new Date(e.target.value)
+                                let daysToAdd = parseInt(course.duration_days) - 1
+                                // Skip weekends
+                                let current = new Date(start)
+                                while (daysToAdd > 0) {
+                                  current.setDate(current.getDate() + 1)
+                                  if (current.getDay() !== 0 && current.getDay() !== 6) daysToAdd--
+                                }
+                                updateSessionSelection(idx, 'endDate', format(current, 'yyyy-MM-dd'))
+                              }
+                            }}
+                            className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Date fin *</label>
+                          <input type="date" value={sel.endDate}
+                            onChange={(e) => updateSessionSelection(idx, 'endDate', e.target.value)}
+                            className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Formateur</label>
+                          <select value={sel.trainerName}
+                            onChange={(e) => {
+                              updateSessionSelection(idx, 'trainerName', e.target.value)
+                              const t = storeTrainers?.find(t => t.name === e.target.value)
+                              if (t) updateSessionSelection(idx, 'trainerId', t.id)
+                            }}
+                            className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500">
+                            {(storeTrainers || []).map(t => (
+                              <option key={t.id} value={t.name}>{t.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">
+                            <Users size={12} className="inline mr-1" />Stagiaires
+                          </label>
+                          <input type="number" min="1" max="20" value={sel.nbParticipants}
+                            onChange={(e) => updateSessionSelection(idx, 'nbParticipants', parseInt(e.target.value) || 1)}
+                            className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500" />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3 mt-3">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">
+                            <MapPin size={12} className="inline mr-1" />Lieu
+                          </label>
+                          <input type="text" value={sel.location}
+                            onChange={(e) => updateSessionSelection(idx, 'location', e.target.value)}
+                            placeholder="Ville ou nom du lieu..."
+                            className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Prix HT session</label>
+                          <input type="number" step="0.01" value={sel.totalPriceHt}
+                            onChange={(e) => updateSessionSelection(idx, 'totalPriceHt', parseFloat(e.target.value) || 0)}
+                            className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500" />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Footer */}
+          <div className="px-6 py-4 border-t bg-gray-50 flex items-center justify-between">
+            <button onClick={() => setSessionWizard(null)}
+              className="px-4 py-2 text-gray-600 hover:bg-gray-200 rounded-lg text-sm transition-colors">
+              Annuler
+            </button>
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-gray-500">
+                {selectedCount} formation{selectedCount > 1 ? 's' : ''} sélectionnée{selectedCount > 1 ? 's' : ''}
+              </span>
+              <button onClick={handleCreateSessions} disabled={sessionCreating || selectedCount === 0}
+                className="px-5 py-2.5 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 transition-colors disabled:opacity-50 flex items-center gap-2">
+                {sessionCreating ? (
+                  <><Loader2 size={16} className="animate-spin" /> Création...</>
+                ) : (
+                  <><GraduationCap size={16} /> Créer {selectedCount} session{selectedCount > 1 ? 's' : ''}</>
+                )}
+              </button>
             </div>
           </div>
         </div>
