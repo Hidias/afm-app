@@ -245,7 +245,7 @@ export async function generateQuotePDF(quote, items, client, contact, options) {
 
   doc.autoTable({
     startY: y,
-    margin: { left: ML, right: 18 },
+    margin: { left: ML, right: 18, bottom: 35 },
     head: [['Nom / Code', 'Description', 'Qte', 'PU HT', 'TVA', 'Total HT']],
     body: tableBody,
     theme: 'grid',
@@ -299,7 +299,7 @@ export async function generateQuotePDF(quote, items, client, contact, options) {
 
   doc.autoTable({
     startY: y,
-    margin: { left: 118, right: 18 },
+    margin: { left: 118, right: 18, bottom: 35 },
     body: totRows,
     theme: 'plain',
     styles: { fontSize: 9, font: FONT, cellPadding: 1.5, textColor: [30, 30, 30] },
@@ -313,13 +313,15 @@ export async function generateQuotePDF(quote, items, client, contact, options) {
 
   // ─── NOTES ───
   if (quote.notes) {
+    if (y > BOTTOM_BLOCK_Y - 40) { doc.addPage(); y = 20 }
     doc.setFontSize(8); doc.setFont(FONT, 'italic'); doc.setTextColor(80, 80, 80)
     doc.text('Note : ' + quote.notes, ML, y)
     doc.setTextColor(0, 0, 0); y += 6
   }
 
-  // ─── SIGNATURE (ALWAYS right after totals/notes, right-aligned) ───
-  // Never pushed to next page separately — signature follows the content
+  // ─── SIGNATURE ───
+  // Need ~30mm for signature block — if not enough room, new page
+  if (y > BOTTOM_BLOCK_Y - 35) { doc.addPage(); y = 20 }
   var sigX = 118
   var sigW = MR - sigX  // 74mm
 
