@@ -9,7 +9,7 @@ import crypto from 'crypto'
 export const config = {
   api: {
     bodyParser: {
-      sizeLimit: '10mb'
+      sizeLimit: '15mb'
     }
   }
 }
@@ -90,7 +90,7 @@ export default async function handler(req, res) {
   let transporter = null
 
   try {
-    const { userId, to, subject, body, pdfBase64, pdfFilename, quoteId, clientId, createdBy } = req.body || {}
+    const { userId, to, subject, body, pdfBase64, pdfFilename, extraAttachments, quoteId, clientId, createdBy } = req.body || {}
 
     console.log('send-quote-email params:', { userId: !!userId, to: !!to, subject: !!subject, body: !!body, hasPdf: !!pdfBase64 })
 
@@ -165,6 +165,20 @@ export default async function handler(req, res) {
       })
     } else {
       console.warn('Pas de PJ PDF!', { hasPdfBase64: !!pdfBase64, hasPdfFilename: !!pdfFilename, base64Length: pdfBase64?.length || 0 })
+    }
+
+    // 6b. Pièces jointes supplémentaires (programmes + fichiers manuels)
+    if (extraAttachments && extraAttachments.length > 0) {
+      for (const att of extraAttachments) {
+        if (att.base64 && att.filename) {
+          console.log('Extra attachment:', att.filename, 'base64 length:', att.base64.length)
+          mailOptions.attachments.push({
+            filename: att.filename,
+            content: Buffer.from(att.base64, 'base64'),
+          })
+        }
+      }
+      console.log('Total attachments:', mailOptions.attachments.length)
     }
 
     // 7. Envoyer avec retry
