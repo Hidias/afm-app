@@ -121,7 +121,7 @@ export default function ClientDetail() {
     if (!siret || siret.length < 9) return toast.error('SIRET invalide (min 9 chiffres)')
     setDetectingOpco(true)
     try {
-      const resp = await fetch(`https://www.cfadock.fr/api/opcos?siret=${siret}`)
+      const resp = await fetch(`/api/detect-opco?siret=${siret}`)
       if (!resp.ok) throw new Error(`Erreur API (${resp.status})`)
       const data = await resp.json()
       // L'API retourne un tableau d'objets avec { idcc, opco_name, ... }
