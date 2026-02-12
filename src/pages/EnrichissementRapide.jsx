@@ -22,7 +22,7 @@ import { supabase } from '../lib/supabase'
 import { 
   Search, SkipForward, Save, ExternalLink, Phone, Mail, Globe,
   Zap, CheckCircle, XCircle, RefreshCw, Loader, User, Briefcase,
-  TrendingUp, Building2, MapPin, ChevronDown, ChevronUp, Copy, Check
+  TrendingUp, Building2, MapPin, ChevronDown, ChevronUp, Copy, Check, Edit3
 } from 'lucide-react'
 
 // ─── Constantes & helpers ───────────────────────────────────────────────────
@@ -130,6 +130,16 @@ export default function EnrichissementRapide() {
 
   // Scraping
   const [scraping, setScraping] = useState(false)
+
+  // Édition fiche (identité)
+  const [editName, setEditName] = useState('')
+  const [editSiren, setEditSiren] = useState('')
+  const [editSiret, setEditSiret] = useState('')
+  const [editCity, setEditCity] = useState('')
+  const [editPostalCode, setEditPostalCode] = useState('')
+  const [editAddress, setEditAddress] = useState('')
+  const [showEditModal, setShowEditModal] = useState(false)
+  const isManualProspect = (p) => !p || p.siren?.startsWith('MANUAL_') || !p.city || !p.postal_code
 
   const phoneRef = useRef(null)
   const departements = ['22', '29', '35', '44', '49', '53', '56', '72', '85']
@@ -289,9 +299,27 @@ export default function EnrichissementRapide() {
     setSignaux(null)
     setShowSignaux(false)
     setCopiedEmail(null)
+    setEditName('')
+    setEditSiren('')
+    setEditSiret('')
+    setEditCity('')
+    setEditPostalCode('')
+    setEditAddress('')
+    setShowEditModal(false)
   }
 
   // ─── Mini-Lusha : Auto-enrichissement API ───────────────────────────────
+
+  // Pré-remplir les champs identité quand la fiche change
+  useEffect(() => {
+    if (!current) return
+    setEditName(current.name || '')
+    setEditSiren(current.siren?.startsWith('MANUAL_') ? '' : (current.siren || ''))
+    setEditSiret(current.siret?.startsWith('MANUAL_') || current.siret?.startsWith('INCONNU') ? '' : (current.siret || ''))
+    setEditCity(current.city || '')
+    setEditPostalCode(current.postal_code || '')
+    setEditAddress(current.address || '')
+  }, [current?.id])
 
   useEffect(() => {
     if (!current?.siren) return
@@ -477,6 +505,23 @@ export default function EnrichissementRapide() {
 
     if (siteWeb) update.site_web = siteWeb.trim()
 
+    // Champs identité (si modifiés)
+    if (editName && editName !== current.name) update.name = editName.trim().toUpperCase()
+    if (editCity && editCity !== current.city) update.city = editCity.trim()
+    if (editPostalCode && editPostalCode !== current.postal_code) {
+      update.postal_code = editPostalCode.trim()
+      update.departement = editPostalCode.trim().substring(0, 2)
+    }
+    if (editAddress && editAddress !== current.address) update.address = editAddress.trim()
+    if (editSiren && editSiren !== current.siren && !current.siren?.startsWith('MANUAL_')) {
+      // SIREN modifié mais pas un placeholder → update normal
+      update.siren = editSiren.trim()
+    }
+    if (editSiret && editSiret !== current.siret) update.siret = editSiret.trim()
+
+    // Cas spécial : remplacement du SIREN placeholder MANUAL_xxx
+    const sirenChanged = editSiren && current.siren?.startsWith('MANUAL_') && editSiren.trim().length >= 9
+
     // Sauvegarder le dirigeant si trouvé via API
     if (lusha?.dirigeant_nom) {
       update.dirigeant_nom = lusha.dirigeant_nom
@@ -486,8 +531,16 @@ export default function EnrichissementRapide() {
 
     const { error } = await supabase
       .from('prospection_massive')
-      .update(update)
+      .update({ ...update, ...(sirenChanged ? { siren: editSiren.trim() } : {}) })
       .eq('siren', current.siren)
+
+    // Si SIRET placeholder aussi, mettre à jour
+    if (!error && editSiret && (current.siret?.startsWith('MANUAL_') || current.siret?.startsWith('INCONNU'))) {
+      await supabase
+        .from('prospection_massive')
+        .update({ siret: editSiret.trim() })
+        .eq('siren', sirenChanged ? editSiren.trim() : current.siren)
+    }
 
     // Marquer les doublons (même nom)
     if (!error && current.name) {
@@ -728,11 +781,50 @@ export default function EnrichissementRapide() {
                     {current._dist != null && <span className="ml-2 text-primary-600 font-medium">📏 ~{Math.round(current._dist)}km</span>}
                   </p>
                 </div>
-                <span className="text-sm text-gray-400 bg-white px-2.5 py-1 rounded-lg border border-gray-200">
-                  {currentIndex + 1}/{prospects.length}
-                </span>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => setShowEditModal(true)}
+                    className="flex items-center gap-1 px-2.5 py-1.5 bg-amber-50 text-amber-700 hover:bg-amber-100 rounded-lg text-xs font-medium border border-amber-200 transition-colors">
+                    <Edit3 className="w-3.5 h-3.5" /> Modifier
+                  </button>
+                  <span className="text-sm text-gray-400 bg-white px-2.5 py-1 rounded-lg border border-gray-200">
+                    {currentIndex + 1}/{prospects.length}
+                  </span>
+                </div>
               </div>
             </div>
+
+            {/* ─── Champs identité (si fiche incomplète) ───────────── */}
+            {isManualProspect(current) && (
+              <div className="px-6 py-3 bg-amber-50/50 border-b border-amber-100">
+                <p className="text-xs font-medium text-amber-700 mb-2">⚠️ Fiche incomplète — compléter les infos :</p>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                  <div>
+                    <label className="text-xs text-gray-500">SIREN</label>
+                    <input type="text" value={editSiren} onChange={e => setEditSiren(e.target.value)}
+                      placeholder="123456789" maxLength={9}
+                      className="w-full px-2 py-1.5 border border-amber-200 rounded-lg text-sm focus:ring-2 focus:ring-amber-400 bg-white" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500">SIRET</label>
+                    <input type="text" value={editSiret} onChange={e => setEditSiret(e.target.value)}
+                      placeholder="12345678901234" maxLength={14}
+                      className="w-full px-2 py-1.5 border border-amber-200 rounded-lg text-sm focus:ring-2 focus:ring-amber-400 bg-white" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500">Code postal</label>
+                    <input type="text" value={editPostalCode} onChange={e => setEditPostalCode(e.target.value)}
+                      placeholder="29000" maxLength={5}
+                      className="w-full px-2 py-1.5 border border-amber-200 rounded-lg text-sm focus:ring-2 focus:ring-amber-400 bg-white" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500">Ville</label>
+                    <input type="text" value={editCity} onChange={e => setEditCity(e.target.value)}
+                      placeholder="Concarneau"
+                      className="w-full px-2 py-1.5 border border-amber-200 rounded-lg text-sm focus:ring-2 focus:ring-amber-400 bg-white" />
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div className="p-6">
               {/* ─── Bloc Mini-Lusha : Dirigeant + Emails ───────────── */}
@@ -998,6 +1090,86 @@ export default function EnrichissementRapide() {
             <kbd className="px-1.5 py-0.5 bg-gray-100 rounded">Ctrl+O</kbd> Pages Jaunes
           </div>
         </>
+      )}
+
+      {/* ─── Modal Modifier la fiche ─────────────────────────────── */}
+      {showEditModal && current && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowEditModal(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-5 border-b">
+              <h2 className="text-lg font-bold text-gray-900">✏️ Modifier la fiche</h2>
+              <button onClick={() => setShowEditModal(false)} className="text-gray-400 hover:text-gray-600"><XCircle className="w-5 h-5" /></button>
+            </div>
+            <div className="p-5 space-y-3 max-h-[70vh] overflow-y-auto">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Nom de l'entreprise</label>
+                <input type="text" value={editName} onChange={e => setEditName(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">SIREN</label>
+                  <input type="text" value={editSiren} onChange={e => setEditSiren(e.target.value)}
+                    placeholder="123456789" maxLength={9}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">SIRET</label>
+                  <input type="text" value={editSiret} onChange={e => setEditSiret(e.target.value)}
+                    placeholder="12345678901234" maxLength={14}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Adresse</label>
+                <input type="text" value={editAddress} onChange={e => setEditAddress(e.target.value)}
+                  placeholder="12 rue du Port"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500" />
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Code postal</label>
+                  <input type="text" value={editPostalCode} onChange={e => setEditPostalCode(e.target.value)}
+                    placeholder="29000" maxLength={5}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500" />
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Ville</label>
+                  <input type="text" value={editCity} onChange={e => setEditCity(e.target.value)}
+                    placeholder="Concarneau"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500" />
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Téléphone</label>
+                  <input type="tel" value={phone} onChange={e => setPhone(e.target.value)}
+                    placeholder="02 98 XX XX XX"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                  <input type="email" value={email} onChange={e => setEmail(e.target.value)}
+                    placeholder="contact@..."
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Site web</label>
+                  <input type="text" value={siteWeb} onChange={e => setSiteWeb(e.target.value)}
+                    placeholder="www...."
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500" />
+                </div>
+              </div>
+            </div>
+            <div className="p-5 border-t flex gap-3">
+              <button onClick={() => setShowEditModal(false)} className="flex-1 px-4 py-2.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 text-sm font-medium">Fermer</button>
+              <button onClick={() => { setShowEditModal(false); handleSave() }}
+                className="flex-1 px-4 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-medium flex items-center justify-center gap-2">
+                <Save className="w-4 h-4" /> Sauvegarder
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
