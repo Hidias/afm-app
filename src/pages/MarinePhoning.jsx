@@ -4,7 +4,7 @@ import { useAuthStore } from '../lib/store'
 import { 
   Phone, CheckCircle, RefreshCw, SkipForward,
   Building2, MapPin, Mail, List, Search, Sparkles, Loader2, Map as MapIcon, Navigation, AlertTriangle,
-  Clock, PhoneOff, XCircle, Snowflake, Bell
+  Clock, PhoneOff, XCircle, Snowflake, Bell, Plus
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { MapContainer, TileLayer, CircleMarker, Circle, Popup, useMap } from 'react-leaflet'
@@ -175,6 +175,8 @@ export default function MarinePhoning() {
   const [mapSelected, setMapSelected] = useState(null)
   const [dailyStats, setDailyStats] = useState({ total: 0, chaud: 0, tiede: 0, froid: 0, no_answer: 0, blocked: 0, wrong_number: 0 })
   const [todayCallbackSirens, setTodayCallbackSirens] = useState(new Set())
+  const [showAddModal, setShowAddModal] = useState(false)
+  const [newProspect, setNewProspect] = useState({ name: '', phone: '', city: '', postal_code: '', departement: '', siret: '', siren: '', email: '', notes: '' })
 
   const listRef = useRef(null)
   const departements = [...new Set(prospects.map(p => p.departement))].filter(Boolean).sort()
@@ -572,6 +574,38 @@ export default function MarinePhoning() {
       .sort((a, b) => a.distance - b.distance)
   }, [filtered])
 
+  async function handleAddProspect() {
+    if (!newProspect.name.trim()) return toast.error('Nom obligatoire')
+    if (!newProspect.phone.trim()) return toast.error('Téléphone obligatoire')
+    try {
+      const dept = newProspect.postal_code ? newProspect.postal_code.substring(0, 2) : newProspect.departement || ''
+      const siret = newProspect.siret?.trim() || ('MANUAL_' + Date.now())
+      const siren = newProspect.siren?.trim() || (newProspect.siret?.trim() ? newProspect.siret.trim().substring(0, 9) : ('MANUAL_' + Date.now()))
+      const { error } = await supabase.from('prospection_massive').insert({
+        name: newProspect.name.trim().toUpperCase(),
+        phone: newProspect.phone.trim().replace(/\s/g, ''),
+        city: newProspect.city.trim() || null,
+        postal_code: newProspect.postal_code.trim() || null,
+        departement: dept,
+        siret,
+        siren,
+        email: newProspect.email?.trim() || null,
+        enrichment_status: newProspect.siret?.trim() ? 'done' : 'pending',
+        quality_score: 50,
+        prospection_notes: 'Ajout manuel Marine ' + new Date().toLocaleDateString('fr-FR') + (newProspect.notes ? ' - ' + newProspect.notes : ''),
+        source: 'ajout_manuel_marine'
+      })
+      if (error) throw error
+      toast.success('Prospect ajouté !')
+      setShowAddModal(false)
+      setNewProspect({ name: '', phone: '', city: '', postal_code: '', departement: '', siret: '', siren: '', email: '', notes: '' })
+      loadProspects()
+    } catch (err) {
+      console.error('Erreur ajout:', err)
+      toast.error('Erreur: ' + err.message)
+    }
+  }
+
   function exportCSV() {
     const headers = ['Société','ID','Type','Forme','NAF','VILLE','CP','Nom','Prénom','Mail','Téléphone','Fonction','Appel abouti','Appel non abouti','Mail','Suivi','RDV à prendre']
     const rows = filtered.map(p => {
@@ -658,6 +692,7 @@ export default function MarinePhoning() {
         </select>
         <button onClick={() => { loadProspects(); loadDailyStats(); loadTodayCallbacks() }} className="px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg"><RefreshCw className="w-4 h-4" /></button>
         <button onClick={exportCSV} className="px-3 py-2 bg-green-100 text-green-700 hover:bg-green-200 rounded-lg text-sm font-medium">📥 CSV</button>
+        <button onClick={() => setShowAddModal(true)} className="px-3 py-2 bg-primary-100 text-primary-700 hover:bg-primary-200 rounded-lg text-sm font-medium flex items-center gap-1"><Plus className="w-4 h-4" /> Ajouter</button>
       </div>
 
       {/* === CONTENU === */}
@@ -969,6 +1004,72 @@ export default function MarinePhoning() {
                 </button>
               </div>
             </div>}
+          </div>
+        </div>
+      )}
+
+      {/* Modal Ajout Prospect */}
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowAddModal(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-5 border-b">
+              <h2 className="text-lg font-bold text-gray-900">➕ Nouvelle entreprise</h2>
+              <button onClick={() => setShowAddModal(false)} className="text-gray-400 hover:text-gray-600"><XCircle className="w-5 h-5" /></button>
+            </div>
+            <div className="p-5 space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Nom de l'entreprise *</label>
+                <input type="text" value={newProspect.name} onChange={e => setNewProspect({...newProspect, name: e.target.value})}
+                  placeholder="ENTREPRISE ABC" className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Téléphone *</label>
+                  <input type="tel" value={newProspect.phone} onChange={e => setNewProspect({...newProspect, phone: e.target.value})}
+                    placeholder="02 99 XX XX XX" className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                  <input type="email" value={newProspect.email} onChange={e => setNewProspect({...newProspect, email: e.target.value})}
+                    placeholder="contact@..." className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500" />
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Code postal</label>
+                  <input type="text" value={newProspect.postal_code} onChange={e => setNewProspect({...newProspect, postal_code: e.target.value})}
+                    placeholder="35000" maxLength={5} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500" />
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Ville</label>
+                  <input type="text" value={newProspect.city} onChange={e => setNewProspect({...newProspect, city: e.target.value})}
+                    placeholder="Rennes" className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">SIRET <span className="text-gray-400 font-normal">(optionnel)</span></label>
+                  <input type="text" value={newProspect.siret} onChange={e => setNewProspect({...newProspect, siret: e.target.value})}
+                    placeholder="12345678901234" maxLength={14} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">SIREN <span className="text-gray-400 font-normal">(optionnel)</span></label>
+                  <input type="text" value={newProspect.siren} onChange={e => setNewProspect({...newProspect, siren: e.target.value})}
+                    placeholder="123456789" maxLength={9} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+                <input type="text" value={newProspect.notes} onChange={e => setNewProspect({...newProspect, notes: e.target.value})}
+                  placeholder="Redirigée par l'agence X..." className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500" />
+              </div>
+            </div>
+            <div className="p-5 border-t flex gap-3">
+              <button onClick={() => setShowAddModal(false)} className="flex-1 px-4 py-2.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 text-sm font-medium">Annuler</button>
+              <button onClick={handleAddProspect} className="flex-1 px-4 py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm font-medium flex items-center justify-center gap-2">
+                <Plus className="w-4 h-4" /> Ajouter
+              </button>
+            </div>
           </div>
         </div>
       )}
