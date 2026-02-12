@@ -7,7 +7,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { quote, client, contact, senderName, items, customInstructions } = req.body
+    const { quote, client, contact, senderName, items, customInstructions, hasPrograms, programTitles } = req.body
 
     if (!quote || !client) {
       return res.status(400).json({ error: 'Données manquantes (quote, client)' })
@@ -41,6 +41,7 @@ CONTEXTE :
 - Montant TTC : ${totalTtc.toFixed(2).replace('.', ',')} EUR
 - Formations incluses :
 ${itemsList || '(non precise)'}
+${hasPrograms ? `\nProgrammes de formation joints en piece jointe : ${(programTitles || []).join(', ')}` : ''}
 
 ${customInstructions ? 'INSTRUCTIONS SUPPLEMENTAIRES : ' + customInstructions : ''}
 
@@ -49,6 +50,7 @@ REGLES :
 - Court et efficace (5-8 lignes max pour le corps)
 - Vouvoiement
 - Mentionner que le devis est en piece jointe
+${hasPrograms ? '- Mentionner que les programmes de formation correspondants sont egalement joints' : ''}
 - Inviter a revenir vers nous pour toute question
 - NE PAS inclure de signature (elle sera ajoutee automatiquement)
 - NE PAS inclure de formule de politesse finale (cordialement, bien a vous, etc.) car elle est ajoutee automatiquement avec la signature
