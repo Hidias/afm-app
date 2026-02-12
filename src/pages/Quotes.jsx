@@ -141,6 +141,10 @@ export default function Quotes() {
   const [quotes, setQuotes] = useState([])
   const [clients, setClients] = useState([])
   const [contacts, setContacts] = useState([])
+  // Client combobox
+  const [clientSearchTerm, setClientSearchTerm] = useState('')
+  const [showClientDropdown, setShowClientDropdown] = useState(false)
+  const clientComboRef = useRef(null)
   const [courses, setCourses] = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -183,8 +187,8 @@ export default function Quotes() {
   async function loadAll() {
     setLoading(true)
     const [quotesRes, clientsRes, coursesRes] = await Promise.all([
-      supabase.from('quotes').select('*, clients(name, siret, address, postal_code, city, contact_phone, contact_email)').order('quote_date', { ascending: false }),
-      supabase.from('clients').select('id, name, siret, address, postal_code, city, contact_phone, contact_email, status').order('name'),
+      supabase.from('quotes').select('*, clients(name, siret, address, postal_code, city, contact_name, contact_phone, contact_email)').order('quote_date', { ascending: false }),
+      supabase.from('clients').select('id, name, siret, siren, address, postal_code, city, contact_name, contact_phone, contact_email, status').order('name'),
       supabase.from('courses').select('id, title, code, price_ht, duration_hours, duration_days, description').order('title')
     ])
     setQuotes(quotesRes.data || [])
@@ -590,12 +594,63 @@ export default function Quotes() {
     setCurrentQuote(prev => ({ ...prev, quote_date: date, validity_date: vDate, payment_deadline: vDate }))
   }
 
+  // ─── Client Combobox logic ────────────────────────────────────────────
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (clientComboRef.current && !clientComboRef.current.contains(e.target)) {
+        setShowClientDropdown(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  // Sync search term with selected client name
+  useEffect(() => {
+    if (currentQuote.client_id) {
+      const c = clients.find(x => x.id === currentQuote.client_id)
+      setClientSearchTerm(c?.name || '')
+    } else {
+      setClientSearchTerm('')
+    }
+  }, [currentQuote.client_id, clients])
+
+  const clientComboResults = useMemo(() => {
+    const term = clientSearchTerm.trim().toLowerCase()
+    if (!term) {
+      // Show recent: clients that have quotes, sorted by most recent quote
+      const clientIdsWithQuotes = [...new Set(quotes.map(q => q.client_id).filter(Boolean))]
+      return clientIdsWithQuotes.slice(0, 8).map(id => clients.find(c => c.id === id)).filter(Boolean)
+    }
+    return clients.filter(c => {
+      const haystack = [c.name, c.city, c.siret, c.siren, c.contact_name, c.postal_code]
+        .filter(Boolean).join(' ').toLowerCase()
+      return term.split(/\s+/).every(word => haystack.includes(word))
+    }).slice(0, 12)
+  }, [clientSearchTerm, clients, quotes])
+
+  function selectClient(client) {
+    handleClientChange(client.id)
+    setClientSearchTerm(client.name)
+    setShowClientDropdown(false)
+  }
+
+  function clearClientSelection() {
+    handleClientChange('')
+    setClientSearchTerm('')
+    setShowClientDropdown(false)
+  }
+
   const filteredQuotes = useMemo(() => {
     return quotes.filter(q => {
+      const s = search.toLowerCase()
       const matchSearch = !search ||
-        q.reference?.toLowerCase().includes(search.toLowerCase()) ||
-        q.clients?.name?.toLowerCase().includes(search.toLowerCase()) ||
-        q.object?.toLowerCase().includes(search.toLowerCase())
+        q.reference?.toLowerCase().includes(s) ||
+        q.clients?.name?.toLowerCase().includes(s) ||
+        q.clients?.city?.toLowerCase().includes(s) ||
+        q.clients?.siret?.includes(search) ||
+        q.object?.toLowerCase().includes(s) ||
+        q.created_by?.toLowerCase().includes(s)
       return matchSearch && (!statusFilter || q.status === statusFilter)
     })
   }, [quotes, search, statusFilter])
@@ -628,7 +683,7 @@ export default function Quotes() {
         <div className="flex gap-3 mb-4">
           <div className="relative flex-1 max-w-md">
             <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input type="text" placeholder="Rechercher par référence, client, objet..."
+            <input type="text" placeholder="Référence, client, ville, SIRET, objet..."
               value={search} onChange={(e) => setSearch(e.target.value)}
               className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500" />
           </div>
@@ -777,11 +832,76 @@ export default function Quotes() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Client *</label>
-                  <select value={currentQuote.client_id} onChange={(e) => handleClientChange(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500">
-                    <option value="">— Sélectionner —</option>
-                    {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
+                  <div className="relative" ref={clientComboRef}>
+                    <div className="relative">
+                      <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                      <input
+                        type="text"
+                        value={clientSearchTerm}
+                        onChange={(e) => {
+                          setClientSearchTerm(e.target.value)
+                          setShowClientDropdown(true)
+                          if (currentQuote.client_id) {
+                            // User is re-typing → clear selection
+                            const match = clients.find(c => c.id === currentQuote.client_id)
+                            if (match && e.target.value !== match.name) {
+                              setCurrentQuote(prev => ({ ...prev, client_id: '', contact_id: '' }))
+                              setContacts([])
+                            }
+                          }
+                        }}
+                        onFocus={() => setShowClientDropdown(true)}
+                        placeholder="Rechercher un client..."
+                        className={`w-full pl-9 pr-9 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 text-sm ${
+                          currentQuote.client_id ? 'border-green-300 bg-green-50/30' : 'border-gray-200'
+                        }`}
+                      />
+                      {currentQuote.client_id && (
+                        <button onClick={clearClientSelection}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 text-gray-400 hover:text-red-500 transition-colors">
+                          <X size={16} />
+                        </button>
+                      )}
+                    </div>
+                    {showClientDropdown && (
+                      <div className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-xl max-h-72 overflow-y-auto">
+                        {!clientSearchTerm.trim() && (
+                          <div className="px-3 py-1.5 text-xs font-medium text-gray-400 bg-gray-50 border-b">
+                            Clients récents
+                          </div>
+                        )}
+                        {clientComboResults.length === 0 ? (
+                          <div className="px-4 py-6 text-center text-sm text-gray-400">
+                            Aucun client trouvé pour "{clientSearchTerm}"
+                          </div>
+                        ) : (
+                          clientComboResults.map(c => (
+                            <button key={c.id}
+                              onClick={() => selectClient(c)}
+                              className={`w-full text-left px-3 py-2.5 hover:bg-primary-50 transition-colors border-b border-gray-50 last:border-0 ${
+                                currentQuote.client_id === c.id ? 'bg-primary-50' : ''
+                              }`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <span className="font-medium text-gray-900 text-sm">{c.name}</span>
+                                {c.city && (
+                                  <span className="text-xs text-gray-400 ml-2 flex-shrink-0">{c.postal_code?.slice(0,2)} {c.city}</span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-3 mt-0.5">
+                                {c.contact_name && (
+                                  <span className="text-xs text-gray-500">👤 {c.contact_name}</span>
+                                )}
+                                {c.siret && (
+                                  <span className="text-xs text-gray-400 font-mono">{c.siret}</span>
+                                )}
+                              </div>
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Contact</label>
