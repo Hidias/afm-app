@@ -492,6 +492,7 @@ export default function Quotes() {
       }).filter(f => f.course)
 
       setSessionWizard({ quote, client, formations })
+      const defaultTrainer = currentTrainers?.[0]
       setSessionSelections(formations.map(f => ({
         courseId: f.course.id,
         itemId: f.item.id,
@@ -500,8 +501,7 @@ export default function Quotes() {
         endDate: '',
         startTime: '09:00',
         endTime: '17:00',
-        trainerId: currentTrainers?.[0]?.id || '',
-        trainerName: currentTrainers?.[0]?.name || 'Hicham Saidi',
+        trainerId: defaultTrainer?.id || '',
         location: client.city || '',
         nbParticipants: parseInt(f.item.quantity) || 1,
         totalPriceHt: parseFloat(f.item.total_ht) || 0,
@@ -531,7 +531,7 @@ export default function Quotes() {
         const formation = sessionWizard.formations.find(f => f.course.id === sel.courseId)
         if (!formation) continue
         const course = formation.course
-        const trainer = storeTrainers?.find(t => t.name === sel.trainerName || t.id === sel.trainerId) || null
+        const trainer = storeTrainers?.find(t => t.id === sel.trainerId) || null
 
         // Use store's createSession (handles reference, token, refresh)
         const { data: newSession, error } = await createSession({
@@ -1751,15 +1751,12 @@ export default function Quotes() {
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
                         <div>
                           <label className="block text-xs font-medium text-gray-600 mb-1">Formateur</label>
-                          <select value={sel.trainerName}
-                            onChange={(e) => {
-                              updateSessionSelection(idx, 'trainerName', e.target.value)
-                              const t = storeTrainers?.find(t => t.name === e.target.value)
-                              if (t) updateSessionSelection(idx, 'trainerId', t.id)
-                            }}
+                          <select value={sel.trainerId}
+                            onChange={(e) => updateSessionSelection(idx, 'trainerId', e.target.value)}
                             className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500">
+                            <option value="">— Choisir —</option>
                             {(storeTrainers || []).map(t => (
-                              <option key={t.id} value={t.name}>{t.name}</option>
+                              <option key={t.id} value={t.id}>{t.first_name} {t.last_name}</option>
                             ))}
                           </select>
                         </div>
