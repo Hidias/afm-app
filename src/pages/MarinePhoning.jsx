@@ -4,7 +4,7 @@ import { useAuthStore } from '../lib/store'
 import { 
   Phone, CheckCircle, RefreshCw, SkipForward,
   Building2, MapPin, Mail, List, Search, Sparkles, Loader2, Map as MapIcon, Navigation, AlertTriangle,
-  Clock, PhoneOff, XCircle, Snowflake, Bell, Plus
+  Clock, PhoneOff, XCircle, Snowflake, Bell, Plus, Edit2
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { MapContainer, TileLayer, CircleMarker, Circle, Popup, useMap } from 'react-leaflet'
@@ -163,10 +163,13 @@ export default function MarinePhoning() {
   const [saving, setSaving] = useState(false)
   const [aiSummary, setAiSummary] = useState('')
   const [aiSummaryLoading, setAiSummaryLoading] = useState(false)
+  const currentProspectRef = useRef(null)
   const [callHistory, setCallHistory] = useState([])
   const [duplicates, setDuplicates] = useState([])
   const [showDuplicates, setShowDuplicates] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
+  const [editingPhone, setEditingPhone] = useState(false)
+  const [editPhoneValue, setEditPhoneValue] = useState('')
   const [statusFilter, setStatusFilter] = useState('a_appeler')
   const [effectifFilter, setEffectifFilter] = useState('')
   const [mapBase, setMapBase] = useState('concarneau')
@@ -175,6 +178,7 @@ export default function MarinePhoning() {
   const [mapSelected, setMapSelected] = useState(null)
   const [dailyStats, setDailyStats] = useState({ total: 0, chaud: 0, tiede: 0, froid: 0, no_answer: 0, blocked: 0, wrong_number: 0 })
   const [todayCallbackSirens, setTodayCallbackSirens] = useState(new Set())
+  const [callbackDetails, setCallbackDetails] = useState(new Map()) // siren → {date, time, reason, contact_name}
   const [showAddModal, setShowAddModal] = useState(false)
   const [newProspect, setNewProspect] = useState({ name: '', phone: '', city: '', postal_code: '', departement: '', siret: '', siren: '', email: '', notes: '' })
 
@@ -220,15 +224,30 @@ export default function MarinePhoning() {
   async function loadTodayCallbacks() {
     try {
       const today = new Date().toISOString().split('T')[0]
-      const { data } = await supabase.from('prospect_calls').select('client_id, clients!inner(siren)').eq('needs_callback', true).lte('callback_date', today)
+      const { data } = await supabase.from('prospect_calls')
+        .select('client_id, callback_date, callback_time, callback_reason, contact_name, clients!inner(siren)')
+        .eq('needs_callback', true).lte('callback_date', today)
+        .order('callback_date', { ascending: true })
       if (data) {
-        const sirens = new Set(data.map(d => d.clients?.siren).filter(Boolean))
+        const sirens = new Set()
+        const details = new Map()
+        data.forEach(d => {
+          const siren = d.clients?.siren
+          if (!siren) return
+          sirens.add(siren)
+          // Keep earliest callback per siren
+          if (!details.has(siren)) {
+            details.set(siren, { date: d.callback_date, time: d.callback_time, reason: d.callback_reason, contact_name: d.contact_name })
+          }
+        })
         setTodayCallbackSirens(sirens)
+        setCallbackDetails(details)
       }
     } catch (err) { console.error('Erreur callbacks:', err) }
   }
 
   function selectProspect(prospect) {
+    currentProspectRef.current = prospect.id
     setCurrent(prospect)
     setContactName('')
     setContactFunction('Dirigeant')
@@ -246,6 +265,8 @@ export default function MarinePhoning() {
     setCallbackTime('14:00')
     setCallbackReason('')
     setShowHistory(false)
+    setEditingPhone(false)
+    setEditPhoneValue('')
     // Pré-remplir résultat selon statut précédent
     if (prospect.prospection_status === 'a_rappeler') setCallResult('tiede')
     else if (prospect.prospection_status === 'rdv_pris') setCallResult('chaud')
@@ -288,6 +309,7 @@ export default function MarinePhoning() {
   }
 
   async function loadAiSummary(prospect) {
+    const prospectId = prospect.id
     setAiSummary(prospect.ai_summary || '')
     if (prospect.ai_summary) return
     setAiSummaryLoading(true)
@@ -297,17 +319,20 @@ export default function MarinePhoning() {
         body: JSON.stringify({ name: prospect.name, city: prospect.city, naf: prospect.naf, effectif: prospect.effectif, site_web: prospect.site_web, siret: prospect.siret })
       })
       const data = await res.json()
+      // Only update if we're still on the same prospect (prevents race condition)
+      if (currentProspectRef.current !== prospectId) return
       if (data.success && data.summary) {
         setAiSummary(data.summary)
         await supabase.from('prospection_massive').update({ ai_summary: data.summary }).eq('id', prospect.id)
         prospect.ai_summary = data.summary
       }
     } catch (err) { console.error('Erreur résumé IA:', err) }
-    finally { setAiSummaryLoading(false) }
+    finally { if (currentProspectRef.current === prospectId) setAiSummaryLoading(false) }
   }
 
   async function loadCallHistory(prospect) {
     setCallHistory([])
+    setShowHistory(false)
     try {
       const { data: clientData } = await supabase.from('clients').select('id').eq('siren', prospect.siren).maybeSingle()
       if (clientData) {
@@ -326,12 +351,32 @@ export default function MarinePhoning() {
     } catch (err) { console.error('Erreur historique:', err) }
   }
 
+  async function savePhone(newPhone) {
+    if (!current || !newPhone.trim()) return
+    try {
+      await supabase.from('prospection_massive').update({ phone: newPhone.trim() }).eq('id', current.id)
+      current.phone = newPhone.trim()
+      setCurrent({ ...current })
+      const idx = prospects.findIndex(p => p.id === current.id)
+      if (idx >= 0) { prospects[idx].phone = newPhone.trim() }
+      setEditingPhone(false)
+      toast.success('Téléphone mis à jour')
+    } catch (err) {
+      console.error('Erreur sauvegarde téléphone:', err)
+      toast.error('Erreur: ' + err.message)
+    }
+  }
+
   async function findOrCreateClient(prospect) {
-    const { data: existing } = await supabase.from('clients').select('id').eq('siren', prospect.siren).maybeSingle()
-    if (existing) return existing.id
+    const cleanSiren = prospect.siren && !prospect.siren.startsWith('MANUAL_') ? prospect.siren.slice(0, 9) : null
+    const cleanSiret = prospect.siret && !prospect.siret.startsWith('MANUAL_') ? prospect.siret.slice(0, 14) : null
+    if (cleanSiren) {
+      const { data: existing } = await supabase.from('clients').select('id').eq('siren', cleanSiren).maybeSingle()
+      if (existing) return existing.id
+    }
     const { data: newClient, error } = await supabase.from('clients').insert({
       name: prospect.name, address: prospect.city ? prospect.postal_code + ' ' + prospect.city : null,
-      postal_code: prospect.postal_code, city: prospect.city, siret: prospect.siret, siren: prospect.siren,
+      postal_code: prospect.postal_code, city: prospect.city, siret: cleanSiret, siren: cleanSiren,
       contact_phone: prospect.phone, email: prospect.email || null, website: prospect.site_web || null,
       taille_entreprise: prospect.effectif || null, status: 'prospect', type: 'prospect',
     }).select('id').single()
@@ -543,11 +588,17 @@ export default function MarinePhoning() {
       return { ...p, distance: dist }
     })
     if (mapRadius > 0) list = list.filter(p => p.distance <= mapRadius)
-    // Tri : rappels du jour → à rappeler → distance croissante
+    // Tri : rappels par date de callback → à rappeler → distance croissante
     list.sort((a, b) => {
       const aCb = a.siren && todayCallbackSirens.has(a.siren) ? 1 : 0
       const bCb = b.siren && todayCallbackSirens.has(b.siren) ? 1 : 0
       if (aCb !== bCb) return bCb - aCb
+      // Si les deux sont des rappels, trier par date de callback (plus ancien d'abord)
+      if (aCb && bCb) {
+        const aDate = callbackDetails.get(a.siren)?.date || '9999'
+        const bDate = callbackDetails.get(b.siren)?.date || '9999'
+        if (aDate !== bDate) return aDate.localeCompare(bDate)
+      }
       const order = { 'a_rappeler': 1, 'a_appeler': 2, '': 2, null: 2 }
       const aO = order[a.prospection_status] || 3
       const bO = order[b.prospection_status] || 3
@@ -555,7 +606,7 @@ export default function MarinePhoning() {
       return a.distance - b.distance
     })
     return list
-  }, [prospects, statusFilter, departementFilter, effectifFilter, searchTerm, todayCallbackSirens, mapBase, mapRadius])
+  }, [prospects, statusFilter, departementFilter, effectifFilter, searchTerm, todayCallbackSirens, callbackDetails, mapBase, mapRadius])
 
   // En mode file, sélectionner le premier prospect du filtre actif
   useEffect(() => {
@@ -707,7 +758,14 @@ export default function MarinePhoning() {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="font-medium text-gray-900 truncate">{p.name}</span>
-                  {p.siren && todayCallbackSirens.has(p.siren) && <Bell className="w-3.5 h-3.5 text-amber-500" />}
+                  {p.siren && todayCallbackSirens.has(p.siren) && (() => {
+                    const cb = callbackDetails.get(p.siren)
+                    return <span className="flex items-center gap-1 text-amber-600 text-xs">
+                      <Bell className="w-3.5 h-3.5" />
+                      {cb?.date ? new Date(cb.date + 'T12:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) : ''}
+                      {cb?.time ? ' ' + cb.time : ''}
+                    </span>
+                  })()}
                 </div>
                 <div className="text-sm text-gray-500 flex items-center gap-3 mt-0.5">
                   <span>{p.city}</span>
@@ -780,16 +838,42 @@ export default function MarinePhoning() {
                   <MapPin className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
                   <span className="text-sm text-gray-600">{current.postal_code} {current.city}</span>
                   {current.distance < 9999 && <span className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">{current.distance.toFixed(0)} km</span>}
-                  {current.siren && todayCallbackSirens.has(current.siren) && <span className="bg-amber-100 text-amber-700 text-xs font-medium px-2 py-0.5 rounded-full">🔔 Rappel</span>}
+                  {current.siren && todayCallbackSirens.has(current.siren) && (() => {
+                    const cb = callbackDetails.get(current.siren)
+                    return <span className="bg-amber-100 text-amber-700 text-xs font-medium px-2 py-0.5 rounded-full">
+                      🔔 Rappel {cb?.date ? new Date(cb.date + 'T12:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) : ''}
+                      {cb?.time ? ' à ' + cb.time : ''}
+                    </span>
+                  })()}
                 </div>
               </div>
 
-              {/* Téléphone */}
-              {current.phone && (
-                <a href={'tel:' + current.phone.replace(/\s/g, '')}
-                  className="flex items-center gap-2 bg-primary-50 hover:bg-primary-100 border border-primary-200 rounded-lg px-4 py-2.5 text-primary-700 font-semibold text-lg transition-colors">
-                  <Phone className="w-5 h-5" />{current.phone}
-                </a>
+              {/* Téléphone — éditable */}
+              {editingPhone ? (
+                <div className="flex items-center gap-2">
+                  <input type="tel" value={editPhoneValue} onChange={(e) => setEditPhoneValue(e.target.value)}
+                    autoFocus onKeyDown={(e) => { if (e.key === 'Enter') savePhone(editPhoneValue); if (e.key === 'Escape') setEditingPhone(false) }}
+                    className="flex-1 px-3 py-2 border border-primary-300 rounded-lg text-lg font-semibold focus:ring-2 focus:ring-primary-500" placeholder="Nouveau numéro..." />
+                  <button onClick={() => savePhone(editPhoneValue)} className="px-3 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700">✓</button>
+                  <button onClick={() => setEditingPhone(false)} className="px-3 py-2 bg-gray-200 text-gray-700 rounded-lg text-sm hover:bg-gray-300">✕</button>
+                </div>
+              ) : current.phone ? (
+                <div className="flex items-center gap-2">
+                  <a href={'tel:' + current.phone.replace(/\s/g, '')}
+                    className="flex-1 flex items-center gap-2 bg-primary-50 hover:bg-primary-100 border border-primary-200 rounded-lg px-4 py-2.5 text-primary-700 font-semibold text-lg transition-colors">
+                    <Phone className="w-5 h-5" />{current.phone}
+                  </a>
+                  <button onClick={() => { setEditPhoneValue(current.phone); setEditingPhone(true) }}
+                    title="Modifier le numéro"
+                    className="p-2.5 text-gray-400 hover:text-primary-600 hover:bg-gray-100 rounded-lg transition-colors">
+                    <Edit2 className="w-4 h-4" />
+                  </button>
+                </div>
+              ) : (
+                <button onClick={() => { setEditPhoneValue(''); setEditingPhone(true) }}
+                  className="w-full flex items-center justify-center gap-2 bg-gray-100 hover:bg-gray-200 border border-gray-200 rounded-lg px-4 py-2.5 text-gray-500 text-sm transition-colors">
+                  <Phone className="w-4 h-4" /> Ajouter un téléphone
+                </button>
               )}
 
               {/* Historique compact */}
