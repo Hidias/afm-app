@@ -437,27 +437,13 @@ export default function Quotes() {
         
         for (const course of (coursesData || [])) {
           if (course.program_url) {
-            try {
-              // Download program PDF from Supabase storage URL
-              const resp = await fetch(course.program_url)
-              if (resp.ok) {
-                const blob = await resp.blob()
-                const progBase64 = await new Promise((resolve) => {
-                  const reader = new FileReader()
-                  reader.onload = () => resolve(reader.result.split(',')[1])
-                  reader.readAsDataURL(blob)
-                })
-                programAttachments.push({
-                  filename: `Programme_${course.code || course.title.replace(/\s+/g, '_')}.pdf`,
-                  base64: progBase64,
-                  type: 'program',
-                  courseTitle: course.title,
-                  enabled: true
-                })
-              }
-            } catch (err) {
-              console.warn('Impossible de charger le programme pour', course.title, err)
-            }
+            programAttachments.push({
+              filename: `Programme_${course.code || course.title.replace(/\s+/g, '_')}.pdf`,
+              url: course.program_url,
+              type: 'program',
+              courseTitle: course.title,
+              enabled: true
+            })
           }
         }
       }
@@ -528,9 +514,12 @@ export default function Quotes() {
         throw new Error('Session expirée. Reconnectez-vous.')
       }
       const { quote, pdfBase64 } = sendWizard
-      // Build extra attachments (programs + manual, only enabled ones)
-      const extraAttachments = sendAttachments
-        .filter(att => att.enabled)
+      // Programs: send URLs only (server downloads them). Manual: send base64.
+      const programUrls = sendAttachments
+        .filter(att => att.type === 'program' && att.enabled && att.url)
+        .map(att => ({ filename: att.filename, url: att.url }))
+      const manualAttachments = sendAttachments
+        .filter(att => att.type === 'manual' && att.enabled && att.base64)
         .map(att => ({ filename: att.filename, base64: att.base64 }))
 
       const resp = await fetch('/api/send-quote-email', {
@@ -543,7 +532,8 @@ export default function Quotes() {
           body: sendEmail.body,
           pdfBase64: pdfBase64,
           pdfFilename: `${quote.reference}.pdf`,
-          extraAttachments,
+          programUrls,
+          extraAttachments: manualAttachments,
           quoteId: quote.id,
           clientId: quote.client_id,
           createdBy: quote.created_by
