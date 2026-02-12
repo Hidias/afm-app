@@ -122,15 +122,19 @@ export default function ClientDetail() {
     setDetectingOpco(true)
     try {
       const resp = await fetch(`/api/detect-opco?siret=${siret}`)
-      if (!resp.ok) throw new Error(`Erreur API (${resp.status})`)
+      if (!resp.ok) {
+        const errData = await resp.json().catch(() => ({}))
+        throw new Error(errData.error || `Erreur API (${resp.status})`)
+      }
       const data = await resp.json()
-      // L'API retourne un tableau d'objets avec { idcc, opco_name, ... }
-      if (data && data.length > 0 && data[0].opco_name) {
-        const opcoName = data[0].opco_name
-        setEditForm(prev => ({ ...prev, opco_name: opcoName }))
-        toast.success(`OPCO détecté : ${opcoName}`)
-      } else {
+      // Le proxy retourne { opco_name, opco_siren, status, idcc, naf_code, url }
+      if (data.status === 'OK' && data.opco_name) {
+        setEditForm(prev => ({ ...prev, opco_name: data.opco_name }))
+        toast.success(`OPCO détecté : ${data.opco_name}`)
+      } else if (data.status === 'NOT_FOUND') {
         toast.error('OPCO non trouvé pour ce SIRET')
+      } else {
+        toast.error(`Résultat inattendu : ${data.status || 'inconnu'}`)
       }
     } catch (err) {
       console.error('Erreur détection OPCO:', err)
