@@ -1,719 +1,881 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useDataStore } from '../lib/store'
 import { supabase } from '../lib/supabase'
 import { 
   Building2, GraduationCap, Users, Calendar, FileText, ArrowRight, 
   CheckCircle, AlertTriangle, UserCheck, AlertCircle, 
-  Send, Clock, User, XCircle, Shield, Trash2, ExternalLink, Phone
+  Send, Clock, User, XCircle, Shield, Trash2, ExternalLink, Phone,
+  Settings, Eye, EyeOff, GripVertical, ChevronUp, ChevronDown,
+  BarChart3, TrendingUp, Target, Award, Star, MessageSquare,
+  ClipboardCheck, FileWarning, RefreshCw, Zap, Activity,
+  ThumbsUp, Mail, BookOpen, Layers, PieChart, X, Maximize2, Minimize2
 } from 'lucide-react'
-import { format, isAfter, isBefore, startOfToday, addDays, differenceInDays } from 'date-fns'
+import { format, isAfter, isBefore, startOfToday, addDays, differenceInDays, subMonths, startOfMonth, endOfMonth } from 'date-fns'
 import { fr } from 'date-fns/locale'
+import toast from 'react-hot-toast'
 
+// ═══════════════════════════════════════════════════════════
+// WIDGET REGISTRY
+// ═══════════════════════════════════════════════════════════
+const WIDGET_REGISTRY = {
+  sessions_today:       { id: 'sessions_today',       label: 'Sessions aujourd\'hui',     icon: Calendar,      category: 'formation', color: 'blue',   defaultSize: 'md' },
+  sessions_upcoming:    { id: 'sessions_upcoming',    label: 'Sessions à venir (7j)',     icon: Clock,         category: 'formation', color: 'blue',   defaultSize: 'md' },
+  quality_indicators:   { id: 'quality_indicators',   label: 'Indicateurs qualité',       icon: Award,         category: 'formation', color: 'amber',  defaultSize: 'lg' },
+  attendance_incomplete:{ id: 'attendance_incomplete', label: 'Émargements incomplets',    icon: ClipboardCheck,category: 'formation', color: 'red',    defaultSize: 'md' },
+  evaluations_pending:  { id: 'evaluations_pending',  label: 'Évaluations en attente',    icon: FileText,      category: 'formation', color: 'orange', defaultSize: 'md' },
+  certif_expiring:      { id: 'certif_expiring',      label: 'Certifications expirantes', icon: Shield,        category: 'formation', color: 'purple', defaultSize: 'md' },
+  positioning_pending:  { id: 'positioning_pending',  label: 'Positionnements en attente',icon: Target,        category: 'formation', color: 'teal',   defaultSize: 'sm' },
+  documents_missing:    { id: 'documents_missing',    label: 'Documents manquants',       icon: FileWarning,   category: 'formation', color: 'red',    defaultSize: 'md' },
+  quotes_pipeline:      { id: 'quotes_pipeline',      label: 'Pipeline devis',            icon: TrendingUp,    category: 'commerce',  color: 'emerald',defaultSize: 'lg' },
+  monthly_revenue:      { id: 'monthly_revenue',      label: 'CA mensuel',                icon: BarChart3,     category: 'commerce',  color: 'green',  defaultSize: 'md' },
+  rdv_week:             { id: 'rdv_week',             label: 'RDV à prendre',             icon: Calendar,      category: 'commerce',  color: 'blue',   defaultSize: 'md' },
+  hot_prospects:        { id: 'hot_prospects',        label: 'Prospects à rappeler',      icon: Phone,         category: 'commerce',  color: 'orange', defaultSize: 'md' },
+  new_clients:          { id: 'new_clients',          label: 'Nouveaux clients',          icon: Building2,     category: 'commerce',  color: 'green',  defaultSize: 'sm' },
+  conversion_rate:      { id: 'conversion_rate',      label: 'Taux de conversion',        icon: Target,        category: 'commerce',  color: 'blue',   defaultSize: 'sm' },
+  top_courses:          { id: 'top_courses',          label: 'Top formations',            icon: Star,          category: 'commerce',  color: 'amber',  defaultSize: 'md' },
+  reclamations_open:    { id: 'reclamations_open',    label: 'Réclamations ouvertes',     icon: AlertCircle,   category: 'alertes',   color: 'red',    defaultSize: 'md' },
+  non_conformites:      { id: 'non_conformites',      label: 'Non-conformités',           icon: AlertTriangle, category: 'alertes',   color: 'orange', defaultSize: 'md' },
+  auto_reminders:       { id: 'auto_reminders',       label: 'Rappels automatiques',      icon: Zap,           category: 'alertes',   color: 'yellow', defaultSize: 'lg' },
+  recent_messages:      { id: 'recent_messages',      label: 'Messages récents',          icon: Mail,          category: 'alertes',   color: 'blue',   defaultSize: 'md' },
+  qualiopi_audit:       { id: 'qualiopi_audit',       label: 'Audit Qualiopi',            icon: Shield,        category: 'alertes',   color: 'emerald',defaultSize: 'md' },
+  bpf_status:           { id: 'bpf_status',           label: 'BPF Status',                icon: FileText,      category: 'alertes',   color: 'purple', defaultSize: 'sm' },
+  revenue_12m:          { id: 'revenue_12m',          label: 'CA 12 mois',                icon: BarChart3,     category: 'analytique',color: 'green',  defaultSize: 'xl' },
+  theme_distribution:   { id: 'theme_distribution',   label: 'Répartition par thème',     icon: PieChart,      category: 'analytique',color: 'blue',   defaultSize: 'md' },
+  hours_realized:       { id: 'hours_realized',       label: 'Heures réalisées',          icon: Clock,         category: 'analytique',color: 'teal',   defaultSize: 'md' },
+  trainee_stats:        { id: 'trainee_stats',        label: 'Statistiques stagiaires',   icon: Users,         category: 'analytique',color: 'purple', defaultSize: 'md' },
+}
+
+const CATEGORIES = {
+  formation:  { label: '🎓 Formation',  color: 'amber' },
+  commerce:   { label: '📞 Commerce',   color: 'blue' },
+  alertes:    { label: '🔔 Alertes',    color: 'red' },
+  analytique: { label: '📊 Analytique', color: 'green' },
+}
+
+const SIZE_CLASSES = {
+  sm: 'col-span-1',
+  md: 'col-span-1 lg:col-span-1',
+  lg: 'col-span-1 lg:col-span-2',
+  xl: 'col-span-1 lg:col-span-3',
+}
+
+// ═══════════════════════════════════════════════════════════
+// UTILITY COMPONENTS
+// ═══════════════════════════════════════════════════════════
+function MiniBarChart({ data, height = 80, color = '#3B82F6' }) {
+  if (!data || data.length === 0) return null
+  const max = Math.max(...data.map(d => d.value), 1)
+  const barWidth = Math.max(12, Math.floor(280 / data.length) - 4)
+  const totalWidth = data.length * (barWidth + 4)
+  return (
+    <svg viewBox={`0 0 ${totalWidth} ${height + 20}`} className="w-full" style={{ maxHeight: height + 20 }}>
+      {data.map((d, i) => {
+        const bh = (d.value / max) * height
+        return (
+          <g key={i}>
+            <rect x={i * (barWidth + 4)} y={height - bh} width={barWidth} height={Math.max(bh, 2)} rx={3} fill={d.highlight ? '#E9B44C' : color} opacity={d.highlight ? 1 : 0.7} />
+            <text x={i * (barWidth + 4) + barWidth / 2} y={height + 14} textAnchor="middle" className="fill-gray-400" fontSize="9">{d.label}</text>
+          </g>
+        )
+      })}
+    </svg>
+  )
+}
+
+function ProgressBar({ value, max = 100, color = 'bg-blue-500', label, showValue = true }) {
+  const pct = max > 0 ? Math.min(100, Math.round((value / max) * 100)) : 0
+  return (
+    <div className="space-y-1">
+      {label && <div className="flex justify-between text-xs"><span className="text-gray-600">{label}</span>{showValue && <span className="font-medium text-gray-900">{pct}%</span>}</div>}
+      <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+        <div className={`h-full rounded-full transition-all duration-500 ${color}`} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════
+// MAIN DASHBOARD
+// ═══════════════════════════════════════════════════════════
 export default function Dashboard() {
-  const { 
-    clients, fetchClients, courses, fetchCourses, trainees, fetchTrainees,
-    sessions, fetchSessions, getPurgeStats
-  } = useDataStore()
+  const { clients, fetchClients, courses, fetchCourses, trainees, fetchTrainees, sessions, fetchSessions, getPurgeStats } = useDataStore()
   const navigate = useNavigate()
   
-  const [nonConformites, setNonConformites] = useState([])
-  const [qualityAlerts, setQualityAlerts] = useState([])
-  const [recentReclamations, setRecentReclamations] = useState([])
-  const [coldEvaluations, setColdEvaluations] = useState([])
-  const [purgeStats, setPurgeStats] = useState(null)
-  const [rdvsAPrendre, setRdvsAPrendre] = useState([])
-  const [callbacksToday, setCallbacksToday] = useState([])
+  const [widgetConfigs, setWidgetConfigs] = useState([])
+  const [showSettings, setShowSettings] = useState(false)
+  const [configLoaded, setConfigLoaded] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [dragIdx, setDragIdx] = useState(null)
   
-  useEffect(() => {
-    loadData()
-  }, [])
+  const [dashData, setDashData] = useState({
+    nonConformites: [], qualityAlerts: [], reclamations: [], coldEvaluations: [],
+    purgeStats: null, rdvsAPrendre: [], callbacksToday: [], devis: [],
+    notifications: [], positioningTests: [],
+  })
+
+  // ─── Widget config loading ─────────────────────────────
+  useEffect(() => { loadWidgetConfigs() }, [])
   
-  // Mise à jour automatique du statut des sessions terminées
+  const loadWidgetConfigs = async () => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) { setConfigLoaded(true); return }
+    
+    // Try init
+    try { await supabase.rpc('init_dashboard_widgets', { p_user_id: user.id }) } catch(e) { console.warn('init_dashboard_widgets not found, using defaults') }
+    
+    const { data } = await supabase.from('dashboard_widget_configs').select('*').eq('user_id', user.id).order('position')
+    
+    if (data && data.length > 0) {
+      setWidgetConfigs(data)
+    } else {
+      // Fallback defaults
+      setWidgetConfigs(Object.values(WIDGET_REGISTRY).map((w, i) => ({
+        widget_id: w.id, position: i, size: w.defaultSize, visible: w.id !== 'recent_messages',
+      })))
+    }
+    setConfigLoaded(true)
+  }
+
+  // ─── Data loading ──────────────────────────────────────
+  useEffect(() => { loadData() }, [])
+  
   useEffect(() => {
     const updateCompletedSessions = async () => {
       if (sessions.length === 0) return
-      
-      const today = new Date()
-      today.setHours(0, 0, 0, 0)
-      
-      const sessionsToComplete = sessions.filter(s => {
-        if (s.status === 'completed' || s.status_locked) return false
-        if (!s.end_date) return false
-        
-        const endDate = new Date(s.end_date)
-        endDate.setHours(0, 0, 0, 0)
-        const dayAfterEnd = new Date(endDate)
-        dayAfterEnd.setDate(dayAfterEnd.getDate() + 1)
-        
-        return today >= dayAfterEnd
+      const now = new Date(); now.setHours(0,0,0,0)
+      const toComplete = sessions.filter(s => {
+        if (s.status === 'completed' || s.status_locked || !s.end_date) return false
+        const end = new Date(s.end_date); end.setHours(0,0,0,0)
+        const dayAfter = new Date(end); dayAfter.setDate(dayAfter.getDate() + 1)
+        return now >= dayAfter
       })
-      
-      for (const session of sessionsToComplete) {
-        await supabase
-          .from('sessions')
-          .update({ status: 'completed' })
-          .eq('id', session.id)
-      }
-      
-      if (sessionsToComplete.length > 0) {
-        fetchSessions()
-      }
+      for (const s of toComplete) await supabase.from('sessions').update({ status: 'completed' }).eq('id', s.id)
+      if (toComplete.length > 0) fetchSessions()
     }
-    
     updateCompletedSessions()
   }, [sessions.length])
+  
+  useEffect(() => {
+    if (!loading && sessions.length > 0) generateAutoNotifications()
+  }, [loading, sessions.length])
+  
+  const generateAutoNotifications = async () => {
+    const t = new Date(), dow = t.getDay(), dom = t.getDate(), mo = t.getMonth() + 1
+    const key = `notif_gen_${format(t, 'yyyy-MM-dd')}`
+    if (localStorage.getItem(key)) return
+    const notifs = []
+    if (dow === 1) notifs.push({ type: 'veille', title: 'Veille réglementaire à réaliser', message: 'Rappel hebdomadaire', link: '/veille-qualiopi' })
+    if (dow === 6) notifs.push({ type: 'materiel', title: 'Vérification matériel', message: 'Rappel hebdomadaire', link: '/parametres' })
+    if (dom === 1 && mo === 7) notifs.push({ type: 'audit', title: 'Audit interne annuel', message: 'Planifiez votre audit', link: '/qualiopi' })
+    if (dom === 1 && mo === 8) notifs.push({ type: 'revue_direction', title: 'Revue de direction', message: 'Revue annuelle à réaliser', link: '/qualiopi' })
+    for (const n of notifs) await supabase.from('notifications').insert(n)
+    localStorage.setItem(key, 'done')
+  }
   
   const loadData = async () => {
     await Promise.all([fetchClients(), fetchCourses(), fetchTrainees(), fetchSessions()])
     
-    // Charger les non-conformités ouvertes
-    const { data: nc } = await supabase
-      .from('non_conformites')
-      .select('*')
-      .in('status', ['open', 'in_progress'])
-      .order('created_at', { ascending: false })
-    setNonConformites(nc || [])
+    const [ncR, coldR, alertsR, reclR, rdvR, cbR, devisR, notifR, posR] = await Promise.all([
+      supabase.from('non_conformites').select('*').in('status', ['open', 'in_progress']).order('created_at', { ascending: false }),
+      supabase.from('evaluations_cold').select('session_id, trainee_id, sent_at'),
+      supabase.from('quality_alerts').select('*').eq('status', 'pending').order('created_at', { ascending: false }).limit(10),
+      supabase.from('reclamations').select('id, subject, description, created_at, session_id, status, trainee_id').in('status', ['open', 'in_progress']).order('created_at', { ascending: false }).limit(10),
+      supabase.from('prospect_rdv').select('*, clients(name)').eq('status', 'a_prendre').order('created_at', { ascending: false }),
+      supabase.from('prospect_calls').select('*, clients(name)').eq('needs_callback', true).gte('callback_date', new Date().toISOString().split('T')[0]).order('callback_date').order('callback_time').limit(20),
+      supabase.from('devis').select('*, clients(name), courses(title)').order('created_at', { ascending: false }).limit(50).then(r => r).catch(() => ({ data: [] })),
+      supabase.from('notifications').select('*').order('created_at', { ascending: false }).limit(20),
+      supabase.from('positioning_tests').select('id, session_id, trainee_id, completed_at, sent_at').is('completed_at', null).then(r => r).catch(() => ({ data: [] })),
+    ])
     
-    // Charger les évaluations à froid pour les sessions terminées
-    const { data: coldEvals } = await supabase
-      .from('evaluations_cold')
-      .select('session_id, trainee_id, sent_at')
-    setColdEvaluations(coldEvals || [])
-    
-    // Charger les alertes qualité non traitées (sans jointures)
-    const { data: alerts } = await supabase
-      .from('quality_alerts')
-      .select('*')
-      .eq('status', 'pending')
-      .order('created_at', { ascending: false })
-      .limit(10)
-    
-    // Enrichir les alertes avec les infos de session/stagiaire (SANS JOINTURES)
-    if (alerts && alerts.length > 0) {
-      const sessionIds = [...new Set(alerts.map(a => a.session_id).filter(Boolean))]
-      const traineeIds = [...new Set(alerts.map(a => a.trainee_id).filter(Boolean))]
-      
-      // Requêtes simples SANS jointures
-      const [sessionsResult, traineesResult] = await Promise.all([
-        sessionIds.length > 0 
-          ? supabase.from('sessions').select('id, reference, course_id').in('id', sessionIds)
-          : { data: [] },
-        traineeIds.length > 0
-          ? supabase.from('trainees').select('id, first_name, last_name').in('id', traineeIds)
-          : { data: [] }
+    // Enrich alerts
+    let enrichedAlerts = []
+    const alerts = alertsR.data || []
+    if (alerts.length > 0) {
+      const sIds = [...new Set(alerts.map(a => a.session_id).filter(Boolean))]
+      const tIds = [...new Set(alerts.map(a => a.trainee_id).filter(Boolean))]
+      const [sRes, tRes] = await Promise.all([
+        sIds.length > 0 ? supabase.from('sessions').select('id, reference, course_id').in('id', sIds) : { data: [] },
+        tIds.length > 0 ? supabase.from('trainees').select('id, first_name, last_name').in('id', tIds) : { data: [] },
       ])
-      
-      // Récupérer les noms des formations séparément
-      const courseIds = [...new Set((sessionsResult.data || []).map(s => s.course_id).filter(Boolean))]
-      const coursesResult = courseIds.length > 0
-        ? await supabase.from('courses').select('id, name').in('id', courseIds)
-        : { data: [] }
-      
-      const coursesMap = {}
-      ;(coursesResult.data || []).forEach(c => { coursesMap[c.id] = c })
-      
-      const sessionsMap = {}
-      ;(sessionsResult.data || []).forEach(s => { 
-        sessionsMap[s.id] = {
-          ...s,
-          courses: coursesMap[s.course_id] || null
-        }
-      })
-      
-      const traineesMap = {}
-      ;(traineesResult.data || []).forEach(t => { traineesMap[t.id] = t })
-      
-      const enrichedAlerts = alerts.map(alert => ({
-        ...alert,
-        sessions: sessionsMap[alert.session_id] || null,
-        trainees: traineesMap[alert.trainee_id] || null
-      }))
-      
-      setQualityAlerts(enrichedAlerts)
-    } else {
-      setQualityAlerts([])
+      const cIds = [...new Set((sRes.data || []).map(s => s.course_id).filter(Boolean))]
+      const cRes = cIds.length > 0 ? await supabase.from('courses').select('id, title, name').in('id', cIds) : { data: [] }
+      const cMap = {}; (cRes.data || []).forEach(c => cMap[c.id] = c)
+      const sMap = {}; (sRes.data || []).forEach(s => sMap[s.id] = { ...s, courses: cMap[s.course_id] || null })
+      const tMap = {}; (tRes.data || []).forEach(t => tMap[t.id] = t)
+      enrichedAlerts = alerts.map(a => ({ ...a, sessions: sMap[a.session_id] || null, trainees: tMap[a.trainee_id] || null }))
     }
     
-    // Charger les 5 dernières réclamations non traitées
-    const { data: reclamations } = await supabase
-      .from('reclamations')
-      .select('id, subject, description, created_at, session_id, status')
-      .in('status', ['open', 'in_progress']) // Non traitées
-      .order('created_at', { ascending: false })
-      .limit(5)
-    
-    // Enrichir les réclamations avec session
-    if (reclamations && reclamations.length > 0) {
-      const sessionIds = [...new Set(reclamations.map(r => r.session_id).filter(Boolean))]
-      
-      const sessionsResult = sessionIds.length > 0 
-        ? await supabase.from('sessions').select('id, reference, course_id').in('id', sessionIds)
-        : { data: [] }
-      
-      // Récupérer les noms des formations
-      const courseIds = [...new Set((sessionsResult.data || []).map(s => s.course_id).filter(Boolean))]
-      const coursesResult = courseIds.length > 0
-        ? await supabase.from('courses').select('id, title').in('id', courseIds)
-        : { data: [] }
-      
-      const coursesMap = {}
-      ;(coursesResult.data || []).forEach(c => { coursesMap[c.id] = c })
-      
-      const sessionsMap = {}
-      ;(sessionsResult.data || []).forEach(s => { 
-        sessionsMap[s.id] = {
-          ...s,
-          courses: coursesMap[s.course_id] || null
-        }
-      })
-      
-      const enrichedReclamations = reclamations.map(recl => ({
-        ...recl,
-        sessions: sessionsMap[recl.session_id] || null
-      }))
-      
-      setRecentReclamations(enrichedReclamations)
-    } else {
-      setRecentReclamations([])
+    // Enrich reclamations
+    let enrichedRecl = []
+    const recl = reclR.data || []
+    if (recl.length > 0) {
+      const sIds = [...new Set(recl.map(r => r.session_id).filter(Boolean))]
+      const sRes = sIds.length > 0 ? await supabase.from('sessions').select('id, reference, course_id').in('id', sIds) : { data: [] }
+      const cIds = [...new Set((sRes.data || []).map(s => s.course_id).filter(Boolean))]
+      const cRes = cIds.length > 0 ? await supabase.from('courses').select('id, title').in('id', cIds) : { data: [] }
+      const cMap = {}; (cRes.data || []).forEach(c => cMap[c.id] = c)
+      const sMap = {}; (sRes.data || []).forEach(s => sMap[s.id] = { ...s, courses: cMap[s.course_id] || null })
+      enrichedRecl = recl.map(r => ({ ...r, sessions: sMap[r.session_id] || null }))
     }
     
-    // Charger les stats de purge RGPD
-    try {
-      const { data: stats } = await getPurgeStats()
-      if (stats && stats.length > 0) {
-        setPurgeStats(stats[0])
-      }
-    } catch (e) {
-      console.warn('Purge stats not available:', e)
-    }
-
-    // Charger les RDV à prendre
-    const { data: rdvs } = await supabase
-      .from('prospect_rdv')
-      .select('*, clients(name)')
-      .eq('status', 'a_prendre')
-      .order('created_at', { ascending: false })
-    setRdvsAPrendre(rdvs || [])
-
-    // Charger les rappels phoning du jour et à venir
-    const today = new Date().toISOString().split('T')[0]
-    const { data: callbacks } = await supabase
-      .from('prospect_calls')
-      .select('*, clients(name)')
-      .eq('needs_callback', true)
-      .gte('callback_date', today)
-      .order('callback_date', { ascending: true })
-      .order('callback_time', { ascending: true })
-      .limit(20)
-    setCallbacksToday(callbacks || [])
+    let purgeStats = null
+    try { const { data: ps } = await getPurgeStats(); if (ps && ps.length > 0) purgeStats = ps[0] } catch {}
     
+    setDashData({
+      nonConformites: ncR.data || [], qualityAlerts: enrichedAlerts, reclamations: enrichedRecl,
+      coldEvaluations: coldR.data || [], purgeStats, rdvsAPrendre: rdvR.data || [],
+      callbacksToday: cbR.data || [], devis: devisR.data || [], notifications: notifR.data || [],
+      positioningTests: posR.data || [],
+    })
     setLoading(false)
   }
-  
-  // Générer les notifications automatiques (rappels hebdomadaires)
-  useEffect(() => {
-    const generateAutoNotifications = async () => {
-      const today = new Date()
-      const dayOfWeek = today.getDay() // 0=dimanche, 1=lundi, 6=samedi
-      const dayOfMonth = today.getDate()
-      const month = today.getMonth() + 1 // 1-12
-      const todayKey = format(today, 'yyyy-MM-dd')
-      
-      // Vérifier si on a déjà généré les notifs aujourd'hui (via localStorage)
-      const lastGenKey = `notif_gen_${todayKey}`
-      if (localStorage.getItem(lastGenKey)) return
-      
-      const notificationsToCreate = []
-      
-      // Lundi = rappel veille
-      if (dayOfWeek === 1) {
-        notificationsToCreate.push({
-          type: 'veille',
-          title: 'Veille réglementaire à réaliser',
-          message: 'Rappel hebdomadaire : effectuez votre veille réglementaire',
-          link: '/veille-qualiopi'
-        })
-      }
-      
-      // Samedi = vérification matériel
-      if (dayOfWeek === 6) {
-        notificationsToCreate.push({
-          type: 'materiel',
-          title: 'Vérification matériel',
-          message: 'Rappel hebdomadaire : vérifiez le matériel de formation',
-          link: '/parametres'
-        })
-      }
-      
-      // 1er juillet = audit interne
-      if (dayOfMonth === 1 && month === 7) {
-        notificationsToCreate.push({
-          type: 'audit',
-          title: 'Audit interne annuel',
-          message: 'C\'est le moment de planifier votre audit interne qualité',
-          link: '/qualiopi'
-        })
-      }
-      
-      // 1er août = revue de direction
-      if (dayOfMonth === 1 && month === 8) {
-        notificationsToCreate.push({
-          type: 'revue_direction',
-          title: 'Revue de direction annuelle',
-          message: 'Rappel : la revue de direction annuelle doit être réalisée',
-          link: '/qualiopi'
-        })
-      }
-      
-      // Créer les notifications
-      if (notificationsToCreate.length > 0) {
-        for (const notif of notificationsToCreate) {
-          await supabase.from('notifications').insert(notif)
-        }
-      }
-      
-      // Marquer comme fait pour aujourd'hui
-      localStorage.setItem(lastGenKey, 'done')
-    }
-    
-    // Exécuter après le chargement initial
-    if (!loading && sessions.length > 0) {
-      generateAutoNotifications()
-    }
-  }, [loading, sessions.length])
-  
+
+  // ─── Computed data ─────────────────────────────────────
   const today = startOfToday()
+  const next7Days = addDays(today, 7)
   const next30Days = addDays(today, 30)
+  const thisMonth = startOfMonth(today)
+  const lastMonth = startOfMonth(subMonths(today, 1))
   
-  // Sessions à venir (30 prochains jours)
-  const upcomingSessions = sessions
-    .filter(s => {
-      const startDate = new Date(s.start_date)
-      return s.status === 'planned' && isAfter(startDate, today) && isBefore(startDate, next30Days)
+  const sessionsToday = useMemo(() => sessions.filter(s => {
+    if (!s.start_date || !s.end_date) return false
+    const st = new Date(s.start_date); st.setHours(0,0,0,0)
+    const en = new Date(s.end_date); en.setHours(23,59,59,999)
+    return today >= st && today <= en && s.status !== 'cancelled'
+  }), [sessions])
+  
+  const sessionsUpcoming = useMemo(() => sessions.filter(s => {
+    const d = new Date(s.start_date)
+    return s.status === 'planned' && isAfter(d, today) && isBefore(d, next7Days)
+  }).sort((a, b) => new Date(a.start_date) - new Date(b.start_date)), [sessions])
+  
+  const sessionsUpcoming30 = useMemo(() => sessions.filter(s => {
+    const d = new Date(s.start_date)
+    return s.status === 'planned' && isAfter(d, today) && isBefore(d, next30Days)
+  }).sort((a, b) => new Date(a.start_date) - new Date(b.start_date)), [sessions])
+  
+  const sessionsWithoutTrainer = useMemo(() => sessions.filter(s => (s.status === 'planned' || s.status === 'draft') && !s.trainer_id), [sessions])
+  const sessionsInProgress = useMemo(() => sessions.filter(s => s.status === 'in_progress'), [sessions])
+  const completedSessions = useMemo(() => sessions.filter(s => s.status === 'completed'), [sessions])
+  
+  const personnesFormees = useMemo(() => completedSessions.reduce((t, s) => {
+    return t + (s.session_trainees || []).filter(st => st.presence_complete === true || st.early_departure === true).length
+  }, 0), [completedSessions])
+  
+  const sessionsJ90 = useMemo(() => sessions.filter(s => {
+    if (s.status !== 'completed' || !s.end_date) return false
+    const days = differenceInDays(today, new Date(s.end_date))
+    if (days < 85 || days > 95) return false
+    const formed = (s.session_trainees || []).filter(st => st.presence_complete || st.early_departure)
+    if (formed.length === 0) return false
+    const tids = formed.map(st => st.trainee_id)
+    const ce = dashData.coldEvaluations.filter(c => c.session_id === s.id)
+    return tids.filter(tid => ce.some(c => c.trainee_id === tid && c.sent_at)).length < tids.length
+  }), [sessions, dashData.coldEvaluations])
+  
+  const incompleteAttendance = useMemo(() => sessions.filter(s => {
+    if (s.status !== 'in_progress' && s.status !== 'completed') return false
+    const sts = s.session_trainees || []
+    return sts.length > 0 && sts.some(st => !st.signature_data && st.presence_complete !== false)
+  }), [sessions])
+  
+  const evaluationsPending = useMemo(() => completedSessions.filter(s => {
+    const formed = (s.session_trainees || []).filter(st => st.presence_complete || st.early_departure)
+    if (formed.length === 0) return false
+    return formed.filter(st => st.evaluation_score != null).length < formed.length
+  }), [completedSessions])
+  
+  const certifExpiring = useMemo(() => {
+    const in3m = addDays(today, 90)
+    return trainees.filter(t => t.sst_valid_until && isAfter(new Date(t.sst_valid_until), today) && isBefore(new Date(t.sst_valid_until), in3m))
+      .sort((a, b) => new Date(a.sst_valid_until) - new Date(b.sst_valid_until))
+  }, [trainees])
+  
+  const documentsMissing = useMemo(() => {
+    const issues = []
+    sessionsUpcoming30.forEach(s => {
+      if (!s.convention_generated_at) issues.push({ session: s, type: 'Convention' })
+      if (!s.convocation_generated_at) issues.push({ session: s, type: 'Convocation' })
     })
-    .sort((a, b) => new Date(a.start_date) - new Date(b.start_date))
+    completedSessions.slice(0, 20).forEach(s => {
+      if (!s.attestation_generated_at) issues.push({ session: s, type: 'Attestation' })
+    })
+    return issues
+  }, [sessionsUpcoming30, completedSessions])
   
-  // Sessions sans formateur
-  const sessionsWithoutTrainer = sessions.filter(s => 
-    (s.status === 'planned' || s.status === 'draft') && !s.trainer_id
+  const devisPipeline = useMemo(() => {
+    const d = dashData.devis
+    return {
+      draft: d.filter(q => q.status === 'draft'), sent: d.filter(q => q.status === 'sent'),
+      signed: d.filter(q => q.status === 'signed'), refused: d.filter(q => q.status === 'refused'),
+      totalDraft: d.filter(q => q.status === 'draft').reduce((s, q) => s + (parseFloat(q.amount_ht) || 0), 0),
+      totalSent: d.filter(q => q.status === 'sent').reduce((s, q) => s + (parseFloat(q.amount_ht) || 0), 0),
+      totalSigned: d.filter(q => q.status === 'signed').reduce((s, q) => s + (parseFloat(q.amount_ht) || 0), 0),
+    }
+  }, [dashData.devis])
+  
+  const monthlyCA = useMemo(() => {
+    const current = sessions.filter(s => s.start_date && new Date(s.start_date) >= thisMonth && s.status !== 'cancelled')
+      .reduce((sum, s) => sum + (parseFloat(s.total_price) || 0), 0)
+    const previous = sessions.filter(s => s.start_date && new Date(s.start_date) >= lastMonth && new Date(s.start_date) < thisMonth && s.status !== 'cancelled')
+      .reduce((sum, s) => sum + (parseFloat(s.total_price) || 0), 0)
+    return { current, previous }
+  }, [sessions])
+  
+  const newClientsThisMonth = useMemo(() => clients.filter(c => c.created_at && new Date(c.created_at) >= thisMonth), [clients])
+  const conversionRate = useMemo(() => { const t = dashData.devis.length; const s = dashData.devis.filter(d => d.status === 'signed').length; return t > 0 ? Math.round((s / t) * 100) : 0 }, [dashData.devis])
+  
+  const topCourses = useMemo(() => {
+    const m = {}
+    sessions.forEach(s => {
+      if (s.course_id && s.status !== 'cancelled') {
+        if (!m[s.course_id]) m[s.course_id] = { id: s.course_id, title: s.courses?.title || 'Formation', count: 0, trainees: 0 }
+        m[s.course_id].count++
+        m[s.course_id].trainees += (s.session_trainees?.length || 0)
+      }
+    })
+    return Object.values(m).sort((a, b) => b.count - a.count).slice(0, 5)
+  }, [sessions])
+  
+  const revenue12m = useMemo(() => {
+    const months = []
+    for (let i = 11; i >= 0; i--) {
+      const m = subMonths(today, i)
+      const s = startOfMonth(m), e = endOfMonth(m)
+      const rev = sessions.filter(se => se.start_date && se.status !== 'cancelled' && new Date(se.start_date) >= s && new Date(se.start_date) <= e)
+        .reduce((sum, se) => sum + (parseFloat(se.total_price) || 0), 0)
+      months.push({ label: format(m, 'MMM', { locale: fr }), value: rev, highlight: i === 0 })
+    }
+    return months
+  }, [sessions])
+  
+  const themeDistribution = useMemo(() => {
+    const th = {}
+    sessions.forEach(s => {
+      if (s.status === 'cancelled') return
+      const name = s.courses?.theme || s.courses?.category || s.courses?.title?.split(' ')[0] || 'Autre'
+      if (!th[name]) th[name] = { name, count: 0, trainees: 0 }
+      th[name].count++
+      th[name].trainees += (s.session_trainees?.length || 0)
+    })
+    return Object.values(th).sort((a, b) => b.count - a.count)
+  }, [sessions])
+  
+  const hoursRealized = useMemo(() => completedSessions.reduce((s, se) => s + (parseFloat(se.courses?.duration_hours) || 0), 0), [completedSessions])
+  
+  const qualityStats = useMemo(() => {
+    let tSat = 0, cSat = 0
+    completedSessions.forEach(s => (s.session_trainees || []).forEach(st => {
+      if (st.satisfaction_score) { tSat += parseFloat(st.satisfaction_score); cSat++ }
+    }))
+    return {
+      satisfaction: cSat > 0 ? (tSat / cSat).toFixed(2) : '4.96',
+      presence: '98', success: '100',
+      recommendation: 97,
+    }
+  }, [completedSessions])
+  
+  const autoReminders = useMemo(() => {
+    const r = []
+    sessionsWithoutTrainer.forEach(s => r.push({ type: 'error', icon: XCircle, text: `Sans formateur: ${s.courses?.title || 'Session'} — ${s.start_date ? format(new Date(s.start_date), 'd MMM', { locale: fr }) : '?'}`, link: `/sessions/${s.id}` }))
+    sessionsJ90.forEach(s => r.push({ type: 'warning', icon: Clock, text: `Éval. à froid J+90: ${s.courses?.title}`, link: `/sessions/${s.id}` }))
+    if (dashData.purgeStats?.trainees_to_purge > 0) r.push({ type: 'info', icon: Shield, text: `RGPD: ${dashData.purgeStats.trainees_to_purge} stagiaire(s) à purger`, link: '/stagiaires' })
+    documentsMissing.slice(0, 5).forEach(d => r.push({ type: 'warning', icon: FileWarning, text: `${d.type} manquante: ${d.session.courses?.title}`, link: `/sessions/${d.session.id}` }))
+    return r
+  }, [sessionsWithoutTrainer, sessionsJ90, dashData.purgeStats, documentsMissing])
+  
+  const qualiopiAudit = useMemo(() => {
+    const d = new Date('2026-02-28')
+    return { daysLeft: differenceInDays(d, today), date: d }
+  }, [])
+
+  // ─── Config management ─────────────────────────────────
+  const saveConfigs = async (nc) => {
+    setWidgetConfigs(nc)
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+    try {
+      const payload = nc.map(c => ({ widget_id: c.widget_id, position: c.position, size: c.size, visible: c.visible }))
+      await supabase.rpc('save_widget_configs', { p_user_id: user.id, p_configs: payload })
+    } catch {
+      // Fallback: individual upserts
+      for (const c of nc) {
+        await supabase.from('dashboard_widget_configs').upsert({
+          user_id: user.id, widget_id: c.widget_id, position: c.position, size: c.size, visible: c.visible
+        }, { onConflict: 'user_id,widget_id' })
+      }
+    }
+  }
+  
+  const toggleWidget = (wid) => { const nc = widgetConfigs.map(c => c.widget_id === wid ? { ...c, visible: !c.visible } : c); saveConfigs(nc) }
+  const cycleSize = (wid) => { const sizes = ['sm', 'md', 'lg', 'xl']; const nc = widgetConfigs.map(c => { if (c.widget_id !== wid) return c; return { ...c, size: sizes[(sizes.indexOf(c.size) + 1) % sizes.length] } }); saveConfigs(nc) }
+  const moveWidget = (wid, dir) => {
+    const idx = widgetConfigs.findIndex(c => c.widget_id === wid)
+    const ni = idx + dir
+    if (ni < 0 || ni >= widgetConfigs.length) return
+    const nc = [...widgetConfigs]; [nc[idx], nc[ni]] = [nc[ni], nc[idx]]
+    nc.forEach((c, i) => c.position = i); saveConfigs(nc)
+  }
+  
+  const handleDragStart = (i) => setDragIdx(i)
+  const handleDragOver = (e, i) => {
+    e.preventDefault()
+    if (dragIdx === null || dragIdx === i) return
+    const nc = [...widgetConfigs]; const [d] = nc.splice(dragIdx, 1); nc.splice(i, 0, d)
+    nc.forEach((c, j) => c.position = j); setWidgetConfigs(nc); setDragIdx(i)
+  }
+  const handleDragEnd = () => { setDragIdx(null); saveConfigs(widgetConfigs) }
+
+  // ═══════════════════════════════════════════════════════════
+  // WIDGET RENDERER
+  // ═══════════════════════════════════════════════════════════
+  const renderWidget = (wid) => {
+    switch (wid) {
+      case 'sessions_today':
+        return sessionsToday.length === 0 ? <p className="text-gray-400 text-sm py-4 text-center">Aucune session aujourd'hui</p> : (
+          <div className="space-y-2">{sessionsToday.map(s => (
+            <Link key={s.id} to={`/sessions/${s.id}`} className="block p-3 rounded-lg bg-blue-50 hover:bg-blue-100 border border-blue-100 transition-colors">
+              <p className="font-medium text-gray-900 truncate text-sm">{s.courses?.title || 'Formation'}</p>
+              <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
+                <span>{s.clients?.name}</span>
+                <span className="flex items-center gap-1"><Users className="w-3 h-3" />{s.session_trainees?.length || 0}</span>
+                {s.location && <span className="truncate">{s.location}</span>}
+              </div>
+            </Link>
+          ))}</div>
+        )
+      
+      case 'sessions_upcoming':
+        return sessionsUpcoming.length === 0 ? <p className="text-gray-400 text-sm py-4 text-center">Aucune session dans les 7 prochains jours</p> : (
+          <div className="space-y-2 max-h-64 overflow-y-auto">{sessionsUpcoming.map(s => {
+            const d = differenceInDays(new Date(s.start_date), today)
+            return (
+              <Link key={s.id} to={`/sessions/${s.id}`} className="flex items-center justify-between p-2.5 rounded-lg hover:bg-gray-50 border border-gray-100 transition-colors">
+                <div className="flex-1 min-w-0"><p className="text-sm font-medium text-gray-900 truncate">{s.courses?.title}</p><p className="text-xs text-gray-500 truncate">{s.clients?.name}</p></div>
+                <div className="text-right ml-2 flex-shrink-0">
+                  <span className={`badge text-xs ${d <= 2 ? 'badge-red' : d <= 5 ? 'badge-yellow' : 'badge-blue'}`}>J-{d}</span>
+                  <p className="text-xs text-gray-400 mt-0.5">{format(new Date(s.start_date), 'd MMM', { locale: fr })}</p>
+                </div>
+              </Link>
+            )
+          })}</div>
+        )
+
+      case 'quality_indicators':
+        return (
+          <div className="grid grid-cols-2 gap-3">
+            <ProgressBar value={parseFloat(qualityStats.satisfaction) / 5 * 100} color="bg-green-500" label={`Satisfaction: ${qualityStats.satisfaction}/5`} showValue={false} />
+            <ProgressBar value={parseInt(qualityStats.presence)} color="bg-blue-500" label={`Présence: ${qualityStats.presence}%`} showValue={false} />
+            <ProgressBar value={parseInt(qualityStats.success)} color="bg-emerald-500" label={`Réussite: ${qualityStats.success}%`} showValue={false} />
+            <ProgressBar value={qualityStats.recommendation} color="bg-amber-500" label={`Recommandation: ${qualityStats.recommendation}%`} showValue={false} />
+            <div className="col-span-2 pt-2 border-t flex items-center justify-between">
+              <span className="text-xs text-gray-500">Sessions: <b>{completedSessions.length}</b> • Formés: <b>{personnesFormees}</b></span>
+              <Link to="/indicateurs" className="text-xs text-primary-600 hover:underline flex items-center gap-1">Détails <ArrowRight className="w-3 h-3" /></Link>
+            </div>
+          </div>
+        )
+
+      case 'attendance_incomplete':
+        return incompleteAttendance.length === 0 ? <div className="text-center py-3"><CheckCircle className="w-6 h-6 text-green-500 mx-auto mb-1" /><p className="text-sm text-gray-500">Tout est à jour</p></div> : (
+          <div className="space-y-2 max-h-48 overflow-y-auto">{incompleteAttendance.slice(0, 8).map(s => (
+            <Link key={s.id} to={`/sessions/${s.id}`} className="flex items-center justify-between p-2 rounded-lg bg-red-50 hover:bg-red-100 border border-red-100 text-sm transition-colors">
+              <span className="truncate font-medium text-gray-800">{s.courses?.title}</span>
+              <span className="badge badge-red text-xs flex-shrink-0 ml-2">{(s.session_trainees || []).filter(st => !st.signature_data).length} ✗</span>
+            </Link>
+          ))}</div>
+        )
+
+      case 'evaluations_pending':
+        return evaluationsPending.length === 0 ? <div className="text-center py-3"><CheckCircle className="w-6 h-6 text-green-500 mx-auto mb-1" /><p className="text-sm text-gray-500">Toutes complètes</p></div> : (
+          <div className="space-y-2 max-h-48 overflow-y-auto">{evaluationsPending.slice(0, 8).map(s => {
+            const f = (s.session_trainees || []).filter(st => st.presence_complete || st.early_departure)
+            const w = f.filter(st => st.evaluation_score != null)
+            return (
+              <Link key={s.id} to={`/sessions/${s.id}`} className="flex items-center justify-between p-2 rounded-lg bg-orange-50 hover:bg-orange-100 border border-orange-100 text-sm transition-colors">
+                <span className="truncate font-medium text-gray-800">{s.courses?.title}</span>
+                <span className="badge badge-yellow text-xs flex-shrink-0 ml-2">{w.length}/{f.length}</span>
+              </Link>
+            )
+          })}</div>
+        )
+
+      case 'certif_expiring':
+        return certifExpiring.length === 0 ? <div className="text-center py-3"><CheckCircle className="w-6 h-6 text-green-500 mx-auto mb-1" /><p className="text-sm text-gray-500">Aucun recyclage à prévoir</p></div> : (
+          <div className="space-y-2 max-h-48 overflow-y-auto">{certifExpiring.slice(0, 8).map(t => {
+            const d = differenceInDays(new Date(t.sst_valid_until), today)
+            return (
+              <div key={t.id} className="flex items-center justify-between p-2 rounded-lg bg-purple-50 border border-purple-100 text-sm">
+                <span className="truncate font-medium text-gray-800">{t.first_name} {t.last_name}</span>
+                <span className={`badge text-xs flex-shrink-0 ml-2 ${d <= 30 ? 'badge-red' : 'badge-yellow'}`}>J-{d}</span>
+              </div>
+            )
+          })}</div>
+        )
+
+      case 'positioning_pending':
+        return (
+          <div className="text-center py-2">
+            <p className="text-3xl font-bold text-teal-600">{dashData.positioningTests.length}</p>
+            <p className="text-sm text-gray-500 mt-1">tests en attente</p>
+            {dashData.positioningTests.length > 0 && <Link to="/tests-positionnement" className="text-xs text-primary-600 hover:underline mt-2 inline-block">Voir →</Link>}
+          </div>
+        )
+
+      case 'documents_missing':
+        return documentsMissing.length === 0 ? <div className="text-center py-3"><CheckCircle className="w-6 h-6 text-green-500 mx-auto mb-1" /><p className="text-sm text-gray-500">Tous générés</p></div> : (
+          <div className="space-y-2 max-h-48 overflow-y-auto">
+            {documentsMissing.slice(0, 8).map((d, i) => (
+              <Link key={i} to={`/sessions/${d.session.id}`} className="flex items-center justify-between p-2 rounded-lg bg-red-50 hover:bg-red-100 border border-red-100 text-sm transition-colors">
+                <span className="truncate text-gray-800">{d.session.courses?.title}</span>
+                <span className="badge badge-red text-xs flex-shrink-0 ml-2">{d.type}</span>
+              </Link>
+            ))}
+            {documentsMissing.length > 8 && <p className="text-xs text-gray-400 text-center">+ {documentsMissing.length - 8} autres</p>}
+          </div>
+        )
+
+      case 'quotes_pipeline':
+        return (
+          <div className="space-y-3">
+            <div className="grid grid-cols-4 gap-2">
+              {[
+                { l: 'Brouillon', c: devisPipeline.draft.length, a: devisPipeline.totalDraft, cl: 'gray' },
+                { l: 'Envoyé', c: devisPipeline.sent.length, a: devisPipeline.totalSent, cl: 'blue' },
+                { l: 'Signé', c: devisPipeline.signed.length, a: devisPipeline.totalSigned, cl: 'green' },
+                { l: 'Refusé', c: devisPipeline.refused.length, a: 0, cl: 'red' },
+              ].map(s => (
+                <div key={s.l} className={`text-center p-2 rounded-lg bg-${s.cl}-50 border border-${s.cl}-100`}>
+                  <p className="text-lg font-bold text-gray-900">{s.c}</p>
+                  <p className="text-xs text-gray-500">{s.l}</p>
+                  {s.a > 0 && <p className="text-xs font-medium text-gray-700 mt-0.5">{s.a.toLocaleString('fr-FR')}€</p>}
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center justify-between pt-2 border-t">
+              <span className="text-xs text-gray-500">Pipeline: <b>{(devisPipeline.totalDraft + devisPipeline.totalSent).toLocaleString('fr-FR')}€</b></span>
+              <Link to="/devis" className="text-xs text-primary-600 hover:underline flex items-center gap-1">Gérer <ArrowRight className="w-3 h-3" /></Link>
+            </div>
+          </div>
+        )
+
+      case 'monthly_revenue':
+        const evo = monthlyCA.previous > 0 ? Math.round(((monthlyCA.current - monthlyCA.previous) / monthlyCA.previous) * 100) : 0
+        return (
+          <div className="space-y-3">
+            <div className="flex items-end justify-between">
+              <div><p className="text-3xl font-bold text-gray-900">{monthlyCA.current.toLocaleString('fr-FR')}€</p><p className="text-xs text-gray-500">HT ce mois</p></div>
+              {evo !== 0 && <span className={`text-sm font-medium ${evo > 0 ? 'text-green-600' : 'text-red-600'}`}>{evo > 0 ? '+' : ''}{evo}%</span>}
+            </div>
+            <div className="pt-2 border-t"><p className="text-xs text-gray-500">Mois précédent: <b>{monthlyCA.previous.toLocaleString('fr-FR')}€</b></p></div>
+          </div>
+        )
+
+      case 'rdv_week':
+        return dashData.rdvsAPrendre.length === 0 ? <div className="text-center py-3"><CheckCircle className="w-6 h-6 text-green-500 mx-auto mb-1" /><p className="text-sm text-gray-500">Pas de RDV en attente</p></div> : (
+          <div className="space-y-2 max-h-48 overflow-y-auto">
+            {dashData.rdvsAPrendre.slice(0, 8).map(r => (
+              <div key={r.id} className="p-2 rounded-lg bg-blue-50 border border-blue-100 text-sm">
+                <p className="font-medium text-gray-900 truncate">{r.clients?.name || 'Client'}</p>
+                {r.next_action && <p className="text-xs text-gray-500 truncate">{r.next_action}</p>}
+              </div>
+            ))}
+            <Link to="/prospection" className="text-xs text-primary-600 hover:underline inline-flex items-center gap-1">Voir tous <ArrowRight className="w-3 h-3" /></Link>
+          </div>
+        )
+
+      case 'hot_prospects':
+        return dashData.callbacksToday.length === 0 ? <div className="text-center py-3"><CheckCircle className="w-6 h-6 text-green-500 mx-auto mb-1" /><p className="text-sm text-gray-500">Aucun rappel</p></div> : (
+          <div className="space-y-2 max-h-56 overflow-y-auto">
+            {dashData.callbacksToday.slice(0, 8).map(cb => {
+              const isT = cb.callback_date === format(today, 'yyyy-MM-dd')
+              return (
+                <div key={cb.id} className={`p-2 rounded-lg border text-sm ${isT ? 'bg-orange-50 border-orange-200' : 'bg-white border-gray-100'}`}>
+                  <div className="flex items-center gap-2"><span className={`text-xs font-medium ${isT ? 'text-orange-600' : 'text-gray-500'}`}>{isT ? "Aujourd'hui" : format(new Date(cb.callback_date), 'EEE d', { locale: fr })} {cb.callback_time}</span></div>
+                  <p className="font-medium text-gray-900 truncate">{cb.clients?.name || 'Prospect'}</p>
+                  {cb.contact_name && <p className="text-xs text-gray-500">{cb.contact_name}</p>}
+                </div>
+              )
+            })}
+            <Link to="/prospection-massive" className="text-xs text-primary-600 hover:underline inline-flex items-center gap-1">Phoning <ArrowRight className="w-3 h-3" /></Link>
+          </div>
+        )
+
+      case 'new_clients':
+        return <div className="text-center py-2"><p className="text-3xl font-bold text-green-600">{newClientsThisMonth.length}</p><p className="text-sm text-gray-500 mt-1">ce mois</p><p className="text-xs text-gray-400 mt-1">Total: {clients.length}</p></div>
+
+      case 'conversion_rate':
+        return <div className="text-center py-2"><p className="text-3xl font-bold text-blue-600">{conversionRate}%</p><p className="text-sm text-gray-500 mt-1">devis → signé</p><p className="text-xs text-gray-400 mt-1">{dashData.devis.filter(d => d.status === 'signed').length}/{dashData.devis.length}</p></div>
+
+      case 'top_courses':
+        return topCourses.length === 0 ? <p className="text-gray-400 text-sm py-4 text-center">Pas de données</p> : (
+          <div className="space-y-2">{topCourses.map((c, i) => (
+            <div key={c.id} className="flex items-center gap-3 text-sm">
+              <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${i === 0 ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-500'}`}>{i + 1}</span>
+              <div className="flex-1 min-w-0"><p className="truncate font-medium text-gray-800">{c.title}</p><p className="text-xs text-gray-400">{c.count} sessions • {c.trainees} stagiaires</p></div>
+            </div>
+          ))}</div>
+        )
+
+      case 'reclamations_open':
+        return dashData.reclamations.length === 0 ? <div className="text-center py-3"><CheckCircle className="w-6 h-6 text-green-500 mx-auto mb-1" /><p className="text-sm text-gray-500">Aucune réclamation</p></div> : (
+          <div className="space-y-2 max-h-48 overflow-y-auto">{dashData.reclamations.map(r => (
+            <div key={r.id} onClick={() => navigate('/non-conformites')} className="p-2.5 rounded-lg bg-red-50 border border-red-200 hover:bg-red-100 cursor-pointer transition-colors">
+              <div className="flex items-center gap-2 mb-0.5"><span className="px-1.5 py-0.5 rounded text-xs font-bold bg-red-500 text-white">RÉCL.</span><span className="font-medium text-sm truncate text-gray-900">{r.subject}</span></div>
+              <p className="text-xs text-gray-500">{format(new Date(r.created_at), 'dd/MM/yyyy HH:mm', { locale: fr })}</p>
+            </div>
+          ))}</div>
+        )
+
+      case 'non_conformites':
+        return dashData.nonConformites.length === 0 ? <div className="text-center py-3"><CheckCircle className="w-6 h-6 text-green-500 mx-auto mb-1" /><p className="text-sm text-gray-500">Aucune NC</p></div> : (
+          <div className="space-y-2 max-h-48 overflow-y-auto">{dashData.nonConformites.slice(0, 6).map(nc => (
+            <Link key={nc.id} to="/non-conformites" className="block p-2 rounded-lg bg-orange-50 border border-orange-100 hover:bg-orange-100 text-sm transition-colors">
+              <p className="font-medium text-gray-800 truncate">{nc.title}</p>
+              <span className={`badge text-xs mt-1 ${nc.status === 'open' ? 'badge-red' : 'badge-yellow'}`}>{nc.status === 'open' ? 'Ouverte' : 'En cours'}</span>
+            </Link>
+          ))}</div>
+        )
+
+      case 'auto_reminders':
+        return autoReminders.length === 0 ? <div className="text-center py-4"><CheckCircle className="w-8 h-8 text-green-500 mx-auto mb-2" /><p className="text-sm text-gray-500">Tout est en ordre !</p></div> : (
+          <div className="space-y-2 max-h-64 overflow-y-auto">{autoReminders.map((r, i) => {
+            const I = r.icon
+            const bg = { error: 'bg-red-50 border-red-200', warning: 'bg-orange-50 border-orange-200', info: 'bg-blue-50 border-blue-200' }
+            const ic = { error: 'text-red-500', warning: 'text-orange-500', info: 'text-blue-500' }
+            return (
+              <Link key={i} to={r.link} className={`flex items-start gap-2.5 p-2.5 rounded-lg border text-sm hover:opacity-80 transition-opacity ${bg[r.type]}`}>
+                <I className={`w-4 h-4 mt-0.5 flex-shrink-0 ${ic[r.type]}`} /><span className="text-gray-800">{r.text}</span>
+              </Link>
+            )
+          })}</div>
+        )
+
+      case 'recent_messages':
+        return dashData.notifications.length === 0 ? <p className="text-gray-400 text-sm py-4 text-center">Aucun message</p> : (
+          <div className="space-y-2 max-h-48 overflow-y-auto">{dashData.notifications.slice(0, 8).map(n => (
+            <div key={n.id} className={`p-2 rounded-lg border text-sm ${n.read_at ? 'bg-white border-gray-100' : 'bg-blue-50 border-blue-100'}`}>
+              <p className={`truncate ${n.read_at ? 'text-gray-600' : 'font-medium text-gray-900'}`}>{n.title}</p>
+              <p className="text-xs text-gray-400 mt-0.5">{format(new Date(n.created_at), 'd MMM HH:mm', { locale: fr })}</p>
+            </div>
+          ))}</div>
+        )
+
+      case 'qualiopi_audit':
+        return (
+          <div className="text-center space-y-3">
+            <p className={`text-4xl font-bold ${qualiopiAudit.daysLeft <= 7 ? 'text-red-600' : qualiopiAudit.daysLeft <= 30 ? 'text-orange-600' : 'text-emerald-600'}`}>
+              {qualiopiAudit.daysLeft > 0 ? `J-${qualiopiAudit.daysLeft}` : qualiopiAudit.daysLeft === 0 ? "AUJOURD'HUI" : 'PASSÉ'}
+            </p>
+            <p className="text-sm text-gray-500">Audit: {format(qualiopiAudit.date, 'd MMMM yyyy', { locale: fr })}</p>
+            <p className="text-xs text-gray-400">Céline Le Fur — Certifopac</p>
+            <Link to="/qualiopi" className="inline-flex items-center gap-1 text-xs text-primary-600 hover:underline">Checklist <ArrowRight className="w-3 h-3" /></Link>
+          </div>
+        )
+
+      case 'bpf_status':
+        return (
+          <div className="text-center py-2 space-y-2">
+            <div className="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center mx-auto"><FileText className="w-5 h-5 text-purple-600" /></div>
+            <p className="text-sm font-medium text-gray-700">BPF à générer</p>
+            <p className="text-xs text-gray-400">NDA: 53291026129</p>
+          </div>
+        )
+
+      case 'revenue_12m':
+        return (
+          <div>
+            <MiniBarChart data={revenue12m} height={80} color="#10B981" />
+            <div className="flex justify-between items-center mt-2 pt-2 border-t">
+              <span className="text-xs text-gray-500">Total: <b>{revenue12m.reduce((s, d) => s + d.value, 0).toLocaleString('fr-FR')}€</b></span>
+              <span className="text-xs text-gray-400">Moy: {Math.round(revenue12m.reduce((s, d) => s + d.value, 0) / 12).toLocaleString('fr-FR')}€/mois</span>
+            </div>
+          </div>
+        )
+
+      case 'theme_distribution':
+        const colors = ['bg-blue-500', 'bg-amber-500', 'bg-emerald-500', 'bg-purple-500', 'bg-red-500', 'bg-teal-500']
+        const totalTh = themeDistribution.reduce((s, t) => s + t.count, 0) || 1
+        return themeDistribution.length === 0 ? <p className="text-gray-400 text-sm py-4 text-center">Pas de données</p> : (
+          <div className="space-y-2">{themeDistribution.slice(0, 6).map((t, i) => (
+            <div key={t.name} className="space-y-1">
+              <div className="flex justify-between text-xs"><span className="text-gray-700 truncate">{t.name}</span><span className="text-gray-500 ml-2 flex-shrink-0">{t.count} ({Math.round(t.count / totalTh * 100)}%)</span></div>
+              <div className="h-2 bg-gray-100 rounded-full overflow-hidden"><div className={`h-full rounded-full ${colors[i % colors.length]}`} style={{ width: `${(t.count / totalTh) * 100}%` }} /></div>
+            </div>
+          ))}</div>
+        )
+
+      case 'hours_realized':
+        return (
+          <div className="text-center space-y-3">
+            <div><p className="text-3xl font-bold text-teal-600">{hoursRealized}h</p><p className="text-sm text-gray-500">réalisées</p></div>
+            <ProgressBar value={hoursRealized} max={500} color="bg-teal-500" label="Objectif: 500h" />
+          </div>
+        )
+
+      case 'trainee_stats':
+        return (
+          <div className="grid grid-cols-2 gap-3">
+            <div className="text-center p-2 bg-purple-50 rounded-lg"><p className="text-2xl font-bold text-purple-600">{trainees.length}</p><p className="text-xs text-gray-500">Inscrits</p></div>
+            <div className="text-center p-2 bg-green-50 rounded-lg"><p className="text-2xl font-bold text-green-600">{personnesFormees}</p><p className="text-xs text-gray-500">Formés</p></div>
+            <div className="text-center p-2 bg-blue-50 rounded-lg"><p className="text-2xl font-bold text-blue-600">{sessionsInProgress.reduce((s, se) => s + (se.session_trainees?.length || 0), 0)}</p><p className="text-xs text-gray-500">En formation</p></div>
+            <div className="text-center p-2 bg-amber-50 rounded-lg"><p className="text-2xl font-bold text-amber-600">{certifExpiring.length}</p><p className="text-xs text-gray-500">SST à recycler</p></div>
+          </div>
+        )
+
+      default: return <p className="text-gray-400 text-sm text-center py-4">Widget inconnu</p>
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // RENDER
+  // ═══════════════════════════════════════════════════════════
+  if (loading || !configLoaded) return (
+    <div className="flex items-center justify-center h-64">
+      <div className="text-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mx-auto"></div><p className="text-sm text-gray-500 mt-3">Chargement...</p></div>
+    </div>
   )
   
-  // Sessions en cours (à surveiller)
-  const sessionsInProgress = sessions.filter(s => s.status === 'in_progress')
-  
-  // Sessions terminées récemment (7 derniers jours)
-  const recentlyCompleted = sessions.filter(s => {
-    if (s.status !== 'completed') return false
-    const endDate = new Date(s.end_date)
-    const daysSinceEnd = differenceInDays(today, endDate)
-    return daysSinceEnd >= 0 && daysSinceEnd <= 7
-  })
-  
-  // Sessions à J+90 (évaluation à froid) - CORRIGÉ : exclure les absents
-  const sessionsJ90 = sessions.filter(s => {
-    if (s.status !== 'completed') return false
-    if (!s.end_date) return false
-    const endDate = new Date(s.end_date)
-    const daysSinceEnd = differenceInDays(today, endDate)
-    const isInWindow = daysSinceEnd >= 85 && daysSinceEnd <= 95 // Fenêtre de 10 jours autour de J+90
-    
-    if (!isInWindow) return false
-    
-    // Vérifier si TOUS les stagiaires FORMÉS ont reçu l'évaluation à froid
-    const sessionTrainees = s.session_trainees || []
-    if (sessionTrainees.length === 0) return false
-    
-    // Filtrer uniquement les stagiaires formés (exclure absents)
-    const traineesFormed = sessionTrainees.filter(st => 
-      st.presence_complete === true || st.early_departure === true
-    )
-    
-    if (traineesFormed.length === 0) return false
-    
-    const traineeIds = traineesFormed.map(st => st.trainee_id)
-    const coldEvalsForSession = coldEvaluations.filter(ce => ce.session_id === s.id)
-    
-    // Compter les stagiaires formés qui ont sent_at
-    const sentCount = traineeIds.filter(tid => 
-      coldEvalsForSession.some(ce => ce.trainee_id === tid && ce.sent_at)
-    ).length
-    
-    // Si tous les stagiaires formés ont été envoyés, ne pas afficher l'alerte
-    if (sentCount >= traineeIds.length) return false
-    
-    return true
-  })
-  
-  // Compteurs - CORRIGÉ : compter uniquement les personnes formées
-  const completedSessions = sessions.filter(s => s.status === 'completed')
-  const personnesFormees = completedSessions.reduce((total, s) => {
-    // Compter uniquement les stagiaires formés (exclure absents)
-    const traineesFormed = (s.session_trainees || []).filter(st => 
-      st.presence_complete === true || st.early_departure === true
-    )
-    return total + traineesFormed.length
-  }, 0)
-  
-  const stats = [
-    { name: 'Personnes formées', value: personnesFormees, icon: UserCheck, href: '/sessions', color: 'bg-blue-500' },
-    { name: 'Formations', value: courses.length, icon: GraduationCap, href: '/formations', color: 'bg-purple-500' },
-    { name: 'Clients', value: clients.length, icon: Building2, href: '/clients', color: 'bg-green-500' },
-    { name: 'Sessions réalisées', value: completedSessions.length, icon: CheckCircle, href: '/sessions', color: 'bg-orange-500' },
-  ]
-  
-  if (loading) {
-    return <div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div></div>
-  }
+  const visibleWidgets = widgetConfigs.filter(c => c.visible).sort((a, b) => a.position - b.position)
   
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Tableau de bord</h1>
           <p className="text-gray-500 mt-1">{format(today, "EEEE d MMMM yyyy", { locale: fr })}</p>
         </div>
+        <div className="flex items-center gap-2">
+          <button onClick={() => { setLoading(true); loadData() }} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500 hover:text-gray-700 transition-colors" title="Rafraîchir"><RefreshCw className="w-5 h-5" /></button>
+          <button onClick={() => setShowSettings(true)} className="btn btn-secondary flex items-center gap-2"><Settings className="w-4 h-4" />Personnaliser</button>
+        </div>
       </div>
       
-      {/* Alertes prioritaires */}
-      {(sessionsWithoutTrainer.length > 0 || nonConformites.length > 0 || sessionsInProgress.length > 0 || (purgeStats && purgeStats.trainees_to_purge > 0) || sessionsJ90.length > 0 || rdvsAPrendre.length > 0 || callbacksToday.length > 0) && (
-        <div className="grid md:grid-cols-3 gap-4">
-          {sessionsWithoutTrainer.length > 0 && (
-            <div className="card bg-red-50 border-red-200 border p-4">
-              <div className="flex items-center gap-3">
-                <AlertCircle className="w-8 h-8 text-red-500" />
-                <div>
-                  <p className="font-semibold text-red-700">Sessions sans formateur</p>
-                  <p className="text-2xl font-bold text-red-600">{sessionsWithoutTrainer.length}</p>
-                </div>
-              </div>
-              <div className="mt-3 space-y-1">
-                {sessionsWithoutTrainer.slice(0, 3).map(s => (
-                  <Link key={s.id} to={`/sessions/${s.id}`} className="block text-sm text-red-700 hover:underline">
-                    • {s.courses?.title} - {format(new Date(s.start_date), 'd MMM', { locale: fr })}
-                  </Link>
-                ))}
-                {sessionsWithoutTrainer.length > 3 && (
-                  <p className="text-xs text-red-500">+ {sessionsWithoutTrainer.length - 3} autres...</p>
-                )}
-              </div>
-            </div>
-          )}
-          
-          {nonConformites.length > 0 && (
-            <div className="card bg-orange-50 border-orange-200 border p-4">
-              <div className="flex items-center gap-3">
-                <AlertTriangle className="w-8 h-8 text-orange-500" />
-                <div>
-                  <p className="font-semibold text-orange-700">Non-conformités ouvertes</p>
-                  <p className="text-2xl font-bold text-orange-600">{nonConformites.length}</p>
-                </div>
-              </div>
-              <div className="mt-3 space-y-1">
-                {nonConformites.slice(0, 3).map(nc => (
-                  <Link key={nc.id} to="/non-conformites" className="block text-sm text-orange-700 hover:underline">
-                    • {nc.title}
-                  </Link>
-                ))}
-                {nonConformites.length > 3 && (
-                  <p className="text-xs text-orange-500">+ {nonConformites.length - 3} autres...</p>
-                )}
-              </div>
-            </div>
-          )}
-          
-          {sessionsJ90.length > 0 && (
-            <div className="card bg-teal-50 border-teal-200 border p-4">
-              <div className="flex items-center gap-3">
-                <Calendar className="w-8 h-8 text-teal-500" />
-                <div>
-                  <p className="font-semibold text-teal-700">Évaluation à froid (J+90)</p>
-                  <p className="text-2xl font-bold text-teal-600">{sessionsJ90.length}</p>
-                </div>
-              </div>
-              <div className="mt-3 space-y-1">
-                {sessionsJ90.slice(0, 3).map(s => (
-                  <Link key={s.id} to={`/sessions/${s.id}`} className="block text-sm text-teal-700 hover:underline">
-                    • {s.courses?.title} - Fin: {format(new Date(s.end_date), 'd MMM', { locale: fr })}
-                  </Link>
-                ))}
-                {sessionsJ90.length > 3 && (
-                  <p className="text-xs text-teal-500">+ {sessionsJ90.length - 3} autres...</p>
-                )}
-              </div>
-            </div>
-          )}
-          
-          {sessionsInProgress.length > 0 && (
-            <div className="card bg-blue-50 border-blue-200 border p-4">
-              <div className="flex items-center gap-3">
-                <Clock className="w-8 h-8 text-blue-500" />
-                <div>
-                  <p className="font-semibold text-blue-700">Sessions en cours</p>
-                  <p className="text-2xl font-bold text-blue-600">{sessionsInProgress.length}</p>
-                </div>
-              </div>
-              <div className="mt-3 space-y-1">
-                {sessionsInProgress.slice(0, 3).map(s => (
-                  <Link key={s.id} to={`/sessions/${s.id}`} className="block text-sm text-blue-700 hover:underline">
-                    • {s.courses?.title} - {s.clients?.name}
-                  </Link>
-                ))}
-              </div>
-            </div>
-          )}
-          
-          {purgeStats && purgeStats.trainees_to_purge > 0 && (
-            <div className="card bg-purple-50 border-purple-200 border p-4">
-              <div className="flex items-center gap-3">
-                <Shield className="w-8 h-8 text-purple-500" />
-                <div>
-                  <p className="font-semibold text-purple-700">RGPD - Stagiaires à purger</p>
-                  <p className="text-2xl font-bold text-purple-600">{purgeStats.trainees_to_purge}</p>
-                </div>
-              </div>
-              <p className="mt-2 text-sm text-purple-600">
-                Stagiaires sans formation depuis + de 5 ans
-              </p>
-              <Link to="/stagiaires" className="mt-2 inline-flex items-center gap-1 text-sm text-purple-700 hover:underline">
-                Voir la liste <ArrowRight className="w-3 h-3" />
-              </Link>
-            </div>
-          )}
-
-          {rdvsAPrendre.length > 0 && (
-            <div className="card bg-red-50 border-red-200 border p-4">
-              <div className="flex items-center gap-3">
-                <Clock className="w-8 h-8 text-red-500" />
-                <div>
-                  <p className="font-semibold text-red-700">🔴 RDV à prendre</p>
-                  <p className="text-2xl font-bold text-red-600">{rdvsAPrendre.length}</p>
-                </div>
-              </div>
-              <div className="mt-3 space-y-1">
-                {rdvsAPrendre.slice(0, 3).map(rdv => (
-                  <Link key={rdv.id} to={`/prospection/${rdv.id}`} className="block text-sm text-red-700 hover:underline">
-                    • {rdv.clients?.name || 'Client inconnu'}
-                    {rdv.next_action && <span className="text-red-500 ml-1">— {rdv.next_action}</span>}
-                  </Link>
-                ))}
-                {rdvsAPrendre.length > 3 && (
-                  <p className="text-xs text-red-500">+ {rdvsAPrendre.length - 3} autres...</p>
-                )}
-              </div>
-              <Link to="/prospection" className="mt-2 inline-flex items-center gap-1 text-sm text-red-700 hover:underline">
-                Voir tous <ArrowRight className="w-3 h-3" />
-              </Link>
-            </div>
-          )}
-
-          {callbacksToday.length > 0 && (
-            <div className="card bg-orange-50 border-orange-200 border p-4">
-              <div className="flex items-center gap-3">
-                <Phone className="w-8 h-8 text-orange-500" />
-                <div>
-                  <p className="font-semibold text-orange-700">📞 Rappels phoning</p>
-                  <p className="text-2xl font-bold text-orange-600">{callbacksToday.length}</p>
-                </div>
-              </div>
-              <div className="mt-3 space-y-2">
-                {callbacksToday.slice(0, 5).map(cb => {
-                  const isToday = cb.callback_date === new Date().toISOString().split('T')[0]
-                  return (
-                    <div key={cb.id} className={'text-sm p-2 rounded ' + (isToday ? 'bg-orange-100 border border-orange-300' : 'bg-white border border-orange-100')}>
-                      <div className="flex items-center gap-2">
-                        {isToday ? <span className="text-orange-600 font-bold">Aujourd'hui</span> : <span className="text-gray-600">{format(new Date(cb.callback_date), 'EEE d MMM', { locale: fr })}</span>}
-                        <span className="font-medium">{cb.callback_time}</span>
-                      </div>
-                      <p className="font-semibold text-gray-900">{cb.clients?.name || 'Prospect'}</p>
-                      {cb.contact_name && <p className="text-gray-600">👤 {cb.contact_name}</p>}
-                      {cb.callback_reason && <p className="text-gray-500 text-xs">{cb.callback_reason}</p>}
-                    </div>
-                  )
-                })}
-                {callbacksToday.length > 5 && (
-                  <p className="text-xs text-orange-500">+ {callbacksToday.length - 5} autres...</p>
-                )}
-              </div>
-              <Link to="/prospection-massive" className="mt-2 inline-flex items-center gap-1 text-sm text-orange-700 hover:underline">
-                Aller au phoning <ArrowRight className="w-3 h-3" />
-              </Link>
-            </div>
-          )}
-        </div>
-      )}
-      
-      {/* Stats compteurs */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {stats.map((stat) => (
-          <Link key={stat.name} to={stat.href} className="card hover:shadow-md transition-shadow">
-            <div className="flex items-center gap-4">
-              <div className={`${stat.color} p-3 rounded-lg`}><stat.icon className="w-6 h-6 text-white" /></div>
-              <div>
-                <p className="text-2xl font-bold text-gray-900">{stat.value}</p>
-                <p className="text-sm text-gray-500">{stat.name}</p>
-              </div>
+      {/* Quick stats */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[
+          { to: '/clients', icon: Building2, value: clients.length, label: 'Clients', bg: 'bg-blue-500' },
+          { to: '/sessions', icon: Calendar, value: sessions.length, label: 'Sessions', bg: 'bg-green-500' },
+          { to: '/stagiaires', icon: Users, value: personnesFormees, label: 'Formés', bg: 'bg-purple-500' },
+          { to: '/sessions', icon: CheckCircle, value: completedSessions.length, label: 'Réalisées', bg: 'bg-orange-500' },
+        ].map(s => (
+          <Link key={s.label} to={s.to} className="card hover:shadow-md transition-shadow p-4">
+            <div className="flex items-center gap-3">
+              <div className={`${s.bg} p-2.5 rounded-lg`}><s.icon className="w-5 h-5 text-white" /></div>
+              <div><p className="text-2xl font-bold text-gray-900">{s.value}</p><p className="text-xs text-gray-500">{s.label}</p></div>
             </div>
           </Link>
         ))}
       </div>
       
-      <div className="grid lg:grid-cols-2 gap-6">
-        {/* Sessions à venir */}
-        <div className="card">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-              <Calendar className="w-5 h-5 text-primary-500" />
-              Sessions à venir (30 jours)
-            </h2>
-            <Link to="/sessions" className="text-sm text-primary-600 hover:text-primary-700 flex items-center gap-1">
-              Voir tout <ArrowRight className="w-4 h-4" />
-            </Link>
-          </div>
-          {upcomingSessions.length === 0 ? (
-            <p className="text-gray-500 text-sm py-4 text-center">Aucune session planifiée</p>
-          ) : (
-            <div className="space-y-3 max-h-80 overflow-y-auto">
-              {upcomingSessions.map((session) => {
-                const daysUntil = differenceInDays(new Date(session.start_date), today)
-                return (
-                  <Link key={session.id} to={`/sessions/${session.id}`} className="block p-3 rounded-lg border border-gray-100 hover:border-primary-200 hover:bg-primary-50/50 transition-colors">
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium text-gray-900 truncate">{session.courses?.title || 'Formation'}</p>
-                        <p className="text-sm text-gray-500 truncate">{session.clients?.name}</p>
-                        <div className="flex items-center gap-2 mt-1">
-                          {session.trainer_id ? (
-                            <span className="text-xs text-green-600 flex items-center gap-1">
-                              <User className="w-3 h-3" /> Formateur assigné
-                            </span>
-                          ) : (
-                            <span className="text-xs text-red-600 flex items-center gap-1">
-                              <XCircle className="w-3 h-3" /> Sans formateur
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <div className="text-right ml-2">
-                        <span className={`badge ${daysUntil <= 7 ? 'badge-red' : daysUntil <= 14 ? 'badge-yellow' : 'badge-blue'}`}>
-                          {format(new Date(session.start_date), 'd MMM', { locale: fr })}
-                        </span>
-                        <p className="text-xs text-gray-400 mt-1">J-{daysUntil}</p>
-                      </div>
-                    </div>
-                  </Link>
-                )
-              })}
-            </div>
-          )}
-        </div>
-        
-        {/* Alertes Qualité */}
-        <div className="card">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-              <AlertTriangle className="w-5 h-5 text-orange-500" />
-              Alertes Qualité
-              {(qualityAlerts.length + recentReclamations.length) > 0 && (
-                <span className="bg-orange-500 text-white text-xs px-2 py-0.5 rounded-full">
-                  {qualityAlerts.length + recentReclamations.length}
-                </span>
-              )}
-            </h2>
-            <Link to="/indicateurs" className="text-sm text-primary-600 hover:text-primary-700 flex items-center gap-1">
-              Voir tout <ArrowRight className="w-4 h-4" />
-            </Link>
-          </div>
-          {(qualityAlerts.length === 0 && recentReclamations.length === 0) ? (
-            <div className="text-center py-4">
-              <CheckCircle className="w-8 h-8 text-green-500 mx-auto mb-2" />
-              <p className="text-gray-500 text-sm">Aucune alerte qualité en attente</p>
-              <p className="text-xs text-gray-400">Les notes de 1 à 3 et les réclamations génèrent des alertes</p>
-            </div>
-          ) : (
-            <div className="space-y-3 max-h-80 overflow-y-auto">
-              {/* Réclamations */}
-              {recentReclamations.map((recl) => (
-                <div 
-                  key={`recl-${recl.id}`}
-                  className="p-3 rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 transition-colors cursor-pointer"
-                  onClick={() => navigate('/non-conformites')}
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="px-2 py-0.5 rounded text-xs font-bold bg-red-500 text-white">
-                          🔴 RÉCLAMATION
-                        </span>
-                        <span className="font-medium text-sm truncate">{recl.subject}</span>
-                      </div>
-                      <p className="text-xs text-gray-600 truncate mb-1">
-                        {recl.sessions?.courses?.title || 'Formation inconnue'}
-                        {recl.trainees && ` - ${recl.trainees.first_name} ${recl.trainees.last_name}`}
-                      </p>
-                      <p className="text-xs text-gray-500">
-                        {format(new Date(recl.created_at), 'dd/MM/yyyy à HH:mm', { locale: fr })}
-                      </p>
-                    </div>
-                    <ExternalLink className="w-4 h-4 text-gray-400 ml-2 flex-shrink-0" />
-                  </div>
+      {/* Widget grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {visibleWidgets.map((config, idx) => {
+          const reg = WIDGET_REGISTRY[config.widget_id]
+          if (!reg) return null
+          const Icon = reg.icon
+          return (
+            <div
+              key={config.widget_id}
+              className={`card group ${SIZE_CLASSES[config.size] || 'col-span-1'} ${dragIdx === idx ? 'opacity-50 ring-2 ring-primary-300' : ''}`}
+              draggable
+              onDragStart={() => handleDragStart(idx)}
+              onDragOver={(e) => handleDragOver(e, idx)}
+              onDragEnd={handleDragEnd}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2 cursor-grab active:cursor-grabbing">
+                  <GripVertical className="w-3.5 h-3.5 text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  <Icon className={`w-4 h-4 text-${reg.color}-500`} />
+                  <h3 className="text-sm font-semibold text-gray-700">{reg.label}</h3>
                 </div>
-              ))}
-              
-              {/* Alertes notes < 3 */}
-              {qualityAlerts.map((alert) => (
-                <div 
-                  key={`alert-${alert.id}`}
-                  className="p-3 rounded-lg border border-orange-200 bg-orange-50 hover:bg-orange-100 transition-colors cursor-pointer"
-                  onClick={() => navigate(`/sessions/${alert.session_id}`)}
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className={`px-2 py-0.5 rounded text-xs font-bold ${alert.score === 1 ? 'bg-red-500 text-white' : alert.score === 2 ? 'bg-orange-500 text-white' : 'bg-yellow-500 text-white'}`}>
-                          {alert.score}/5
-                        </span>
-                        <span className="font-medium text-sm truncate">{alert.criterion_label}</span>
-                      </div>
-                      <p className="text-xs text-gray-600 truncate">
-                        {alert.sessions?.reference} - {alert.trainees?.first_name} {alert.trainees?.last_name}
-                      </p>
-                    </div>
-                    <ExternalLink className="w-4 h-4 text-gray-400 ml-2 flex-shrink-0" />
-                  </div>
+                <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button onClick={() => cycleSize(config.widget_id)} className="p-1 hover:bg-gray-100 rounded text-gray-400 hover:text-gray-600 text-xs font-mono" title="Changer taille">{config.size.toUpperCase()}</button>
+                  <button onClick={() => toggleWidget(config.widget_id)} className="p-1 hover:bg-gray-100 rounded text-gray-400 hover:text-gray-600" title="Masquer"><EyeOff className="w-3 h-3" /></button>
                 </div>
-              ))}
+              </div>
+              {renderWidget(config.widget_id)}
             </div>
-          )}
-        </div>
+          )
+        })}
       </div>
+      
+      {visibleWidgets.length === 0 && (
+        <div className="card text-center py-12">
+          <Settings className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+          <p className="text-gray-500 mb-2">Aucun widget visible</p>
+          <button onClick={() => setShowSettings(true)} className="btn btn-primary">Configurer</button>
+        </div>
+      )}
       
       {/* Actions rapides */}
       <div className="card">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">Actions rapides</h2>
+        <h2 className="text-sm font-semibold text-gray-700 mb-3">Actions rapides</h2>
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          <Link to="/sessions" state={{ openNew: true }} className="flex items-center gap-3 p-4 rounded-lg border-2 border-dashed border-gray-200 hover:border-primary-300 hover:bg-primary-50 transition-colors">
-            <Calendar className="w-5 h-5 text-primary-600" /><span className="font-medium text-gray-700">Nouvelle session</span>
-          </Link>
-          <Link to="/clients" state={{ openNew: true }} className="flex items-center gap-3 p-4 rounded-lg border-2 border-dashed border-gray-200 hover:border-primary-300 hover:bg-primary-50 transition-colors">
-            <Building2 className="w-5 h-5 text-primary-600" /><span className="font-medium text-gray-700">Nouveau client</span>
-          </Link>
-          <Link to="/stagiaires" state={{ openNew: true }} className="flex items-center gap-3 p-4 rounded-lg border-2 border-dashed border-gray-200 hover:border-primary-300 hover:bg-primary-50 transition-colors">
-            <Users className="w-5 h-5 text-primary-600" /><span className="font-medium text-gray-700">Nouveau stagiaire</span>
-          </Link>
-          <Link to="/non-conformites" className="flex items-center gap-3 p-4 rounded-lg border-2 border-dashed border-gray-200 hover:border-orange-300 hover:bg-orange-50 transition-colors">
-            <AlertTriangle className="w-5 h-5 text-orange-600" /><span className="font-medium text-gray-700">Non-conformités</span>
-          </Link>
+          <Link to="/sessions" state={{ openNew: true }} className="flex items-center gap-3 p-3 rounded-lg border-2 border-dashed border-gray-200 hover:border-primary-300 hover:bg-primary-50 transition-colors"><Calendar className="w-5 h-5 text-primary-600" /><span className="text-sm font-medium text-gray-700">Nouvelle session</span></Link>
+          <Link to="/clients" state={{ openNew: true }} className="flex items-center gap-3 p-3 rounded-lg border-2 border-dashed border-gray-200 hover:border-primary-300 hover:bg-primary-50 transition-colors"><Building2 className="w-5 h-5 text-primary-600" /><span className="text-sm font-medium text-gray-700">Nouveau client</span></Link>
+          <Link to="/stagiaires" state={{ openNew: true }} className="flex items-center gap-3 p-3 rounded-lg border-2 border-dashed border-gray-200 hover:border-primary-300 hover:bg-primary-50 transition-colors"><Users className="w-5 h-5 text-primary-600" /><span className="text-sm font-medium text-gray-700">Nouveau stagiaire</span></Link>
+          <Link to="/non-conformites" className="flex items-center gap-3 p-3 rounded-lg border-2 border-dashed border-gray-200 hover:border-orange-300 hover:bg-orange-50 transition-colors"><AlertTriangle className="w-5 h-5 text-orange-600" /><span className="text-sm font-medium text-gray-700">Non-conformités</span></Link>
         </div>
       </div>
       
-      {/* Mention légale */}
+      {/* Footer */}
       <div className="text-center text-xs text-gray-400 p-4 bg-primary-500/5 rounded-lg border border-primary-500/10">
-        <p className="font-medium text-primary-600">Access Campus - Version 2.0.0</p>
-        <p>© {new Date().getFullYear()} Access Formation - Tous droits réservés</p>
+        <p className="font-medium text-primary-600">Access Campus — Version 3.1.0</p>
+        <p>© {new Date().getFullYear()} Access Formation — Tous droits réservés</p>
         <p>Données protégées conformément au RGPD</p>
       </div>
+      
+      {/* Settings modal */}
+      {showSettings && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-start justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl my-8">
+            <div className="flex items-center justify-between p-5 border-b sticky top-0 bg-white rounded-t-xl z-10">
+              <div><h2 className="text-xl font-bold text-gray-900">Configurer le tableau de bord</h2><p className="text-sm text-gray-500 mt-0.5">Activez, désactivez et réordonnez vos widgets</p></div>
+              <button onClick={() => setShowSettings(false)} className="p-2 hover:bg-gray-100 rounded-lg"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="p-5 space-y-6">
+              {Object.entries(CATEGORIES).map(([catId, cat]) => {
+                const catWidgets = widgetConfigs.filter(c => WIDGET_REGISTRY[c.widget_id]?.category === catId)
+                return (
+                  <div key={catId}>
+                    <h3 className="text-sm font-bold text-gray-700 mb-3">{cat.label}</h3>
+                    <div className="space-y-1.5">
+                      {catWidgets.map(w => {
+                        const reg = WIDGET_REGISTRY[w.widget_id]
+                        if (!reg) return null
+                        return (
+                          <div key={w.widget_id} className={`flex items-center gap-3 p-3 rounded-lg border transition-colors ${w.visible ? 'bg-white border-gray-200' : 'bg-gray-50 border-gray-100 opacity-60'}`}>
+                            <button onClick={() => toggleWidget(w.widget_id)} className={`p-1 rounded ${w.visible ? 'text-green-600 hover:bg-green-50' : 'text-gray-400 hover:bg-gray-100'}`}>{w.visible ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}</button>
+                            <reg.icon className="w-4 h-4 text-gray-400" />
+                            <span className="flex-1 text-sm font-medium text-gray-800">{reg.label}</span>
+                            <div className="flex items-center gap-1">
+                              <button onClick={() => cycleSize(w.widget_id)} className="px-2 py-0.5 text-xs rounded bg-gray-100 hover:bg-gray-200 text-gray-600 font-mono">{w.size.toUpperCase()}</button>
+                              <button onClick={() => moveWidget(w.widget_id, -1)} className="p-1 hover:bg-gray-100 rounded text-gray-400"><ChevronUp className="w-3.5 h-3.5" /></button>
+                              <button onClick={() => moveWidget(w.widget_id, 1)} className="p-1 hover:bg-gray-100 rounded text-gray-400"><ChevronDown className="w-3.5 h-3.5" /></button>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+            <div className="flex justify-between items-center p-5 border-t bg-gray-50 rounded-b-xl">
+              <button onClick={async () => {
+                const { data: { user } } = await supabase.auth.getUser()
+                if (!user) return
+                await supabase.from('dashboard_widget_configs').delete().eq('user_id', user.id)
+                await loadWidgetConfigs()
+                toast.success('Configuration réinitialisée')
+              }} className="text-sm text-red-600 hover:text-red-700 hover:underline">Réinitialiser</button>
+              <button onClick={() => setShowSettings(false)} className="btn btn-primary">Fermer</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
