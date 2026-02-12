@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useCallback } from 'react'
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useDataStore } from '../lib/store'
 import { supabase } from '../lib/supabase'
@@ -110,8 +110,8 @@ export default function Dashboard() {
   
   const [dashData, setDashData] = useState({
     nonConformites: [], qualityAlerts: [], reclamations: [], coldEvaluations: [],
-    purgeStats: null, rdvsAPrendre: [], callbacksToday: [], devis: [],
-    notifications: [], positioningTests: [],
+    purgeStats: null, rdvsAPrendre: [], callbacksToday: [], quotes: [],
+    notifications: [], evaluationsHot: [], sstCertifications: [], trainingThemes: [],
   })
 
   // ─── Widget config loading ─────────────────────────────
@@ -121,15 +121,13 @@ export default function Dashboard() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { setConfigLoaded(true); return }
     
-    // Try init
-    try { await supabase.rpc('init_dashboard_widgets', { p_user_id: user.id }) } catch(e) { console.warn('init_dashboard_widgets not found, using defaults') }
+    try { await supabase.rpc('init_dashboard_widgets', { p_user_id: user.id }) } catch(e) { console.warn('init_dashboard_widgets:', e.message) }
     
     const { data } = await supabase.from('dashboard_widget_configs').select('*').eq('user_id', user.id).order('position')
     
     if (data && data.length > 0) {
       setWidgetConfigs(data)
     } else {
-      // Fallback defaults
       setWidgetConfigs(Object.values(WIDGET_REGISTRY).map((w, i) => ({
         widget_id: w.id, position: i, size: w.defaultSize, visible: w.id !== 'recent_messages',
       })))
@@ -141,7 +139,7 @@ export default function Dashboard() {
   useEffect(() => { loadData() }, [])
   
   useEffect(() => {
-    const updateCompletedSessions = async () => {
+    const updateCompleted = async () => {
       if (sessions.length === 0) return
       const now = new Date(); now.setHours(0,0,0,0)
       const toComplete = sessions.filter(s => {
@@ -153,7 +151,7 @@ export default function Dashboard() {
       for (const s of toComplete) await supabase.from('sessions').update({ status: 'completed' }).eq('id', s.id)
       if (toComplete.length > 0) fetchSessions()
     }
-    updateCompletedSessions()
+    updateCompleted()
   }, [sessions.length])
   
   useEffect(() => {
@@ -176,16 +174,18 @@ export default function Dashboard() {
   const loadData = async () => {
     await Promise.all([fetchClients(), fetchCourses(), fetchTrainees(), fetchSessions()])
     
-    const [ncR, coldR, alertsR, reclR, rdvR, cbR, devisR, notifR, posR] = await Promise.all([
+    const [ncR, coldR, alertsR, reclR, rdvR, cbR, quotesR, notifR, evalHotR, sstR, themesR] = await Promise.all([
       supabase.from('non_conformites').select('*').in('status', ['open', 'in_progress']).order('created_at', { ascending: false }),
       supabase.from('evaluations_cold').select('session_id, trainee_id, sent_at'),
       supabase.from('quality_alerts').select('*').eq('status', 'pending').order('created_at', { ascending: false }).limit(10),
       supabase.from('reclamations').select('id, subject, description, created_at, session_id, status, trainee_id').in('status', ['open', 'in_progress']).order('created_at', { ascending: false }).limit(10),
       supabase.from('prospect_rdv').select('*, clients(name)').eq('status', 'a_prendre').order('created_at', { ascending: false }),
       supabase.from('prospect_calls').select('*, clients(name)').eq('needs_callback', true).gte('callback_date', new Date().toISOString().split('T')[0]).order('callback_date').order('callback_time').limit(20),
-      supabase.from('devis').select('*, clients(name), courses(title)').order('created_at', { ascending: false }).limit(50).then(r => r).catch(() => ({ data: [] })),
+      supabase.from('quotes').select('*, clients(name)').order('created_at', { ascending: false }).limit(50),
       supabase.from('notifications').select('*').order('created_at', { ascending: false }).limit(20),
-      supabase.from('positioning_tests').select('id, session_id, trainee_id, completed_at, sent_at').is('completed_at', null).then(r => r).catch(() => ({ data: [] })),
+      supabase.from('evaluations_hot').select('session_id, trainee_id, q1_objectives, q2_content, q3_pedagogy, q4_trainer, q5_organization, q6_materials, would_recommend, submitted_at'),
+      supabase.from('sst_certifications').select('id, session_id, trainee_id, formation_type, candidat_certifie, date_certification, created_at'),
+      supabase.from('training_themes').select('id, code, name, color'),
     ])
     
     // Enrich alerts
@@ -199,7 +199,7 @@ export default function Dashboard() {
         tIds.length > 0 ? supabase.from('trainees').select('id, first_name, last_name').in('id', tIds) : { data: [] },
       ])
       const cIds = [...new Set((sRes.data || []).map(s => s.course_id).filter(Boolean))]
-      const cRes = cIds.length > 0 ? await supabase.from('courses').select('id, title, name').in('id', cIds) : { data: [] }
+      const cRes = cIds.length > 0 ? await supabase.from('courses').select('id, title').in('id', cIds) : { data: [] }
       const cMap = {}; (cRes.data || []).forEach(c => cMap[c.id] = c)
       const sMap = {}; (sRes.data || []).forEach(s => sMap[s.id] = { ...s, courses: cMap[s.course_id] || null })
       const tMap = {}; (tRes.data || []).forEach(t => tMap[t.id] = t)
@@ -225,8 +225,9 @@ export default function Dashboard() {
     setDashData({
       nonConformites: ncR.data || [], qualityAlerts: enrichedAlerts, reclamations: enrichedRecl,
       coldEvaluations: coldR.data || [], purgeStats, rdvsAPrendre: rdvR.data || [],
-      callbacksToday: cbR.data || [], devis: devisR.data || [], notifications: notifR.data || [],
-      positioningTests: posR.data || [],
+      callbacksToday: cbR.data || [], quotes: quotesR.data || [], notifications: notifR.data || [],
+      evaluationsHot: evalHotR.data || [], sstCertifications: sstR.data || [],
+      trainingThemes: themesR.data || [],
     })
     setLoading(false)
   }
@@ -263,57 +264,109 @@ export default function Dashboard() {
     return t + (s.session_trainees || []).filter(st => st.presence_complete === true || st.early_departure === true).length
   }, 0), [completedSessions])
   
+  // ✅ J+90 évaluations à froid — via cold_eval_sent_individual (boolean sur session_trainees)
   const sessionsJ90 = useMemo(() => sessions.filter(s => {
     if (s.status !== 'completed' || !s.end_date) return false
     const days = differenceInDays(today, new Date(s.end_date))
     if (days < 85 || days > 95) return false
     const formed = (s.session_trainees || []).filter(st => st.presence_complete || st.early_departure)
     if (formed.length === 0) return false
-    const tids = formed.map(st => st.trainee_id)
-    const ce = dashData.coldEvaluations.filter(c => c.session_id === s.id)
-    return tids.filter(tid => ce.some(c => c.trainee_id === tid && c.sent_at)).length < tids.length
-  }), [sessions, dashData.coldEvaluations])
-  
-  const incompleteAttendance = useMemo(() => sessions.filter(s => {
-    if (s.status !== 'in_progress' && s.status !== 'completed') return false
-    const sts = s.session_trainees || []
-    return sts.length > 0 && sts.some(st => !st.signature_data && st.presence_complete !== false)
+    const sentCount = formed.filter(st => st.cold_eval_sent_individual === true).length
+    return sentCount < formed.length
   }), [sessions])
   
+  // ✅ Émargements incomplets — via attendance_day_1..5 (jsonb sur session_trainees)
+  const incompleteAttendance = useMemo(() => {
+    return sessions.filter(s => {
+      if (s.status !== 'in_progress' && s.status !== 'completed') return false
+      const sts = s.session_trainees || []
+      if (sts.length === 0) return false
+      const nbDays = s.courses?.duration_days || 1
+      return sts.some(st => {
+        if (st.presence_complete === false && !st.early_departure) return false
+        for (let d = 1; d <= Math.min(nbDays, 5); d++) {
+          const dayData = st[`attendance_day_${d}`]
+          if (!dayData) return true
+          if (typeof dayData === 'object' && !dayData.am_signature && !dayData.pm_signature) return true
+        }
+        return false
+      })
+    })
+  }, [sessions])
+  
+  // ✅ Évaluations en attente — via evaluation_completed (boolean sur session_trainees)
   const evaluationsPending = useMemo(() => completedSessions.filter(s => {
     const formed = (s.session_trainees || []).filter(st => st.presence_complete || st.early_departure)
     if (formed.length === 0) return false
-    return formed.filter(st => st.evaluation_score != null).length < formed.length
+    const withEval = formed.filter(st => st.evaluation_completed === true)
+    return withEval.length < formed.length
   }), [completedSessions])
   
+  // ✅ Certifications SST expirantes — via sst_certifications (date_certification + 24 mois)
   const certifExpiring = useMemo(() => {
     const in3m = addDays(today, 90)
-    return trainees.filter(t => t.sst_valid_until && isAfter(new Date(t.sst_valid_until), today) && isBefore(new Date(t.sst_valid_until), in3m))
-      .sort((a, b) => new Date(a.sst_valid_until) - new Date(b.sst_valid_until))
-  }, [trainees])
+    return dashData.sstCertifications
+      .filter(cert => {
+        if (!cert.candidat_certifie || !cert.date_certification) return false
+        const certDate = new Date(cert.date_certification)
+        const expiry = new Date(certDate)
+        expiry.setMonth(expiry.getMonth() + 24)
+        return isAfter(expiry, today) && isBefore(expiry, in3m)
+      })
+      .map(cert => {
+        const expiry = new Date(cert.date_certification)
+        expiry.setMonth(expiry.getMonth() + 24)
+        const trainee = trainees.find(t => t.id === cert.trainee_id)
+        return { ...cert, expiry, trainee }
+      })
+      .sort((a, b) => a.expiry - b.expiry)
+  }, [dashData.sstCertifications, trainees])
   
+  // ✅ Documents manquants — via convention_sent (boolean) + convocation_sent_at (timestamp)
   const documentsMissing = useMemo(() => {
     const issues = []
     sessionsUpcoming30.forEach(s => {
-      if (!s.convention_generated_at) issues.push({ session: s, type: 'Convention' })
-      if (!s.convocation_generated_at) issues.push({ session: s, type: 'Convocation' })
+      if (!s.convention_sent) issues.push({ session: s, type: 'Convention' })
     })
-    completedSessions.slice(0, 20).forEach(s => {
-      if (!s.attestation_generated_at) issues.push({ session: s, type: 'Attestation' })
+    sessionsUpcoming30.forEach(s => {
+      const sts = s.session_trainees || []
+      const withoutConvocation = sts.filter(st => !st.convocation_sent_at)
+      if (sts.length > 0 && withoutConvocation.length > 0) {
+        issues.push({ session: s, type: `Convocation (${withoutConvocation.length})` })
+      }
     })
     return issues
-  }, [sessionsUpcoming30, completedSessions])
+  }, [sessionsUpcoming30])
   
-  const devisPipeline = useMemo(() => {
-    const d = dashData.devis
+  // ✅ Positionnements — via positioning_test_completed (boolean sur session_trainees)
+  const positioningPending = useMemo(() => {
+    let count = 0
+    sessions.filter(s => s.status === 'planned' || s.status === 'in_progress').forEach(s => {
+      const sts = s.session_trainees || []
+      const hasPositioning = s.courses?.positioning_questions && (
+        Array.isArray(s.courses.positioning_questions) ? s.courses.positioning_questions.length > 0 : true
+      )
+      if (!hasPositioning) return
+      sts.forEach(st => {
+        if (st.positioning_test_completed !== true) count++
+      })
+    })
+    return count
+  }, [sessions])
+  
+  // ✅ Pipeline devis — via table quotes (status: draft/sent/pending/signed/accepted/refused/rejected)
+  const quotesPipeline = useMemo(() => {
+    const q = dashData.quotes
     return {
-      draft: d.filter(q => q.status === 'draft'), sent: d.filter(q => q.status === 'sent'),
-      signed: d.filter(q => q.status === 'signed'), refused: d.filter(q => q.status === 'refused'),
-      totalDraft: d.filter(q => q.status === 'draft').reduce((s, q) => s + (parseFloat(q.amount_ht) || 0), 0),
-      totalSent: d.filter(q => q.status === 'sent').reduce((s, q) => s + (parseFloat(q.amount_ht) || 0), 0),
-      totalSigned: d.filter(q => q.status === 'signed').reduce((s, q) => s + (parseFloat(q.amount_ht) || 0), 0),
+      draft: q.filter(x => x.status === 'draft'),
+      sent: q.filter(x => x.status === 'sent' || x.status === 'pending'),
+      signed: q.filter(x => x.status === 'signed' || x.status === 'accepted'),
+      refused: q.filter(x => x.status === 'refused' || x.status === 'rejected'),
+      totalDraft: q.filter(x => x.status === 'draft').reduce((s, x) => s + (parseFloat(x.total_ht) || 0), 0),
+      totalSent: q.filter(x => x.status === 'sent' || x.status === 'pending').reduce((s, x) => s + (parseFloat(x.total_ht) || 0), 0),
+      totalSigned: q.filter(x => x.status === 'signed' || x.status === 'accepted').reduce((s, x) => s + (parseFloat(x.total_ht) || 0), 0),
     }
-  }, [dashData.devis])
+  }, [dashData.quotes])
   
   const monthlyCA = useMemo(() => {
     const current = sessions.filter(s => s.start_date && new Date(s.start_date) >= thisMonth && s.status !== 'cancelled')
@@ -324,7 +377,12 @@ export default function Dashboard() {
   }, [sessions])
   
   const newClientsThisMonth = useMemo(() => clients.filter(c => c.created_at && new Date(c.created_at) >= thisMonth), [clients])
-  const conversionRate = useMemo(() => { const t = dashData.devis.length; const s = dashData.devis.filter(d => d.status === 'signed').length; return t > 0 ? Math.round((s / t) * 100) : 0 }, [dashData.devis])
+  
+  const conversionRate = useMemo(() => {
+    const t = dashData.quotes.length
+    const s = dashData.quotes.filter(d => d.status === 'signed' || d.status === 'accepted').length
+    return t > 0 ? Math.round((s / t) * 100) : 0
+  }, [dashData.quotes])
   
   const topCourses = useMemo(() => {
     const m = {}
@@ -350,32 +408,73 @@ export default function Dashboard() {
     return months
   }, [sessions])
   
+  // ✅ Répartition par thème — via training_themes (id, code, name, color) + courses.theme_id
   const themeDistribution = useMemo(() => {
+    const themeMap = {}
+    dashData.trainingThemes.forEach(t => { themeMap[t.id] = t.name })
     const th = {}
     sessions.forEach(s => {
       if (s.status === 'cancelled') return
-      const name = s.courses?.theme || s.courses?.category || s.courses?.title?.split(' ')[0] || 'Autre'
-      if (!th[name]) th[name] = { name, count: 0, trainees: 0 }
-      th[name].count++
-      th[name].trainees += (s.session_trainees?.length || 0)
+      const themeId = s.courses?.theme_id
+      const themeName = themeId ? (themeMap[themeId] || 'Autre') : 'Non classé'
+      if (!th[themeName]) th[themeName] = { name: themeName, count: 0, trainees: 0 }
+      th[themeName].count++
+      th[themeName].trainees += (s.session_trainees?.length || 0)
     })
     return Object.values(th).sort((a, b) => b.count - a.count)
-  }, [sessions])
+  }, [sessions, dashData.trainingThemes])
   
   const hoursRealized = useMemo(() => completedSessions.reduce((s, se) => s + (parseFloat(se.courses?.duration_hours) || 0), 0), [completedSessions])
   
+  // ✅ Indicateurs qualité — via evaluations_hot (q1..q6 integer 1-5, would_recommend boolean)
   const qualityStats = useMemo(() => {
-    let tSat = 0, cSat = 0
-    completedSessions.forEach(s => (s.session_trainees || []).forEach(st => {
-      if (st.satisfaction_score) { tSat += parseFloat(st.satisfaction_score); cSat++ }
-    }))
+    const evals = dashData.evaluationsHot
+    const hasData = evals.length > 0
+    
+    let totalScore = 0, countScore = 0, recYes = 0, recTotal = 0
+    
+    evals.forEach(ev => {
+      const scores = [ev.q1_objectives, ev.q2_content, ev.q3_pedagogy, ev.q4_trainer, ev.q5_organization, ev.q6_materials].filter(v => v != null)
+      if (scores.length > 0) {
+        const avg = scores.reduce((s, v) => s + v, 0) / scores.length
+        totalScore += avg
+        countScore++
+      }
+      if (ev.would_recommend !== null && ev.would_recommend !== undefined) {
+        recTotal++
+        if (ev.would_recommend) recYes++
+      }
+    })
+    
+    // Présence via session_trainees.presence_complete
+    let presTotal = 0, presOk = 0
+    completedSessions.forEach(s => {
+      (s.session_trainees || []).forEach(st => {
+        presTotal++
+        if (st.presence_complete === true || st.early_departure === true) presOk++
+      })
+    })
+    
+    // Réussite via session_trainees.result (favorable/acquis) ou evaluation_completed
+    let successTotal = 0, successOk = 0
+    completedSessions.forEach(s => {
+      (s.session_trainees || []).filter(st => st.presence_complete || st.early_departure).forEach(st => {
+        successTotal++
+        if (st.result === 'favorable' || st.result === 'acquis' || st.evaluation_completed === true) successOk++
+      })
+    })
+    
     return {
-      satisfaction: cSat > 0 ? (tSat / cSat).toFixed(2) : '4.96',
-      presence: '98', success: '100',
-      recommendation: 97,
+      satisfaction: countScore > 0 ? (totalScore / countScore).toFixed(2) : null,
+      presence: presTotal > 0 ? Math.round((presOk / presTotal) * 100) : null,
+      success: successTotal > 0 ? Math.round((successOk / successTotal) * 100) : null,
+      recommendation: recTotal > 0 ? Math.round((recYes / recTotal) * 100) : null,
+      nbEvals: evals.length,
+      isEstimated: !hasData,
     }
-  }, [completedSessions])
+  }, [dashData.evaluationsHot, completedSessions])
   
+  // Rappels automatiques
   const autoReminders = useMemo(() => {
     const r = []
     sessionsWithoutTrainer.forEach(s => r.push({ type: 'error', icon: XCircle, text: `Sans formateur: ${s.courses?.title || 'Session'} — ${s.start_date ? format(new Date(s.start_date), 'd MMM', { locale: fr }) : '?'}`, link: `/sessions/${s.id}` }))
@@ -391,6 +490,9 @@ export default function Dashboard() {
   }, [])
 
   // ─── Config management ─────────────────────────────────
+  const configsRef = useRef(widgetConfigs)
+  useEffect(() => { configsRef.current = widgetConfigs }, [widgetConfigs])
+  
   const saveConfigs = async (nc) => {
     setWidgetConfigs(nc)
     const { data: { user } } = await supabase.auth.getUser()
@@ -399,7 +501,6 @@ export default function Dashboard() {
       const payload = nc.map(c => ({ widget_id: c.widget_id, position: c.position, size: c.size, visible: c.visible }))
       await supabase.rpc('save_widget_configs', { p_user_id: user.id, p_configs: payload })
     } catch {
-      // Fallback: individual upserts
       for (const c of nc) {
         await supabase.from('dashboard_widget_configs').upsert({
           user_id: user.id, widget_id: c.widget_id, position: c.position, size: c.size, visible: c.visible
@@ -425,7 +526,7 @@ export default function Dashboard() {
     const nc = [...widgetConfigs]; const [d] = nc.splice(dragIdx, 1); nc.splice(i, 0, d)
     nc.forEach((c, j) => c.position = j); setWidgetConfigs(nc); setDragIdx(i)
   }
-  const handleDragEnd = () => { setDragIdx(null); saveConfigs(widgetConfigs) }
+  const handleDragEnd = () => { setDragIdx(null); saveConfigs(configsRef.current) }
 
   // ═══════════════════════════════════════════════════════════
   // WIDGET RENDERER
@@ -440,7 +541,7 @@ export default function Dashboard() {
               <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
                 <span>{s.clients?.name}</span>
                 <span className="flex items-center gap-1"><Users className="w-3 h-3" />{s.session_trainees?.length || 0}</span>
-                {s.location && <span className="truncate">{s.location}</span>}
+                {(s.location_name || s.location_city) && <span className="truncate">{s.location_name || s.location_city}</span>}
               </div>
             </Link>
           ))}</div>
@@ -463,15 +564,22 @@ export default function Dashboard() {
         )
 
       case 'quality_indicators':
+        const satVal = qualityStats.satisfaction ? parseFloat(qualityStats.satisfaction) : 0
+        const presVal = qualityStats.presence ?? 0
+        const succVal = qualityStats.success ?? 0
+        const recVal = qualityStats.recommendation ?? 0
         return (
           <div className="grid grid-cols-2 gap-3">
-            <ProgressBar value={parseFloat(qualityStats.satisfaction) / 5 * 100} color="bg-green-500" label={`Satisfaction: ${qualityStats.satisfaction}/5`} showValue={false} />
-            <ProgressBar value={parseInt(qualityStats.presence)} color="bg-blue-500" label={`Présence: ${qualityStats.presence}%`} showValue={false} />
-            <ProgressBar value={parseInt(qualityStats.success)} color="bg-emerald-500" label={`Réussite: ${qualityStats.success}%`} showValue={false} />
-            <ProgressBar value={qualityStats.recommendation} color="bg-amber-500" label={`Recommandation: ${qualityStats.recommendation}%`} showValue={false} />
+            <ProgressBar value={satVal / 5 * 100} color="bg-green-500" label={`Satisfaction: ${qualityStats.satisfaction || '—'}/5`} showValue={false} />
+            <ProgressBar value={presVal} color="bg-blue-500" label={`Présence: ${qualityStats.presence != null ? presVal + '%' : '—'}`} showValue={false} />
+            <ProgressBar value={succVal} color="bg-emerald-500" label={`Réussite: ${qualityStats.success != null ? succVal + '%' : '—'}`} showValue={false} />
+            <ProgressBar value={recVal} color="bg-amber-500" label={`Recommandation: ${qualityStats.recommendation != null ? recVal + '%' : '—'}`} showValue={false} />
             <div className="col-span-2 pt-2 border-t flex items-center justify-between">
-              <span className="text-xs text-gray-500">Sessions: <b>{completedSessions.length}</b> • Formés: <b>{personnesFormees}</b></span>
-              <Link to="/indicateurs" className="text-xs text-primary-600 hover:underline flex items-center gap-1">Détails <ArrowRight className="w-3 h-3" /></Link>
+              <span className="text-xs text-gray-500">Sessions: <b>{completedSessions.length}</b> • Formés: <b>{personnesFormees}</b> • Évals: <b>{qualityStats.nbEvals}</b></span>
+              <div className="flex items-center gap-2">
+                {qualityStats.isEstimated && <span className="text-xs text-amber-500 italic">En attente d'évals</span>}
+                <Link to="/indicateurs" className="text-xs text-primary-600 hover:underline flex items-center gap-1">Détails <ArrowRight className="w-3 h-3" /></Link>
+              </div>
             </div>
           </div>
         )
@@ -481,7 +589,7 @@ export default function Dashboard() {
           <div className="space-y-2 max-h-48 overflow-y-auto">{incompleteAttendance.slice(0, 8).map(s => (
             <Link key={s.id} to={`/sessions/${s.id}`} className="flex items-center justify-between p-2 rounded-lg bg-red-50 hover:bg-red-100 border border-red-100 text-sm transition-colors">
               <span className="truncate font-medium text-gray-800">{s.courses?.title}</span>
-              <span className="badge badge-red text-xs flex-shrink-0 ml-2">{(s.session_trainees || []).filter(st => !st.signature_data).length} ✗</span>
+              <span className="badge badge-red text-xs flex-shrink-0 ml-2">Incomplet</span>
             </Link>
           ))}</div>
         )
@@ -490,7 +598,7 @@ export default function Dashboard() {
         return evaluationsPending.length === 0 ? <div className="text-center py-3"><CheckCircle className="w-6 h-6 text-green-500 mx-auto mb-1" /><p className="text-sm text-gray-500">Toutes complètes</p></div> : (
           <div className="space-y-2 max-h-48 overflow-y-auto">{evaluationsPending.slice(0, 8).map(s => {
             const f = (s.session_trainees || []).filter(st => st.presence_complete || st.early_departure)
-            const w = f.filter(st => st.evaluation_score != null)
+            const w = f.filter(st => st.evaluation_completed === true)
             return (
               <Link key={s.id} to={`/sessions/${s.id}`} className="flex items-center justify-between p-2 rounded-lg bg-orange-50 hover:bg-orange-100 border border-orange-100 text-sm transition-colors">
                 <span className="truncate font-medium text-gray-800">{s.courses?.title}</span>
@@ -502,11 +610,14 @@ export default function Dashboard() {
 
       case 'certif_expiring':
         return certifExpiring.length === 0 ? <div className="text-center py-3"><CheckCircle className="w-6 h-6 text-green-500 mx-auto mb-1" /><p className="text-sm text-gray-500">Aucun recyclage à prévoir</p></div> : (
-          <div className="space-y-2 max-h-48 overflow-y-auto">{certifExpiring.slice(0, 8).map(t => {
-            const d = differenceInDays(new Date(t.sst_valid_until), today)
+          <div className="space-y-2 max-h-48 overflow-y-auto">{certifExpiring.slice(0, 8).map(cert => {
+            const d = differenceInDays(cert.expiry, today)
             return (
-              <div key={t.id} className="flex items-center justify-between p-2 rounded-lg bg-purple-50 border border-purple-100 text-sm">
-                <span className="truncate font-medium text-gray-800">{t.first_name} {t.last_name}</span>
+              <div key={cert.id} className="flex items-center justify-between p-2 rounded-lg bg-purple-50 border border-purple-100 text-sm">
+                <div className="flex-1 min-w-0">
+                  <span className="truncate font-medium text-gray-800 block">{cert.trainee ? `${cert.trainee.first_name} ${cert.trainee.last_name}` : 'Stagiaire'}</span>
+                  <span className="text-xs text-gray-400">{cert.formation_type === 'mac' ? 'MAC SST' : 'SST Initial'}</span>
+                </div>
                 <span className={`badge text-xs flex-shrink-0 ml-2 ${d <= 30 ? 'badge-red' : 'badge-yellow'}`}>J-{d}</span>
               </div>
             )
@@ -516,9 +627,9 @@ export default function Dashboard() {
       case 'positioning_pending':
         return (
           <div className="text-center py-2">
-            <p className="text-3xl font-bold text-teal-600">{dashData.positioningTests.length}</p>
+            <p className="text-3xl font-bold text-teal-600">{positioningPending}</p>
             <p className="text-sm text-gray-500 mt-1">tests en attente</p>
-            {dashData.positioningTests.length > 0 && <Link to="/tests-positionnement" className="text-xs text-primary-600 hover:underline mt-2 inline-block">Voir →</Link>}
+            {positioningPending > 0 && <Link to="/tests-positionnement" className="text-xs text-primary-600 hover:underline mt-2 inline-block">Voir →</Link>}
           </div>
         )
 
@@ -540,10 +651,10 @@ export default function Dashboard() {
           <div className="space-y-3">
             <div className="grid grid-cols-4 gap-2">
               {[
-                { l: 'Brouillon', c: devisPipeline.draft.length, a: devisPipeline.totalDraft, cl: 'gray' },
-                { l: 'Envoyé', c: devisPipeline.sent.length, a: devisPipeline.totalSent, cl: 'blue' },
-                { l: 'Signé', c: devisPipeline.signed.length, a: devisPipeline.totalSigned, cl: 'green' },
-                { l: 'Refusé', c: devisPipeline.refused.length, a: 0, cl: 'red' },
+                { l: 'Brouillon', c: quotesPipeline.draft.length, a: quotesPipeline.totalDraft, cl: 'gray' },
+                { l: 'Envoyé', c: quotesPipeline.sent.length, a: quotesPipeline.totalSent, cl: 'blue' },
+                { l: 'Signé', c: quotesPipeline.signed.length, a: quotesPipeline.totalSigned, cl: 'green' },
+                { l: 'Refusé', c: quotesPipeline.refused.length, a: 0, cl: 'red' },
               ].map(s => (
                 <div key={s.l} className={`text-center p-2 rounded-lg bg-${s.cl}-50 border border-${s.cl}-100`}>
                   <p className="text-lg font-bold text-gray-900">{s.c}</p>
@@ -553,7 +664,7 @@ export default function Dashboard() {
               ))}
             </div>
             <div className="flex items-center justify-between pt-2 border-t">
-              <span className="text-xs text-gray-500">Pipeline: <b>{(devisPipeline.totalDraft + devisPipeline.totalSent).toLocaleString('fr-FR')}€</b></span>
+              <span className="text-xs text-gray-500">Pipeline: <b>{(quotesPipeline.totalDraft + quotesPipeline.totalSent).toLocaleString('fr-FR')}€</b></span>
               <Link to="/devis" className="text-xs text-primary-600 hover:underline flex items-center gap-1">Gérer <ArrowRight className="w-3 h-3" /></Link>
             </div>
           </div>
@@ -605,7 +716,7 @@ export default function Dashboard() {
         return <div className="text-center py-2"><p className="text-3xl font-bold text-green-600">{newClientsThisMonth.length}</p><p className="text-sm text-gray-500 mt-1">ce mois</p><p className="text-xs text-gray-400 mt-1">Total: {clients.length}</p></div>
 
       case 'conversion_rate':
-        return <div className="text-center py-2"><p className="text-3xl font-bold text-blue-600">{conversionRate}%</p><p className="text-sm text-gray-500 mt-1">devis → signé</p><p className="text-xs text-gray-400 mt-1">{dashData.devis.filter(d => d.status === 'signed').length}/{dashData.devis.length}</p></div>
+        return <div className="text-center py-2"><p className="text-3xl font-bold text-blue-600">{conversionRate}%</p><p className="text-sm text-gray-500 mt-1">devis → signé</p><p className="text-xs text-gray-400 mt-1">{dashData.quotes.filter(d => d.status === 'signed' || d.status === 'accepted').length}/{dashData.quotes.length}</p></div>
 
       case 'top_courses':
         return topCourses.length === 0 ? <p className="text-gray-400 text-sm py-4 text-center">Pas de données</p> : (
@@ -694,13 +805,13 @@ export default function Dashboard() {
         )
 
       case 'theme_distribution':
-        const colors = ['bg-blue-500', 'bg-amber-500', 'bg-emerald-500', 'bg-purple-500', 'bg-red-500', 'bg-teal-500']
+        const thColors = ['bg-blue-500', 'bg-amber-500', 'bg-emerald-500', 'bg-purple-500', 'bg-red-500', 'bg-teal-500']
         const totalTh = themeDistribution.reduce((s, t) => s + t.count, 0) || 1
         return themeDistribution.length === 0 ? <p className="text-gray-400 text-sm py-4 text-center">Pas de données</p> : (
           <div className="space-y-2">{themeDistribution.slice(0, 6).map((t, i) => (
             <div key={t.name} className="space-y-1">
               <div className="flex justify-between text-xs"><span className="text-gray-700 truncate">{t.name}</span><span className="text-gray-500 ml-2 flex-shrink-0">{t.count} ({Math.round(t.count / totalTh * 100)}%)</span></div>
-              <div className="h-2 bg-gray-100 rounded-full overflow-hidden"><div className={`h-full rounded-full ${colors[i % colors.length]}`} style={{ width: `${(t.count / totalTh) * 100}%` }} /></div>
+              <div className="h-2 bg-gray-100 rounded-full overflow-hidden"><div className={`h-full rounded-full ${thColors[i % thColors.length]}`} style={{ width: `${(t.count / totalTh) * 100}%` }} /></div>
             </div>
           ))}</div>
         )
@@ -790,9 +901,9 @@ export default function Dashboard() {
                   <Icon className={`w-4 h-4 text-${reg.color}-500`} />
                   <h3 className="text-sm font-semibold text-gray-700">{reg.label}</h3>
                 </div>
-                <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button onClick={() => cycleSize(config.widget_id)} className="p-1 hover:bg-gray-100 rounded text-gray-400 hover:text-gray-600 text-xs font-mono" title="Changer taille">{config.size.toUpperCase()}</button>
-                  <button onClick={() => toggleWidget(config.widget_id)} className="p-1 hover:bg-gray-100 rounded text-gray-400 hover:text-gray-600" title="Masquer"><EyeOff className="w-3 h-3" /></button>
+                <div className="flex items-center gap-0.5">
+                  <button onClick={() => cycleSize(config.widget_id)} className="p-1 hover:bg-gray-100 rounded text-gray-400 hover:text-gray-600 text-xs font-mono opacity-0 group-hover:opacity-100 transition-opacity" title="Changer taille">{config.size.toUpperCase()}</button>
+                  <button onClick={() => toggleWidget(config.widget_id)} className="p-1.5 hover:bg-red-50 rounded-lg text-gray-300 hover:text-red-500 transition-colors" title="Retirer ce widget"><X className="w-3.5 h-3.5" /></button>
                 </div>
               </div>
               {renderWidget(config.widget_id)}
@@ -800,6 +911,36 @@ export default function Dashboard() {
           )
         })}
       </div>
+      
+      {/* Widgets masqués */}
+      {(() => {
+        const hiddenWidgets = widgetConfigs.filter(c => !c.visible)
+        if (hiddenWidgets.length === 0) return null
+        return (
+          <div className="card bg-gray-50 border-dashed border-2 border-gray-200">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-gray-500 flex items-center gap-2">
+                <EyeOff className="w-4 h-4" />
+                {hiddenWidgets.length} widget{hiddenWidgets.length > 1 ? 's' : ''} masqué{hiddenWidgets.length > 1 ? 's' : ''}
+              </h3>
+              <button onClick={() => setShowSettings(true)} className="text-xs text-primary-600 hover:underline">Gérer tout</button>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {hiddenWidgets.map(c => {
+                const reg = WIDGET_REGISTRY[c.widget_id]
+                if (!reg) return null
+                const WIcon = reg.icon
+                return (
+                  <button key={c.widget_id} onClick={() => toggleWidget(c.widget_id)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-gray-200 hover:border-primary-300 hover:bg-primary-50 text-sm text-gray-600 hover:text-primary-700 transition-colors">
+                    <WIcon className="w-3.5 h-3.5" />{reg.label}<span className="text-primary-500 font-bold ml-0.5">+</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )
+      })()}
       
       {visibleWidgets.length === 0 && (
         <div className="card text-center py-12">
@@ -822,7 +963,7 @@ export default function Dashboard() {
       
       {/* Footer */}
       <div className="text-center text-xs text-gray-400 p-4 bg-primary-500/5 rounded-lg border border-primary-500/10">
-        <p className="font-medium text-primary-600">Access Campus — Version 3.1.0</p>
+        <p className="font-medium text-primary-600">Access Campus — Version 3.2.0</p>
         <p>© {new Date().getFullYear()} Access Formation — Tous droits réservés</p>
         <p>Données protégées conformément au RGPD</p>
       </div>
