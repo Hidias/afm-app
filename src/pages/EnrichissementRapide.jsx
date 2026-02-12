@@ -170,7 +170,7 @@ export default function EnrichissementRapide() {
         .from('prospection_massive')
         .select('id, siret, siren, name, city, postal_code, address, naf, phone, email, site_web, departement, effectif, quality_score, enrichment_status')
         .order('quality_score', { ascending: false })
-        .limit(50)
+        .limit(500)
       if (isNumeric) {
         const clean = term.replace(/\s/g, '')
         query = query.or(`siret.ilike.%${clean}%,siren.ilike.%${clean}%`)
