@@ -17,11 +17,6 @@ const STATUS_OPTIONS = [
   { value: 'inactif', label: '⏸️ Inactif', color: 'bg-gray-100 text-gray-500' },
 ]
 
-const OPCO_LIST = [
-  'AFDAS', 'AKTO', 'ATLAS', 'Constructys', 'L\'Opcommerce',
-  'OCAPIAT', 'OPCO 2i', 'OPCO EP', 'OPCO Mobilités', 'OPCO Santé', 'Uniformation',
-]
-
 const INTERACTION_TYPES = [
   { value: 'call', label: '📞 Appel', icon: Phone, color: 'bg-green-100 text-green-600' },
   { value: 'email', label: '📧 Email', icon: Mail, color: 'bg-blue-100 text-blue-600' },
@@ -34,6 +29,11 @@ const INTERACTION_TYPES = [
 ]
 
 const AUTHORS = ['Hicham', 'Maxime']
+
+const OPCO_LIST = [
+  'AFDAS', 'AKTO', 'ATLAS', 'Constructys', "L'Opcommerce",
+  'OCAPIAT', 'OPCO 2i', 'OPCO EP', 'OPCO Mobilités', 'OPCO Santé', 'Uniformation'
+]
 
 // ═══════════════════════════════════════════════════════════
 // COMPOSANT PRINCIPAL
@@ -114,38 +114,53 @@ export default function ClientDetail() {
   }
 
   // ═══════════════════════════════════════════════════════════
-  // OPCO AUTO-DETECTION
+  // CRUD CLIENT
   // ═══════════════════════════════════════════════════════════
   async function autoDetectOpco() {
     const siret = (editForm.siret || '').replace(/\s/g, '')
-    if (!siret || siret.length < 9) return toast.error('SIRET invalide (min 9 chiffres)')
+    if (!siret || siret.length < 9) return toast.error('SIRET requis (min 9 chiffres)')
     setDetectingOpco(true)
     try {
-      const resp = await fetch(`/api/detect-opco?siret=${siret}`)
-      if (!resp.ok) {
-        const errData = await resp.json().catch(() => ({}))
-        throw new Error(errData.error || `Erreur API (${resp.status})`)
+      const res = await fetch(`/api/detect-opco?siret=${siret}`)
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Erreur API')
+
+      // Enrichir les champs depuis les données entreprise
+      const updates = {}
+      const ent = data.entreprise
+      if (ent) {
+        if (ent.address && !editForm.address) updates.address = ent.address
+        if (ent.postal_code && !editForm.postal_code) updates.postal_code = ent.postal_code
+        if (ent.city && !editForm.city) updates.city = ent.city.toUpperCase()
+        // Si les champs sont vides OU identiques aux anciens (= pas modifiés manuellement), on écrase
+        if (ent.address) updates.address = ent.address
+        if (ent.postal_code) updates.postal_code = ent.postal_code
+        if (ent.city) updates.city = ent.city.toUpperCase()
       }
-      const data = await resp.json()
+
       if (data.status === 'OK' && data.opco_name) {
-        setEditForm(prev => ({ ...prev, opco_name: data.opco_name }))
-        const extra = data.convention ? ` (${data.convention})` : ''
-        toast.success(`OPCO détecté : ${data.opco_name}${extra}`)
+        updates.opco_name = data.opco_name
+        setEditForm(prev => ({ ...prev, ...updates }))
+        toast.success(`OPCO : ${data.opco_name}${data.convention ? ' (' + data.convention + ')' : ''}`)
       } else if (data.status === 'IDCC_FOUND_NO_OPCO') {
-        toast.error(data.message || `Convention trouvée (IDCC ${data.idcc}) mais OPCO non identifié`)
+        setEditForm(prev => ({ ...prev, ...updates }))
+        toast.error(data.message || `IDCC ${data.idcc} trouvé mais OPCO non référencé`)
       } else {
-        toast.error(data.message || 'OPCO non trouvé pour ce SIRET')
+        // Même sans OPCO, on enrichit l'adresse si dispo
+        if (Object.keys(updates).length > 0) {
+          setEditForm(prev => ({ ...prev, ...updates }))
+          toast('Adresse enrichie depuis le SIRET', { icon: '📍' })
+        } else {
+          toast.error(data.message || 'Aucune convention collective trouvée')
+        }
       }
     } catch (err) {
-      console.error('Erreur détection OPCO:', err)
-      toast.error('Impossible de détecter l\'OPCO : ' + err.message)
+      toast.error('Erreur détection : ' + err.message)
+    } finally {
+      setDetectingOpco(false)
     }
-    setDetectingOpco(false)
   }
 
-  // ═══════════════════════════════════════════════════════════
-  // CRUD CLIENT
-  // ═══════════════════════════════════════════════════════════
   async function saveClient() {
     const { error } = await supabase.from('clients').update({
       name: editForm.name, siret: editForm.siret, address: editForm.address,
@@ -334,7 +349,15 @@ export default function ClientDetail() {
           {editing ? (
             <div className="grid grid-cols-2 gap-4">
               <div><label className="text-xs font-medium text-gray-500 mb-1 block">SIRET</label>
-                <input value={editForm.siret || ''} onChange={e => setEditForm({ ...editForm, siret: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm" placeholder="SIRET" /></div>
+                <div className="flex gap-2">
+                  <input value={editForm.siret || ''} onChange={e => setEditForm({ ...editForm, siret: e.target.value })} className="flex-1 px-3 py-2 border rounded-lg text-sm" placeholder="SIRET" />
+                  <button onClick={autoDetectOpco} disabled={detectingOpco || !(editForm.siret || '').replace(/\s/g, '')}
+                    className="flex items-center gap-1.5 px-3 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                    title="Détecter OPCO et enrichir l'adresse">
+                    {detectingOpco ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />} Détecter
+                  </button>
+                </div>
+              </div>
               <div><label className="text-xs font-medium text-gray-500 mb-1 block">Site web</label>
                 <input value={editForm.website || ''} onChange={e => setEditForm({ ...editForm, website: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm" placeholder="www.example.fr" /></div>
               <div className="col-span-2"><label className="text-xs font-medium text-gray-500 mb-1 block">Adresse</label>
@@ -349,24 +372,15 @@ export default function ClientDetail() {
                 <input type="email" value={editForm.contact_email || ''} onChange={e => setEditForm({ ...editForm, contact_email: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm" /></div>
               <div className="col-span-2"><label className="text-xs font-medium text-gray-500 mb-1 block">Notes</label>
                 <textarea value={editForm.notes || ''} onChange={e => setEditForm({ ...editForm, notes: e.target.value })} rows={3} className="w-full px-3 py-2 border rounded-lg text-sm" /></div>
-              <div className="col-span-2">
-                <label className="text-xs font-medium text-gray-500 mb-1 block">OPCO</label>
-                <div className="flex gap-2">
-                  <select value={editForm.opco_name || ''} onChange={e => setEditForm({ ...editForm, opco_name: e.target.value })}
-                    className="flex-1 px-3 py-2 border rounded-lg text-sm">
-                    <option value="">— Aucun OPCO —</option>
-                    {OPCO_LIST.map(o => <option key={o} value={o}>{o}</option>)}
-                    {editForm.opco_name && !OPCO_LIST.includes(editForm.opco_name) && (
-                      <option value={editForm.opco_name}>{editForm.opco_name} (détecté)</option>
-                    )}
-                  </select>
-                  <button onClick={autoDetectOpco} disabled={detectingOpco || !(editForm.siret || '').replace(/\s/g, '')}
-                    title="Détecter l'OPCO depuis le SIRET"
-                    className="px-3 py-2 bg-blue-50 text-blue-700 border border-blue-200 rounded-lg text-sm font-medium hover:bg-blue-100 disabled:opacity-40 flex items-center gap-1.5 transition-colors">
-                    {detectingOpco ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
-                    Détecter
-                  </button>
-                </div>
+              <div className="col-span-2"><label className="text-xs font-medium text-gray-500 mb-1 block">OPCO</label>
+                <select value={editForm.opco_name || ''} onChange={e => setEditForm({ ...editForm, opco_name: e.target.value || null })}
+                  className="w-full px-3 py-2 border rounded-lg text-sm">
+                  <option value="">— Aucun OPCO —</option>
+                  {OPCO_LIST.map(o => <option key={o} value={o}>{o}</option>)}
+                  {editForm.opco_name && !OPCO_LIST.includes(editForm.opco_name) && (
+                    <option value={editForm.opco_name}>{editForm.opco_name} (détecté)</option>
+                  )}
+                </select>
               </div>
             </div>
           ) : (
@@ -387,12 +401,12 @@ export default function ClientDetail() {
                 <div className="flex items-center gap-2"><Globe className="w-4 h-4 text-gray-400 shrink-0" />
                   <a href={client.website.startsWith('http') ? client.website : 'https://' + client.website} target="_blank" rel="noreferrer" className="text-primary-600 hover:underline truncate">{client.website}</a></div>
               )}
-              {client.opco_name && (
-                <div className="flex items-center gap-2"><Briefcase className="w-4 h-4 text-gray-400 shrink-0" />
-                  <span className="text-gray-700"><span className="font-medium">OPCO</span> {client.opco_name}</span></div>
-              )}
               {client.notes && (
                 <div className="col-span-full mt-2 bg-gray-50 rounded-lg p-3 text-gray-600"><p className="whitespace-pre-wrap">{client.notes}</p></div>
+              )}
+              {client.opco_name && (
+                <div className="flex items-center gap-2"><Briefcase className="w-4 h-4 text-gray-400 shrink-0" />
+                  <span className="text-gray-700">OPCO : <strong>{client.opco_name}</strong></span></div>
               )}
             </div>
           )}
