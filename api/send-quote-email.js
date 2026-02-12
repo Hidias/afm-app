@@ -12,7 +12,7 @@ export const config = {
       sizeLimit: '5mb'
     }
   },
-  maxDuration: 30
+  maxDuration: 60
 }
 
 const supabase = createClient(
@@ -168,26 +168,16 @@ export default async function handler(req, res) {
       console.warn('Pas de PJ PDF!', { hasPdfBase64: !!pdfBase64, hasPdfFilename: !!pdfFilename, base64Length: pdfBase64?.length || 0 })
     }
 
-    // 6b. Programmes de formation (téléchargés côté serveur via URL)
+    // 6b. Programmes de formation — nodemailer streame directement depuis l'URL (pas de téléchargement préalable)
     if (programUrls && programUrls.length > 0) {
       for (const prog of programUrls) {
         if (prog.url && prog.filename) {
-          try {
-            const dlResp = await fetch(prog.url)
-            if (dlResp.ok) {
-              const arrayBuffer = await dlResp.arrayBuffer()
-              console.log('Programme téléchargé:', prog.filename, 'taille:', arrayBuffer.byteLength)
-              mailOptions.attachments.push({
-                filename: prog.filename,
-                content: Buffer.from(arrayBuffer),
-                contentType: 'application/pdf'
-              })
-            } else {
-              console.warn('Programme non accessible:', prog.filename, dlResp.status)
-            }
-          } catch (dlErr) {
-            console.warn('Erreur téléchargement programme:', prog.filename, dlErr.message)
-          }
+          console.log('Programme (stream URL):', prog.filename)
+          mailOptions.attachments.push({
+            filename: prog.filename,
+            path: prog.url,
+            contentType: 'application/pdf'
+          })
         }
       }
     }
