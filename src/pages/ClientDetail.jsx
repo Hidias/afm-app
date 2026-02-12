@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { ArrowLeft, Building2, MapPin, Phone, Mail, Globe, Edit, Save, X, Plus, Trash2, User, Clock, MessageSquare, Calendar, FileText, GraduationCap, Star, ChevronDown, ChevronUp, Send, StickyNote, Receipt, RefreshCw, Briefcase, FileSignature, Smartphone } from 'lucide-react'
+import { ArrowLeft, Building2, MapPin, Phone, Mail, Globe, Edit, Save, X, Plus, Trash2, User, Clock, MessageSquare, Calendar, FileText, GraduationCap, Star, ChevronDown, ChevronUp, Send, StickyNote, Receipt, RefreshCw, Briefcase, FileSignature, Smartphone, Loader2, Search } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
@@ -15,6 +15,11 @@ const STATUS_OPTIONS = [
   { value: 'actif', label: '✅ Actif', color: 'bg-green-100 text-green-700' },
   { value: 'a_completer', label: '📝 À compléter', color: 'bg-purple-100 text-purple-700' },
   { value: 'inactif', label: '⏸️ Inactif', color: 'bg-gray-100 text-gray-500' },
+]
+
+const OPCO_LIST = [
+  'AFDAS', 'AKTO', 'ATLAS', 'Constructys', 'L\'Opcommerce',
+  'OCAPIAT', 'OPCO 2i', 'OPCO EP', 'OPCO Mobilités', 'OPCO Santé', 'Uniformation',
 ]
 
 const INTERACTION_TYPES = [
@@ -39,6 +44,7 @@ export default function ClientDetail() {
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState(false)
   const [editForm, setEditForm] = useState({})
+  const [detectingOpco, setDetectingOpco] = useState(false)
 
   // Contacts
   const [contacts, setContacts] = useState([])
@@ -108,6 +114,32 @@ export default function ClientDetail() {
   }
 
   // ═══════════════════════════════════════════════════════════
+  // OPCO AUTO-DETECTION
+  // ═══════════════════════════════════════════════════════════
+  async function autoDetectOpco() {
+    const siret = (editForm.siret || '').replace(/\s/g, '')
+    if (!siret || siret.length < 9) return toast.error('SIRET invalide (min 9 chiffres)')
+    setDetectingOpco(true)
+    try {
+      const resp = await fetch(`https://www.cfadock.fr/api/opcos?siret=${siret}`)
+      if (!resp.ok) throw new Error(`Erreur API (${resp.status})`)
+      const data = await resp.json()
+      // L'API retourne un tableau d'objets avec { idcc, opco_name, ... }
+      if (data && data.length > 0 && data[0].opco_name) {
+        const opcoName = data[0].opco_name
+        setEditForm(prev => ({ ...prev, opco_name: opcoName }))
+        toast.success(`OPCO détecté : ${opcoName}`)
+      } else {
+        toast.error('OPCO non trouvé pour ce SIRET')
+      }
+    } catch (err) {
+      console.error('Erreur détection OPCO:', err)
+      toast.error('Impossible de détecter l\'OPCO : ' + err.message)
+    }
+    setDetectingOpco(false)
+  }
+
+  // ═══════════════════════════════════════════════════════════
   // CRUD CLIENT
   // ═══════════════════════════════════════════════════════════
   async function saveClient() {
@@ -117,6 +149,7 @@ export default function ClientDetail() {
       contact_email: editForm.contact_email, contact_phone: editForm.contact_phone,
       contact_name: editForm.contact_name, contact_function: editForm.contact_function,
       website: editForm.website, notes: editForm.notes, status: editForm.status,
+      opco_name: editForm.opco_name || null,
     }).eq('id', id)
     if (error) return toast.error('Erreur sauvegarde')
     toast.success('Client mis à jour')
@@ -312,6 +345,22 @@ export default function ClientDetail() {
                 <input type="email" value={editForm.contact_email || ''} onChange={e => setEditForm({ ...editForm, contact_email: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm" /></div>
               <div className="col-span-2"><label className="text-xs font-medium text-gray-500 mb-1 block">Notes</label>
                 <textarea value={editForm.notes || ''} onChange={e => setEditForm({ ...editForm, notes: e.target.value })} rows={3} className="w-full px-3 py-2 border rounded-lg text-sm" /></div>
+              <div className="col-span-2">
+                <label className="text-xs font-medium text-gray-500 mb-1 block">OPCO</label>
+                <div className="flex gap-2">
+                  <select value={editForm.opco_name || ''} onChange={e => setEditForm({ ...editForm, opco_name: e.target.value })}
+                    className="flex-1 px-3 py-2 border rounded-lg text-sm">
+                    <option value="">— Aucun OPCO —</option>
+                    {OPCO_LIST.map(o => <option key={o} value={o}>{o}</option>)}
+                  </select>
+                  <button onClick={autoDetectOpco} disabled={detectingOpco || !(editForm.siret || '').replace(/\s/g, '')}
+                    title="Détecter l'OPCO depuis le SIRET"
+                    className="px-3 py-2 bg-blue-50 text-blue-700 border border-blue-200 rounded-lg text-sm font-medium hover:bg-blue-100 disabled:opacity-40 flex items-center gap-1.5 transition-colors">
+                    {detectingOpco ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
+                    Détecter
+                  </button>
+                </div>
+              </div>
             </div>
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-y-3 gap-x-6 text-sm">
@@ -330,6 +379,10 @@ export default function ClientDetail() {
               {client.website && (
                 <div className="flex items-center gap-2"><Globe className="w-4 h-4 text-gray-400 shrink-0" />
                   <a href={client.website.startsWith('http') ? client.website : 'https://' + client.website} target="_blank" rel="noreferrer" className="text-primary-600 hover:underline truncate">{client.website}</a></div>
+              )}
+              {client.opco_name && (
+                <div className="flex items-center gap-2"><Briefcase className="w-4 h-4 text-gray-400 shrink-0" />
+                  <span className="text-gray-700"><span className="font-medium">OPCO</span> {client.opco_name}</span></div>
               )}
               {client.notes && (
                 <div className="col-span-full mt-2 bg-gray-50 rounded-lg p-3 text-gray-600"><p className="whitespace-pre-wrap">{client.notes}</p></div>
