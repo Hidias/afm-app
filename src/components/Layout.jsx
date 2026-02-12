@@ -1,40 +1,106 @@
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useAuthStore, useDataStore } from '../lib/store'
 import { 
   LayoutDashboard, Users, GraduationCap, Calendar, Building2, 
   Settings, LogOut, Menu, X, FileText, AlertTriangle, UserCheck, BarChart3, Award,
-  Bell, Check, ExternalLink, FolderCheck, CheckCircle, Briefcase, Receipt
+  Bell, Check, ExternalLink, FolderCheck, CheckCircle, Briefcase, Receipt,
+  Phone, Search, Globe, Layers, FolderInput, ChevronDown, Eye, Shield, Target,
+  ClipboardCheck, FileQuestion
 } from 'lucide-react'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
 
-const navItems = [
-  { to: '/', icon: LayoutDashboard, label: 'Tableau de bord' },
-  { to: '/clients', icon: Building2, label: 'Clients' },
-  { to: '/devis', icon: Receipt, label: 'Devis' },
-  { to: '/prospection', icon: Briefcase, label: 'Prospection' },
-  { to: '/formations', icon: GraduationCap, label: 'Formations' },
-  { to: '/stagiaires', icon: Users, label: 'Stagiaires' },
-  { to: '/formateurs', icon: UserCheck, label: 'Formateurs' },
-  { to: '/sessions', icon: Calendar, label: 'Sessions' },
-  { to: '/documents', icon: FileText, label: 'Documents' },
-  { to: '/qualite', icon: FolderCheck, label: 'Qualité' },
-  { to: '/non-conformites', icon: AlertTriangle, label: 'Non-conformités' },
-  { to: '/registre-psh', icon: Users, label: 'Registre PSH' },
-  { to: '/indicateurs', icon: BarChart3, label: 'Indicateurs' },
-  { to: '/profil-stagiaires', icon: Users, label: 'Profil Stagiaires' },
-  { to: '/qualiopi', icon: Award, label: 'Qualiopi' },
-  { to: '/parametres', icon: Settings, label: 'Paramètres' },
+// ═══════════════════════════════════════════════════════════
+// NAVIGATION PAR SECTIONS
+// ═══════════════════════════════════════════════════════════
+const navSections = [
+  {
+    id: 'formation',
+    label: 'Formation',
+    emoji: '🎓',
+    activeClass: 'bg-accent-500 text-primary-900 font-semibold shadow-md',
+    headerActiveClass: 'text-accent-400',
+    items: [
+      { to: '/', icon: LayoutDashboard, label: 'Tableau de bord' },
+      { to: '/sessions', icon: Calendar, label: 'Sessions' },
+      { to: '/formations', icon: GraduationCap, label: 'Formations' },
+      { to: '/stagiaires', icon: Users, label: 'Stagiaires' },
+      { to: '/formateurs', icon: UserCheck, label: 'Formateurs' },
+      { to: '/documents', icon: FileText, label: 'Documents' },
+      { to: '/documents-vierges', icon: FileQuestion, label: 'Documents vierges' },
+      { to: '/tests-positionnement', icon: ClipboardCheck, label: 'Tests positionnement' },
+    ],
+  },
+  {
+    id: 'commerce',
+    label: 'Commerce',
+    emoji: '📞',
+    activeClass: 'bg-blue-500 text-white font-semibold shadow-md',
+    headerActiveClass: 'text-blue-400',
+    items: [
+      { to: '/clients', icon: Building2, label: 'Clients' },
+      { to: '/devis', icon: Receipt, label: 'Devis' },
+      { to: '/prospection', icon: Phone, label: 'Phoning' },
+      { to: '/prospection-massive', icon: Globe, label: 'Base prospects' },
+      { to: '/multi-etablissements', icon: Layers, label: 'Multi-établissements' },
+      { to: '/admin/import', icon: FolderInput, label: 'Import' },
+    ],
+  },
+  {
+    id: 'qualite',
+    label: 'Qualité',
+    emoji: '✅',
+    activeClass: 'bg-emerald-500 text-white font-semibold shadow-md',
+    headerActiveClass: 'text-emerald-400',
+    items: [
+      { to: '/qualite', icon: FolderCheck, label: 'Processus qualité' },
+      { to: '/qualite/completude', icon: CheckCircle, label: 'Complétude' },
+      { to: '/indicateurs', icon: BarChart3, label: 'Indicateurs' },
+      { to: '/non-conformites', icon: AlertTriangle, label: 'Non-conformités' },
+      { to: '/qualiopi', icon: Award, label: 'Qualiopi' },
+      { to: '/veille-qualiopi', icon: Eye, label: 'Veille' },
+      { to: '/registre-psh', icon: Shield, label: 'Registre PSH' },
+      { to: '/profil-stagiaires', icon: Target, label: 'Profil stagiaires' },
+      { to: '/audit-logs', icon: Search, label: 'Audit logs' },
+    ],
+  },
 ]
+
+// Toutes les routes pour détection de section active
+const allRoutes = navSections.flatMap(s => s.items.map(i => ({ ...i, sectionId: s.id })))
+
 export default function Layout() {
   const { user, logout } = useAuthStore()
   const navigate = useNavigate()
+  const location = useLocation()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [notifications, setNotifications] = useState([])
   const [showNotifications, setShowNotifications] = useState(false)
   const [currentTime, setCurrentTime] = useState(new Date())
+  
+  // Déterminer la section active selon la route courante
+  const activeSectionId = useMemo(() => {
+    const path = location.pathname
+    const match = allRoutes.find(r => {
+      if (r.to === '/') return path === '/'
+      return path === r.to || path.startsWith(r.to + '/')
+    })
+    return match?.sectionId || 'formation'
+  }, [location.pathname])
+  
+  // Sections ouvertes — la section active est toujours ouverte
+  const [openSections, setOpenSections] = useState({ formation: true, commerce: false, qualite: false })
+  
+  // Auto-ouvrir la section active quand la route change
+  useEffect(() => {
+    setOpenSections(prev => ({ ...prev, [activeSectionId]: true }))
+  }, [activeSectionId])
+  
+  const toggleSection = (sectionId) => {
+    setOpenSections(prev => ({ ...prev, [sectionId]: !prev[sectionId] }))
+  }
   
   // Horloge temps réel
   useEffect(() => {
@@ -45,7 +111,6 @@ export default function Layout() {
   // Charger les notifications
   useEffect(() => {
     loadNotifications()
-    // Rafraîchir toutes les 30 secondes
     const interval = setInterval(loadNotifications, 30000)
     return () => clearInterval(interval)
   }, [])
@@ -81,16 +146,14 @@ export default function Layout() {
   }
   
   const getNotificationIcon = (notif) => {
-    // Pour les notifications de complétude, utiliser l'emoji basé sur la priorité
     if (notif.type === 'completude') {
       const priority = notif.metadata?.priority
       if (priority === 'bloquant') return '🔴'
       if (priority === 'important') return '🟠'
       if (priority === 'mineur') return '🟡'
-      return '🔴' // Défaut
+      return '🔴'
     }
     
-    // Autres types de notifications
     switch(notif.type) {
       case 'reclamation': return '📩'
       case 'veille': return '👁️'
@@ -104,7 +167,6 @@ export default function Layout() {
     }
   }
   
-  // Mapping email -> prénom pour le greeting
   const getUserName = (email) => {
     const mapping = {
       'hicham.saidi@accessformation.pro': 'Hicham',
@@ -120,6 +182,81 @@ export default function Layout() {
     await logout()
     navigate('/login')
   }
+  
+  // ═══════════════════════════════════════════════════════════
+  // Composant Nav réutilisé desktop + mobile
+  // ═══════════════════════════════════════════════════════════
+  const SidebarNav = ({ onItemClick }) => (
+    <>
+      {navSections.map(section => {
+        const isOpen = openSections[section.id]
+        const isActiveSection = activeSectionId === section.id
+        
+        return (
+          <div key={section.id} className="mb-1">
+            {/* En-tête de section */}
+            <button
+              onClick={() => toggleSection(section.id)}
+              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg transition-all ${
+                isActiveSection ? 'bg-white/10' : 'hover:bg-white/5'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <span className="text-base">{section.emoji}</span>
+                <span className={`text-xs font-bold uppercase tracking-wider ${
+                  isActiveSection ? section.headerActiveClass : 'text-white/50'
+                }`}>
+                  {section.label}
+                </span>
+              </div>
+              <ChevronDown className={`w-4 h-4 text-white/30 transition-transform duration-200 ${
+                isOpen ? 'rotate-180' : ''
+              }`} />
+            </button>
+            
+            {/* Items de la section */}
+            <div
+              className="overflow-hidden transition-all duration-200 ease-in-out"
+              style={{ maxHeight: isOpen ? `${section.items.length * 42}px` : '0px' }}
+            >
+              {section.items.map(item => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  end={item.to === '/'}
+                  onClick={onItemClick}
+                  className={({ isActive }) => `flex items-center gap-3 pl-6 pr-3 py-2 rounded-lg transition-all text-sm ${
+                    isActive 
+                      ? section.activeClass
+                      : 'text-white/70 hover:bg-white/8 hover:text-white'
+                  }`}
+                >
+                  <item.icon className="w-[18px] h-[18px]" />
+                  <span>{item.label}</span>
+                </NavLink>
+              ))}
+            </div>
+          </div>
+        )
+      })}
+      
+      {/* Paramètres (hors sections) */}
+      <div className="mt-2 pt-2 border-t border-white/10">
+        <NavLink
+          to="/parametres"
+          onClick={onItemClick}
+          className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all text-sm ${
+            isActive 
+              ? 'bg-white/15 text-white font-semibold' 
+              : 'text-white/50 hover:bg-white/5 hover:text-white/70'
+          }`}
+        >
+          <Settings className="w-[18px] h-[18px]" />
+          <span>Paramètres</span>
+        </NavLink>
+      </div>
+    </>
+  )
   
   return (
     <div className="min-h-screen bg-gray-50">
@@ -139,25 +276,19 @@ export default function Layout() {
       {sidebarOpen && (
         <div className="lg:hidden fixed inset-0 z-50">
           <div className="fixed inset-0 bg-black/50" onClick={() => setSidebarOpen(false)} />
-          <div className="fixed left-0 top-0 bottom-0 w-64 bg-primary-500 shadow-xl" style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)' }}>
+          <div className="fixed left-0 top-0 bottom-0 w-72 bg-primary-500 shadow-xl overflow-y-auto" style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)' }}>
             <div className="p-4 border-b border-primary-400 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <img src="/assets/logo-campus.png" alt="Campus" className="h-10" />
+                <div>
+                  <p className="text-accent-400 font-bold">Access Campus</p>
+                  <p className="text-xs text-white/50">V3.0.0</p>
+                </div>
               </div>
               <button onClick={() => setSidebarOpen(false)} className="text-white"><X className="w-6 h-6" /></button>
             </div>
-            <nav className="p-4 space-y-1">
-              {navItems.map(item => (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  onClick={() => setSidebarOpen(false)}
-                  className={({ isActive }) => `flex items-center gap-3 px-3 py-2 rounded-lg transition-colors ${isActive ? 'bg-accent-500 text-primary-900 font-medium' : 'text-white/80 hover:bg-primary-400 hover:text-white'}`}
-                >
-                  <item.icon className="w-5 h-5" />
-                  <span>{item.label}</span>
-                </NavLink>
-              ))}
+            <nav className="p-3">
+              <SidebarNav onItemClick={() => setSidebarOpen(false)} />
             </nav>
           </div>
         </div>
@@ -172,21 +303,12 @@ export default function Layout() {
             </div>
             <div className="mt-2">
               <p className="text-accent-400 font-bold text-lg">Access Campus</p>
-              <p className="text-xs text-white/60">V2.0.0</p>
+              <p className="text-xs text-white/60">V3.0.0</p>
             </div>
           </div>
           
-          <nav className="flex-1 p-3 space-y-1 overflow-y-auto min-h-0">
-            {navItems.map(item => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all ${isActive ? 'bg-accent-500 text-primary-900 font-semibold shadow-md' : 'text-white/80 hover:bg-primary-400 hover:text-white'}`}
-              >
-                <item.icon className="w-5 h-5" />
-                <span>{item.label}</span>
-              </NavLink>
-            ))}
+          <nav className="flex-1 p-3 overflow-y-auto min-h-0">
+            <SidebarNav onItemClick={() => {}} />
           </nav>
           
           <div className="p-4 border-t border-primary-400">
@@ -202,7 +324,6 @@ export default function Layout() {
             <button onClick={handleLogout} className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm text-white/80 hover:bg-red-500/20 hover:text-red-300 rounded-lg transition-colors">
               <LogOut className="w-4 h-4" />Déconnexion
             </button>
-            <p className="text-center text-xs text-white/40 mt-3">Access Campus V2.0.0</p>
           </div>
         </div>
       </aside>
