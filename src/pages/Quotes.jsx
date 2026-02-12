@@ -172,6 +172,11 @@ export default function Quotes() {
     quantity: 1, unit: 'unité', unit_price_ht: 0, tva_rate: 20, course_id: ''
   }
 
+  const predefinedMaterials = [
+    { code: 'MAT-EXT-EAU', description_title: 'Extincteur de formation à eau', description_detail: '1 pour 3 personnes', unit_price_ht: 20, unit: 'unité' },
+    { code: 'MAT-EXT-CO2', description_title: 'Extincteur CO2', description_detail: '1 pour 2 personnes', unit_price_ht: 20, unit: 'unité' }
+  ]
+
   useEffect(() => { loadAll() }, [])
 
   async function loadAll() {
@@ -517,6 +522,13 @@ export default function Quotes() {
       course_id: course.id, position: items.length
     }])
   }
+  function addFromMaterial(mat) {
+    setItems([...items, {
+      ...emptyItem, code: mat.code, description_title: mat.description_title,
+      description_detail: mat.description_detail, unit_price_ht: mat.unit_price_ht,
+      unit: mat.unit, position: items.length
+    }])
+  }
   function handleClientChange(clientId) {
     setCurrentQuote(prev => ({ ...prev, client_id: clientId, contact_id: '' }))
     loadClientContacts(clientId)
@@ -785,6 +797,20 @@ export default function Quotes() {
                           className="w-full text-left px-4 py-2.5 hover:bg-gray-50 border-b border-gray-100 last:border-0">
                           <p className="text-sm font-medium text-gray-800">{c.title}</p>
                           <p className="text-xs text-gray-400">{c.code} · {c.price_ht ? money(c.price_ht) : 'Prix à définir'}</p>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="relative group">
+                    <button className="text-sm px-3 py-1.5 bg-orange-50 text-orange-600 rounded-lg hover:bg-orange-100 transition-colors flex items-center gap-1">
+                      <Plus size={14} /> Matériel
+                    </button>
+                    <div className="absolute right-0 top-full mt-1 w-80 bg-white border border-gray-200 rounded-xl shadow-xl z-50 hidden group-hover:block">
+                      {predefinedMaterials.map((mat, i) => (
+                        <button key={i} onClick={() => addFromMaterial(mat)}
+                          className="w-full text-left px-4 py-2.5 hover:bg-orange-50 border-b border-gray-100 last:border-0">
+                          <p className="text-sm font-medium text-gray-800">{mat.description_title}</p>
+                          <p className="text-xs text-gray-400">{mat.code} · {mat.description_detail} · {money(mat.unit_price_ht)}</p>
                         </button>
                       ))}
                     </div>
