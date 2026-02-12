@@ -592,8 +592,7 @@ export default function MarinePhoning() {
         email: newProspect.email?.trim() || null,
         enrichment_status: newProspect.siret?.trim() ? 'done' : 'pending',
         quality_score: 50,
-        prospection_notes: 'Ajout manuel Marine ' + new Date().toLocaleDateString('fr-FR') + (newProspect.notes ? ' - ' + newProspect.notes : ''),
-        source: 'ajout_manuel_marine'
+        prospection_notes: 'Ajout manuel Marine ' + new Date().toLocaleDateString('fr-FR') + (newProspect.notes ? ' - ' + newProspect.notes : '')
       })
       if (error) throw error
       toast.success('Prospect ajouté !')
