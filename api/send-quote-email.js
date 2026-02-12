@@ -9,9 +9,10 @@ import crypto from 'crypto'
 export const config = {
   api: {
     bodyParser: {
-      sizeLimit: '15mb'
+      sizeLimit: '5mb'
     }
-  }
+  },
+  maxDuration: 30
 }
 
 const supabase = createClient(
@@ -90,7 +91,7 @@ export default async function handler(req, res) {
   let transporter = null
 
   try {
-    const { userId, to, subject, body, pdfBase64, pdfFilename, extraAttachments, quoteId, clientId, createdBy } = req.body || {}
+    const { userId, to, subject, body, pdfBase64, pdfFilename, programUrls, extraAttachments, quoteId, clientId, createdBy } = req.body || {}
 
     console.log('send-quote-email params:', { userId: !!userId, to: !!to, subject: !!subject, body: !!body, hasPdf: !!pdfBase64 })
 
@@ -132,7 +133,7 @@ export default async function handler(req, res) {
       tls: { rejectUnauthorized: false },
       connectionTimeout: 10000,
       greetingTimeout: 10000,
-      socketTimeout: 30000,
+      socketTimeout: 60000,
       pool: false,
       maxConnections: 1,
       maxMessages: 1
@@ -167,7 +168,31 @@ export default async function handler(req, res) {
       console.warn('Pas de PJ PDF!', { hasPdfBase64: !!pdfBase64, hasPdfFilename: !!pdfFilename, base64Length: pdfBase64?.length || 0 })
     }
 
-    // 6b. Pièces jointes supplémentaires (programmes + fichiers manuels)
+    // 6b. Programmes de formation (téléchargés côté serveur via URL)
+    if (programUrls && programUrls.length > 0) {
+      for (const prog of programUrls) {
+        if (prog.url && prog.filename) {
+          try {
+            const dlResp = await fetch(prog.url)
+            if (dlResp.ok) {
+              const arrayBuffer = await dlResp.arrayBuffer()
+              console.log('Programme téléchargé:', prog.filename, 'taille:', arrayBuffer.byteLength)
+              mailOptions.attachments.push({
+                filename: prog.filename,
+                content: Buffer.from(arrayBuffer),
+                contentType: 'application/pdf'
+              })
+            } else {
+              console.warn('Programme non accessible:', prog.filename, dlResp.status)
+            }
+          } catch (dlErr) {
+            console.warn('Erreur téléchargement programme:', prog.filename, dlErr.message)
+          }
+        }
+      }
+    }
+
+    // 6c. Pièces jointes manuelles (base64)
     if (extraAttachments && extraAttachments.length > 0) {
       for (const att of extraAttachments) {
         if (att.base64 && att.filename) {
@@ -178,8 +203,8 @@ export default async function handler(req, res) {
           })
         }
       }
-      console.log('Total attachments:', mailOptions.attachments.length)
     }
+    console.log('Total attachments:', mailOptions.attachments.length)
 
     // 7. Envoyer avec retry
     const info = await sendEmailWithRetry(transporter, mailOptions, 3)
