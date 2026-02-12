@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom'
 import { useDataStore } from '../lib/store'
 import { supabase } from '../lib/supabase'
 import { 
-  Calendar, Plus, Search, MapPin, Users, Clock, ChevronRight, ChevronDown, X, Trash2, Copy, Building2, Euro
+  Calendar, Plus, Search, MapPin, Users, Clock, ChevronRight, ChevronDown, X, Trash2, Copy, Building2
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
@@ -184,7 +184,7 @@ export default function Sessions() {
             start_date: session.start_date,
             end_date: session.end_date,
             location: session.location,
-            inter_total_price: session.inter_total_price,
+
           }
         }
         interGroups[session.inter_group_id].sessions.push(session)
@@ -384,7 +384,7 @@ export default function Sessions() {
               const { group } = item
               const isExpanded = expandedGroups[group.id]
               const totalTrainees = group.sessions.reduce((sum, s) => sum + (s.session_trainees?.length || 0), 0)
-              const totalPrice = parseFloat(group.inter_total_price) || group.sessions.reduce((sum, s) => sum + (parseFloat(s.total_price) || 0), 0)
+              // Prix retiré de l'affichage liste
               
               return (
                 <div key={group.id} className="rounded-xl border-2 border-purple-200 bg-purple-50/30 overflow-hidden">
@@ -443,12 +443,7 @@ export default function Sessions() {
                             <Users className="w-4 h-4" />
                             {totalTrainees} stagiaire(s)
                           </span>
-                          {totalPrice > 0 && (
-                            <span className="flex items-center gap-1 font-medium text-green-700">
-                              <Euro className="w-4 h-4" />
-                              {totalPrice.toFixed(2)}€ HT
-                            </span>
-                          )}
+
                         </div>
                       </div>
                       
@@ -478,9 +473,7 @@ export default function Sessions() {
                               <p className="font-medium text-gray-900 mt-0.5">{session.clients?.name}</p>
                               <div className="flex items-center gap-3 mt-1 text-sm text-gray-500">
                                 <span>{session.session_trainees?.length || 0} stagiaire(s)</span>
-                                {session.total_price && (
-                                  <span className="text-green-700 font-medium">{parseFloat(session.total_price).toFixed(2)}€ HT</span>
-                                )}
+
                               </div>
                             </div>
                             <div className="flex items-center gap-2">
