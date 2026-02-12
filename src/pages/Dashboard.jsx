@@ -109,7 +109,7 @@ export default function Dashboard() {
   const [dragIdx, setDragIdx] = useState(null)
   
   const [dashData, setDashData] = useState({
-    nonConformites: [], qualityAlerts: [], reclamations: [], coldEvaluations: [],
+    nonConformites: [], qualityAlerts: [], reclamations: [],
     purgeStats: null, rdvsAPrendre: [], callbacksToday: [], quotes: [],
     notifications: [], evaluationsHot: [], sstCertifications: [], trainingThemes: [],
   })
@@ -128,6 +128,7 @@ export default function Dashboard() {
     if (data && data.length > 0) {
       setWidgetConfigs(data)
     } else {
+      // Fallback si table pas encore créée
       setWidgetConfigs(Object.values(WIDGET_REGISTRY).map((w, i) => ({
         widget_id: w.id, position: i, size: w.defaultSize, visible: w.id !== 'recent_messages',
       })))
@@ -174,17 +175,21 @@ export default function Dashboard() {
   const loadData = async () => {
     await Promise.all([fetchClients(), fetchCourses(), fetchTrainees(), fetchSessions()])
     
-    const [ncR, coldR, alertsR, reclR, rdvR, cbR, quotesR, notifR, evalHotR, sstR, themesR] = await Promise.all([
+    const [ncR, alertsR, reclR, rdvR, cbR, quotesR, notifR, evalHotR, sstR, themesR] = await Promise.all([
       supabase.from('non_conformites').select('*').in('status', ['open', 'in_progress']).order('created_at', { ascending: false }),
-      supabase.from('evaluations_cold').select('session_id, trainee_id, sent_at'),
       supabase.from('quality_alerts').select('*').eq('status', 'pending').order('created_at', { ascending: false }).limit(10),
-      supabase.from('reclamations').select('id, subject, description, created_at, session_id, status, trainee_id').in('status', ['open', 'in_progress']).order('created_at', { ascending: false }).limit(10),
+      // ✅ FIX: reclamations — pas de trainee_id dans cette table
+      supabase.from('reclamations').select('id, reference, subject, description, created_at, session_id, status').in('status', ['open', 'in_progress']).order('created_at', { ascending: false }).limit(10),
       supabase.from('prospect_rdv').select('*, clients(name)').eq('status', 'a_prendre').order('created_at', { ascending: false }),
       supabase.from('prospect_calls').select('*, clients(name)').eq('needs_callback', true).gte('callback_date', new Date().toISOString().split('T')[0]).order('callback_date').order('callback_time').limit(20),
+      // ✅ table quotes (pas devis)
       supabase.from('quotes').select('*, clients(name)').order('created_at', { ascending: false }).limit(50),
       supabase.from('notifications').select('*').order('created_at', { ascending: false }).limit(20),
+      // ✅ evaluations_hot pour satisfaction + would_recommend
       supabase.from('evaluations_hot').select('session_id, trainee_id, q1_objectives, q2_content, q3_pedagogy, q4_trainer, q5_organization, q6_materials, would_recommend, submitted_at'),
+      // ✅ sst_certifications pour recyclages
       supabase.from('sst_certifications').select('id, session_id, trainee_id, formation_type, candidat_certifie, date_certification, created_at'),
+      // ✅ training_themes pour répartition
       supabase.from('training_themes').select('id, code, name, color'),
     ])
     
@@ -224,7 +229,7 @@ export default function Dashboard() {
     
     setDashData({
       nonConformites: ncR.data || [], qualityAlerts: enrichedAlerts, reclamations: enrichedRecl,
-      coldEvaluations: coldR.data || [], purgeStats, rdvsAPrendre: rdvR.data || [],
+      purgeStats, rdvsAPrendre: rdvR.data || [],
       callbacksToday: cbR.data || [], quotes: quotesR.data || [], notifications: notifR.data || [],
       evaluationsHot: evalHotR.data || [], sstCertifications: sstR.data || [],
       trainingThemes: themesR.data || [],
@@ -260,49 +265,73 @@ export default function Dashboard() {
   const sessionsInProgress = useMemo(() => sessions.filter(s => s.status === 'in_progress'), [sessions])
   const completedSessions = useMemo(() => sessions.filter(s => s.status === 'completed'), [sessions])
   
+  // ✅ Personnes formées = stagiaires avec presence_complete OU result renseigné
   const personnesFormees = useMemo(() => completedSessions.reduce((t, s) => {
-    return t + (s.session_trainees || []).filter(st => st.presence_complete === true || st.early_departure === true).length
+    return t + (s.session_trainees || []).filter(st => 
+      st.presence_complete === true || st.early_departure === true || st.result
+    ).length
   }, 0), [completedSessions])
   
-  // ✅ J+90 évaluations à froid — via cold_eval_sent_individual (boolean sur session_trainees)
+  // ✅ J+90 évaluations à froid
   const sessionsJ90 = useMemo(() => sessions.filter(s => {
     if (s.status !== 'completed' || !s.end_date) return false
     const days = differenceInDays(today, new Date(s.end_date))
     if (days < 85 || days > 95) return false
-    const formed = (s.session_trainees || []).filter(st => st.presence_complete || st.early_departure)
+    const formed = (s.session_trainees || []).filter(st => st.presence_complete || st.early_departure || st.result)
     if (formed.length === 0) return false
     const sentCount = formed.filter(st => st.cold_eval_sent_individual === true).length
     return sentCount < formed.length
   }), [sessions])
   
-  // ✅ Émargements incomplets — via attendance_day_1..5 (jsonb sur session_trainees)
+  // ✅ FIX: Émargements incomplets — sessions en cours où presence_complete est encore NULL
+  // (attendance_day_X sont tous NULL dans la base, donc on utilise presence_complete)
   const incompleteAttendance = useMemo(() => {
     return sessions.filter(s => {
-      if (s.status !== 'in_progress' && s.status !== 'completed') return false
+      if (s.status !== 'in_progress') return false
       const sts = s.session_trainees || []
       if (sts.length === 0) return false
-      const nbDays = s.courses?.duration_days || 1
-      return sts.some(st => {
-        if (st.presence_complete === false && !st.early_departure) return false
-        for (let d = 1; d <= Math.min(nbDays, 5); d++) {
-          const dayData = st[`attendance_day_${d}`]
-          if (!dayData) return true
-          if (typeof dayData === 'object' && !dayData.am_signature && !dayData.pm_signature) return true
-        }
-        return false
-      })
+      // Session en cours avec des stagiaires dont la présence n'est pas encore validée
+      return sts.some(st => st.presence_complete === null || st.presence_complete === undefined)
     })
   }, [sessions])
   
-  // ✅ Évaluations en attente — via evaluation_completed (boolean sur session_trainees)
-  const evaluationsPending = useMemo(() => completedSessions.filter(s => {
-    const formed = (s.session_trainees || []).filter(st => st.presence_complete || st.early_departure)
-    if (formed.length === 0) return false
-    const withEval = formed.filter(st => st.evaluation_completed === true)
-    return withEval.length < formed.length
-  }), [completedSessions])
+  // ✅ FIX: Évaluations en attente — cross-ref avec evaluations_hot
+  // Un stagiaire a fait son éval si: evaluation_completed === true OU il existe une ligne dans evaluations_hot
+  const evaluationsPending = useMemo(() => {
+    // Construire un Set des (session_id + trainee_id) ayant une éval hot
+    const evalHotSet = new Set()
+    dashData.evaluationsHot.forEach(ev => {
+      evalHotSet.add(`${ev.session_id}_${ev.trainee_id}`)
+    })
+    
+    return completedSessions.filter(s => {
+      const formed = (s.session_trainees || []).filter(st => 
+        st.presence_complete || st.early_departure || st.result
+      )
+      if (formed.length === 0) return false
+      const withEval = formed.filter(st => 
+        st.evaluation_completed === true || evalHotSet.has(`${s.id}_${st.trainee_id}`)
+      )
+      return withEval.length < formed.length
+    })
+  }, [completedSessions, dashData.evaluationsHot])
   
-  // ✅ Certifications SST expirantes — via sst_certifications (date_certification + 24 mois)
+  // Nombre d'évals complétées pour le rendu du widget
+  const getEvalCount = (session) => {
+    const evalHotSet = new Set()
+    dashData.evaluationsHot.forEach(ev => {
+      evalHotSet.add(`${ev.session_id}_${ev.trainee_id}`)
+    })
+    const formed = (session.session_trainees || []).filter(st => 
+      st.presence_complete || st.early_departure || st.result
+    )
+    const withEval = formed.filter(st => 
+      st.evaluation_completed === true || evalHotSet.has(`${session.id}_${st.trainee_id}`)
+    )
+    return { done: withEval.length, total: formed.length }
+  }
+  
+  // ✅ Certifications SST expirantes via sst_certifications (date_certification + 24 mois)
   const certifExpiring = useMemo(() => {
     const in3m = addDays(today, 90)
     return dashData.sstCertifications
@@ -322,7 +351,7 @@ export default function Dashboard() {
       .sort((a, b) => a.expiry - b.expiry)
   }, [dashData.sstCertifications, trainees])
   
-  // ✅ Documents manquants — via convention_sent (boolean) + convocation_sent_at (timestamp)
+  // ✅ Documents manquants via convention_sent + convocation_sent_at
   const documentsMissing = useMemo(() => {
     const issues = []
     sessionsUpcoming30.forEach(s => {
@@ -338,7 +367,7 @@ export default function Dashboard() {
     return issues
   }, [sessionsUpcoming30])
   
-  // ✅ Positionnements — via positioning_test_completed (boolean sur session_trainees)
+  // ✅ Positionnements via positioning_test_completed
   const positioningPending = useMemo(() => {
     let count = 0
     sessions.filter(s => s.status === 'planned' || s.status === 'in_progress').forEach(s => {
@@ -354,7 +383,7 @@ export default function Dashboard() {
     return count
   }, [sessions])
   
-  // ✅ Pipeline devis — via table quotes (status: draft/sent/pending/signed/accepted/refused/rejected)
+  // ✅ Pipeline devis via table quotes
   const quotesPipeline = useMemo(() => {
     const q = dashData.quotes
     return {
@@ -408,7 +437,7 @@ export default function Dashboard() {
     return months
   }, [sessions])
   
-  // ✅ Répartition par thème — via training_themes (id, code, name, color) + courses.theme_id
+  // ✅ Répartition par thème via training_themes
   const themeDistribution = useMemo(() => {
     const themeMap = {}
     dashData.trainingThemes.forEach(t => { themeMap[t.id] = t.name })
@@ -426,18 +455,19 @@ export default function Dashboard() {
   
   const hoursRealized = useMemo(() => completedSessions.reduce((s, se) => s + (parseFloat(se.courses?.duration_hours) || 0), 0), [completedSessions])
   
-  // ✅ Indicateurs qualité — via evaluations_hot (q1..q6 integer 1-5, would_recommend boolean)
+  // ✅ FIX: Indicateurs qualité
+  // Satisfaction + Recommandation = evaluations_hot
+  // Présence = session_trainees.presence_complete
+  // Réussite = session_trainees.result === 'acquired'
   const qualityStats = useMemo(() => {
     const evals = dashData.evaluationsHot
-    const hasData = evals.length > 0
+    const hasEvalData = evals.length > 0
     
     let totalScore = 0, countScore = 0, recYes = 0, recTotal = 0
-    
     evals.forEach(ev => {
       const scores = [ev.q1_objectives, ev.q2_content, ev.q3_pedagogy, ev.q4_trainer, ev.q5_organization, ev.q6_materials].filter(v => v != null)
       if (scores.length > 0) {
-        const avg = scores.reduce((s, v) => s + v, 0) / scores.length
-        totalScore += avg
+        totalScore += scores.reduce((s, v) => s + v, 0) / scores.length
         countScore++
       }
       if (ev.would_recommend !== null && ev.would_recommend !== undefined) {
@@ -446,7 +476,7 @@ export default function Dashboard() {
       }
     })
     
-    // Présence via session_trainees.presence_complete
+    // Présence via presence_complete + early_departure
     let presTotal = 0, presOk = 0
     completedSessions.forEach(s => {
       (s.session_trainees || []).forEach(st => {
@@ -455,12 +485,14 @@ export default function Dashboard() {
       })
     })
     
-    // Réussite via session_trainees.result (favorable/acquis) ou evaluation_completed
+    // ✅ FIX: Réussite via result === 'acquired'
     let successTotal = 0, successOk = 0
     completedSessions.forEach(s => {
-      (s.session_trainees || []).filter(st => st.presence_complete || st.early_departure).forEach(st => {
-        successTotal++
-        if (st.result === 'favorable' || st.result === 'acquis' || st.evaluation_completed === true) successOk++
+      (s.session_trainees || []).forEach(st => {
+        if (st.presence_complete || st.early_departure || st.result) {
+          successTotal++
+          if (st.result === 'acquired') successOk++
+        }
       })
     })
     
@@ -470,7 +502,8 @@ export default function Dashboard() {
       success: successTotal > 0 ? Math.round((successOk / successTotal) * 100) : null,
       recommendation: recTotal > 0 ? Math.round((recYes / recTotal) * 100) : null,
       nbEvals: evals.length,
-      isEstimated: !hasData,
+      hasEvalData,
+      hasPresenceData: presTotal > 0,
     }
   }, [dashData.evaluationsHot, completedSessions])
   
@@ -564,20 +597,38 @@ export default function Dashboard() {
         )
 
       case 'quality_indicators':
-        const satVal = qualityStats.satisfaction ? parseFloat(qualityStats.satisfaction) : 0
-        const presVal = qualityStats.presence ?? 0
-        const succVal = qualityStats.success ?? 0
-        const recVal = qualityStats.recommendation ?? 0
         return (
           <div className="grid grid-cols-2 gap-3">
-            <ProgressBar value={satVal / 5 * 100} color="bg-green-500" label={`Satisfaction: ${qualityStats.satisfaction || '—'}/5`} showValue={false} />
-            <ProgressBar value={presVal} color="bg-blue-500" label={`Présence: ${qualityStats.presence != null ? presVal + '%' : '—'}`} showValue={false} />
-            <ProgressBar value={succVal} color="bg-emerald-500" label={`Réussite: ${qualityStats.success != null ? succVal + '%' : '—'}`} showValue={false} />
-            <ProgressBar value={recVal} color="bg-amber-500" label={`Recommandation: ${qualityStats.recommendation != null ? recVal + '%' : '—'}`} showValue={false} />
+            <ProgressBar 
+              value={qualityStats.satisfaction ? parseFloat(qualityStats.satisfaction) / 5 * 100 : 0} 
+              color="bg-green-500" 
+              label={`Satisfaction: ${qualityStats.satisfaction || '—'}/5`} 
+              showValue={false} 
+            />
+            <ProgressBar 
+              value={qualityStats.presence ?? 0} 
+              color="bg-blue-500" 
+              label={`Présence: ${qualityStats.presence != null ? qualityStats.presence + '%' : '—'}`} 
+              showValue={false} 
+            />
+            <ProgressBar 
+              value={qualityStats.success ?? 0} 
+              color="bg-emerald-500" 
+              label={`Réussite: ${qualityStats.success != null ? qualityStats.success + '%' : '—'}`} 
+              showValue={false} 
+            />
+            <ProgressBar 
+              value={qualityStats.recommendation ?? 0} 
+              color="bg-amber-500" 
+              label={`Recommandation: ${qualityStats.recommendation != null ? qualityStats.recommendation + '%' : '—'}`} 
+              showValue={false} 
+            />
             <div className="col-span-2 pt-2 border-t flex items-center justify-between">
-              <span className="text-xs text-gray-500">Sessions: <b>{completedSessions.length}</b> • Formés: <b>{personnesFormees}</b> • Évals: <b>{qualityStats.nbEvals}</b></span>
+              <span className="text-xs text-gray-500">
+                Sessions: <b>{completedSessions.length}</b> • Formés: <b>{personnesFormees}</b> • Évals: <b>{qualityStats.nbEvals}</b>
+              </span>
               <div className="flex items-center gap-2">
-                {qualityStats.isEstimated && <span className="text-xs text-amber-500 italic">En attente d'évals</span>}
+                {!qualityStats.hasEvalData && <span className="text-xs text-amber-500 italic">En attente d'évals</span>}
                 <Link to="/indicateurs" className="text-xs text-primary-600 hover:underline flex items-center gap-1">Détails <ArrowRight className="w-3 h-3" /></Link>
               </div>
             </div>
@@ -586,23 +637,26 @@ export default function Dashboard() {
 
       case 'attendance_incomplete':
         return incompleteAttendance.length === 0 ? <div className="text-center py-3"><CheckCircle className="w-6 h-6 text-green-500 mx-auto mb-1" /><p className="text-sm text-gray-500">Tout est à jour</p></div> : (
-          <div className="space-y-2 max-h-48 overflow-y-auto">{incompleteAttendance.slice(0, 8).map(s => (
-            <Link key={s.id} to={`/sessions/${s.id}`} className="flex items-center justify-between p-2 rounded-lg bg-red-50 hover:bg-red-100 border border-red-100 text-sm transition-colors">
-              <span className="truncate font-medium text-gray-800">{s.courses?.title}</span>
-              <span className="badge badge-red text-xs flex-shrink-0 ml-2">Incomplet</span>
-            </Link>
-          ))}</div>
+          <div className="space-y-2 max-h-48 overflow-y-auto">{incompleteAttendance.slice(0, 8).map(s => {
+            const total = (s.session_trainees || []).length
+            const missing = (s.session_trainees || []).filter(st => st.presence_complete === null || st.presence_complete === undefined).length
+            return (
+              <Link key={s.id} to={`/sessions/${s.id}`} className="flex items-center justify-between p-2 rounded-lg bg-red-50 hover:bg-red-100 border border-red-100 text-sm transition-colors">
+                <span className="truncate font-medium text-gray-800">{s.courses?.title}</span>
+                <span className="badge badge-red text-xs flex-shrink-0 ml-2">{missing}/{total}</span>
+              </Link>
+            )
+          })}</div>
         )
 
       case 'evaluations_pending':
         return evaluationsPending.length === 0 ? <div className="text-center py-3"><CheckCircle className="w-6 h-6 text-green-500 mx-auto mb-1" /><p className="text-sm text-gray-500">Toutes complètes</p></div> : (
           <div className="space-y-2 max-h-48 overflow-y-auto">{evaluationsPending.slice(0, 8).map(s => {
-            const f = (s.session_trainees || []).filter(st => st.presence_complete || st.early_departure)
-            const w = f.filter(st => st.evaluation_completed === true)
+            const { done, total } = getEvalCount(s)
             return (
               <Link key={s.id} to={`/sessions/${s.id}`} className="flex items-center justify-between p-2 rounded-lg bg-orange-50 hover:bg-orange-100 border border-orange-100 text-sm transition-colors">
                 <span className="truncate font-medium text-gray-800">{s.courses?.title}</span>
-                <span className="badge badge-yellow text-xs flex-shrink-0 ml-2">{w.length}/{f.length}</span>
+                <span className="badge badge-yellow text-xs flex-shrink-0 ml-2">{done}/{total}</span>
               </Link>
             )
           })}</div>
@@ -733,7 +787,7 @@ export default function Dashboard() {
           <div className="space-y-2 max-h-48 overflow-y-auto">{dashData.reclamations.map(r => (
             <div key={r.id} onClick={() => navigate('/non-conformites')} className="p-2.5 rounded-lg bg-red-50 border border-red-200 hover:bg-red-100 cursor-pointer transition-colors">
               <div className="flex items-center gap-2 mb-0.5"><span className="px-1.5 py-0.5 rounded text-xs font-bold bg-red-500 text-white">RÉCL.</span><span className="font-medium text-sm truncate text-gray-900">{r.subject}</span></div>
-              <p className="text-xs text-gray-500">{format(new Date(r.created_at), 'dd/MM/yyyy HH:mm', { locale: fr })}</p>
+              <p className="text-xs text-gray-500">{r.date_reception ? format(new Date(r.date_reception), 'dd/MM/yyyy', { locale: fr }) : format(new Date(r.created_at), 'dd/MM/yyyy', { locale: fr })}</p>
             </div>
           ))}</div>
         )
