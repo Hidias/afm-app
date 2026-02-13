@@ -164,6 +164,7 @@ export default function MarinePhoning() {
   const [aiSummary, setAiSummary] = useState('')
   const [aiSummaryLoading, setAiSummaryLoading] = useState(false)
   const currentProspectRef = useRef(null)
+  const prospectStartTime = useRef(null) // Timer invisible pour reporting
   const [callHistory, setCallHistory] = useState([])
   const [duplicates, setDuplicates] = useState([])
   const [showDuplicates, setShowDuplicates] = useState(false)
@@ -252,7 +253,13 @@ export default function MarinePhoning() {
     } catch (err) { console.error('Erreur callbacks:', err) }
   }
 
+  function getElapsedSeconds() {
+    if (!prospectStartTime.current) return null
+    return Math.round((Date.now() - prospectStartTime.current) / 1000)
+  }
+
   function selectProspect(prospect) {
+    prospectStartTime.current = Date.now() // Démarrer le chrono
     currentProspectRef.current = prospect.id
     setCurrent(prospect)
     setContactName('')
@@ -407,7 +414,7 @@ export default function MarinePhoning() {
         formations_mentioned: formationsSelected.length > 0 ? formationsSelected : null,
         notes: notes || null, rdv_created: createRdv, needs_callback: needsCallback,
         callback_date: needsCallback ? callbackDate : null, callback_time: needsCallback ? callbackTime : null,
-        callback_reason: needsCallback ? callbackReason : null,
+        callback_reason: needsCallback ? callbackReason : null, duration_seconds: getElapsedSeconds(),
       }).select().single()
       if (callError) throw callError
 
@@ -528,6 +535,7 @@ export default function MarinePhoning() {
       await supabase.from('prospect_calls').insert({
         client_id: clientId, called_by: callerName, call_result: result,
         notes: result === 'no_answer' ? 'Pas de réponse' : result === 'wrong_number' ? 'Numéro erroné' : 'Pas intéressé',
+        duration_seconds: getElapsedSeconds(),
       })
       const newStatus = result === 'froid' ? 'pas_interesse' : result === 'wrong_number' ? 'numero_errone' : 'a_rappeler'
       await supabase.from('prospection_massive').update({
@@ -595,7 +603,7 @@ export default function MarinePhoning() {
       const noteText = `${callerName} — ${now.toLocaleDateString('fr-FR')} ${now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })} — ${messageLaisse ? 'Message laissé' : 'Pas de réponse'}`
       await supabase.from('prospect_calls').insert({
         client_id: clientId, called_by: callerName, call_result: 'no_answer',
-        notes: noteText,
+        notes: noteText, duration_seconds: getElapsedSeconds(),
       })
       await supabase.from('prospection_massive').update({
         contacted: true, contacted_at: now.toISOString(), prospection_status: 'a_rappeler',
@@ -616,7 +624,7 @@ export default function MarinePhoning() {
       await supabase.from('prospect_calls').insert({
         client_id: clientId, called_by: callerName, call_result: 'froid',
         contact_name: contactName || null, contact_function: contactFunction || null,
-        notes: noteText,
+        notes: noteText, duration_seconds: getElapsedSeconds(),
       })
       await supabase.from('prospection_massive').update({
         contacted: true, contacted_at: new Date().toISOString(), prospection_status: 'pas_interesse',
@@ -637,7 +645,7 @@ export default function MarinePhoning() {
       await supabase.from('prospect_calls').insert({
         client_id: clientId, called_by: callerName, call_result: 'blocked',
         contact_name: contactName || null, contact_function: contactFunction || null,
-        notes: noteText,
+        notes: noteText, duration_seconds: getElapsedSeconds(),
       })
       await supabase.from('prospection_massive').update({
         contacted: true, contacted_at: new Date().toISOString(), prospection_status: 'a_rappeler',
