@@ -346,8 +346,10 @@ export async function generateQuotePDF(quote, items, client, contact, options) {
   // ─── NOTES ───
   if (quote.notes) {
     doc.setFontSize(8); doc.setFont(FONT, 'italic'); doc.setTextColor(80, 80, 80)
-    doc.text('Note : ' + quote.notes, ML, y)
-    doc.setTextColor(0, 0, 0); y += 6
+    var noteMaxWidth = MR - ML  // largeur utile entre marges
+    var noteLines = doc.splitTextToSize('Note : ' + quote.notes, noteMaxWidth)
+    doc.text(noteLines, ML, y)
+    doc.setTextColor(0, 0, 0); y += noteLines.length * 3.5 + 2
   }
 
   // ─── SIGNATURE ───
