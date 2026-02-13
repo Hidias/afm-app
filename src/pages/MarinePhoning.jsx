@@ -23,11 +23,17 @@ function distanceKm(lat1, lon1, lat2, lon2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 }
 
+const EFFECTIF_NUM = {
+  '00': 0, '01': 1, '02': 3, '03': 6, '11': 10, '12': 20,
+  '21': 50, '22': 100, '31': 200, '32': 250, '41': 500,
+  '42': 1000, '51': 2000, '52': 5000, '53': 10000,
+}
+
 function getMapColor(p) {
   if (p.prospection_status === 'pas_interesse') return '#9CA3AF'
   if (p.prospection_status === 'rdv_pris') return '#10B981'
   if (p.prospection_status === 'a_rappeler') return '#F59E0B'
-  const eff = parseInt(p.effectif) || 0
+  const eff = EFFECTIF_NUM[String(p.effectif)] || 0
   if (eff >= 50) return '#EF4444'
   if (eff >= 20) return '#F97316'
   if (eff >= 6) return '#EAB308'
@@ -83,6 +89,37 @@ export default function MarinePhoning() {
     '51': '2000-4999 sal.', '52': '5000-9999 sal.', '53': '10000+ sal.',
   }
   const getEffectifLabel = (code) => code ? (EFFECTIF_LABELS[String(code)] || code + ' sal.') : null
+
+  // Mapping code INSEE → nombre réel (pour scoring/tri)
+  const EFFECTIF_TO_NUM = {
+    '00': 0, '01': 1, '02': 3, '03': 6, '11': 10, '12': 20,
+    '21': 50, '22': 100, '31': 200, '32': 250, '41': 500,
+    '42': 1000, '51': 2000, '52': 5000, '53': 10000,
+  }
+
+  // Mapping filtre UI → codes INSEE
+  const EFFECTIF_FILTER_CODES = {
+    '1-5': ['01', '02'],
+    '6-19': ['03', '11'],
+    '20-49': ['12'],
+    '50-99': ['21'],
+    '100-249': ['22', '31'],
+    '250+': ['32', '41', '42', '51', '52', '53'],
+  }
+
+  // Groupement forme juridique
+  function getFormeGroup(code) {
+    if (!code) return null
+    const n = parseInt(code)
+    if (!n) return null
+    if (n >= 5505 && n <= 5599) return 'SAS/SASU'
+    if ((n >= 5306 && n <= 5308) || n === 5370 || n === 5385 || (n >= 5410 && n <= 5443) || n === 5600) return 'SARL/EURL'
+    if ((n >= 5191 && n <= 5199) || (n >= 5451 && n <= 5499) || n === 5699 || (n >= 5700 && n <= 5800)) return 'SA/SCA'
+    if (n === 1000) return 'EI'
+    if (n >= 9100 && n <= 9399) return 'Association'
+    if ((n >= 3000 && n <= 3999) || (n >= 7000 && n <= 7999)) return 'Public'
+    return 'Autre'
+  }
 
   const FORMES_JURIDIQUES = {
     '1000':'EI','2110':'Indivision','2310':'GIE','2900':'Autre groupement',
@@ -173,6 +210,7 @@ export default function MarinePhoning() {
   const [editPhoneValue, setEditPhoneValue] = useState('')
   const [statusFilter, setStatusFilter] = useState('a_appeler')
   const [effectifFilter, setEffectifFilter] = useState('')
+  const [formeFilter, setFormeFilter] = useState('')
   const [mapBase, setMapBase] = useState('concarneau')
   const [mapRadius, setMapRadius] = useState(0)
   const [showCircles, setShowCircles] = useState(true)
@@ -198,7 +236,7 @@ export default function MarinePhoning() {
   // Scroll en haut quand on change de filtre
   useEffect(() => {
     if (listRef.current) listRef.current.scrollTop = 0
-  }, [statusFilter, departementFilter, effectifFilter, searchTerm])
+  }, [statusFilter, departementFilter, effectifFilter, formeFilter, searchTerm])
 
   async function loadProspects() {
     setLoading(true)
@@ -695,12 +733,11 @@ export default function MarinePhoning() {
       if (statusFilter === 'numero_errone' && p.prospection_status !== 'numero_errone') return false
       if (departementFilter && p.departement !== departementFilter) return false
       if (effectifFilter) {
-        const eff = parseInt(p.effectif) || 0
-        if (effectifFilter === '6-19' && (eff < 6 || eff > 19)) return false
-        if (effectifFilter === '20-49' && (eff < 20 || eff > 49)) return false
-        if (effectifFilter === '50-99' && (eff < 50 || eff > 99)) return false
-        if (effectifFilter === '100-249' && (eff < 100 || eff > 249)) return false
-        if (effectifFilter === '250+' && eff < 250) return false
+        const codes = EFFECTIF_FILTER_CODES[effectifFilter]
+        if (codes && !codes.includes(String(p.effectif))) return false
+      }
+      if (formeFilter) {
+        if (getFormeGroup(p.forme_juridique) !== formeFilter) return false
       }
       if (searchTerm) {
         const term = searchTerm.toLowerCase()
@@ -732,7 +769,7 @@ export default function MarinePhoning() {
       return a.distance - b.distance
     })
     return list
-  }, [prospects, statusFilter, departementFilter, effectifFilter, searchTerm, todayCallbackSirens, callbackDetails, mapBase, mapRadius])
+  }, [prospects, statusFilter, departementFilter, effectifFilter, formeFilter, searchTerm, todayCallbackSirens, callbackDetails, mapBase, mapRadius])
 
   // En mode file, sélectionner le premier prospect du filtre actif
   useEffect(() => {
@@ -882,7 +919,10 @@ export default function MarinePhoning() {
           <option value="">Dép.</option>{departements.map(d => <option key={d} value={d}>{d}</option>)}
         </select>
         <select value={effectifFilter} onChange={(e) => setEffectifFilter(e.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm">
-          <option value="">Effectif</option><option value="6-19">6-19</option><option value="20-49">20-49</option><option value="50-99">50-99</option><option value="100-249">100-249</option><option value="250+">250+</option>
+          <option value="">Effectif</option><option value="1-5">1-5</option><option value="6-19">6-19</option><option value="20-49">20-49</option><option value="50-99">50-99</option><option value="100-249">100-249</option><option value="250+">250+</option>
+        </select>
+        <select value={formeFilter} onChange={(e) => setFormeFilter(e.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm">
+          <option value="">Forme jur.</option><option value="SAS/SASU">SAS/SASU</option><option value="SARL/EURL">SARL/EURL</option><option value="SA/SCA">SA/SCA</option><option value="EI">EI</option><option value="Association">Association</option><option value="Public">Public</option><option value="Autre">Autre</option>
         </select>
         <button onClick={() => { loadProspects(); loadDailyStats(); loadTodayCallbacks() }} className="px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg"><RefreshCw className="w-4 h-4" /></button>
         <button onClick={exportCSV} className="px-3 py-2 bg-green-100 text-green-700 hover:bg-green-200 rounded-lg text-sm font-medium">📥 CSV</button>
@@ -945,7 +985,7 @@ export default function MarinePhoning() {
               <CircleMarker center={[basePoint.lat, basePoint.lng]} radius={10} pathOptions={{ color: '#1E40AF', fillColor: '#3B82F6', fillOpacity: 1, weight: 3 }}><Popup>📍 {basePoint.name}</Popup></CircleMarker>
               {mapProspects.map(p => (
                 <CircleMarker key={p.id} center={[p.latitude, p.longitude]}
-                  radius={Math.max(4, Math.min(12, (parseInt(p.effectif) || 3) / 5))}
+                  radius={Math.max(4, Math.min(12, (EFFECTIF_NUM[String(p.effectif)] || 3) / 5))}
                   pathOptions={{ color: getMapColor(p), fillColor: getMapColor(p), fillOpacity: 0.85, weight: mapSelected === p.id ? 3 : 1, ...(mapSelected === p.id ? { color: '#000' } : {}) }}
                   eventHandlers={{ click: () => { setMapSelected(p.id); selectProspect(p) } }}>
                   <Popup><div className="text-sm"><div className="font-bold">{p.name}</div><div>{p.city} — {p.distance?.toFixed(0)}km</div>{p.phone && <a href={'tel:'+p.phone.replace(/\s/g,'')} className="text-blue-600">{p.phone}</a>}</div></Popup>
