@@ -81,18 +81,27 @@ const EFFECTIF_FILTER_CODES = {
   '250+': ['32', '41', '42', '51', '52', '53'],
 }
 
-// Groupement forme juridique
+// Groupement forme juridique — codes explicites
+const FORME_GROUP_CODES = {
+  'SAS/SASU': ['5505','5510','5515','5520','5522','5525','5530','5532','5542','5548','5551','5558'],
+  'SARL/EURL': ['5306','5307','5308','5370','5385','5410','5415','5422','5426','5430','5431','5432','5443','5600'],
+  'SA/SCA': ['5191','5192','5193','5194','5195','5196','5199','5202','5451','5453','5454','5455','5458',
+    '5460','5470','5485','5498','5499','5546','5547','5560','5599','5699','5710','5720','5785','5800'],
+  'EI': ['1000'],
+  'Association': ['9110','9210','9220','9221','9223','9224','9230','9300','9900','9970','9971','9972'],
+  'Public': ['3110','3120','3210','3310','7111','7172','7210','7220','7230','7321','7322','7323',
+    '7331','7346','7361','7362','7363','7364','7366','7372','7373','7383','7389','7430','7470','7530'],
+}
+
+// Reverse lookup : code → groupe
+const _CODE_TO_GROUP = {}
+Object.entries(FORME_GROUP_CODES).forEach(([group, codes]) => {
+  codes.forEach(c => { _CODE_TO_GROUP[c] = group })
+})
+
 function getFormeGroup(code) {
   if (!code) return null
-  const n = parseInt(code)
-  if (!n) return null
-  if (n >= 5505 && n <= 5599) return 'SAS/SASU'
-  if ((n >= 5306 && n <= 5308) || n === 5370 || n === 5385 || (n >= 5410 && n <= 5443) || n === 5600) return 'SARL/EURL'
-  if ((n >= 5191 && n <= 5199) || (n >= 5451 && n <= 5499) || n === 5699 || (n >= 5700 && n <= 5800)) return 'SA/SCA'
-  if (n === 1000) return 'EI'
-  if (n >= 9100 && n <= 9399) return 'Association'
-  if ((n >= 3000 && n <= 3999) || (n >= 7000 && n <= 7999)) return 'Public'
-  return 'Autre'
+  return _CODE_TO_GROUP[String(code)] || 'Autre'
 }
 
 function getFormeLabel(code) {
@@ -282,8 +291,8 @@ export default function EnrichissementRapide() {
       const codes = EFFECTIF_FILTER_CODES[effectifFilter]
       if (codes) query = query.in('effectif', codes)
     }
-    if (formeFilter) {
-      // Map forme group to codes — filter client-side after fetch
+    if (formeFilter && FORME_GROUP_CODES[formeFilter]) {
+      query = query.in('forme_juridique', FORME_GROUP_CODES[formeFilter])
     }
 
     const { data, error } = await query
@@ -297,8 +306,6 @@ export default function EnrichissementRapide() {
       if (seenName.has(normName)) return false
       seenSiren.add(p.siren)
       seenName.add(normName)
-      // Filtre forme juridique côté client
-      if (formeFilter && getFormeGroup(p.forme_juridique) !== formeFilter) return false
       return true
     }).slice(0, 50)
 
@@ -336,6 +343,9 @@ export default function EnrichissementRapide() {
     if (effectifFilter) {
       const codes = EFFECTIF_FILTER_CODES[effectifFilter]
       if (codes) countQuery = countQuery.in('effectif', codes)
+    }
+    if (formeFilter && FORME_GROUP_CODES[formeFilter]) {
+      countQuery = countQuery.in('forme_juridique', FORME_GROUP_CODES[formeFilter])
     }
     const { count } = await countQuery
     setTotalRemaining(count || 0)
