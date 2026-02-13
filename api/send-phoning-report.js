@@ -382,7 +382,7 @@ export default async function handler(req, res) {
     // 1. Appels du mois avec client
     const { data: rawCalls, error: callErr } = await supabase
       .from('prospect_calls')
-      .select('*, clients(name, city, phone, siren, postal_code, siret, taille_entreprise)')
+      .select('*, clients(name, city, contact_phone, siren, postal_code, siret, taille_entreprise)')
       .gte('called_at', monthStart.toISOString())
       .order('called_at', { ascending: false })
     if (callErr) throw callErr
@@ -434,15 +434,15 @@ export default async function handler(req, res) {
     const csv = generateCSV(enriched)
 
     // 5. SMTP
-    const { data: userData } = await supabase.from('profiles').select('id').eq('email', RECIPIENT).maybeSingle()
-    let emailConfig = null
-    if (userData) {
-      const { data: cfg } = await supabase.from('user_email_configs').select('*').eq('user_id', userData.id).eq('is_active', true).maybeSingle()
-      emailConfig = cfg
-    }
+    let { data: emailConfig } = await supabase
+      .from('user_email_configs')
+      .select('*')
+      .eq('email', RECIPIENT)
+      .eq('is_active', true)
+      .maybeSingle()
     if (!emailConfig) {
-      const { data: cfg } = await supabase.from('user_email_configs').select('*').eq('is_active', true).limit(1).single()
-      emailConfig = cfg
+      const { data: fallback } = await supabase.from('user_email_configs').select('*').eq('is_active', true).limit(1).single()
+      emailConfig = fallback
     }
     if (!emailConfig) return res.status(500).json({ error: 'Config email introuvable' })
 
