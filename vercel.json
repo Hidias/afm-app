@@ -17,6 +17,9 @@
     },
     "api/report-phoning-hebdo.js": {
       "maxDuration": 60
+    },
+    "api/send-phoning-report.js": {
+      "maxDuration": 60
     }
   },
   "crons": [
@@ -31,6 +34,10 @@
     {
       "path": "/api/report-phoning-hebdo",
       "schedule": "0 8 * * 1"
+    },
+    {
+      "path": "/api/send-phoning-report",
+      "schedule": "0 17 * * 1-5"
     }
   ]
 }
