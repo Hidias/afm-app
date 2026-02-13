@@ -64,6 +64,42 @@ function getEffectifLabel(code) {
   return EFFECTIF_LABELS[String(code)] || code + ' sal.'
 }
 
+// Mapping code INSEE → nombre réel (pour scoring/tri)
+const EFFECTIF_TO_NUM = {
+  '00': 0, '01': 1, '02': 3, '03': 6, '11': 10, '12': 20,
+  '21': 50, '22': 100, '31': 200, '32': 250, '41': 500,
+  '42': 1000, '51': 2000, '52': 5000, '53': 10000,
+}
+
+// Mapping filtre UI → codes INSEE
+const EFFECTIF_FILTER_CODES = {
+  '1-5': ['01', '02'],
+  '6-19': ['03', '11'],
+  '20-49': ['12'],
+  '50-99': ['21'],
+  '100-249': ['22', '31'],
+  '250+': ['32', '41', '42', '51', '52', '53'],
+}
+
+// Groupement forme juridique
+function getFormeGroup(code) {
+  if (!code) return null
+  const n = parseInt(code)
+  if (!n) return null
+  if (n >= 5505 && n <= 5599) return 'SAS/SASU'
+  if ((n >= 5306 && n <= 5308) || n === 5370 || n === 5385 || (n >= 5410 && n <= 5443) || n === 5600) return 'SARL/EURL'
+  if ((n >= 5191 && n <= 5199) || (n >= 5451 && n <= 5499) || n === 5699 || (n >= 5700 && n <= 5800)) return 'SA/SCA'
+  if (n === 1000) return 'EI'
+  if (n >= 9100 && n <= 9399) return 'Association'
+  if ((n >= 3000 && n <= 3999) || (n >= 7000 && n <= 7999)) return 'Public'
+  return 'Autre'
+}
+
+function getFormeLabel(code) {
+  const group = getFormeGroup(code)
+  return group || ''
+}
+
 const BASES = {
   concarneau: { name: 'Concarneau', who: 'Hicham', lat: 47.8742, lng: -3.9196 },
   derval: { name: 'Derval', who: 'Maxime', lat: 47.6639, lng: -1.6689 },
@@ -113,6 +149,8 @@ export default function EnrichissementRapide() {
 
   // Filtres
   const [departementFilter, setDepartementFilter] = useState('')
+  const [effectifFilter, setEffectifFilter] = useState('')
+  const [formeFilter, setFormeFilter] = useState('')
   const [proximityBase, setProximityBase] = useState('concarneau')
   const [sortMode, setSortMode] = useState('smart')
   const [radiusFilter, setRadiusFilter] = useState(0)
@@ -178,7 +216,7 @@ export default function EnrichissementRapide() {
       const isNumeric = /^\d+$/.test(term.replace(/\s/g, ''))
       let query = supabase
         .from('prospection_massive')
-        .select('id, siret, siren, name, city, postal_code, address, naf, phone, email, site_web, departement, effectif, quality_score, enrichment_status')
+        .select('id, siret, siren, name, city, postal_code, address, naf, phone, email, site_web, departement, effectif, quality_score, enrichment_status, latitude, longitude, forme_juridique')
         .order('quality_score', { ascending: false })
         .limit(500)
       if (isNumeric) {
@@ -229,7 +267,7 @@ export default function EnrichissementRapide() {
 
     let query = supabase
       .from('prospection_massive')
-      .select('id, siret, siren, name, city, postal_code, address, naf, phone, email, site_web, departement, effectif, quality_score')
+      .select('id, siret, siren, name, city, postal_code, address, naf, phone, email, site_web, departement, effectif, quality_score, latitude, longitude, forme_juridique')
       .is('phone', null)
       .or('enrichment_status.is.null,enrichment_status.eq.pending,enrichment_status.eq.enriching')
       .order('quality_score', { ascending: false })
@@ -240,34 +278,48 @@ export default function EnrichissementRapide() {
     } else if (nearbyDepts && nearbyDepts.length > 0) {
       query = query.in('departement', nearbyDepts)
     }
+    if (effectifFilter) {
+      const codes = EFFECTIF_FILTER_CODES[effectifFilter]
+      if (codes) query = query.in('effectif', codes)
+    }
+    if (formeFilter) {
+      // Map forme group to codes — filter client-side after fetch
+    }
 
     const { data, error } = await query
     if (error) { console.error('Erreur chargement:', error); setLoading(false); return }
 
     const seenSiren = new Set()
     const seenName = new Set()
-    const unique = (data || []).filter(p => {
+    let unique = (data || []).filter(p => {
       if (seenSiren.has(p.siren)) return false
       const normName = (p.name || '').toUpperCase().replace(/[^A-Z0-9]/g, '')
       if (seenName.has(normName)) return false
       seenSiren.add(p.siren)
       seenName.add(normName)
+      // Filtre forme juridique côté client
+      if (formeFilter && getFormeGroup(p.forme_juridique) !== formeFilter) return false
       return true
     }).slice(0, 50)
 
     if (base) {
       unique.forEach(p => {
-        const dept = p.departement || (p.postal_code || '').slice(0, 2)
-        const center = DEPT_CENTERS[dept]
-        p._dist = center ? distanceKm(base.lat, base.lng, center.lat, center.lng) : null
-        const eff = parseInt(p.effectif) || 5
+        // Distance GPS réelle si disponible, sinon fallback centre département
+        if (p.latitude && p.longitude) {
+          p._dist = distanceKm(base.lat, base.lng, p.latitude, p.longitude)
+        } else {
+          const dept = p.departement || (p.postal_code || '').slice(0, 2)
+          const center = DEPT_CENTERS[dept]
+          p._dist = center ? distanceKm(base.lat, base.lng, center.lat, center.lng) : null
+        }
+        const eff = EFFECTIF_TO_NUM[String(p.effectif)] || 5
         p._smart = p._dist != null && p._dist > 0
           ? (eff * 2 + (p.quality_score || 50)) / Math.sqrt(p._dist)
           : (eff * 2 + (p.quality_score || 50)) * 0.5
       })
       if (sortMode === 'smart') unique.sort((a, b) => b._smart - a._smart)
       else if (sortMode === 'proche') unique.sort((a, b) => (a._dist ?? 9999) - (b._dist ?? 9999))
-      else if (sortMode === 'gros') unique.sort((a, b) => (parseInt(b.effectif) || 0) - (parseInt(a.effectif) || 0))
+      else if (sortMode === 'gros') unique.sort((a, b) => (EFFECTIF_TO_NUM[String(b.effectif)] || 0) - (EFFECTIF_TO_NUM[String(a.effectif)] || 0))
     }
 
     setProspects(unique)
@@ -281,11 +333,15 @@ export default function EnrichissementRapide() {
       .or('enrichment_status.is.null,enrichment_status.eq.pending,enrichment_status.eq.enriching')
     if (departementFilter) countQuery = countQuery.eq('departement', departementFilter)
     else if (nearbyDepts && nearbyDepts.length > 0) countQuery = countQuery.in('departement', nearbyDepts)
+    if (effectifFilter) {
+      const codes = EFFECTIF_FILTER_CODES[effectifFilter]
+      if (codes) countQuery = countQuery.in('effectif', codes)
+    }
     const { count } = await countQuery
     setTotalRemaining(count || 0)
 
     setLoading(false)
-  }, [departementFilter, proximityBase, sortMode, radiusFilter])
+  }, [departementFilter, proximityBase, sortMode, radiusFilter, effectifFilter, formeFilter])
 
   useEffect(() => { loadProspects() }, [loadProspects])
 
@@ -709,6 +765,14 @@ export default function EnrichissementRapide() {
             <option value="">Tous dép.</option>
             {departements.map(d => <option key={d} value={d}>{d}</option>)}
           </select>
+          <select value={effectifFilter} onChange={(e) => setEffectifFilter(e.target.value)}
+            className="border rounded-md px-2 py-1 text-xs">
+            <option value="">Effectif</option><option value="1-5">1-5</option><option value="6-19">6-19</option><option value="20-49">20-49</option><option value="50-99">50-99</option><option value="100-249">100-249</option><option value="250+">250+</option>
+          </select>
+          <select value={formeFilter} onChange={(e) => setFormeFilter(e.target.value)}
+            className="border rounded-md px-2 py-1 text-xs">
+            <option value="">Forme jur.</option><option value="SAS/SASU">SAS/SASU</option><option value="SARL/EURL">SARL/EURL</option><option value="SA/SCA">SA/SCA</option><option value="EI">EI</option><option value="Association">Association</option><option value="Public">Public</option><option value="Autre">Autre</option>
+          </select>
           <span className="text-gray-400 ml-auto">{prospects.length} chargés</span>
         </div>
 
@@ -773,6 +837,7 @@ export default function EnrichissementRapide() {
                   <div className="flex items-center gap-3 mt-1.5 text-sm text-gray-600 flex-wrap">
                     <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5" /> {current.city} ({current.postal_code?.slice(0, 2)})</span>
                     {current.effectif && <span>👥 {getEffectifLabel(current.effectif)}</span>}
+                    {current.forme_juridique && <span className="text-gray-400">{getFormeLabel(current.forme_juridique)}</span>}
                     {current.naf && <span className="text-gray-400">{getNafLabel(current.naf)}</span>}
                   </div>
                   {current.address && <p className="text-xs text-gray-400 mt-1">{current.address}</p>}
