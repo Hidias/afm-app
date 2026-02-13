@@ -4,7 +4,7 @@ import { useAuthStore } from '../lib/store'
 import { 
   Phone, CheckCircle, RefreshCw, SkipForward,
   Building2, MapPin, Mail, List, Search, Sparkles, Loader2, Map as MapIcon, Navigation, AlertTriangle,
-  Clock, PhoneOff, XCircle, Snowflake, Bell, Plus, Edit2
+  Clock, PhoneOff, XCircle, Snowflake, Bell, Plus, Edit2, Briefcase
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { MapContainer, TileLayer, CircleMarker, Circle, Popup, useMap } from 'react-leaflet'
@@ -181,6 +181,7 @@ export default function MarinePhoning() {
   const [callbackDetails, setCallbackDetails] = useState(new Map()) // siren → {date, time, reason, contact_name}
   const [showAddModal, setShowAddModal] = useState(false)
   const [newProspect, setNewProspect] = useState({ name: '', phone: '', city: '', postal_code: '', departement: '', siret: '', siren: '', email: '', notes: '' })
+  const [detectingOpco, setDetectingOpco] = useState(false)
 
   const listRef = useRef(null)
   const departements = [...new Set(prospects.map(p => p.departement))].filter(Boolean).sort()
@@ -544,6 +545,49 @@ export default function MarinePhoning() {
   }
 
   function handleSkip() { if (!current) return; toast('Prospect passé', { icon: '⏭️' }); goNext() }
+
+  async function autoDetectOpco() {
+    if (!current) return
+    const siret = (current.siret || '').replace(/\s/g, '')
+    if (!siret || siret.length < 9 || siret.startsWith('MANUAL_')) return toast.error('SIRET valide requis')
+    setDetectingOpco(true)
+    try {
+      const res = await fetch(`/api/detect-opco?siret=${siret}`)
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Erreur API')
+
+      const updates = {}
+      const ent = data.entreprise
+      if (ent) {
+        if (ent.address) updates.address = ent.address
+        if (ent.postal_code) updates.postal_code = ent.postal_code
+        if (ent.city) updates.city = ent.city.toUpperCase()
+      }
+      if (data.status === 'OK' && data.opco_name) {
+        updates.opco_name = data.opco_name
+      }
+
+      // Sauvegarder dans prospection_massive
+      if (Object.keys(updates).length > 0) {
+        await supabase.from('prospection_massive').update(updates).eq('id', current.id)
+        // Mettre à jour localement
+        Object.assign(current, updates)
+        setProspects(prev => prev.map(p => p.id === current.id ? { ...p, ...updates } : p))
+      }
+
+      if (data.opco_name) {
+        toast.success(`OPCO : ${data.opco_name}${ent?.city ? ' • ' + ent.city : ''}`)
+      } else if (ent?.address) {
+        toast('Adresse enrichie', { icon: '📍' })
+      } else {
+        toast.error(data.message || 'Aucune info trouvée')
+      }
+    } catch (err) {
+      toast.error('Erreur : ' + err.message)
+    } finally {
+      setDetectingOpco(false)
+    }
+  }
 
   // === FILTRES & TRI ===
   const rappelsCount = prospects.filter(p => p.siren && todayCallbackSirens.has(p.siren)).length
@@ -925,7 +969,17 @@ export default function MarinePhoning() {
                 {getFormeLabel(current.forme_juridique) && <div className="bg-gray-50 rounded px-2 py-1.5"><span className="text-gray-500">Forme</span> <span className="font-medium">{getFormeLabel(current.forme_juridique)}</span></div>}
                 {current.email && <div className="bg-gray-50 rounded px-2 py-1.5 truncate"><Mail className="w-3 h-3 inline text-gray-400" /> <span className="font-medium text-xs">{current.email}</span></div>}
                 {current.site_web && <div className="col-span-2 bg-gray-50 rounded px-2 py-1.5 truncate">🌐 <a href={current.site_web.startsWith('http') ? current.site_web : 'https://'+current.site_web} target="_blank" rel="noreferrer" className="text-primary-600 hover:underline text-xs">{current.site_web}</a></div>}
+                {current.opco_name && <div className="col-span-2 bg-indigo-50 rounded px-2 py-1.5 flex items-center gap-1.5"><Briefcase className="w-3 h-3 text-indigo-500" /><span className="text-indigo-700 font-medium text-xs">{current.opco_name}</span></div>}
               </div>
+
+              {/* Bouton Détecter OPCO + adresse */}
+              {current.siret && !current.siret.startsWith('MANUAL_') && !current.opco_name && (
+                <button onClick={autoDetectOpco} disabled={detectingOpco}
+                  className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg text-indigo-700 text-sm font-medium transition-colors disabled:opacity-50">
+                  {detectingOpco ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                  Détecter OPCO & adresse
+                </button>
+              )}
 
               {/* Doublons toggle */}
               {duplicates.length > 0 && (
