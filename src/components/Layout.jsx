@@ -5,7 +5,7 @@ import {
   Settings, LogOut, Menu, X, FileText, AlertTriangle, UserCheck, BarChart3, Award,
   Bell, Check, ExternalLink, FolderCheck, CheckCircle, Briefcase, Receipt,
   Phone, Search, Globe, Layers, FolderInput, ChevronDown, Eye, Shield, Target,
-  ClipboardCheck, FileQuestion
+  ClipboardCheck, FileQuestion, CreditCard
 } from 'lucide-react'
 import { useState, useEffect, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
@@ -42,6 +42,7 @@ const navSections = [
     items: [
       { to: '/clients', icon: Building2, label: 'Clients' },
       { to: '/devis', icon: Receipt, label: 'Devis' },
+      { to: '/factures', icon: CreditCard, label: 'Factures' },
       { to: '/prospection', icon: Phone, label: 'Phoning' },
       { to: '/prospection-massive', icon: Globe, label: 'Base prospects' },
       { to: '/multi-etablissements', icon: Layers, label: 'Multi-établissements' },
