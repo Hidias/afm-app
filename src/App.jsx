@@ -31,6 +31,7 @@ import Qualiopi from './pages/Qualiopi'
 import AuditLogs from './pages/AuditLogs'
 import Changelog from './pages/Changelog'
 import Quotes from './pages/Quotes'
+import Invoices from './pages/Invoices'
 import QualiteEditables from './pages/QualiteEditables'
 import Completude from './pages/Completude'
 import Login from './pages/Login'
@@ -147,6 +148,7 @@ export default function App() {
           <Route path="clients" element={<Clients />} />
           <Route path="clients/:id" element={<ClientDetail />} />
           <Route path="devis" element={<Quotes />} />
+          <Route path="factures" element={<Invoices />} />
           {/* ========== NOUVEAU : Routes Prospection ========== */}
           <Route path="prospection" element={<ProspectionTabs />} />
           <Route path="prospection/:id" element={<ProspectRDVDetail />} />
