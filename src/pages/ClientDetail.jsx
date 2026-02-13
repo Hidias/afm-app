@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { ArrowLeft, Building2, MapPin, Phone, Mail, Globe, Edit, Save, X, Plus, Trash2, User, Clock, MessageSquare, Calendar, FileText, GraduationCap, Star, ChevronDown, ChevronUp, Send, StickyNote, Receipt, RefreshCw, Briefcase, FileSignature, Smartphone, Loader2, Search } from 'lucide-react'
+import { ArrowLeft, Building2, MapPin, Phone, Mail, Globe, Edit, Save, X, Plus, Trash2, User, Clock, MessageSquare, Calendar, FileText, GraduationCap, Star, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Send, StickyNote, Receipt, RefreshCw, Briefcase, FileSignature, Smartphone, Loader2, Search } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
@@ -40,11 +40,16 @@ const OPCO_LIST = [
 // ═══════════════════════════════════════════════════════════
 export default function ClientDetail() {
   const { id } = useParams()
+  const navigate = useNavigate()
   const [client, setClient] = useState(null)
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState(false)
   const [editForm, setEditForm] = useState({})
   const [detectingOpco, setDetectingOpco] = useState(false)
+
+  // Navigation entre clients (A→Z)
+  const [allClientIds, setAllClientIds] = useState([])
+
 
   // Contacts
   const [contacts, setContacts] = useState([])
@@ -68,6 +73,42 @@ export default function ClientDetail() {
   const [sections, setSections] = useState({ contacts: true, timeline: true, formations: true })
 
   useEffect(() => { if (id) loadAll() }, [id])
+
+  // Charger la liste de tous les clients (A→Z) pour navigation
+  useEffect(() => {
+    async function loadClientIds() {
+      const { data } = await supabase.from('clients').select('id, name').order('name')
+      if (data) setAllClientIds(data.map(c => c.id))
+    }
+    loadClientIds()
+  }, [])
+
+  // Calculer précédent/suivant
+  const currentIndex = allClientIds.indexOf(id)
+  const prevClientId = currentIndex > 0 ? allClientIds[currentIndex - 1] : null
+  const nextClientId = currentIndex >= 0 && currentIndex < allClientIds.length - 1 ? allClientIds[currentIndex + 1] : null
+
+  function navigateToClient(targetId) {
+    if (!targetId) return
+    navigate(`/clients/${targetId}`)
+    setEditing(true)
+  }
+
+  // Raccourcis clavier Alt+← / Alt+→
+  useEffect(() => {
+    function handleKeyDown(e) {
+      if (e.altKey && e.key === 'ArrowLeft' && prevClientId) {
+        e.preventDefault()
+        navigateToClient(prevClientId)
+      }
+      if (e.altKey && e.key === 'ArrowRight' && nextClientId) {
+        e.preventDefault()
+        navigateToClient(nextClientId)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [prevClientId, nextClientId])
 
   // ═══════════════════════════════════════════════════════════
   // CHARGEMENT DONNÉES
@@ -172,8 +213,13 @@ export default function ClientDetail() {
     }).eq('id', id)
     if (error) return toast.error('Erreur sauvegarde')
     toast.success('Client mis à jour')
-    setEditing(false)
-    loadClient()
+    // Recharger les données fraîches mais rester en mode édition
+    const { data: fresh } = await supabase.from('clients').select('*').eq('id', id).single()
+    if (fresh) {
+      setClient(fresh)
+      setEditForm(fresh)
+    }
+    // On reste en mode édition pour permettre la navigation
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -292,7 +338,25 @@ export default function ClientDetail() {
         <Link to="/clients" className="text-sm text-gray-500 hover:text-gray-700 flex items-center gap-1">
           <ArrowLeft className="w-4 h-4" /> Retour aux clients
         </Link>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
+          {/* Navigation précédent/suivant */}
+          <div className="flex items-center gap-1 mr-2">
+            <button onClick={() => navigateToClient(prevClientId)} disabled={!prevClientId}
+              className="p-2 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              title="Client précédent (Alt+←)">
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            {allClientIds.length > 0 && (
+              <span className="text-xs text-gray-400 tabular-nums min-w-[4rem] text-center">
+                {currentIndex + 1} / {allClientIds.length}
+              </span>
+            )}
+            <button onClick={() => navigateToClient(nextClientId)} disabled={!nextClientId}
+              className="p-2 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              title="Client suivant (Alt+→)">
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
           {!editing ? (
             <button onClick={() => setEditing(true)} className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm">
               <Edit className="w-4 h-4" /> Modifier
