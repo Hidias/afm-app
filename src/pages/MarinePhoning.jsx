@@ -4,7 +4,7 @@ import { useAuthStore } from '../lib/store'
 import { 
   Phone, CheckCircle, RefreshCw, SkipForward,
   Building2, MapPin, Mail, List, Search, Sparkles, Loader2, Map as MapIcon, Navigation, AlertTriangle,
-  Clock, PhoneOff, XCircle, Snowflake, Bell, Plus, Edit2, Briefcase, Send, ArrowLeft, MessageSquare
+  Clock, PhoneOff, XCircle, Snowflake, Bell, Plus, Edit2, Briefcase, Send, ArrowLeft, MessageSquare, BarChart3
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { MapContainer, TileLayer, CircleMarker, Circle, Popup, useMap } from 'react-leaflet'
@@ -183,6 +183,7 @@ export default function MarinePhoning() {
   const [showAddModal, setShowAddModal] = useState(false)
   const [newProspect, setNewProspect] = useState({ name: '', phone: '', city: '', postal_code: '', departement: '', siret: '', siren: '', email: '', notes: '' })
   const [detectingOpco, setDetectingOpco] = useState(false)
+  const [sendingReport, setSendingReport] = useState(false)
   // Stepped phoning flow
   const [phoningStep, setPhoningStep] = useState('initial') // initial | no_response | responded | interested | callback | transfer | not_interested
   const [transferReason, setTransferReason] = useState('')
@@ -796,6 +797,24 @@ export default function MarinePhoning() {
     const a = document.createElement('a'); a.href = url; a.download = `phoning_export_${new Date().toISOString().slice(0,10)}.csv`; a.click(); URL.revokeObjectURL(url)
   }
 
+  async function handleSendReport() {
+    setSendingReport(true)
+    try {
+      const res = await fetch('/api/send-phoning-report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Erreur envoi rapport')
+      toast.success(`Rapport envoyé ! ${data.stats?.today || 0} appels aujourd'hui`)
+    } catch (err) {
+      console.error('Erreur rapport:', err)
+      toast.error(err.message || 'Erreur envoi rapport')
+    } finally {
+      setSendingReport(false)
+    }
+  }
+
   if (loading) return <div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div></div>
 
   // === RENDER ===
@@ -867,6 +886,7 @@ export default function MarinePhoning() {
         </select>
         <button onClick={() => { loadProspects(); loadDailyStats(); loadTodayCallbacks() }} className="px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg"><RefreshCw className="w-4 h-4" /></button>
         <button onClick={exportCSV} className="px-3 py-2 bg-green-100 text-green-700 hover:bg-green-200 rounded-lg text-sm font-medium">📥 CSV</button>
+        {isAdmin && <button onClick={handleSendReport} disabled={sendingReport} className="px-3 py-2 bg-indigo-100 text-indigo-700 hover:bg-indigo-200 rounded-lg text-sm font-medium flex items-center gap-1 disabled:opacity-50">{sendingReport ? <Loader2 className="w-4 h-4 animate-spin" /> : <BarChart3 className="w-4 h-4" />} Rapport</button>}
         <button onClick={() => setShowAddModal(true)} className="px-3 py-2 bg-primary-100 text-primary-700 hover:bg-primary-200 rounded-lg text-sm font-medium flex items-center gap-1"><Plus className="w-4 h-4" /> Ajouter</button>
       </div>
 
