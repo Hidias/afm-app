@@ -1322,6 +1322,30 @@ export default function MarinePhoning() {
                 {current.opco_name && <div className="col-span-2 bg-indigo-50 rounded px-2 py-1.5 flex items-center gap-1.5"><Briefcase className="w-3 h-3 text-indigo-500" /><span className="text-indigo-700 font-medium text-xs">{current.opco_name}</span></div>}
               </div>
 
+              {/* Email — éditable + bouton envoyer */}
+              <div className="flex items-center gap-2">
+                <div className="flex-1 relative">
+                  <Mail className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <input type="email" value={contactEmail || current.email || ''} onChange={e => setContactEmail(e.target.value)}
+                    onBlur={async (e) => {
+                      const val = e.target.value.trim()
+                      if (val && val !== current.email && current.siren) {
+                        await supabase.from('prospection_massive').update({ email: val, updated_at: new Date().toISOString() }).eq('siren', current.siren)
+                        current.email = val
+                        setProspects(prev => prev.map(p => p.siren === current.siren ? { ...p, email: val } : p))
+                      }
+                    }}
+                    placeholder="email@entreprise.fr"
+                    className="w-full pl-8 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+                </div>
+                <button onClick={() => openEmailModal(current, (contactEmail || current.email) ? 'suite_echange' : 'nrp', false)}
+                  disabled={!contactEmail && !current.email}
+                  title="Envoyer un email"
+                  className="p-2 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
+                  <Send className="w-4 h-4" />
+                </button>
+              </div>
+
               {/* Détecter OPCO */}
               {current.siret && !current.siret.startsWith('MANUAL_') && !current.opco_name && (
                 <button onClick={autoDetectOpco} disabled={detectingOpco}
