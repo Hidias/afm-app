@@ -55,7 +55,7 @@ export default function ClientDetail() {
   const [contacts, setContacts] = useState([])
   const [showContactForm, setShowContactForm] = useState(false)
   const [editingContact, setEditingContact] = useState(null)
-  const [contactForm, setContactForm] = useState({ name: '', role: '', email: '', phone: '', is_primary: false, is_document_contact: false })
+  const [contactForm, setContactForm] = useState({ name: '', role: '', email: '', phone: '', is_primary: false, is_document_contact: false, is_billing: false })
 
   // Timeline
   const [interactions, setInteractions] = useState([])
@@ -236,6 +236,14 @@ export default function ClientDetail() {
       }
     }
 
+    // Si ce contact est marqué "facturation", retirer le flag des autres
+    if (contactForm.is_billing) {
+      const othersWithBilling = contacts.filter(c => c.is_billing && (!editingContact || c.id !== editingContact.id))
+      for (const other of othersWithBilling) {
+        await supabase.from('client_contacts').update({ is_billing: false }).eq('id', other.id)
+      }
+    }
+
     if (editingContact) {
       const { error } = await supabase.from('client_contacts').update(contactForm).eq('id', editingContact.id)
       if (error) return toast.error('Erreur: ' + error.message)
@@ -257,7 +265,7 @@ export default function ClientDetail() {
   }
 
   function openEditContact(c) {
-    setContactForm({ name: c.name, role: c.role || '', email: c.email || '', phone: c.phone || '', is_primary: c.is_primary || false, is_document_contact: c.is_document_contact || false })
+    setContactForm({ name: c.name, role: c.role || '', email: c.email || '', phone: c.phone || '', is_primary: c.is_primary || false, is_document_contact: c.is_document_contact || false, is_billing: c.is_billing || false })
     setEditingContact(c)
     setShowContactForm(true)
   }
@@ -265,7 +273,7 @@ export default function ClientDetail() {
   function closeContactForm() {
     setShowContactForm(false)
     setEditingContact(null)
-    setContactForm({ name: '', role: '', email: '', phone: '', is_primary: false, is_document_contact: false })
+    setContactForm({ name: '', role: '', email: '', phone: '', is_primary: false, is_document_contact: false, is_billing: false })
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -329,6 +337,7 @@ export default function ClientDetail() {
   const upcomingSessions = formations.filter(f => f.status === 'planned' || f.status === 'in_progress' || f.status === 'draft')
   const pastSessions = formations.filter(f => f.status === 'completed' || f.status === 'cancelled')
   const docContact = contacts.find(c => c.is_document_contact)
+  const billingContact = contacts.find(c => c.is_billing)
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
@@ -395,6 +404,12 @@ export default function ClientDetail() {
                 <div className="text-right hidden md:block">
                   <p className="text-xs text-gray-400">Contact documents</p>
                   <p className="text-sm font-medium text-gray-700">{docContact.name}{docContact.role ? ' — ' + docContact.role : ''}</p>
+                </div>
+              )}
+              {billingContact && !editing && (
+                <div className="text-right hidden md:block">
+                  <p className="text-xs text-gray-400">💰 Facturation</p>
+                  <p className="text-sm font-medium text-gray-700">{billingContact.name}{billingContact.email ? ' — ' + billingContact.email : ''}</p>
                 </div>
               )}
               {editing ? (
@@ -518,6 +533,11 @@ export default function ClientDetail() {
                             <FileSignature className="w-3 h-3" /> Documents
                           </span>
                         )}
+                        {c.is_billing && (
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-green-100 text-green-700 text-[10px] rounded font-medium" title="Contact facturation">
+                            💰 Facturation
+                          </span>
+                        )}
                       </div>
                       {c.role && <p className="text-xs text-primary-600 font-medium mt-0.5">{c.role}</p>}
                       <div className="flex flex-col gap-0.5 mt-1">
@@ -534,7 +554,7 @@ export default function ClientDetail() {
 
                 {contacts.length === 0 && <p className="text-sm text-gray-400 text-center py-3">Aucun contact enregistré</p>}
 
-                <button onClick={() => { setEditingContact(null); setContactForm({ name: '', role: '', email: '', phone: '', is_primary: false, is_document_contact: false }); setShowContactForm(true) }}
+                <button onClick={() => { setEditingContact(null); setContactForm({ name: '', role: '', email: '', phone: '', is_primary: false, is_document_contact: false, is_billing: false }); setShowContactForm(true) }}
                   className="w-full flex items-center justify-center gap-1.5 py-2.5 text-sm text-primary-600 hover:bg-primary-50 rounded-lg border border-dashed border-primary-300 transition-colors">
                   <Plus className="w-4 h-4" /> Ajouter un contact
                 </button>
@@ -800,6 +820,14 @@ export default function ClientDetail() {
                   <div>
                     <p className="font-medium text-gray-700">Contact documents</p>
                     <p className="text-xs text-gray-400">Apparaît sur conventions, convocations, attestations</p>
+                  </div>
+                </label>
+                <label className="flex items-center gap-2.5 text-sm cursor-pointer p-2 rounded-lg hover:bg-green-50 transition-colors">
+                  <input type="checkbox" checked={contactForm.is_billing} onChange={e => setContactForm(f => ({ ...f, is_billing: e.target.checked }))} className="rounded border-gray-300 text-green-500 focus:ring-green-500" />
+                  <span className="text-lg">💰</span>
+                  <div>
+                    <p className="font-medium text-gray-700">Contact facturation</p>
+                    <p className="text-xs text-gray-400">Reçoit les factures et avoirs</p>
                   </div>
                 </label>
               </div>
