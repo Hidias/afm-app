@@ -234,6 +234,19 @@ export default function MarinePhoning() {
   const [transferNote, setTransferNote] = useState('')
   const [notInterestedTag, setNotInterestedTag] = useState('')
 
+  // Email prospect modal
+  const [showEmailModal, setShowEmailModal] = useState(false)
+  const [emailTo, setEmailTo] = useState('')
+  const [emailSubject, setEmailSubject] = useState('')
+  const [emailBody, setEmailBody] = useState('')
+  const [emailTemplate, setEmailTemplate] = useState('suite_echange')
+  const [emailSending, setEmailSending] = useState(false)
+  const [emailAdaptLoading, setEmailAdaptLoading] = useState(false)
+  const [pendingGoNext, setPendingGoNext] = useState(false)
+  const [emailSentMap, setEmailSentMap] = useState({}) // siren -> { date, template }
+  const [relanceSuggestions, setRelanceSuggestions] = useState(0)
+  const [templateVersion, setTemplateVersion] = useState(0)
+
   const listRef = useRef(null)
   const departements = [...new Set(prospects.map(p => p.departement))].filter(Boolean).sort()
 
@@ -546,11 +559,18 @@ export default function MarinePhoning() {
       toast.success(message)
       loadDailyStats()
       loadTodayCallbacks()
-      goNext()
+      // Si email dispo, ouvrir modale email au lieu de passer au suivant
+      const prospectEmail = contactEmail || current.email
+      if (prospectEmail || contactName) {
+        const tpl = callResult === 'chaud' || callResult === 'tiede' ? 'suite_echange' : 'nrp'
+        openEmailModal(current, tpl, true)
+      } else {
+        goNext()
+      }
       await loadProspects()
     } catch (error) {
       console.error('Erreur sauvegarde:', error)
-      toast.error('Erreur: ' + (error.message || 'Échec sauvegarde'))
+      toast.error('Erreur: ' + (error.message || 'Echec sauvegarde'))
     } finally { setSaving(false) }
   }
 
@@ -597,6 +617,167 @@ export default function MarinePhoning() {
       toast.error('Erreur: ' + error.message)
     } finally { setSaving(false) }
   }
+
+  // ═══ EMAIL TEMPLATES ═══
+  const EMAIL_TEMPLATES = {
+    suite_echange: {
+      subject: (name) => 'Suite \u00e0 notre \u00e9change \u2013 formations sant\u00e9 & s\u00e9curit\u00e9',
+      body: (name, contact) => `<p>Bonjour${contact ? ' ' + contact : ''},</p>
+<p>Merci encore d'avoir pris le temps d'\u00e9changer avec moi aujourd'hui \ud83d\ude0a</p>
+<p>Comme \u00e9voqu\u00e9 au t\u00e9l\u00e9phone, Access Formation accompagne les entreprises de Bretagne et Pays de la Loire sur les sujets de sant\u00e9 et s\u00e9curit\u00e9 au travail, avec une approche tr\u00e8s terrain et sur mesure.</p>
+<p>Nous intervenons notamment sur :</p>
+<ul>
+<li>le secourisme (SST, MAC SST)</li>
+<li>la pr\u00e9vention incendie (EPI, extincteurs, \u00e9vacuation)</li>
+<li>les gestes et postures / TMS</li>
+<li>les habilitations \u00e9lectriques (B0 / H0V)</li>
+<li>la conduite de chariots et gerbeurs (R485 / R489)</li>
+</ul>
+<p>Notre particularit\u00e9 : des formations intra-entreprise, directement sur site, anim\u00e9es par l'un de nos deux formateurs, avec des contenus concrets, participatifs, et pens\u00e9s pour \u00eatre utiles au quotidien (pas de format descendant ou ennuyeux).</p>
+<p>Nous sommes \u00e9galement certifi\u00e9s <strong>Qualiopi</strong>, ce qui permet, selon les cas, un financement via les OPCO.</p>
+<p>Si vous le souhaitez, nous proposons un <strong>diagnostic gratuit de 20 minutes</strong>, afin de cadrer vos besoins, vos contraintes et voir ensemble si cela a du sens d'aller plus loin.</p>
+<p>Nous restons bien entendu \u00e0 votre disposition pour \u00e9changer, et vous souhaitons une tr\u00e8s bonne journ\u00e9e !</p>`,
+    },
+    nrp: {
+      subject: (name) => 'Vos formations s\u00e9curit\u00e9 sont-elles \u00e0 jour ?',
+      body: (name, contact) => `<p>Bonjour${contact ? ' ' + contact : ''},</p>
+<p>Je me permets de vous contacter par mail, car j'ai tent\u00e9 de vous joindre ce jour, sans succ\u00e8s.</p>
+<p>Je souhaitais \u00e9changer avec vous pour vous pr\u00e9senter <strong>Access Formation</strong>, organisme de formation sp\u00e9cialis\u00e9 en sant\u00e9 et s\u00e9curit\u00e9 au travail, intervenant en Bretagne et Pays de la Loire.</p>
+<p>Nous intervenons notamment sur :</p>
+<ul>
+<li>le secourisme (SST, MAC SST)</li>
+<li>la pr\u00e9vention incendie (EPI, extincteurs, \u00e9vacuation)</li>
+<li>les gestes et postures / TMS</li>
+<li>les habilitations \u00e9lectriques (B0 / H0V)</li>
+<li>la conduite de chariots et gerbeurs (R485 / R489)</li>
+</ul>
+<p>Notre particularit\u00e9 : des formations intra-entreprise, directement sur site, anim\u00e9es par l'un de nos deux formateurs, avec des contenus concrets, participatifs, et pens\u00e9s pour \u00eatre utiles au quotidien (pas de format descendant ou ennuyeux).</p>
+<p>Nous sommes \u00e9galement certifi\u00e9s <strong>Qualiopi</strong>, ce qui permet, selon les cas, un financement via les OPCO.</p>
+<p>Si vous le souhaitez, nous proposons un <strong>diagnostic gratuit de 20 minutes</strong>, afin de cadrer vos besoins, vos contraintes et voir ensemble si cela a du sens d'aller plus loin.</p>
+<p>Nous restons bien entendu \u00e0 votre disposition pour \u00e9changer, et vous souhaitons une tr\u00e8s bonne journ\u00e9e !</p>`,
+    },
+    relance: {
+      subject: (name) => 'Relance \u2013 formations sant\u00e9 & s\u00e9curit\u00e9',
+      body: (name, contact) => `<p>Bonjour${contact ? ' ' + contact : ''},</p>
+<p>Je me permets de revenir vers vous suite \u00e0 mon pr\u00e9c\u00e9dent message.</p>
+<p>Nous accompagnons les entreprises de Bretagne et Pays de la Loire en formations sant\u00e9 et s\u00e9curit\u00e9 : SST, incendie, gestes et postures, habilitations \u00e9lectriques, CACES.</p>
+<p>Nos formations sont <strong>100% intra-entreprise</strong>, directement chez vous, avec des contenus concrets et participatifs. Nous sommes certifi\u00e9s <strong>Qualiopi</strong> (financement OPCO possible).</p>
+<p>Seriez-vous disponible pour un \u00e9change rapide de 10 minutes cette semaine ?</p>
+<p>Belle journ\u00e9e !</p>`,
+    },
+  }
+
+  function openEmailModal(prospect, template, goNextAfter = true) {
+    const tpl = template || 'suite_echange'
+    const email = contactEmail || prospect?.email || ''
+    const name = contactName || ''
+    const t = EMAIL_TEMPLATES[tpl]
+    setEmailTo(email)
+    setEmailSubject(t.subject(prospect?.name))
+    setEmailBody(t.body(prospect?.name, name))
+    setEmailTemplate(tpl)
+    setPendingGoNext(goNextAfter)
+    setShowEmailModal(true)
+  }
+
+  async function checkEmailDuplicate(siren) {
+    if (!siren) return null
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString()
+    const { data } = await supabase.from('prospect_email_logs')
+      .select('sent_at, template_type')
+      .eq('prospect_siren', siren)
+      .gte('sent_at', thirtyDaysAgo)
+      .order('sent_at', { ascending: false })
+      .limit(1)
+    return data && data.length > 0 ? data[0] : null
+  }
+
+  async function handleSendEmail() {
+    if (!emailTo) { toast.error('Adresse email requise'); return }
+    // Anti-doublon
+    const dup = await checkEmailDuplicate(current?.siren)
+    if (dup) {
+      const days = Math.floor((Date.now() - new Date(dup.sent_at).getTime()) / 86400000)
+      if (!confirm('Un email (' + dup.template_type + ') a deja ete envoye il y a ' + days + ' jours. Envoyer quand meme ?')) return
+    }
+    setEmailSending(true)
+    try {
+      // Sauvegarder l'email sur le prospect si nouveau
+      if (emailTo && current?.siren && emailTo !== current.email) {
+        await supabase.from('prospection_massive').update({ email: emailTo, updated_at: new Date().toISOString() }).eq('siren', current.siren)
+      }
+      const res = await fetch('/api/send-prospect-email', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: emailTo, subject: emailSubject, body: emailBody, caller: callerName,
+          prospectSiren: current?.siren, clientId: null, prospectName: current?.name, templateType: emailTemplate,
+        })
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Erreur envoi')
+      toast.success('\u2709\ufe0f Email envoye a ' + emailTo)
+      setEmailSentMap(prev => ({ ...prev, [current?.siren]: { date: new Date(), template: emailTemplate } }))
+      setShowEmailModal(false)
+      if (pendingGoNext) { goNext(); loadProspects() }
+    } catch (err) {
+      toast.error('Erreur: ' + err.message)
+    } finally { setEmailSending(false) }
+  }
+
+  function handleSkipEmail() {
+    setShowEmailModal(false)
+    if (pendingGoNext) { goNext(); loadProspects() }
+  }
+
+  function handleSendAndNext() { handleSendEmail() }
+
+  async function handleAdaptWithAI() {
+    setEmailAdaptLoading(true)
+    try {
+      const res = await fetch('/api/adapt-prospect-email', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prospectName: current?.name,
+          sector: current?.naf_label || '',
+          formations: formationsSelected.length > 0 ? formationsSelected.join(', ') : '',
+          contactName: contactName || '',
+          contactFunction: contactFunction || '',
+          notes: notes || '',
+          currentBody: emailBody,
+        })
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Erreur IA')
+      if (data.adapted) { setEmailBody(data.adapted); setTemplateVersion(v => v + 1); toast.success('\u2728 Mail adapt\u00e9') }
+      else toast.error('Pas de r\u00e9ponse IA')
+    } catch (err) { toast.error('Erreur IA: ' + err.message) }
+    finally { setEmailAdaptLoading(false) }
+  }
+
+  // ═══ Load email sent map on mount ═══
+  useEffect(() => {
+    async function loadEmailSentMap() {
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString()
+      const { data } = await supabase.from('prospect_email_logs')
+        .select('prospect_siren, sent_at, template_type')
+        .gte('sent_at', thirtyDaysAgo)
+        .eq('status', 'sent')
+      if (data) {
+        const map = {}
+        let relCount = 0
+        data.forEach(d => {
+          if (d.prospect_siren) {
+            map[d.prospect_siren] = { date: new Date(d.sent_at), template: d.template_type }
+            const days = Math.floor((Date.now() - new Date(d.sent_at).getTime()) / 86400000)
+            if (days >= 7 && d.template_type !== 'relance') relCount++
+          }
+        })
+        setEmailSentMap(map)
+        setRelanceSuggestions(relCount)
+      }
+    }
+    loadEmailSentMap()
+  }, [])
 
   function goNext() {
     if (!current || viewMode === 'list') { setCurrent(null); return }
@@ -654,8 +835,13 @@ export default function MarinePhoning() {
         contacted: true, contacted_at: now.toISOString(), prospection_status: 'a_rappeler',
         prospection_notes: noteText, updated_at: now.toISOString(),
       }).eq('siren', current.siren)
-      toast.success(messageLaisse ? '📨 Message laissé — suivant' : '📵 Pas de réponse — suivant')
-      loadDailyStats(); loadTodayCallbacks(); goNext(); await loadProspects()
+      toast.success(messageLaisse ? '\ud83d\udce8 Message laisse' : '\ud83d\udcf5 Pas de reponse')
+      loadDailyStats(); loadTodayCallbacks()
+      // Proposer email NRP si email dispo
+      const pe = current.email
+      if (pe) { openEmailModal(current, 'nrp', true) }
+      else { goNext() }
+      await loadProspects()
     } catch (error) { toast.error('Erreur: ' + error.message) }
     finally { setSaving(false) }
   }
@@ -877,7 +1063,8 @@ export default function MarinePhoning() {
             {dailyStats.chaud > 0 && <span className="text-green-600 font-medium">🔥{dailyStats.chaud}</span>}
             {dailyStats.tiede > 0 && <span className="text-orange-500 font-medium">🟡{dailyStats.tiede}</span>}
             {dailyStats.froid > 0 && <span className="text-blue-500 font-medium">❄️{dailyStats.froid}</span>}
-            {dailyStats.no_answer > 0 && <span className="text-gray-400">📞{dailyStats.no_answer}</span>}
+            {dailyStats.no_answer > 0 && <span className="text-gray-400">\ud83d\udcde{dailyStats.no_answer}</span>}
+            {relanceSuggestions > 0 && <span className="text-orange-500 font-medium">\u2709\ufe0f{relanceSuggestions} relances</span>}
           </div>
           <div className="flex bg-gray-100 rounded-lg p-1">
             {CALLERS.map(c => (
@@ -966,12 +1153,17 @@ export default function MarinePhoning() {
               </div>
               <div className="flex items-center gap-3 ml-3">
                 {p.phone && <a href={'tel:' + p.phone.replace(/\s/g, '')} onClick={e => e.stopPropagation()} className="text-primary-600 text-sm">{p.phone}</a>}
+                {emailSentMap[p.siren] && (() => {
+                  const days = Math.floor((Date.now() - new Date(emailSentMap[p.siren].date).getTime()) / 86400000)
+                  const isRelance = days >= 7 && emailSentMap[p.siren].template !== 'relance'
+                  return <span title={days + 'j depuis email'} className={'text-xs ' + (isRelance ? 'text-orange-500' : 'text-green-500')}>{isRelance ? '\u2709\ufe0f' : '\u2705\u2709'}</span>
+                })()}
                 <span className={'px-2 py-0.5 rounded text-xs font-medium ' + (
                   p.prospection_status === 'rdv_pris' ? 'bg-green-100 text-green-700' :
                   p.prospection_status === 'a_rappeler' ? 'bg-amber-100 text-amber-700' :
                   p.prospection_status === 'pas_interesse' ? 'bg-gray-100 text-gray-500' :
                   p.prospection_status === 'numero_errone' ? 'bg-red-100 text-red-700' : 'bg-blue-50 text-blue-700'
-                )}>{p.prospection_status === 'rdv_pris' ? '🔥 RDV' : p.prospection_status === 'a_rappeler' ? '🟡' : p.prospection_status === 'pas_interesse' ? '❄️' : p.prospection_status === 'numero_errone' ? '❌' : '📞'}</span>
+                )}>{p.prospection_status === 'rdv_pris' ? '\ud83d\udd25 RDV' : p.prospection_status === 'a_rappeler' ? '\ud83d\udfe1' : p.prospection_status === 'pas_interesse' ? '\u2744\ufe0f' : p.prospection_status === 'numero_errone' ? '\u274c' : '\ud83d\udcde'}</span>
               </div>
             </div>
           ))}
@@ -1506,6 +1698,100 @@ export default function MarinePhoning() {
               <button onClick={handleAddProspect} className="flex-1 px-4 py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm font-medium flex items-center justify-center gap-2">
                 <Plus className="w-4 h-4" /> Ajouter
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ═══ EMAIL MODAL ═══ */}
+      {showEmailModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between p-4 border-b">
+              <div className="flex items-center gap-2">
+                <Mail className="w-5 h-5 text-blue-600" />
+                <h3 className="font-semibold text-lg">Email prospect</h3>
+                <span className="text-xs bg-gray-100 px-2 py-0.5 rounded">{callerName}</span>
+              </div>
+              <button onClick={handleSkipEmail} className="text-gray-400 hover:text-gray-600">
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-4 space-y-3 overflow-y-auto flex-1">
+              {/* Template selector */}
+              <div className="flex gap-2">
+                {[
+                  { id: 'suite_echange', label: '\ud83d\ude0a Suite echange' },
+                  { id: 'nrp', label: '\ud83d\udce8 NRP' },
+                  { id: 'relance', label: '\ud83d\udd04 Relance' },
+                ].map(t => (
+                  <button key={t.id} onClick={() => {
+                    setEmailTemplate(t.id)
+                    const tpl = EMAIL_TEMPLATES[t.id]
+                    setEmailSubject(tpl.subject(current?.name))
+                    setEmailBody(tpl.body(current?.name, contactName))
+                    setTemplateVersion(v => v + 1)
+                  }} className={'px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ' +
+                    (emailTemplate === t.id ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50')}>
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+              {/* To */}
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">Destinataire</label>
+                <input type="email" value={emailTo} onChange={e => setEmailTo(e.target.value)}
+                  placeholder="email@entreprise.fr"
+                  className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500" />
+              </div>
+              {/* Subject */}
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">Objet</label>
+                <input type="text" value={emailSubject} onChange={e => setEmailSubject(e.target.value)}
+                  className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500" />
+              </div>
+              {/* Body with IA button */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs text-gray-500">Message</label>
+                  <button onClick={handleAdaptWithAI} disabled={emailAdaptLoading}
+                    className="flex items-center gap-1 px-2 py-1 text-xs bg-purple-50 text-purple-700 rounded-lg hover:bg-purple-100 disabled:opacity-50">
+                    {emailAdaptLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                    Adapter avec IA
+                  </button>
+                </div>
+                <div key={'email-body-' + templateVersion} contentEditable suppressContentEditableWarning
+                  onBlur={e => setEmailBody(e.currentTarget.innerHTML)}
+                  dangerouslySetInnerHTML={{ __html: emailBody }}
+                  className="w-full border rounded-lg px-3 py-2 text-sm min-h-[200px] max-h-[350px] overflow-y-auto focus:ring-2 focus:ring-blue-500 focus:outline-none prose prose-sm"
+                />
+              </div>
+              {/* Signature preview */}
+              <div className="bg-gray-50 rounded-lg p-3 border">
+                <p className="text-xs text-gray-400 mb-1">Signature ({callerName})</p>
+                <div className="flex items-center gap-3">
+                  <div className="bg-gradient-to-br from-[#1a3a4a] to-[#2d5a6b] px-3 py-2 rounded-lg">
+                    <span className="text-[#d4a84b] font-serif italic text-sm">{callerName}</span>
+                  </div>
+                  <div className="text-xs text-gray-500">
+                    <p className="font-semibold text-gray-700">ACCESS FORMATION</p>
+                    <p>{callerName === 'Hicham' ? '06.35.20.04.28' : callerName === 'Maxime' ? '07.83.51.17.95' : '02 46 56 57 54'}</p>
+                    <p>www.accessformation.pro</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            {/* Actions */}
+            <div className="flex items-center justify-between p-4 border-t bg-gray-50 rounded-b-2xl">
+              <button onClick={handleSkipEmail} className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700">
+                Passer sans email
+              </button>
+              <div className="flex gap-2">
+                <button onClick={handleSendEmail} disabled={emailSending || !emailTo}
+                  className="flex items-center gap-2 px-5 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
+                  {emailSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                  {emailSending ? 'Envoi...' : 'Envoyer'}
+                </button>
+              </div>
             </div>
           </div>
         </div>
