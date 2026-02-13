@@ -243,11 +243,9 @@ export async function generateQuotePDF(quote, items, client, contact, options) {
     ]
   })
 
-  doc.autoTable({
-    startY: y,
-    margin: { left: ML, right: 18, bottom: 35 },
+  var tableConfig = {
+    margin: { left: ML, right: 18 },
     head: [['Nom / Code', 'Description', 'Qte', 'PU HT', 'TVA', 'Total HT']],
-    body: tableBody,
     theme: 'grid',
     headStyles: {
       fillColor: [240, 240, 240], textColor: [50, 50, 50],
@@ -266,9 +264,43 @@ export async function generateQuotePDF(quote, items, client, contact, options) {
       4: { cellWidth: 22, halign: 'right', fontSize: 7 },
       5: { cellWidth: 22, halign: 'right', fontStyle: 'bold' },
     },
-  })
+  }
 
-  y = doc.lastAutoTable.finalY + 4
+  // ─── MESURE : Est-ce que tout tient sur une page ? ───
+  // Hauteur post-tableau nécessaire : totaux(~28) + notes(~8) + signature(~30) = ~66mm
+  // Le bottom block doit commencer à BOTTOM_BLOCK_Y (229) au plus tard
+  var POST_TABLE_HEIGHT = 66
+  var MAX_TABLE_END_Y = BOTTOM_BLOCK_Y - POST_TABLE_HEIGHT  // ~163
+
+  // Mesurer le tableau complet avec un doc temporaire
+  var measureDoc = new jsPDF()
+  measureDoc.autoTable(Object.assign({}, tableConfig, { startY: y, body: tableBody }))
+  var measuredEndY = measureDoc.lastAutoTable.finalY
+  var measuredPages = measureDoc.internal.getNumberOfPages()
+
+  // Faut-il scinder ? Oui si le tableau dépasse le seuil ET qu'on a plus d'une ligne
+  var needsSplit = measuredPages === 1 && measuredEndY > MAX_TABLE_END_Y && tableBody.length > 1
+
+  if (needsSplit) {
+    // ─── MODE SCINDÉ : dernière(s) ligne(s) sur page 2 ───
+    var mainBody = tableBody.slice(0, -1)
+    var lastRow = tableBody.slice(-1)
+
+    // Page 1 : tableau sans la dernière ligne
+    doc.autoTable(Object.assign({}, tableConfig, { startY: y, body: mainBody }))
+
+    // Page 2
+    doc.addPage()
+    y = 20
+
+    // Dernière ligne en continuation (avec header répété)
+    doc.autoTable(Object.assign({}, tableConfig, { startY: y, body: lastRow }))
+    y = doc.lastAutoTable.finalY + 4
+  } else {
+    // ─── MODE NORMAL : tout sur la même page (ou autoTable gère le saut lui-même) ───
+    doc.autoTable(Object.assign({}, tableConfig, { startY: y, body: tableBody }))
+    y = doc.lastAutoTable.finalY + 4
+  }
 
   // ─── TOTAUX (compact) ───
   var hasDiscount = parseFloat(quote.discount_percent) > 0
@@ -299,7 +331,7 @@ export async function generateQuotePDF(quote, items, client, contact, options) {
 
   doc.autoTable({
     startY: y,
-    margin: { left: 118, right: 18, bottom: 35 },
+    margin: { left: 118, right: 18 },
     body: totRows,
     theme: 'plain',
     styles: { fontSize: 9, font: FONT, cellPadding: 1.5, textColor: [30, 30, 30] },
@@ -313,15 +345,12 @@ export async function generateQuotePDF(quote, items, client, contact, options) {
 
   // ─── NOTES ───
   if (quote.notes) {
-    if (y > BOTTOM_BLOCK_Y - 40) { doc.addPage(); y = 20 }
     doc.setFontSize(8); doc.setFont(FONT, 'italic'); doc.setTextColor(80, 80, 80)
     doc.text('Note : ' + quote.notes, ML, y)
     doc.setTextColor(0, 0, 0); y += 6
   }
 
   // ─── SIGNATURE ───
-  // Need ~30mm for signature block — if not enough room, new page
-  if (y > BOTTOM_BLOCK_Y - 35) { doc.addPage(); y = 20 }
   var sigX = 118
   var sigW = MR - sigX  // 74mm
 
@@ -341,17 +370,10 @@ export async function generateQuotePDF(quote, items, client, contact, options) {
   var afterSignatureY = sigBoxY + 18 + 3
 
   // ─── BOTTOM BLOCK PLACEMENT ───
-  // Rule: bottom block is anchored at BOTTOM_BLOCK_Y (229) on the LAST page.
-  // If the signature ends before BOTTOM_BLOCK_Y, draw on same page.
-  // If the signature ends after BOTTOM_BLOCK_Y, need a new page for bottom block.
-  var lastContentPage = doc.internal.getNumberOfPages()
-
   if (afterSignatureY > BOTTOM_BLOCK_Y - 2) {
-    // Signature overflows into the bottom block zone => new page for bottom block
     doc.addPage()
   }
 
-  // Draw bottom block on the current last page
   var finalPage = doc.internal.getNumberOfPages()
   doc.setPage(finalPage)
   drawBottomBlock(doc, FONT, quote)
