@@ -11,6 +11,7 @@ import {
   Download, RefreshCw, Building2, GripVertical, Pen, Mail, Loader2, Paperclip,
   GraduationCap, Calendar, MapPin, Users
 } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 
 const STATUS_CONFIG = {
   draft: { label: 'Brouillon', class: 'bg-gray-100 text-gray-700', icon: '📝' },
@@ -141,6 +142,7 @@ function SignaturePad({ value, onChange, onClear }) {
 // ============================================================
 export default function Quotes() {
   const { createSession, trainers: storeTrainers, fetchTrainers } = useDataStore()
+  const navigate = useNavigate()
   const [quotes, setQuotes] = useState([])
   const [clients, setClients] = useState([])
   const [contacts, setContacts] = useState([])
@@ -886,6 +888,12 @@ export default function Quotes() {
                         <button onClick={() => openSessionWizard(q)} title="Générer une session"
                           className="p-1.5 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors">
                           <GraduationCap size={16} />
+                        </button>
+                      )}
+                      {(q.status === 'accepted' || q.status === 'sent') && (
+                        <button onClick={() => navigate('/factures?from_quote=' + q.id)} title="Créer une facture"
+                          className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors">
+                          <FileText size={16} />
                         </button>
                       )}
                       <button onClick={() => deleteQuote(q.id)} title="Supprimer"
