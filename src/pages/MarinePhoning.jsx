@@ -4,7 +4,7 @@ import { useAuthStore } from '../lib/store'
 import { 
   Phone, CheckCircle, RefreshCw, SkipForward,
   Building2, MapPin, Mail, List, Search, Sparkles, Loader2, Map as MapIcon, Navigation, AlertTriangle,
-  Clock, PhoneOff, XCircle, Snowflake, Bell, Plus, Edit2, Briefcase
+  Clock, PhoneOff, XCircle, Snowflake, Bell, Plus, Edit2, Briefcase, Send, ArrowLeft, MessageSquare
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { MapContainer, TileLayer, CircleMarker, Circle, Popup, useMap } from 'react-leaflet'
@@ -182,6 +182,11 @@ export default function MarinePhoning() {
   const [showAddModal, setShowAddModal] = useState(false)
   const [newProspect, setNewProspect] = useState({ name: '', phone: '', city: '', postal_code: '', departement: '', siret: '', siren: '', email: '', notes: '' })
   const [detectingOpco, setDetectingOpco] = useState(false)
+  // Stepped phoning flow
+  const [phoningStep, setPhoningStep] = useState('initial') // initial | no_response | responded | interested | callback | transfer | not_interested
+  const [transferReason, setTransferReason] = useState('')
+  const [transferNote, setTransferNote] = useState('')
+  const [notInterestedTag, setNotInterestedTag] = useState('')
 
   const listRef = useRef(null)
   const departements = [...new Set(prospects.map(p => p.departement))].filter(Boolean).sort()
@@ -268,6 +273,10 @@ export default function MarinePhoning() {
     setShowHistory(false)
     setEditingPhone(false)
     setEditPhoneValue('')
+    setPhoningStep('initial')
+    setTransferReason('')
+    setTransferNote('')
+    setNotInterestedTag('')
     // Pré-remplir résultat selon statut précédent
     if (prospect.prospection_status === 'a_rappeler') setCallResult('tiede')
     else if (prospect.prospection_status === 'rdv_pris') setCallResult('chaud')
@@ -546,6 +555,7 @@ export default function MarinePhoning() {
 
   function handleSkip() { if (!current) return; toast('Prospect passé', { icon: '⏭️' }); goNext() }
 
+  // === OPCO Detection ===
   async function autoDetectOpco() {
     if (!current) return
     const siret = (current.siret || '').replace(/\s/g, '')
@@ -555,7 +565,6 @@ export default function MarinePhoning() {
       const res = await fetch(`/api/detect-opco?siret=${siret}`)
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Erreur API')
-
       const updates = {}
       const ent = data.entreprise
       if (ent) {
@@ -563,30 +572,94 @@ export default function MarinePhoning() {
         if (ent.postal_code) updates.postal_code = ent.postal_code
         if (ent.city) updates.city = ent.city.toUpperCase()
       }
-      if (data.status === 'OK' && data.opco_name) {
-        updates.opco_name = data.opco_name
-      }
-
-      // Sauvegarder dans prospection_massive
+      if (data.status === 'OK' && data.opco_name) updates.opco_name = data.opco_name
       if (Object.keys(updates).length > 0) {
         await supabase.from('prospection_massive').update(updates).eq('id', current.id)
-        // Mettre à jour localement
         Object.assign(current, updates)
         setProspects(prev => prev.map(p => p.id === current.id ? { ...p, ...updates } : p))
       }
+      if (data.opco_name) toast.success(`OPCO : ${data.opco_name}${ent?.city ? ' • ' + ent.city : ''}`)
+      else if (ent?.address) toast('Adresse enrichie', { icon: '📍' })
+      else toast.error(data.message || 'Aucune info trouvée')
+    } catch (err) { toast.error('Erreur : ' + err.message) }
+    finally { setDetectingOpco(false) }
+  }
 
-      if (data.opco_name) {
-        toast.success(`OPCO : ${data.opco_name}${ent?.city ? ' • ' + ent.city : ''}`)
-      } else if (ent?.address) {
-        toast('Adresse enrichie', { icon: '📍' })
-      } else {
-        toast.error(data.message || 'Aucune info trouvée')
-      }
-    } catch (err) {
-      toast.error('Erreur : ' + err.message)
-    } finally {
-      setDetectingOpco(false)
-    }
+  // === Stepped flow handlers ===
+  async function handleNoResponse(messageLaisse) {
+    if (!current) return
+    setSaving(true)
+    try {
+      const clientId = await findOrCreateClient(current)
+      const now = new Date()
+      const noteText = `${callerName} — ${now.toLocaleDateString('fr-FR')} ${now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })} — ${messageLaisse ? 'Message laissé' : 'Pas de réponse'}`
+      await supabase.from('prospect_calls').insert({
+        client_id: clientId, called_by: callerName, call_result: 'no_answer',
+        notes: noteText,
+      })
+      await supabase.from('prospection_massive').update({
+        contacted: true, contacted_at: now.toISOString(), prospection_status: 'a_rappeler',
+        prospection_notes: noteText, updated_at: now.toISOString(),
+      }).eq('siren', current.siren)
+      toast.success(messageLaisse ? '📨 Message laissé — suivant' : '📵 Pas de réponse — suivant')
+      loadDailyStats(); loadTodayCallbacks(); goNext(); await loadProspects()
+    } catch (error) { toast.error('Erreur: ' + error.message) }
+    finally { setSaving(false) }
+  }
+
+  async function handleNotInterested(tag) {
+    if (!current) return
+    setSaving(true)
+    try {
+      const clientId = await findOrCreateClient(current)
+      const noteText = `❄️ ${tag}` + (notes ? '\n' + notes : '')
+      await supabase.from('prospect_calls').insert({
+        client_id: clientId, called_by: callerName, call_result: 'froid',
+        contact_name: contactName || null, contact_function: contactFunction || null,
+        notes: noteText,
+      })
+      await supabase.from('prospection_massive').update({
+        contacted: true, contacted_at: new Date().toISOString(), prospection_status: 'pas_interesse',
+        prospection_notes: noteText, updated_at: new Date().toISOString(),
+      }).eq('siren', current.siren)
+      toast.success('❄️ ' + tag + ' — suivant')
+      loadDailyStats(); loadTodayCallbacks(); goNext(); await loadProspects()
+    } catch (error) { toast.error('Erreur: ' + error.message) }
+    finally { setSaving(false) }
+  }
+
+  async function handleTransfer() {
+    if (!current) return
+    setSaving(true)
+    try {
+      const clientId = await findOrCreateClient(current)
+      const noteText = `↗️ Transféré — ${transferReason}` + (transferNote ? '\n' + transferNote : '') + (contactName ? '\nContact : ' + contactName + (contactFunction ? ' (' + contactFunction + ')' : '') : '')
+      await supabase.from('prospect_calls').insert({
+        client_id: clientId, called_by: callerName, call_result: 'blocked',
+        contact_name: contactName || null, contact_function: contactFunction || null,
+        notes: noteText,
+      })
+      await supabase.from('prospection_massive').update({
+        contacted: true, contacted_at: new Date().toISOString(), prospection_status: 'a_rappeler',
+        prospection_notes: noteText, updated_at: new Date().toISOString(),
+      }).eq('siren', current.siren)
+      // Email simple à Hicham
+      try {
+        await fetch('/api/send-callback-reminder', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prospectName: current.name, prospectPhone: current.phone,
+            contactName, contactFunction,
+            callbackDate: null, callbackTime: null,
+            callbackReason: '↗️ TRANSFERT — ' + transferReason + (transferNote ? '\n' + transferNote : ''),
+            callerName, notes: 'Prospect transféré pour prise de décision.\n' + (current.city ? 'Ville : ' + current.city + '\n' : '') + (current.siret ? 'SIRET : ' + current.siret : ''),
+          })
+        })
+      } catch (emailErr) { console.error('Erreur email transfert:', emailErr) }
+      toast.success('↗️ Transféré à Hicham — suivant')
+      loadDailyStats(); loadTodayCallbacks(); goNext(); await loadProspects()
+    } catch (error) { toast.error('Erreur: ' + error.message) }
+    finally { setSaving(false) }
   }
 
   // === FILTRES & TRI ===
@@ -890,6 +963,17 @@ export default function MarinePhoning() {
                     </span>
                   })()}
                 </div>
+                {/* Dernier interlocuteur connu + compteur injoignables */}
+                {callHistory.length > 0 && (() => {
+                  const lastContact = callHistory.find(c => c.contact_name)
+                  const noAnswerCount = callHistory.filter(c => c.call_result === 'no_answer').length
+                  return (lastContact || noAnswerCount >= 2) ? (
+                    <div className="flex items-center gap-2 mt-1 flex-wrap">
+                      {lastContact && <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">👤 Demander {lastContact.contact_name}{lastContact.contact_function ? ' (' + lastContact.contact_function + ')' : ''}</span>}
+                      {noAnswerCount >= 2 && <span className="text-xs bg-red-50 text-red-600 px-2 py-0.5 rounded-full">{noAnswerCount}× injoignable</span>}
+                    </div>
+                  ) : null
+                })()}
               </div>
 
               {/* Téléphone — éditable */}
@@ -972,11 +1056,11 @@ export default function MarinePhoning() {
                 {current.opco_name && <div className="col-span-2 bg-indigo-50 rounded px-2 py-1.5 flex items-center gap-1.5"><Briefcase className="w-3 h-3 text-indigo-500" /><span className="text-indigo-700 font-medium text-xs">{current.opco_name}</span></div>}
               </div>
 
-              {/* Bouton Détecter OPCO + adresse */}
+              {/* Détecter OPCO */}
               {current.siret && !current.siret.startsWith('MANUAL_') && !current.opco_name && (
                 <button onClick={autoDetectOpco} disabled={detectingOpco}
-                  className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg text-indigo-700 text-sm font-medium transition-colors disabled:opacity-50">
-                  {detectingOpco ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                  className="w-full flex items-center justify-center gap-2 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg text-indigo-700 text-xs font-medium transition-colors disabled:opacity-50">
+                  {detectingOpco ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
                   Détecter OPCO & adresse
                 </button>
               )}
@@ -1015,131 +1099,273 @@ export default function MarinePhoning() {
             </div>}
           </div>
 
-          {/* DROITE : Formulaire */}
+          {/* DROITE : Formulaire stepped */}
           <div className="col-span-3 bg-white rounded-xl border overflow-y-auto">
             {current && <div className="p-4 space-y-4">
-              {/* Quick actions */}
-              <div className="flex gap-2">
-                <button onClick={() => current?.prospection_status === 'a_rappeler' ? handleResetStatus() : handleQuickAction('no_answer')} disabled={saving}
-                  className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 border ${current?.prospection_status === 'a_rappeler' ? 'bg-gray-700 text-white border-gray-700 ring-2 ring-gray-400' : 'bg-gray-100 hover:bg-gray-200 text-gray-700 border-gray-300'}`}>
-                  <PhoneOff className="w-4 h-4" /> {current?.prospection_status === 'a_rappeler' ? '↩️ Annuler' : 'Injoignable'}
-                </button>
-                <button onClick={() => current?.prospection_status === 'numero_errone' ? handleResetStatus() : handleQuickAction('wrong_number')} disabled={saving}
-                  className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 border ${current?.prospection_status === 'numero_errone' ? 'bg-red-700 text-white border-red-700 ring-2 ring-red-400' : 'bg-red-50 hover:bg-red-100 text-red-700 border-red-200'}`}>
-                  <XCircle className="w-4 h-4" /> {current?.prospection_status === 'numero_errone' ? '↩️ Annuler' : 'N° erroné'}
-                </button>
-                <button onClick={() => current?.prospection_status === 'pas_interesse' ? handleResetStatus() : handleQuickAction('froid')} disabled={saving}
-                  className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 border ${current?.prospection_status === 'pas_interesse' ? 'bg-blue-700 text-white border-blue-700 ring-2 ring-blue-400' : 'bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-200'}`}>
-                  <Snowflake className="w-4 h-4" /> {current?.prospection_status === 'pas_interesse' ? '↩️ Annuler' : 'Pas intéressé'}
-                </button>
-              </div>
 
-              <div className="border-t border-gray-200 pt-3">
-                <p className="text-xs text-gray-400 mb-3">Appel abouti → remplir ci-dessous</p>
-              </div>
+              {/* Status reset pour prospects déjà marqués */}
+              {current.prospection_status && !['a_appeler', null].includes(current.prospection_status) && (
+                <button onClick={handleResetStatus} disabled={saving}
+                  className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm text-gray-600 border border-gray-300">
+                  <ArrowLeft className="w-4 h-4" /> ↩️ Remettre dans la file
+                </button>
+              )}
 
-              {/* Contact */}
-              <div>
-                <h3 className="font-semibold text-gray-900 mb-2 text-sm">👤 Interlocuteur</h3>
-                <div className="grid grid-cols-2 gap-2">
-                  <input type="text" value={contactName} onChange={e => setContactName(e.target.value)} placeholder="Nom du contact" className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent" />
-                  <select value={contactFunction} onChange={e => setContactFunction(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent">
-                    <option value="Dirigeant">Dirigeant</option><option value="RH">RH</option><option value="QHSE">QHSE</option><option value="Resp formation">Resp formation</option><option value="Secrétariat">Secrétariat</option><option value="Autre">Autre</option>
-                  </select>
-                  <input type="email" value={contactEmail} onChange={e => setContactEmail(e.target.value)} placeholder="Email direct" className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent" />
-                  <input type="tel" value={contactMobile} onChange={e => setContactMobile(e.target.value)} placeholder="Mobile direct" className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent" />
-                </div>
-              </div>
-
-              {/* Résultat */}
-              <div>
-                <h3 className="font-semibold text-gray-900 mb-2 text-sm">🎯 Résultat</h3>
-                <div className="grid grid-cols-3 gap-2">
-                  {CALL_RESULTS.map(r => (
-                    <button key={r.id} onClick={() => setCallResult(r.id)}
-                      className={'px-2 py-2 rounded-lg border text-center text-sm transition-colors ' + (callResult === r.id ? COLOR_MAP[r.color].active : COLOR_MAP[r.color].inactive)}>
-                      {r.label}<br/><span className="text-xs">{r.sublabel}</span>
+              {/* ═══ ÉTAPE 1 : Initial — 3 gros boutons ═══ */}
+              {phoningStep === 'initial' && (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-3 gap-3">
+                    <button onClick={() => setPhoningStep('responded')} disabled={saving}
+                      className="flex flex-col items-center gap-2 px-4 py-5 bg-green-50 hover:bg-green-100 border-2 border-green-300 rounded-xl text-green-700 font-semibold transition-all hover:scale-[1.02]">
+                      <Phone className="w-7 h-7" />
+                      <span className="text-sm">Réponse</span>
                     </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Formations */}
-              {(callResult === 'chaud' || callResult === 'tiede') && (
-                <div>
-                  <h3 className="font-semibold text-gray-900 mb-2 text-sm">🎓 Formations</h3>
-                  <div className="grid grid-cols-2 gap-1">{FORMATIONS.map(f => (
-                    <label key={f} className="flex items-center gap-2 cursor-pointer text-sm py-0.5">
-                      <input type="checkbox" checked={formationsSelected.includes(f)} onChange={e => e.target.checked ? setFormationsSelected([...formationsSelected, f]) : setFormationsSelected(formationsSelected.filter(x => x !== f))} className="rounded" /><span>{f}</span>
-                    </label>
-                  ))}</div>
+                    <button onClick={() => setPhoningStep('no_response')} disabled={saving}
+                      className="flex flex-col items-center gap-2 px-4 py-5 bg-gray-50 hover:bg-gray-100 border-2 border-gray-300 rounded-xl text-gray-600 font-semibold transition-all hover:scale-[1.02]">
+                      <PhoneOff className="w-7 h-7" />
+                      <span className="text-sm">Pas de réponse</span>
+                    </button>
+                    <button onClick={() => { handleQuickAction('wrong_number') }} disabled={saving}
+                      className="flex flex-col items-center gap-2 px-4 py-5 bg-red-50 hover:bg-red-100 border-2 border-red-300 rounded-xl text-red-600 font-semibold transition-all hover:scale-[1.02]">
+                      <XCircle className="w-7 h-7" />
+                      <span className="text-sm">N° erroné</span>
+                    </button>
+                  </div>
+                  <p className="text-center text-xs text-gray-400">Cliquez sur le résultat de l'appel</p>
                 </div>
               )}
 
-              {/* Notes */}
-              <div>
-                <h3 className="font-semibold text-gray-900 mb-2 text-sm">📝 Notes</h3>
-                <div className="flex gap-1 flex-wrap mb-2">{TEMPLATES_NOTES.map(t => (
-                  <button key={t.label} onClick={() => setNotes(t.value)} className="px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded text-xs">{t.label}</button>
-                ))}</div>
-                <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes..." rows="2" className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent" />
-              </div>
+              {/* ═══ ÉTAPE : Pas de réponse — 2 choix ═══ */}
+              {phoningStep === 'no_response' && (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 mb-1">
+                    <button onClick={() => setPhoningStep('initial')} className="p-1 hover:bg-gray-100 rounded"><ArrowLeft className="w-4 h-4 text-gray-400" /></button>
+                    <h3 className="font-semibold text-gray-700 text-sm">📵 Pas de réponse</h3>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button onClick={() => handleNoResponse(false)} disabled={saving}
+                      className="flex flex-col items-center gap-2 px-4 py-5 bg-gray-50 hover:bg-gray-100 border-2 border-gray-300 rounded-xl text-gray-700 font-semibold transition-all disabled:opacity-50">
+                      <PhoneOff className="w-6 h-6" />
+                      <span className="text-sm">Pas de réponse</span>
+                      <span className="text-xs text-gray-400 font-normal">Sonnerie / occupé</span>
+                    </button>
+                    <button onClick={() => handleNoResponse(true)} disabled={saving}
+                      className="flex flex-col items-center gap-2 px-4 py-5 bg-blue-50 hover:bg-blue-100 border-2 border-blue-300 rounded-xl text-blue-700 font-semibold transition-all disabled:opacity-50">
+                      <MessageSquare className="w-6 h-6" />
+                      <span className="text-sm">Message laissé</span>
+                      <span className="text-xs text-blue-400 font-normal">Répondeur</span>
+                    </button>
+                  </div>
+                  {saving && <div className="flex items-center justify-center gap-2 text-gray-500 text-sm"><Loader2 className="w-4 h-4 animate-spin" />Enregistrement...</div>}
+                </div>
+              )}
 
-              {/* RDV */}
-              {callResult === 'chaud' && (
-                <div className="bg-green-50 rounded-lg p-3">
-                  <label className="flex items-center gap-2 cursor-pointer mb-2">
-                    <input type="checkbox" checked={createRdv} onChange={e => setCreateRdv(e.target.checked)} className="rounded" />
+              {/* ═══ ÉTAPE : Réponse — Interlocuteur + 4 choix ═══ */}
+              {phoningStep === 'responded' && (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => setPhoningStep('initial')} className="p-1 hover:bg-gray-100 rounded"><ArrowLeft className="w-4 h-4 text-gray-400" /></button>
+                    <h3 className="font-semibold text-gray-700 text-sm">📞 Quelqu'un a répondu</h3>
+                  </div>
+
+                  {/* Interlocuteur */}
+                  <div className="bg-gray-50 rounded-lg p-3 space-y-2">
+                    <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">👤 Interlocuteur</h4>
+                    <div className="grid grid-cols-2 gap-2">
+                      <input type="text" value={contactName} onChange={e => setContactName(e.target.value)} placeholder="Nom du contact"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white" />
+                      <select value={contactFunction} onChange={e => setContactFunction(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white">
+                        <option value="Dirigeant">Dirigeant</option><option value="RH">RH</option><option value="QHSE">QHSE</option><option value="Resp formation">Resp formation</option><option value="Secrétariat">Secrétariat</option><option value="Autre">Autre</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* 4 résultats */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <button onClick={() => { setCallResult('chaud'); setCreateRdv(true); setPhoningStep('interested') }}
+                      className="flex flex-col items-center gap-1.5 px-3 py-4 bg-green-50 hover:bg-green-100 border-2 border-green-300 rounded-xl text-green-700 font-semibold transition-all hover:scale-[1.02]">
+                      <span className="text-xl">🔥</span>
+                      <span className="text-sm">Intéressé</span>
+                    </button>
+                    <button onClick={() => { setCallResult('tiede'); setNeedsCallback(true); setPhoningStep('callback') }}
+                      className="flex flex-col items-center gap-1.5 px-3 py-4 bg-orange-50 hover:bg-orange-100 border-2 border-orange-300 rounded-xl text-orange-700 font-semibold transition-all hover:scale-[1.02]">
+                      <span className="text-xl">🟡</span>
+                      <span className="text-sm">À rappeler</span>
+                    </button>
+                    <button onClick={() => setPhoningStep('transfer')}
+                      className="flex flex-col items-center gap-1.5 px-3 py-4 bg-indigo-50 hover:bg-indigo-100 border-2 border-indigo-300 rounded-xl text-indigo-700 font-semibold transition-all hover:scale-[1.02]">
+                      <span className="text-xl">↗️</span>
+                      <span className="text-sm">Transférer</span>
+                    </button>
+                    <button onClick={() => setPhoningStep('not_interested')}
+                      className="flex flex-col items-center gap-1.5 px-3 py-4 bg-blue-50 hover:bg-blue-100 border-2 border-blue-300 rounded-xl text-blue-700 font-semibold transition-all hover:scale-[1.02]">
+                      <span className="text-xl">❄️</span>
+                      <span className="text-sm">Pas intéressé</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* ═══ ÉTAPE : Intéressé — Formulaire complet ═══ */}
+              {phoningStep === 'interested' && (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => setPhoningStep('responded')} className="p-1 hover:bg-gray-100 rounded"><ArrowLeft className="w-4 h-4 text-gray-400" /></button>
+                    <h3 className="font-semibold text-green-700 text-sm">🔥 Intéressé — {contactName || current.name}</h3>
+                  </div>
+
+                  {/* Contact details */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <input type="email" value={contactEmail} onChange={e => setContactEmail(e.target.value)} placeholder="Email direct"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent" />
+                    <input type="tel" value={contactMobile} onChange={e => setContactMobile(e.target.value)} placeholder="Mobile direct"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent" />
+                  </div>
+
+                  {/* Formations */}
+                  <div>
+                    <h4 className="font-semibold text-gray-900 mb-2 text-sm">🎓 Formations</h4>
+                    <div className="grid grid-cols-2 gap-1">{FORMATIONS.map(f => (
+                      <label key={f} className="flex items-center gap-2 cursor-pointer text-sm py-0.5">
+                        <input type="checkbox" checked={formationsSelected.includes(f)} onChange={e => e.target.checked ? setFormationsSelected([...formationsSelected, f]) : setFormationsSelected(formationsSelected.filter(x => x !== f))} className="rounded" /><span>{f}</span>
+                      </label>
+                    ))}</div>
+                  </div>
+
+                  {/* Notes */}
+                  <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes..." rows="2"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent" />
+
+                  {/* RDV / Signal chaud */}
+                  <div className="bg-green-50 rounded-lg p-3 space-y-2">
                     <span className="font-semibold text-gray-900 text-sm">{callerName === 'Marine' ? '🔥 Signaler prospect chaud' : '📅 Créer RDV'}</span>
-                  </label>
-                  {createRdv && callerName === 'Marine' && (
-                    <div className="space-y-2">
-                      <div className="flex gap-2">
-                        {['🔴 Urgent', '🌅 Matin', '🌇 Après-midi', '📅 Semaine pro.'].map(u => (
-                          <button key={u} onClick={() => setRdvUrgency(rdvUrgency === u ? '' : u)}
-                            className={'flex-1 px-2 py-1.5 rounded-lg border text-xs font-medium transition-colors ' + (rdvUrgency === u ? 'bg-green-500 text-white border-green-500' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50')}>
-                            {u}
-                          </button>
-                        ))}
+                    {callerName === 'Marine' ? (
+                      <div className="space-y-2">
+                        <div className="flex gap-2">
+                          {['🔴 Urgent', '🌅 Matin', '🌇 Après-midi', '📅 Semaine pro.'].map(u => (
+                            <button key={u} onClick={() => setRdvUrgency(rdvUrgency === u ? '' : u)}
+                              className={'flex-1 px-2 py-1.5 rounded-lg border text-xs font-medium transition-colors ' + (rdvUrgency === u ? 'bg-green-500 text-white border-green-500' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50')}>
+                              {u}
+                            </button>
+                          ))}
+                        </div>
+                        <input type="text" value={rdvDispoNote} onChange={e => setRdvDispoNote(e.target.value)}
+                          placeholder="Dispo du prospect (ex: mardi matin, demander Mme Dupont)"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent" />
                       </div>
-                      <input type="text" value={rdvDispoNote} onChange={e => setRdvDispoNote(e.target.value)}
-                        placeholder="Dispo du prospect (ex: mardi ou jeudi matin, demander Mme Dupont)"
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent" />
-                    </div>
-                  )}
-                  {createRdv && callerName !== 'Marine' && (
-                    <div className="grid grid-cols-2 gap-3">
-                      <input type="date" value={rdvDate} onChange={e => setRdvDate(e.target.value)} min={new Date().toISOString().split('T')[0]} className="w-full px-3 py-2 border rounded-lg text-sm" />
-                      <div className="flex gap-2">{['Hicham', 'Maxime'].map(name => (
-                        <button key={name} onClick={() => setRdvAssignedTo(name)} className={'flex-1 px-3 py-2 rounded-lg border text-sm ' + (rdvAssignedTo === name ? 'bg-primary-500 text-white border-primary-500' : 'bg-white text-gray-700 border-gray-300')}>{name}</button>
-                      ))}</div>
-                    </div>
-                  )}
+                    ) : (
+                      <div className="grid grid-cols-2 gap-3">
+                        <input type="date" value={rdvDate} onChange={e => setRdvDate(e.target.value)} min={new Date().toISOString().split('T')[0]} className="w-full px-3 py-2 border rounded-lg text-sm" />
+                        <div className="flex gap-2">{['Hicham', 'Maxime'].map(name => (
+                          <button key={name} onClick={() => setRdvAssignedTo(name)} className={'flex-1 px-3 py-2 rounded-lg border text-sm ' + (rdvAssignedTo === name ? 'bg-primary-500 text-white border-primary-500' : 'bg-white text-gray-700 border-gray-300')}>{name}</button>
+                        ))}</div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Save */}
+                  <button onClick={handleSave} disabled={saving}
+                    className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-green-600 text-white rounded-xl hover:bg-green-700 disabled:opacity-50 font-semibold text-sm">
+                    {saving ? <><Loader2 className="w-5 h-5 animate-spin" /> Enregistrement...</> : <><CheckCircle className="w-5 h-5" /> Enregistrer & Suivant</>}
+                  </button>
                 </div>
               )}
 
-              {/* Rappel */}
-              {(callResult === 'tiede' || callResult === 'no_answer' || callResult === 'blocked') && (
-                <div className="bg-orange-50 rounded-lg p-3">
-                  <label className="flex items-center gap-2 cursor-pointer mb-2">
-                    <input type="checkbox" checked={needsCallback} onChange={e => setNeedsCallback(e.target.checked)} className="rounded" />
-                    <span className="font-semibold text-gray-900 text-sm">🔔 Programmer rappel</span>
-                  </label>
-                  {needsCallback && <div className="grid grid-cols-3 gap-2">
-                    <input type="date" value={callbackDate} onChange={e => setCallbackDate(e.target.value)} min={new Date().toISOString().split('T')[0]} className="w-full px-3 py-2 border rounded-lg text-sm" />
-                    <input type="time" value={callbackTime} onChange={e => setCallbackTime(e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm" />
-                    <input type="text" value={callbackReason} onChange={e => setCallbackReason(e.target.value)} placeholder="Raison" className="w-full px-3 py-2 border rounded-lg text-sm" />
-                  </div>}
+              {/* ═══ ÉTAPE : À rappeler — Notes + Rappel ═══ */}
+              {phoningStep === 'callback' && (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => setPhoningStep('responded')} className="p-1 hover:bg-gray-100 rounded"><ArrowLeft className="w-4 h-4 text-gray-400" /></button>
+                    <h3 className="font-semibold text-orange-700 text-sm">🟡 À rappeler — {contactName || current.name}</h3>
+                  </div>
+
+                  <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes (ce qui a été dit, ce qu'il faut préparer...)" rows="3"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-orange-500 focus:border-transparent" />
+
+                  {/* Rappel */}
+                  <div className="bg-orange-50 rounded-lg p-3 space-y-2">
+                    <h4 className="font-semibold text-gray-900 text-sm">🔔 Programmer rappel</h4>
+                    <div className="grid grid-cols-3 gap-2">
+                      <input type="date" value={callbackDate} onChange={e => setCallbackDate(e.target.value)} min={new Date().toISOString().split('T')[0]} className="w-full px-3 py-2 border rounded-lg text-sm bg-white" />
+                      <input type="time" value={callbackTime} onChange={e => setCallbackTime(e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm bg-white" />
+                      <input type="text" value={callbackReason} onChange={e => setCallbackReason(e.target.value)} placeholder="Raison" className="w-full px-3 py-2 border rounded-lg text-sm bg-white" />
+                    </div>
+                  </div>
+
+                  <button onClick={handleSave} disabled={saving}
+                    className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-orange-500 text-white rounded-xl hover:bg-orange-600 disabled:opacity-50 font-semibold text-sm">
+                    {saving ? <><Loader2 className="w-5 h-5 animate-spin" /> Enregistrement...</> : <><CheckCircle className="w-5 h-5" /> Enregistrer & Suivant</>}
+                  </button>
                 </div>
               )}
 
-              {/* Save */}
-              <div className="sticky bottom-0 bg-white pt-3 border-t">
-                <button onClick={handleSave} disabled={saving}
-                  className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 font-medium">
-                  {saving ? <><RefreshCw className="w-5 h-5 animate-spin" /> Enregistrement...</> : <><CheckCircle className="w-5 h-5" /> 💾 Enregistrer & Suivant</>}
-                </button>
-              </div>
+              {/* ═══ ÉTAPE : Transférer — Raison + email ═══ */}
+              {phoningStep === 'transfer' && (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => setPhoningStep('responded')} className="p-1 hover:bg-gray-100 rounded"><ArrowLeft className="w-4 h-4 text-gray-400" /></button>
+                    <h3 className="font-semibold text-indigo-700 text-sm">↗️ Transférer — {current.name}</h3>
+                  </div>
+
+                  <div className="space-y-2">
+                    <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Raison</h4>
+                    <div className="grid grid-cols-2 gap-2">
+                      {['Mauvaise entreprise', 'Renvoie vers le siège', 'Demande spécifique', 'Autre'].map(r => (
+                        <button key={r} onClick={() => setTransferReason(r)}
+                          className={'px-3 py-2 rounded-lg border text-sm font-medium transition-colors ' + (transferReason === r ? 'bg-indigo-500 text-white border-indigo-500' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50')}>
+                          {r}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <textarea value={transferNote} onChange={e => setTransferNote(e.target.value)} placeholder="Précisions (numéro siège, nom du contact, ce qu'il faut faire...)" rows="2"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent" />
+
+                  <button onClick={handleTransfer} disabled={saving || !transferReason}
+                    className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-50 font-semibold text-sm">
+                    {saving ? <><Loader2 className="w-5 h-5 animate-spin" /> Envoi...</> : <><Send className="w-5 h-5" /> Envoyer à Hicham & Suivant</>}
+                  </button>
+                </div>
+              )}
+
+              {/* ═══ ÉTAPE : Pas intéressé — Quick tags ═══ */}
+              {phoningStep === 'not_interested' && (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => setPhoningStep('responded')} className="p-1 hover:bg-gray-100 rounded"><ArrowLeft className="w-4 h-4 text-gray-400" /></button>
+                    <h3 className="font-semibold text-blue-700 text-sm">❄️ Pas intéressé — {contactName || current.name}</h3>
+                  </div>
+
+                  <div className="space-y-2">
+                    <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Raison</h4>
+                    <div className="flex flex-col gap-2">
+                      {[
+                        { tag: 'Déjà un prestataire', icon: '🏢' },
+                        { tag: 'Pas concerné / pas besoin', icon: '🚫' },
+                        { tag: 'Pas de budget', icon: '💰' },
+                        { tag: 'Ne veut pas de formation', icon: '✋' },
+                        { tag: 'Fait en interne', icon: '🔧' },
+                      ].map(({ tag, icon }) => (
+                        <button key={tag} onClick={() => setNotInterestedTag(tag)}
+                          className={'w-full flex items-center gap-3 px-4 py-2.5 rounded-lg border text-sm font-medium transition-colors text-left ' + (notInterestedTag === tag ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50')}>
+                          <span>{icon}</span><span>{tag}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes complémentaires (optionnel)" rows="2"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+
+                  <button onClick={() => handleNotInterested(notInterestedTag)} disabled={saving || !notInterestedTag}
+                    className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-50 font-semibold text-sm">
+                    {saving ? <><Loader2 className="w-5 h-5 animate-spin" /> Enregistrement...</> : <><Snowflake className="w-5 h-5" /> Archiver & Suivant</>}
+                  </button>
+                </div>
+              )}
+
             </div>}
           </div>
         </div>
