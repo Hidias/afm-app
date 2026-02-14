@@ -462,11 +462,18 @@ export default function MarinePhoning() {
     return newClient.id
   }
 
+  async function clearOldCallbacks(clientId) {
+    try {
+      await supabase.from('prospect_calls').update({ needs_callback: false }).eq('client_id', clientId).eq('needs_callback', true)
+    } catch (err) { console.error('Erreur nettoyage rappels:', err) }
+  }
+
   async function handleSave() {
     if (!current) return
     setSaving(true)
     try {
       const clientId = await findOrCreateClient(current)
+      await clearOldCallbacks(clientId)
       const { data: insertedCall, error: callError } = await supabase.from('prospect_calls').insert({
         client_id: clientId, called_by: callerName,
         contact_name: contactName || null, contact_function: contactFunction || null,
@@ -618,6 +625,7 @@ export default function MarinePhoning() {
     setSaving(true)
     try {
       const clientId = await findOrCreateClient(current)
+      await clearOldCallbacks(clientId)
       await supabase.from('prospect_calls').insert({
         client_id: clientId, called_by: callerName, call_result: result,
         notes: result === 'no_answer' ? 'Pas de réponse' : result === 'wrong_number' ? 'Numéro erroné' : 'Pas intéressé',
@@ -655,6 +663,7 @@ export default function MarinePhoning() {
     setSaving(true)
     try {
       const clientId = await findOrCreateClient(current)
+      await clearOldCallbacks(clientId)
       const hasNew = wrongNumberNew.trim().length >= 6
       const noteText = hasNew ? 'Num\u00e9ro erron\u00e9. Nouveau num\u00e9ro : ' + wrongNumberNew.trim() : 'Num\u00e9ro erron\u00e9'
       await supabase.from('prospect_calls').insert({
@@ -886,6 +895,7 @@ export default function MarinePhoning() {
     setSaving(true)
     try {
       const clientId = await findOrCreateClient(current)
+      await clearOldCallbacks(clientId)
       const now = new Date()
       const noteText = `${callerName} — ${now.toLocaleDateString('fr-FR')} ${now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })} — ${messageLaisse ? 'Message laissé' : 'Pas de réponse'}`
       await supabase.from('prospect_calls').insert({
@@ -912,6 +922,7 @@ export default function MarinePhoning() {
     setSaving(true)
     try {
       const clientId = await findOrCreateClient(current)
+      await clearOldCallbacks(clientId)
       const noteText = `❄️ ${tag}` + (notes ? '\n' + notes : '')
       await supabase.from('prospect_calls').insert({
         client_id: clientId, called_by: callerName, call_result: 'froid',
@@ -933,6 +944,7 @@ export default function MarinePhoning() {
     setSaving(true)
     try {
       const clientId = await findOrCreateClient(current)
+      await clearOldCallbacks(clientId)
       const noteText = `👋 Passer la main — ${transferReason}` + (transferNote ? '\n' + transferNote : '') + (contactName ? '\nContact : ' + contactName + (contactFunction ? ' (' + contactFunction + ')' : '') : '')
       await supabase.from('prospect_calls').insert({
         client_id: clientId, called_by: callerName, call_result: 'blocked',
@@ -1638,8 +1650,26 @@ export default function MarinePhoning() {
                   {/* Rappel */}
                   <div className="bg-orange-50 rounded-lg p-3 space-y-2">
                     <h4 className="font-semibold text-gray-900 text-sm">🔔 Programmer rappel</h4>
+                    <div className="grid grid-cols-4 gap-2">
+                      {[
+                        { label: 'Demain', days: 1 },
+                        { label: 'Dans 3j', days: 3 },
+                        { label: 'Sem. pro', days: 7 },
+                        { label: 'Précis...', days: 0 },
+                      ].map(opt => {
+                        const d = new Date(); d.setDate(d.getDate() + opt.days)
+                        const val = opt.days > 0 ? d.toISOString().split('T')[0] : ''
+                        const isSelected = opt.days > 0 ? callbackDate === val : (callbackDate && ![1,3,7].some(n => { const dd = new Date(); dd.setDate(dd.getDate() + n); return callbackDate === dd.toISOString().split('T')[0] }))
+                        return (
+                          <button key={opt.label} type="button" onClick={() => { if (opt.days > 0) setCallbackDate(val); else document.getElementById('cb-date-precise')?.showPicker?.() }}
+                            className={'px-2 py-2 rounded-lg border text-xs font-medium transition-colors ' + (isSelected ? 'bg-orange-500 text-white border-orange-500' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50')}>
+                            {opt.label}
+                          </button>
+                        )
+                      })}
+                    </div>
                     <div className="grid grid-cols-3 gap-2">
-                      <input type="date" value={callbackDate} onChange={e => setCallbackDate(e.target.value)} min={new Date().toISOString().split('T')[0]} className="w-full px-3 py-2 border rounded-lg text-sm bg-white" />
+                      <input id="cb-date-precise" type="date" value={callbackDate} onChange={e => setCallbackDate(e.target.value)} min={new Date().toISOString().split('T')[0]} className="w-full px-3 py-2 border rounded-lg text-sm bg-white" />
                       <input type="time" value={callbackTime} onChange={e => setCallbackTime(e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm bg-white" />
                       <input type="text" value={callbackReason} onChange={e => setCallbackReason(e.target.value)} placeholder="Raison" className="w-full px-3 py-2 border rounded-lg text-sm bg-white" />
                     </div>
