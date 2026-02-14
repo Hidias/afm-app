@@ -6,7 +6,7 @@ import {
   ArrowLeft, Calendar, MapPin, Users, Clock, FileText, QrCode, UserPlus, UserMinus,
   Download, CheckCircle, AlertCircle, Copy, ExternalLink, X, Edit, Trash2, Save,
   FileSignature, Send, Upload, Eye, Star, ThumbsUp, ClipboardCheck, UserCheck, HelpCircle, Home, Target,
-  Sun, Moon, Plus, ChevronDown, Search, LogOut, MessageSquare, CheckCircle2, FileCheck, Mail, Archive
+  Sun, Moon, Plus, ChevronDown, Search, LogOut, MessageSquare, CheckCircle2, FileCheck, Mail, Archive, Receipt
 } from 'lucide-react'
 import { format, eachDayOfInterval, parseISO, differenceInDays } from 'date-fns'
 import { fr } from 'date-fns/locale'
@@ -79,6 +79,8 @@ export default function SessionDetail() {
   const [showSessionEmailModal, setShowSessionEmailModal] = useState(false)
   const [showStageEmailModal, setShowStageEmailModal] = useState(false)
   const [sessionEmailType, setSessionEmailType] = useState(null) // 'before' ou 'after'
+  const [showInvoicePrompt, setShowInvoicePrompt] = useState(false)
+  const [sessionHasInvoice, setSessionHasInvoice] = useState(null) // null = loading, true/false
   const [qrCodeUrl, setQrCodeUrl] = useState('')
   const [traineeFilterClient, setTraineeFilterClient] = useState('')
   const [traineeSearch, setTraineeSearch] = useState('')
@@ -430,6 +432,10 @@ export default function SessionDetail() {
       loadSessionEquipment(found.id)
       loadAccessCodes(found.id) // Charger les codes d'accès
       loadInfoSheets(found.id) // 📄 Charger les fiches de renseignements
+      
+      // Vérifier si une facture existe pour cette session
+      supabase.from('invoices').select('id').eq('session_id', found.id).limit(1)
+        .then(({ data }) => setSessionHasInvoice(data && data.length > 0))
       
       // QR Code unifié - Portail stagiaire
       if (found.attendance_token) {
@@ -2409,6 +2415,39 @@ ${trainer ? `${trainer.first_name} ${trainer.last_name}` : 'Access Formation'}`
         </div>
       </div>
       
+      {/* Bannière création facture — après envoi "Après formation" */}
+      {showInvoicePrompt && (
+        <div className="bg-green-50 border border-green-200 rounded-xl p-4 flex items-center justify-between animate-in fade-in">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center"><Receipt className="w-5 h-5 text-green-600" /></div>
+            <div>
+              <p className="font-semibold text-green-900">Documents après formation envoyés !</p>
+              <p className="text-sm text-green-700">Créer la facture pour cette session ?</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setShowInvoicePrompt(false)} className="px-3 py-1.5 text-sm text-gray-500 hover:text-gray-700">Plus tard</button>
+            <button onClick={() => navigate(`/factures?from_session=${session.id}`)}
+              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-medium flex items-center gap-2">
+              <Receipt className="w-4 h-4" /> Créer la facture
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Bannière persistante — session terminée sans facture (hors Sellsy) */}
+      {!showInvoicePrompt && session.status === 'completed' && sessionHasInvoice === false && !(session.notes || '').includes('Sellsy') && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-center justify-between">
+          <p className="text-sm text-amber-800 flex items-center gap-2">
+            <AlertCircle className="w-4 h-4" /> Formation terminée — aucune facture créée pour cette session
+          </p>
+          <button onClick={() => navigate(`/factures?from_session=${session.id}`)}
+            className="px-3 py-1.5 bg-amber-600 text-white rounded-lg hover:bg-amber-700 text-sm flex items-center gap-2">
+            <Receipt className="w-4 h-4" /> Créer la facture
+          </button>
+        </div>
+      )}
+
       {/* Infos */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="card">
@@ -5029,12 +5068,17 @@ ${trainer ? `${trainer.first_name} ${trainer.last_name}` : 'Access Formation'}`
           sessionCosts={sessionCosts}
           questions={questions}
           traineeResults={traineeResults}
-          onClose={async () => {
+          onClose={async (wasSent) => {
+            const wasAfter = sessionEmailType === 'after'
             setShowSessionEmailModal(false)
             setSessionEmailType(null)
             // Recharger la session pour refléter les mises à jour (convention_sent, etc.)
             const { data } = await getSession(id)
             if (data) setSession(data)
+            // Si "Après formation" envoyé et pas de facture → proposer
+            if (wasAfter && wasSent && !sessionHasInvoice) {
+              setShowInvoicePrompt(true)
+            }
           }}
         />
       )}
