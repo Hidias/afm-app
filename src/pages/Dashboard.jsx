@@ -115,6 +115,7 @@ export default function Dashboard() {
     // ✅ TABLE CORRECTE: trainee_evaluations (pas evaluations_hot)
     traineeEvaluations: [],
     sstCertifications: [], trainingThemes: [],
+    invoices: [],
   })
 
   // ─── Widget config loading ─────────────────────────────
@@ -177,7 +178,7 @@ export default function Dashboard() {
   const loadData = async () => {
     await Promise.all([fetchClients(), fetchCourses(), fetchTrainees(), fetchSessions()])
     
-    const [ncR, alertsR, reclR, rdvR, cbR, quotesR, notifR, traineeEvalsR, sstR, themesR] = await Promise.all([
+    const [ncR, alertsR, reclR, rdvR, cbR, quotesR, notifR, traineeEvalsR, sstR, themesR, invoicesR] = await Promise.all([
       supabase.from('non_conformites').select('*').in('status', ['open', 'in_progress']).order('created_at', { ascending: false }),
       supabase.from('quality_alerts').select('*').eq('status', 'pending').order('created_at', { ascending: false }).limit(10),
       // ✅ reclamations — pas de trainee_id
@@ -190,6 +191,7 @@ export default function Dashboard() {
       supabase.from('trainee_evaluations').select('session_id, trainee_id, q_org_documents, q_org_accueil, q_org_locaux, q_org_materiel, q_contenu_organisation, q_contenu_supports, q_contenu_duree, q_contenu_programme, q_formateur_pedagogie, q_formateur_expertise, q_formateur_progression, q_formateur_moyens, q_global_adequation, q_global_competences, would_recommend, questionnaire_submitted, submitted_at'),
       supabase.from('sst_certifications').select('id, session_id, trainee_id, formation_type, candidat_certifie, date_certification, created_at'),
       supabase.from('training_themes').select('id, code, name, color'),
+      supabase.from('invoices').select('id, reference, invoice_date, total_net_ht, total_ttc, status').in('status', ['paid', 'due', 'sent', 'overdue']),
     ])
     
     // Enrich alerts
@@ -234,6 +236,7 @@ export default function Dashboard() {
       traineeEvaluations: traineeEvalsR.data || [],
       sstCertifications: sstR.data || [],
       trainingThemes: themesR.data || [],
+      invoices: invoicesR.data || [],
     })
     setLoading(false)
   }
@@ -389,12 +392,13 @@ export default function Dashboard() {
   }, [dashData.quotes])
   
   const monthlyCA = useMemo(() => {
-    const current = sessions.filter(s => s.start_date && new Date(s.start_date) >= thisMonth && s.status !== 'cancelled')
-      .reduce((sum, s) => sum + (parseFloat(s.total_price) || 0), 0)
-    const previous = sessions.filter(s => s.start_date && new Date(s.start_date) >= lastMonth && new Date(s.start_date) < thisMonth && s.status !== 'cancelled')
-      .reduce((sum, s) => sum + (parseFloat(s.total_price) || 0), 0)
+    const inv = dashData.invoices.filter(i => i.status !== 'cancelled')
+    const current = inv.filter(i => i.invoice_date && new Date(i.invoice_date) >= thisMonth)
+      .reduce((sum, i) => sum + (parseFloat(i.total_net_ht) || 0), 0)
+    const previous = inv.filter(i => i.invoice_date && new Date(i.invoice_date) >= lastMonth && new Date(i.invoice_date) < thisMonth)
+      .reduce((sum, i) => sum + (parseFloat(i.total_net_ht) || 0), 0)
     return { current, previous }
-  }, [sessions])
+  }, [dashData.invoices])
   
   const newClientsThisMonth = useMemo(() => clients.filter(c => c.created_at && new Date(c.created_at) >= thisMonth), [clients])
   
@@ -417,16 +421,17 @@ export default function Dashboard() {
   }, [sessions])
   
   const revenue12m = useMemo(() => {
+    const inv = dashData.invoices.filter(i => i.status !== 'cancelled')
     const months = []
     for (let i = 11; i >= 0; i--) {
       const m = subMonths(today, i)
       const s = startOfMonth(m), e = endOfMonth(m)
-      const rev = sessions.filter(se => se.start_date && se.status !== 'cancelled' && new Date(se.start_date) >= s && new Date(se.start_date) <= e)
-        .reduce((sum, se) => sum + (parseFloat(se.total_price) || 0), 0)
+      const rev = inv.filter(f => f.invoice_date && new Date(f.invoice_date) >= s && new Date(f.invoice_date) <= e)
+        .reduce((sum, f) => sum + (parseFloat(f.total_net_ht) || 0), 0)
       months.push({ label: format(m, 'MMM', { locale: fr }), value: rev, highlight: i === 0 })
     }
     return months
-  }, [sessions])
+  }, [dashData.invoices])
   
   // Répartition par thème
   const themeDistribution = useMemo(() => {
