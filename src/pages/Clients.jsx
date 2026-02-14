@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { useDataStore } from '../lib/store'
 import { supabase } from '../lib/supabase'
-import { Plus, Search, Edit, Trash2, X, Save, Building2, Mail, Phone, MapPin, User, Eye, Users, Upload, FileSpreadsheet, FileText, RefreshCw, CheckCircle, AlertCircle } from 'lucide-react'
+import { Plus, Search, Edit, Trash2, X, Save, Building2, Mail, Phone, MapPin, User, Eye, Users, Upload, FileSpreadsheet, FileText, RefreshCw, CheckCircle, AlertCircle, Archive } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 // Formatage nom entreprise (majuscules)
@@ -333,7 +333,7 @@ export default function Clients() {
   const filtered = clients.filter(c => {
     const searchFields = `${c.name || ''} ${c.siret || ''} ${c.contact_name || ''} ${c.address || ''} ${c.email || ''} ${c.contact_email || ''}`.toLowerCase()
     const matchSearch = !search || searchFields.includes(search.toLowerCase())
-    const matchStatus = filterStatus === 'all' || c.status === filterStatus
+    const matchStatus = filterStatus === 'all' ? c.status !== 'archive' : c.status === filterStatus
     return matchSearch && matchStatus
   }).sort((a, b) => {
     const dir = sortDir === 'asc' ? 1 : -1
@@ -403,6 +403,13 @@ export default function Clients() {
       toast.success('Client supprimé')
       setConfirmDelete(null)
     }
+  }
+
+  const handleArchive = async (client) => {
+    const newStatus = client.status === 'archive' ? 'actif' : 'archive'
+    await supabase.from('clients').update({ status: newStatus, updated_at: new Date().toISOString() }).eq('id', client.id)
+    toast.success(newStatus === 'archive' ? 'Client archivé' : 'Client restauré')
+    fetchClients()
   }
   
   const handleFileSelect = async (e) => {
@@ -696,11 +703,12 @@ export default function Clients() {
           </div>
           <div className="flex bg-gray-100 rounded-lg p-1 gap-0.5">
             {[
-              { key: 'all', label: 'Tous', count: clients.length },
+              { key: 'all', label: 'Tous', count: clients.filter(c => c.status !== 'archive').length },
               { key: 'actif', label: '✅ Actif', count: clients.filter(c => c.status === 'actif').length, cls: 'text-green-700' },
               { key: 'en_discussion', label: '💬 Discussion', count: clients.filter(c => c.status === 'en_discussion').length, cls: 'text-blue-700' },
               { key: 'prospect', label: '🎯 Prospect', count: clients.filter(c => c.status === 'prospect').length, cls: 'text-orange-700' },
               { key: 'a_completer', label: '📝 À compléter', count: clients.filter(c => c.status === 'a_completer').length, cls: 'text-purple-700' },
+              { key: 'archive', label: '📦 Archivé', count: clients.filter(c => c.status === 'archive').length, cls: 'text-gray-500' },
             ].map(tab => (
               <button key={tab.key} onClick={() => setFilterStatus(tab.key)}
                 className={'px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap ' + (filterStatus === tab.key ? 'bg-white shadow text-gray-900' : 'text-gray-600 hover:text-gray-900')}>
@@ -740,6 +748,7 @@ export default function Clients() {
                 en_discussion: { label: 'Discussion', cls: 'bg-blue-100 text-blue-700' },
                 prospect: { label: 'Prospect', cls: 'bg-orange-100 text-orange-700' },
                 a_completer: { label: 'À compléter', cls: 'bg-purple-100 text-purple-700' },
+                archive: { label: 'Archivé', cls: 'bg-gray-100 text-gray-500' },
               }
               const st = statusMap[client.status] || statusMap.prospect
               return (
@@ -772,6 +781,9 @@ export default function Clients() {
                       </Link>
                       <button onClick={() => openForm(client)} className="p-1.5 text-gray-400 hover:text-primary-600 hover:bg-gray-100 rounded" title="Modifier">
                         <Edit className="w-4 h-4" />
+                      </button>
+                      <button onClick={() => handleArchive(client)} className="p-1.5 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded" title={client.status === 'archive' ? 'Restaurer' : 'Archiver'}>
+                        <Archive className="w-4 h-4" />
                       </button>
                       <button onClick={() => handleDeleteClick(client)} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded" title="Supprimer">
                         <Trash2 className="w-4 h-4" />
