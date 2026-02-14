@@ -311,6 +311,8 @@ export default function Clients() {
   const { clients, fetchClients, createClient, updateClient, deleteClient } = useDataStore()
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState('all')
+  const [sortField, setSortField] = useState('name')
+  const [sortDir, setSortDir] = useState('asc')
   const [showForm, setShowForm] = useState(false)
   const [showPreview, setShowPreview] = useState(false)
   const [selectedClient, setSelectedClient] = useState(null)
@@ -333,6 +335,13 @@ export default function Clients() {
     const matchSearch = !search || searchFields.includes(search.toLowerCase())
     const matchStatus = filterStatus === 'all' || c.status === filterStatus
     return matchSearch && matchStatus
+  }).sort((a, b) => {
+    const dir = sortDir === 'asc' ? 1 : -1
+    if (sortField === 'name') return dir * (a.name || '').localeCompare(b.name || '')
+    if (sortField === 'city') return dir * (a.city || '').localeCompare(b.city || '')
+    if (sortField === 'status') return dir * (a.status || '').localeCompare(b.status || '')
+    if (sortField === 'updated_at') return dir * (new Date(a.updated_at || 0) - new Date(b.updated_at || 0))
+    return 0
   })
   
   const openForm = (client = null) => {
@@ -673,79 +682,109 @@ export default function Clients() {
         </div>
       </div>
       
-      <div className="card mb-6">
-        <div className="flex flex-col sm:flex-row gap-4">
+      <div className="card mb-4">
+        <div className="flex flex-col sm:flex-row gap-4 items-center">
           <div className="flex-1 relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
             <input 
               type="text" 
-              placeholder="Rechercher..." 
-              className="input pl-10" 
+              placeholder="Rechercher par nom, SIRET, ville, email..." 
+              className="input pl-10 w-full" 
               value={search} 
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
-          <select className="input w-full sm:w-48" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
-            <option value="all">Tous les statuts</option>
-            <option value="prospect">Prospect</option>
-            <option value="en_discussion">En discussion</option>
-            <option value="actif">Actif</option>
-            <option value="a_completer">À compléter</option>
-          </select>
+          <div className="flex bg-gray-100 rounded-lg p-1 gap-0.5">
+            {[
+              { key: 'all', label: 'Tous', count: clients.length },
+              { key: 'actif', label: '✅ Actif', count: clients.filter(c => c.status === 'actif').length, cls: 'text-green-700' },
+              { key: 'en_discussion', label: '💬 Discussion', count: clients.filter(c => c.status === 'en_discussion').length, cls: 'text-blue-700' },
+              { key: 'prospect', label: '🎯 Prospect', count: clients.filter(c => c.status === 'prospect').length, cls: 'text-orange-700' },
+              { key: 'a_completer', label: '📝 À compléter', count: clients.filter(c => c.status === 'a_completer').length, cls: 'text-purple-700' },
+            ].map(tab => (
+              <button key={tab.key} onClick={() => setFilterStatus(tab.key)}
+                className={'px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap ' + (filterStatus === tab.key ? 'bg-white shadow text-gray-900' : 'text-gray-600 hover:text-gray-900')}>
+                {tab.label} <span className="text-xs opacity-60">{tab.count}</span>
+              </button>
+            ))}
+          </div>
         </div>
       </div>
-      
-      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
-        {filtered.map(client => (
-          <div key={client.id} className="card hover:shadow-lg transition-shadow">
-            <div className="flex items-start justify-between mb-3">
-              <div className="flex-1">
-                <h3 className="font-semibold text-gray-900 mb-1">
-                  <Link to={`/clients/${client.id}`} className="hover:text-primary-600 hover:underline">{client.name}</Link>
-                </h3>
-                {client.address && (
-                  <div className="flex items-center gap-1 text-sm text-gray-600 mb-1">
-                    <MapPin className="w-3.5 h-3.5" />
-                    <span>{client.address}</span>
-                  </div>
-                )}
-                {client.contact_email && (
-                  <div className="flex items-center gap-1 text-sm text-gray-600 mb-1">
-                    <Mail className="w-3.5 h-3.5" />
-                    <span>{client.contact_email}</span>
-                  </div>
-                )}
-                {client.contact_phone && (
-                  <div className="flex items-center gap-1 text-sm text-gray-600">
-                    <Phone className="w-3.5 h-3.5" />
-                    <span>{client.contact_phone}</span>
-                  </div>
-                )}
-              </div>
-              <div className="flex gap-1">
-                <Link to={`/clients/${client.id}`} className="p-1.5 text-gray-400 hover:text-primary hover:bg-gray-50 rounded transition-colors" title="Voir la fiche">
-                  <Eye className="w-4 h-4" />
-                </Link>
-                <button onClick={() => openForm(client)} className="p-1.5 text-gray-400 hover:text-primary hover:bg-gray-50 rounded transition-colors">
-                  <Edit className="w-4 h-4" />
-                </button>
-                <button onClick={() => handleDeleteClick(client)} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors">
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-            
-            <div className="flex items-center gap-2 pt-3 border-t">
-              {client.status === 'actif' && <span className="px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs font-medium">✓ Actif</span>}
-              {client.status === 'en_discussion' && <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-medium">💬 En discussion</span>}
-              {client.status === 'prospect' && <span className="px-2 py-1 bg-orange-100 text-orange-700 rounded-full text-xs font-medium">🎯 Prospect</span>}
-              {client.status === 'a_completer' && <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded-full text-xs font-medium">📝 À compléter</span>}
-            </div>
-          </div>
-        ))}
-        
+
+      <p className="text-xs text-gray-400 mb-2">{filtered.length} résultat{filtered.length > 1 ? 's' : ''}</p>
+
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <table className="w-full">
+          <thead>
+            <tr className="bg-gray-50 border-b text-xs text-gray-500 uppercase tracking-wider">
+              {[
+                { key: 'name', label: 'Entreprise', cls: 'pl-4 pr-2 py-3 text-left' },
+                { key: 'city', label: 'Ville', cls: 'px-2 py-3 text-left hidden lg:table-cell' },
+                { key: 'status', label: 'Statut', cls: 'px-2 py-3 text-left' },
+                { key: null, label: 'Contact', cls: 'px-2 py-3 text-left hidden md:table-cell' },
+                { key: null, label: 'Tél', cls: 'px-2 py-3 text-left hidden md:table-cell' },
+                { key: 'updated_at', label: 'Modifié', cls: 'px-2 py-3 text-left hidden xl:table-cell' },
+                { key: null, label: '', cls: 'px-4 py-3 w-24' },
+              ].map(col => (
+                <th key={col.label || 'actions'} className={col.cls + (col.key ? ' cursor-pointer hover:text-gray-700 select-none' : '')}
+                  onClick={() => col.key && (sortField === col.key ? setSortDir(d => d === 'asc' ? 'desc' : 'asc') : (setSortField(col.key), setSortDir('asc')))}>
+                  {col.label} {col.key && sortField === col.key && <span>{sortDir === 'asc' ? '↑' : '↓'}</span>}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {filtered.map(client => {
+              const statusMap = {
+                actif: { label: 'Actif', cls: 'bg-green-100 text-green-700' },
+                en_discussion: { label: 'Discussion', cls: 'bg-blue-100 text-blue-700' },
+                prospect: { label: 'Prospect', cls: 'bg-orange-100 text-orange-700' },
+                a_completer: { label: 'À compléter', cls: 'bg-purple-100 text-purple-700' },
+              }
+              const st = statusMap[client.status] || statusMap.prospect
+              return (
+                <tr key={client.id} className="hover:bg-gray-50 transition-colors group">
+                  <td className="pl-4 pr-2 py-3">
+                    <Link to={`/clients/${client.id}`} className="font-medium text-gray-900 hover:text-primary-600 hover:underline text-sm">
+                      {client.name}
+                    </Link>
+                    {client.siren && <span className="text-[10px] text-gray-400 ml-2 font-mono">{client.siren}</span>}
+                  </td>
+                  <td className="px-2 py-3 text-sm text-gray-600 hidden lg:table-cell">
+                    {client.city && <span className="flex items-center gap-1"><MapPin className="w-3 h-3 text-gray-400" />{client.city}</span>}
+                  </td>
+                  <td className="px-2 py-3">
+                    <span className={'px-2 py-0.5 rounded-full text-xs font-medium ' + st.cls}>{st.label}</span>
+                  </td>
+                  <td className="px-2 py-3 text-sm text-gray-600 hidden md:table-cell truncate max-w-[200px]">
+                    {client.contact_email && <span className="flex items-center gap-1"><Mail className="w-3 h-3 text-gray-400 flex-shrink-0" /><span className="truncate">{client.contact_email}</span></span>}
+                  </td>
+                  <td className="px-2 py-3 text-sm text-gray-600 hidden md:table-cell whitespace-nowrap">
+                    {client.contact_phone && <span className="flex items-center gap-1"><Phone className="w-3 h-3 text-gray-400" />{client.contact_phone}</span>}
+                  </td>
+                  <td className="px-2 py-3 text-xs text-gray-400 hidden xl:table-cell whitespace-nowrap">
+                    {client.updated_at && new Date(client.updated_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Link to={`/clients/${client.id}`} className="p-1.5 text-gray-400 hover:text-primary-600 hover:bg-gray-100 rounded" title="Voir la fiche">
+                        <Eye className="w-4 h-4" />
+                      </Link>
+                      <button onClick={() => openForm(client)} className="p-1.5 text-gray-400 hover:text-primary-600 hover:bg-gray-100 rounded" title="Modifier">
+                        <Edit className="w-4 h-4" />
+                      </button>
+                      <button onClick={() => handleDeleteClick(client)} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded" title="Supprimer">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
         {filtered.length === 0 && (
-          <div className="col-span-full text-center py-12 text-gray-500">
+          <div className="text-center py-12 text-gray-500">
             <Building2 className="w-12 h-12 mx-auto mb-3 opacity-50" />
             <p>Aucun client trouvé</p>
           </div>
