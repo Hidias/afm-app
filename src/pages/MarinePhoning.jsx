@@ -557,6 +557,24 @@ export default function MarinePhoning() {
         } catch (emailErr) { console.error('Erreur email:', emailErr) }
       }
       toast.success(message)
+      // Email notif à Hicham si c'est Marine + appel intéressé
+      if (callerName === 'Marine' && (createRdv || callResult === 'chaud')) {
+        try {
+          const emoji = callResult === 'chaud' ? '🔥' : '🟡'
+          await fetch('/api/send-callback-reminder', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              prospectName: current.name, prospectPhone: current.phone,
+              contactName, contactFunction,
+              callbackDate: null, callbackTime: null,
+              callbackReason: emoji + ' ' + (callResult === 'chaud' ? 'INTÉRESSÉ' : 'TIÈDE') + ' — ' + (formationsSelected.length > 0 ? formationsSelected.join(', ') : 'Formations non précisées'),
+              callerName: 'Marine',
+              to: 'hicham.saidi@accessformation.pro',
+              notes: (contactName ? 'Contact : ' + contactName + (contactFunction ? ' (' + contactFunction + ')' : '') + '\n' : '') + (current.city ? 'Ville : ' + current.city + ' (' + (current.distance < 9999 ? current.distance.toFixed(0) + ' km' : '?') + ')\n' : '') + (notes || ''),
+            })
+          })
+        } catch (e) { console.error('Erreur notif Marine:', e) }
+      }
       loadDailyStats()
       loadTodayCallbacks()
       // Si email dispo, ouvrir modale email au lieu de passer au suivant
@@ -872,7 +890,7 @@ export default function MarinePhoning() {
     setSaving(true)
     try {
       const clientId = await findOrCreateClient(current)
-      const noteText = `↗️ Transféré — ${transferReason}` + (transferNote ? '\n' + transferNote : '') + (contactName ? '\nContact : ' + contactName + (contactFunction ? ' (' + contactFunction + ')' : '') : '')
+      const noteText = `👋 Passer la main — ${transferReason}` + (transferNote ? '\n' + transferNote : '') + (contactName ? '\nContact : ' + contactName + (contactFunction ? ' (' + contactFunction + ')' : '') : '')
       await supabase.from('prospect_calls').insert({
         client_id: clientId, called_by: callerName, call_result: 'blocked',
         contact_name: contactName || null, contact_function: contactFunction || null,
@@ -890,12 +908,13 @@ export default function MarinePhoning() {
             prospectName: current.name, prospectPhone: current.phone,
             contactName, contactFunction,
             callbackDate: null, callbackTime: null,
-            callbackReason: '↗️ TRANSFERT — ' + transferReason + (transferNote ? '\n' + transferNote : ''),
-            callerName, notes: 'Prospect transféré pour prise de décision.\n' + (current.city ? 'Ville : ' + current.city + '\n' : '') + (current.siret ? 'SIRET : ' + current.siret : ''),
+            callbackReason: '👋 PASSER LA MAIN — ' + transferReason + (transferNote ? '\n' + transferNote : ''),
+            callerName, to: 'hicham.saidi@accessformation.pro',
+              notes: 'Prospect à rappeler par Hicham/Maxime.\n' + (current.city ? 'Ville : ' + current.city + ' (' + (current.distance < 9999 ? current.distance.toFixed(0) + ' km' : '?') + ')\n' : '') + (current.siret ? 'SIRET : ' + current.siret : ''),
           })
         })
       } catch (emailErr) { console.error('Erreur email transfert:', emailErr) }
-      toast.success('↗️ Transféré à Hicham — suivant')
+      toast.success('👋 Transmis à Hicham/Maxime — suivant')
       loadDailyStats(); loadTodayCallbacks(); goNext(); await loadProspects()
     } catch (error) { toast.error('Erreur: ' + error.message) }
     finally { setSaving(false) }
@@ -1485,8 +1504,8 @@ export default function MarinePhoning() {
                     </button>
                     <button onClick={() => setPhoningStep('transfer')}
                       className="flex flex-col items-center gap-1.5 px-3 py-4 bg-indigo-50 hover:bg-indigo-100 border-2 border-indigo-300 rounded-xl text-indigo-700 font-semibold transition-all hover:scale-[1.02]">
-                      <span className="text-xl">↗️</span>
-                      <span className="text-sm">Transférer</span>
+                      <span className="text-xl">👋</span>
+                      <span className="text-sm">Passer la main</span>
                     </button>
                     <button onClick={() => setPhoningStep('not_interested')}
                       className="flex flex-col items-center gap-1.5 px-3 py-4 bg-blue-50 hover:bg-blue-100 border-2 border-blue-300 rounded-xl text-blue-700 font-semibold transition-all hover:scale-[1.02]">
@@ -1590,18 +1609,19 @@ export default function MarinePhoning() {
                 </div>
               )}
 
-              {/* ═══ ÉTAPE : Transférer — Raison + email ═══ */}
+              {/* ═══ ÉTAPE : Passer la main — Raison + email ═══ */}
               {phoningStep === 'transfer' && (
                 <div className="space-y-4">
                   <div className="flex items-center gap-2">
                     <button onClick={() => setPhoningStep('responded')} className="p-1 hover:bg-gray-100 rounded"><ArrowLeft className="w-4 h-4 text-gray-400" /></button>
-                    <h3 className="font-semibold text-indigo-700 text-sm">↗️ Transférer — {current.name}</h3>
+                    <h3 className="font-semibold text-indigo-700 text-sm">👋 Passer la main — {current.name}</h3>
+                    {current.distance < 9999 && <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded">{current.latitude && distanceKm(current.latitude, current.longitude, BASES.concarneau.lat, BASES.concarneau.lng) < distanceKm(current.latitude, current.longitude, BASES.derval.lat, BASES.derval.lng) ? '📍 Zone Hicham' : '📍 Zone Maxime'} — {current.distance.toFixed(0)} km</span>}
                   </div>
 
                   <div className="space-y-2">
-                    <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Raison</h4>
+                    <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Pourquoi ?</h4>
                     <div className="grid grid-cols-2 gap-2">
-                      {['Mauvaise entreprise', 'Renvoie vers le siège', 'Demande spécifique', 'Autre'].map(r => (
+                      {['🏢 Renvoie vers le siège', '👨‍🏫 Veut parler au formateur', '🤷 Secteur géo ou formation inconnue', '❓ Question spécifique', '📝 Autre'].map(r => (
                         <button key={r} onClick={() => setTransferReason(r)}
                           className={'px-3 py-2 rounded-lg border text-sm font-medium transition-colors ' + (transferReason === r ? 'bg-indigo-500 text-white border-indigo-500' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50')}>
                           {r}
@@ -1610,12 +1630,13 @@ export default function MarinePhoning() {
                     </div>
                   </div>
 
-                  <textarea value={transferNote} onChange={e => setTransferNote(e.target.value)} placeholder="Précisions (numéro siège, nom du contact, ce qu'il faut faire...)" rows="2"
+                  <textarea value={transferNote} onChange={e => setTransferNote(e.target.value)} placeholder="Précisions (ce qu'il a dit, numéro siège, nom du contact...)" rows="2"
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent" />
+                  {transferReason === '📝 Autre' && !transferNote.trim() && <p className="text-xs text-red-500">⚠️ Précise la raison dans le champ ci-dessus</p>}
 
-                  <button onClick={handleTransfer} disabled={saving || !transferReason}
+                  <button onClick={handleTransfer} disabled={saving || !transferReason || (transferReason === '📝 Autre' && !transferNote.trim())}
                     className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-50 font-semibold text-sm">
-                    {saving ? <><Loader2 className="w-5 h-5 animate-spin" /> Envoi...</> : <><Send className="w-5 h-5" /> Envoyer à Hicham & Suivant</>}
+                    {saving ? <><Loader2 className="w-5 h-5 animate-spin" /> Envoi...</> : <><Send className="w-5 h-5" /> Passer la main & Suivant</>}
                   </button>
                 </div>
               )}
