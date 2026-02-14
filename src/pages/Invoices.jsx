@@ -72,9 +72,12 @@ export default function Invoices() {
   useEffect(() => {
     loadAll().then(({quotes: qs}) => {
       const fq = searchParams.get('from_quote')
+      const fs = searchParams.get('from_session')
       if (fq && qs.length>0) {
         const q = qs.find(x=>x.id===fq)
         if(q) { handleFromQuote(q); setSearchParams({}) }
+      } else if (fs) {
+        handleFromSession(fs); setSearchParams({})
       }
     })
   },[]) // eslint-disable-line
@@ -118,6 +121,42 @@ export default function Invoices() {
       notes:'',created_by:'Hicham Saidi',status:'draft',parent_reference:quote.reference,parent_invoice_id:null,amount_paid:0,session_reference:sRef})
     setItems((qItems||[]).map((it,i)=>({...it,id:undefined,quote_id:undefined,invoice_id:undefined,position:i})))
     setPayments([]); setShowQuoteSelector(false); setMode('create')
+  }
+
+  // ─── From session (après formation) ───
+  const handleFromSession = async (sessionId) => {
+    const { data: sess } = await supabase.from('sessions').select('*, clients(id,name,siret,address,postal_code,city,contact_name,contact_email), courses(title,code,price_ht,duration_hours)').eq('id', sessionId).single()
+    if (!sess) { toast.error('Session introuvable'); return }
+    const ref = await generateReference('invoice'), dd = format(addDays(new Date(), 30), 'yyyy-MM-dd')
+    const { data: ccs } = await supabase.from('client_contacts').select('*').eq('client_id', sess.client_id)
+    const bc = ccs?.find(c => c.is_billing) || ccs?.find(c => c.is_primary)
+    setContacts(ccs || [])
+    // Si la session a un devis, récupérer les items du devis
+    let invoiceItems = []
+    if (sess.quote_id) {
+      const { data: qItems } = await supabase.from('quote_items').select('*').eq('quote_id', sess.quote_id).order('position')
+      invoiceItems = (qItems || []).map((it, i) => ({ ...it, id: undefined, quote_id: undefined, invoice_id: undefined, position: i }))
+    }
+    // Sinon, créer une ligne depuis la formation
+    if (invoiceItems.length === 0 && sess.courses) {
+      const price = sess.use_custom_price ? sess.custom_price_ht : (sess.courses.price_ht || 0)
+      invoiceItems = [{
+        code: sess.courses.code || '', description_title: sess.courses.title || '',
+        description_detail: `Formation ${sess.is_intra ? 'intra' : 'inter'} du ${fmtDateShort(sess.start_date)}${sess.end_date !== sess.start_date ? ' au ' + fmtDateShort(sess.end_date) : ''}`,
+        quantity: 1, unit: 'forfait', unit_price_ht: price, tva_rate: 20, course_id: sess.course_id, position: 0
+      }]
+    }
+    setCurrent({
+      reference: ref, type: 'invoice', client_id: sess.client_id, contact_id: bc?.id || sess.contact_id || '',
+      quote_id: sess.quote_id || '', session_id: sess.id, sellsy_reference: '', client_reference: '',
+      invoice_date: format(new Date(), 'yyyy-MM-dd'), service_start_date: sess.start_date || '', service_end_date: sess.end_date || '', due_date: dd,
+      object: sess.courses?.title || '', payment_method: 'virement bancaire', payment_terms: 'à 30 jours',
+      discount_percent: 0, discount_label: '', tva_applicable: true,
+      notes: '', created_by: 'Hicham Saidi', status: 'draft', parent_reference: '', parent_invoice_id: null, amount_paid: 0
+    })
+    setItems(invoiceItems.length > 0 ? invoiceItems : [emptyItem()])
+    setPayments([]); setMode('create')
+    toast.success(`Facture pré-remplie depuis la session ${sess.courses?.title || ''}`)
   }
 
   // ─── Credit note ───
