@@ -4,7 +4,7 @@ import { useAuthStore } from '../lib/store'
 import { 
   Phone, CheckCircle, RefreshCw, SkipForward,
   Building2, MapPin, Mail, List, Search, Sparkles, Loader2, Map as MapIcon, Navigation, AlertTriangle,
-  Clock, PhoneOff, XCircle, Snowflake, Bell, Plus, Edit2, Briefcase, Send, ArrowLeft, MessageSquare, BarChart3
+  Clock, PhoneOff, XCircle, Snowflake, Bell, Plus, Edit2, Briefcase, Send, ArrowLeft, MessageSquare, BarChart3, ChevronRight
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { MapContainer, TileLayer, CircleMarker, Circle, Popup, useMap } from 'react-leaflet'
@@ -234,6 +234,8 @@ export default function MarinePhoning() {
   const [transferNote, setTransferNote] = useState('')
   const [notInterestedTag, setNotInterestedTag] = useState('')
   const [wrongNumberNew, setWrongNumberNew] = useState('')
+  const [showTodayCalls, setShowTodayCalls] = useState(false)
+  const [todayCalls, setTodayCalls] = useState([])
 
   // Email prospect modal
   const [showEmailModal, setShowEmailModal] = useState(false)
@@ -637,33 +639,41 @@ export default function MarinePhoning() {
     } finally { setSaving(false) }
   }
 
+  async function loadTodayCallsList() {
+    try {
+      const today = new Date().toISOString().split('T')[0]
+      const { data } = await supabase.from('prospect_calls')
+        .select('id, call_result, called_by, called_at, contact_name, contact_function, notes, formations_mentioned, needs_callback, callback_date, callback_time, clients!inner(id, name, siren)')
+        .gte('called_at', today + 'T00:00:00').lte('called_at', today + 'T23:59:59')
+        .order('called_at', { ascending: false })
+      if (data) setTodayCalls(data)
+    } catch (err) { console.error('Erreur chargement appels du jour:', err) }
+  }
+
   async function handleWrongNumber() {
     if (!current) return
     setSaving(true)
     try {
       const clientId = await findOrCreateClient(current)
       const hasNew = wrongNumberNew.trim().length >= 6
-      const noteText = hasNew
-        ? 'Numéro erroné. Nouveau numéro : ' + wrongNumberNew.trim()
-        : 'Numéro erroné'
+      const noteText = hasNew ? 'Num\u00e9ro erron\u00e9. Nouveau num\u00e9ro : ' + wrongNumberNew.trim() : 'Num\u00e9ro erron\u00e9'
       await supabase.from('prospect_calls').insert({
         client_id: clientId, called_by: callerName, call_result: 'wrong_number',
         notes: noteText, duration_seconds: getElapsedSeconds(),
       })
       if (hasNew) {
-        // Mettre à jour le numéro + repasser en "à appeler"
         await supabase.from('prospection_massive').update({
           phone: wrongNumberNew.trim(), contacted: false, contacted_at: null,
           prospection_status: 'a_appeler', prospection_notes: noteText, updated_at: new Date().toISOString(),
         }).eq('siren', current.siren)
         await supabase.from('clients').update({ contact_phone: wrongNumberNew.trim() }).eq('id', clientId)
-        toast.success('✅ Nouveau numéro enregistré — remis dans la file')
+        toast.success('\u2705 Nouveau num\u00e9ro enregistr\u00e9 \u2014 remis dans la file')
       } else {
         await supabase.from('prospection_massive').update({
           contacted: true, contacted_at: new Date().toISOString(),
           prospection_status: 'numero_errone', updated_at: new Date().toISOString(),
         }).eq('siren', current.siren)
-        toast.success('❌ N° erroné — suivant')
+        toast.success('\u274c N\u00b0 erron\u00e9 \u2014 suivant')
       }
       loadDailyStats(); loadTodayCallbacks(); goNext(); await loadProspects()
     } catch (error) {
@@ -1109,7 +1119,7 @@ export default function MarinePhoning() {
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           {/* Stats du jour */}
-          <div className="flex items-center gap-1.5 bg-gray-50 border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs">
+          <div onClick={() => { loadTodayCallsList(); setShowTodayCalls(true) }} className="flex items-center gap-1.5 bg-gray-50 border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs cursor-pointer hover:bg-gray-100 transition-colors">
             <span className="font-semibold text-gray-600">Aujourd'hui</span>
             <span className="bg-gray-800 text-white px-1.5 py-0.5 rounded font-bold">{dailyStats.total}</span>
             {dailyStats.chaud > 0 && <span className="text-green-600 font-medium">🔥{dailyStats.chaud}</span>}
@@ -1674,14 +1684,14 @@ export default function MarinePhoning() {
                 </div>
               )}
 
-              {/* ═══ ÉTAPE : Numéro erroné — Saisir nouveau numéro ═══ */}
+
+              {/* ═══ ÉTAPE : Numéro erroné ═══ */}
               {phoningStep === 'wrong_number' && (
                 <div className="space-y-4">
                   <div className="flex items-center gap-2">
                     <button onClick={() => setPhoningStep('initial')} className="p-1 hover:bg-gray-100 rounded"><ArrowLeft className="w-4 h-4 text-gray-400" /></button>
                     <h3 className="font-semibold text-red-700 text-sm">❌ Numéro erroné — {current.name}</h3>
                   </div>
-
                   <div className="bg-red-50 border border-red-200 rounded-lg p-3">
                     <p className="text-sm text-red-700 mb-2">Nouveau numéro trouvé ?</p>
                     <input type="tel" value={wrongNumberNew} onChange={e => setWrongNumberNew(e.target.value)}
@@ -1691,11 +1701,10 @@ export default function MarinePhoning() {
                       <p className="text-xs text-red-500 mt-1">Numéro trop court</p>
                     )}
                   </div>
-
                   <div className="grid grid-cols-2 gap-3">
                     <button onClick={handleWrongNumber} disabled={saving || (wrongNumberNew.trim().length > 0 && wrongNumberNew.trim().length < 6)}
                       className={'w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-semibold text-sm transition-colors disabled:opacity-50 ' + (wrongNumberNew.trim().length >= 6 ? 'bg-green-600 text-white hover:bg-green-700' : 'bg-red-600 text-white hover:bg-red-700')}>
-                      {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : wrongNumberNew.trim().length >= 6 ? <><Phone className="w-4 h-4" /> Enregistrer & remettre dans la file</> : <><XCircle className="w-4 h-4" /> Marquer erroné & suivant</>}
+                      {saving ? <><Loader2 className="w-4 h-4 animate-spin" /> Envoi...</> : wrongNumberNew.trim().length >= 6 ? <><Phone className="w-4 h-4" /> Enregistrer & remettre dans la file</> : <><XCircle className="w-4 h-4" /> Marquer erroné & suivant</>}
                     </button>
                     <button onClick={() => setPhoningStep('initial')}
                       className="w-full px-4 py-3 bg-gray-100 text-gray-600 rounded-xl font-semibold text-sm hover:bg-gray-200">
@@ -1812,6 +1821,48 @@ export default function MarinePhoning() {
         </div>
       )}
       {/* ═══ EMAIL MODAL ═══ */}
+      {/* ═══ MODALE APPELS DU JOUR ═══ */}
+      {showTodayCalls && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowTodayCalls(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b">
+              <h3 className="text-lg font-bold text-gray-900">Appels du jour — {todayCalls.length} appels</h3>
+              <button onClick={() => setShowTodayCalls(false)} className="p-1 hover:bg-gray-100 rounded"><X className="w-5 h-5 text-gray-400" /></button>
+            </div>
+            <div className="overflow-y-auto max-h-[65vh] divide-y">
+              {todayCalls.length === 0 ? (
+                <p className="text-center text-gray-400 py-8">Aucun appel aujourd'hui</p>
+              ) : todayCalls.map(call => {
+                const rc = { chaud: 'bg-green-100 text-green-700', tiede: 'bg-orange-100 text-orange-700', froid: 'bg-blue-100 text-blue-700', no_answer: 'bg-gray-100 text-gray-600', blocked: 'bg-red-100 text-red-700', wrong_number: 'bg-purple-100 text-purple-700' }
+                const rl = { chaud: '🔥 Intéressé', tiede: '🟡 Tiède', froid: '❄️ Refus', no_answer: '📞 Injoignable', blocked: '⚠️ Barrage', wrong_number: '❌ N° erroné' }
+                return (
+                  <div key={call.id} onClick={() => {
+                    const prospect = prospects.find(p => p.siren === call.clients?.siren)
+                    if (prospect) { selectProspect(prospect); setViewMode('file'); setShowTodayCalls(false) }
+                    else toast.error('Prospect non trouvé dans la liste filtrée')
+                  }} className="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 cursor-pointer transition-colors">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-gray-900 truncate">{call.clients?.name || '?'}</span>
+                        <span className={'px-2 py-0.5 rounded text-xs font-medium ' + (rc[call.call_result] || 'bg-gray-100')}>{rl[call.call_result] || call.call_result}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs text-gray-500 mt-0.5">
+                        <span>{call.called_by}</span>
+                        <span>{new Date(call.called_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</span>
+                        {call.contact_name && <span>👤 {call.contact_name}</span>}
+                        {call.formations_mentioned && call.formations_mentioned.length > 0 && <span>🎓 {call.formations_mentioned.join(', ')}</span>}
+                      </div>
+                      {call.notes && <p className="text-xs text-gray-400 mt-0.5 truncate">{call.notes}</p>}
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-gray-300 flex-shrink-0" />
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
       {showEmailModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
