@@ -419,7 +419,7 @@ Nous vous remercions pour votre confiance et restons à votre disposition.`)
 
       setStep('sent')
       toast.success('Email envoyé avec succès !')
-      setTimeout(() => onClose(), 2000)
+      setTimeout(() => onClose(true), 2000)
 
     } catch (err) {
       console.error('Erreur envoi:', err)
