@@ -4,7 +4,7 @@ import { useAuthStore } from '../lib/store'
 import { 
   Phone, CheckCircle, RefreshCw, SkipForward,
   Building2, MapPin, Mail, List, Search, Sparkles, Loader2, Map as MapIcon, Navigation, AlertTriangle,
-  Clock, PhoneOff, XCircle, Snowflake, Bell, Plus, Edit2, Briefcase, Send, ArrowLeft, MessageSquare, BarChart3, ChevronRight
+  Clock, PhoneOff, XCircle, Snowflake, Bell, Plus, Edit2, Briefcase, Send, ArrowLeft, MessageSquare, BarChart3, ChevronRight, X
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { MapContainer, TileLayer, CircleMarker, Circle, Popup, useMap } from 'react-leaflet'
