@@ -137,7 +137,7 @@ export default async function handler(req, res) {
   let transporter = null
 
   try {
-    const { prospectName, prospectPhone, contactName, contactFunction, callbackDate, callbackTime, callbackReason, callerName, notes } = req.body
+    const { prospectName, prospectPhone, contactName, contactFunction, callbackDate, callbackTime, callbackReason, callerName, notes, to } = req.body
 
     if (!prospectName) {
       return res.status(400).json({ error: 'Paramètres manquants: prospectName requis' })
@@ -181,7 +181,7 @@ export default async function handler(req, res) {
 
     await transporter.sendMail({
       from: `"Access Formation" <${emailConfig.email}>`,
-      to: 'contact@accessformation.pro',
+      to: to || 'contact@accessformation.pro',
       subject: emailData.subject,
       html: emailData.html,
       attachments: emailData.attachments,
