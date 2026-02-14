@@ -154,11 +154,13 @@ export default function Quotes() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
-  const [mode, setMode] = useState('list')
+  const [mode, setMode] = useState('list') // list | view | create | edit
   const [currentQuote, setCurrentQuote] = useState(null)
   const [items, setItems] = useState([])
   const [saving, setSaving] = useState(false)
   const [generatingPdf, setGeneratingPdf] = useState(false)
+  const [actionMenuId, setActionMenuId] = useState(null)
+  const actionMenuRef = useRef(null)
 
   // === Send Wizard State ===
   const [sendWizard, setSendWizard] = useState(null) // { quote, client, contact, items, pdfBlobUrl, pdfBase64 }
@@ -271,7 +273,28 @@ export default function Quotes() {
     setMode('edit')
   }
 
+  async function openView(quote) {
+    const loadedItems = await loadQuoteItems(quote.id)
+    setCurrentQuote({
+      ...quote, quote_date: quote.quote_date || '', validity_date: quote.validity_date || '',
+      payment_deadline: quote.payment_deadline || '', discount_percent: quote.discount_percent || 0,
+      discount_label: quote.discount_label || '', tva_rate: quote.tva_rate || 20,
+      tva_applicable: quote.tva_applicable !== false, signature_base64: quote.signature_base64 || null,
+    })
+    setItems(loadedItems)
+    setMode('view')
+  }
+
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (actionMenuRef.current && !actionMenuRef.current.contains(e.target)) setActionMenuId(null)
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
   async function duplicateQuote(quote) {
+    if (!confirm(`Dupliquer le devis ${quote.reference} ?`)) return
     const ref = await generateReference()
     const qDate = format(new Date(), 'yyyy-MM-dd')
     const vDate = calcValidityDate(qDate)
@@ -345,8 +368,10 @@ export default function Quotes() {
   }
 
   async function updateStatus(id, newStatus) {
+    if (!confirm(`Passer ce devis en "${STATUS_CONFIG[newStatus].label}" ?`)) return
     await supabase.from('quotes').update({ status: newStatus, updated_at: new Date().toISOString() }).eq('id', id)
     toast.success(`Statut → ${STATUS_CONFIG[newStatus].label}`)
+    if (currentQuote && currentQuote.id === id) setCurrentQuote(prev => ({ ...prev, status: newStatus }))
     loadAll()
   }
 
@@ -780,7 +805,7 @@ export default function Quotes() {
   // ==================== RENDER ====================
   return (
     <>
-      {mode === 'list' ? renderList() : renderForm()}
+      {mode === 'list' ? renderList() : mode === 'view' ? renderView() : renderForm()}
       {sendWizard && renderSendWizard()}
       {sessionWizard && renderSessionWizard()}
     </>
@@ -844,7 +869,7 @@ export default function Quotes() {
         ) : (
           <div className="space-y-2">
             {filteredQuotes.map(q => (
-              <div key={q.id} className="bg-white rounded-xl border border-gray-200 p-4 hover:shadow-md transition-shadow">
+              <div key={q.id} onClick={() => openView(q)} className="bg-white rounded-xl border border-gray-200 p-4 hover:shadow-md transition-shadow cursor-pointer">
                 <div className="flex items-center justify-between">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-3 mb-1">
@@ -864,42 +889,75 @@ export default function Quotes() {
                   <div className="text-right ml-4 flex-shrink-0">
                     <p className="text-lg font-bold text-gray-900">{money(q.total_ttc)}</p>
                     <p className="text-xs text-gray-400">{money(q.total_ht)} HT</p>
-                    <div className="flex items-center gap-1 mt-2 justify-end">
-                      <button onClick={() => downloadPDF(q)} title="Télécharger PDF" disabled={generatingPdf}
-                        className="p-1.5 text-gray-400 hover:text-orange-600 hover:bg-gray-50 rounded transition-colors disabled:opacity-50">
-                        <Download size={16} />
+                    <div className="relative mt-2 flex justify-end" ref={actionMenuId === q.id ? actionMenuRef : null}>
+                      <button onClick={(e) => { e.stopPropagation(); setActionMenuId(actionMenuId === q.id ? null : q.id) }}
+                        className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors">
+                        <MoreHorizontal size={18} />
                       </button>
-                      <button onClick={() => openEdit(q)} title="Modifier"
-                        className="p-1.5 text-gray-400 hover:text-primary-600 hover:bg-gray-50 rounded transition-colors">
-                        <Edit2 size={16} />
-                      </button>
-                      <button onClick={() => duplicateQuote(q)} title="Dupliquer"
-                        className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-gray-50 rounded transition-colors">
-                        <Copy size={16} />
-                      </button>
-                      {(q.status === 'draft' || q.status === 'sent') && (
-                        <button onClick={() => openSendWizard(q)} title={q.status === 'sent' ? 'Renvoyer par email' : 'Envoyer par email'}
-                          disabled={sendLoading}
-                          className="p-1.5 text-gray-400 hover:text-green-600 hover:bg-gray-50 rounded transition-colors disabled:opacity-50">
-                          {sendLoading ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-                        </button>
+                      {actionMenuId === q.id && (
+                        <div className="absolute right-0 top-8 z-50 bg-white rounded-lg shadow-xl border border-gray-200 py-1 w-52 animate-in fade-in" onClick={e => e.stopPropagation()}>
+                          <button onClick={() => { setActionMenuId(null); downloadPDF(q) }}
+                            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
+                            <Download size={15} /> Télécharger PDF
+                          </button>
+                          <button onClick={() => { setActionMenuId(null); openEdit(q) }}
+                            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
+                            <Edit2 size={15} /> Modifier
+                          </button>
+                          <button onClick={() => { setActionMenuId(null); duplicateQuote(q) }}
+                            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
+                            <Copy size={15} /> Dupliquer
+                          </button>
+                          {(q.status === 'draft' || q.status === 'sent') && (
+                            <button onClick={() => { setActionMenuId(null); openSendWizard(q) }}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-green-700 hover:bg-green-50">
+                              <Send size={15} /> {q.status === 'sent' ? 'Renvoyer par email' : 'Envoyer par email'}
+                            </button>
+                          )}
+                          <div className="border-t border-gray-100 my-1" />
+                          {q.status === 'draft' && (
+                            <button onClick={() => { setActionMenuId(null); updateStatus(q.id, 'sent') }}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-blue-700 hover:bg-blue-50">
+                              <Send size={15} /> Marquer envoyé
+                            </button>
+                          )}
+                          {(q.status === 'sent' || q.status === 'draft') && (
+                            <button onClick={() => { setActionMenuId(null); updateStatus(q.id, 'accepted') }}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-green-700 hover:bg-green-50">
+                              <Check size={15} /> Marquer accepté
+                            </button>
+                          )}
+                          {(q.status === 'sent' || q.status === 'draft') && (
+                            <button onClick={() => { setActionMenuId(null); updateStatus(q.id, 'refused') }}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-700 hover:bg-red-50">
+                              <X size={15} /> Marquer refusé
+                            </button>
+                          )}
+                          {q.status === 'accepted' && (
+                            <>
+                              <button onClick={() => { setActionMenuId(null); if (confirm('Créer une facture depuis ce devis ?')) navigate('/factures?from_quote=' + q.id) }}
+                                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-purple-700 hover:bg-purple-50">
+                                <FileText size={15} /> Créer une facture
+                              </button>
+                              <button onClick={() => { setActionMenuId(null); openSessionWizard(q) }}
+                                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-emerald-700 hover:bg-emerald-50">
+                                <GraduationCap size={15} /> Générer une session
+                              </button>
+                            </>
+                          )}
+                          {q.status === 'sent' && (
+                            <button onClick={() => { setActionMenuId(null); if (confirm('Créer une facture depuis ce devis ?')) navigate('/factures?from_quote=' + q.id) }}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-purple-700 hover:bg-purple-50">
+                              <FileText size={15} /> Créer une facture
+                            </button>
+                          )}
+                          <div className="border-t border-gray-100 my-1" />
+                          <button onClick={() => { setActionMenuId(null); deleteQuote(q.id) }}
+                            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50">
+                            <Trash2 size={15} /> Supprimer
+                          </button>
+                        </div>
                       )}
-                      {q.status === 'accepted' && (
-                        <button onClick={() => openSessionWizard(q)} title="Générer une session"
-                          className="p-1.5 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors">
-                          <GraduationCap size={16} />
-                        </button>
-                      )}
-                      {(q.status === 'accepted' || q.status === 'sent') && (
-                        <button onClick={() => navigate('/factures?from_quote=' + q.id)} title="Créer une facture"
-                          className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors">
-                          <FileText size={16} />
-                        </button>
-                      )}
-                      <button onClick={() => deleteQuote(q.id)} title="Supprimer"
-                        className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-gray-50 rounded transition-colors">
-                        <Trash2 size={16} />
-                      </button>
                     </div>
                   </div>
                 </div>
@@ -907,6 +965,182 @@ export default function Quotes() {
             ))}
           </div>
         )}
+      </div>
+    )
+  }
+
+  function renderView() {
+    if (!currentQuote) return null
+    const totals = calcTotals(items, currentQuote.discount_percent, currentQuote.tva_rate, currentQuote.tva_applicable)
+    const st = STATUS_CONFIG[currentQuote.status] || STATUS_CONFIG.draft
+    const q = currentQuote
+    return (
+      <div className="p-6 max-w-5xl mx-auto">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <button onClick={() => setMode('list')} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+              <ArrowLeft size={20} />
+            </button>
+            <div>
+              <div className="flex items-center gap-3">
+                <h1 className="text-xl font-bold text-gray-900">Devis {q.reference}</h1>
+                <span className={`px-2.5 py-1 rounded text-xs font-medium ${st.class}`}>{st.icon} {st.label}</span>
+              </div>
+              <p className="text-sm text-gray-500">
+                {q.quote_date && format(new Date(q.quote_date), 'dd MMMM yyyy', { locale: fr })}
+                {q.created_by && ` · par ${q.created_by}`}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={() => downloadPDF(q)} disabled={generatingPdf}
+              className="flex items-center gap-1.5 px-3 py-2 bg-orange-50 text-orange-700 border border-orange-200 rounded-lg hover:bg-orange-100 text-sm disabled:opacity-50">
+              <Download size={15} /> PDF
+            </button>
+            <button onClick={() => openEdit(q)}
+              className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm">
+              <Edit2 size={15} /> Modifier
+            </button>
+            <div className="relative" ref={actionMenuId === 'view' ? actionMenuRef : null}>
+              <button onClick={() => setActionMenuId(actionMenuId === 'view' ? null : 'view')}
+                className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+                <MoreHorizontal size={20} />
+              </button>
+              {actionMenuId === 'view' && (
+                <div className="absolute right-0 top-10 z-50 bg-white rounded-lg shadow-xl border border-gray-200 py-1 w-52">
+                  <button onClick={() => { setActionMenuId(null); duplicateQuote(q) }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
+                    <Copy size={15} /> Dupliquer
+                  </button>
+                  {(q.status === 'draft' || q.status === 'sent') && (
+                    <button onClick={() => { setActionMenuId(null); openSendWizard(q) }}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-green-700 hover:bg-green-50">
+                      <Send size={15} /> {q.status === 'sent' ? 'Renvoyer' : 'Envoyer'} par email
+                    </button>
+                  )}
+                  <div className="border-t border-gray-100 my-1" />
+                  {q.status === 'draft' && (
+                    <button onClick={() => { setActionMenuId(null); updateStatus(q.id, 'sent') }}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-blue-700 hover:bg-blue-50">
+                      <Send size={15} /> Marquer envoyé
+                    </button>
+                  )}
+                  {(q.status === 'sent' || q.status === 'draft') && (
+                    <button onClick={() => { setActionMenuId(null); updateStatus(q.id, 'accepted') }}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-green-700 hover:bg-green-50">
+                      <Check size={15} /> Marquer accepté
+                    </button>
+                  )}
+                  {(q.status === 'sent' || q.status === 'draft') && (
+                    <button onClick={() => { setActionMenuId(null); updateStatus(q.id, 'refused') }}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-700 hover:bg-red-50">
+                      <X size={15} /> Marquer refusé
+                    </button>
+                  )}
+                  {q.status === 'accepted' && (
+                    <>
+                      <button onClick={() => { setActionMenuId(null); if (confirm('Créer une facture depuis ce devis ?')) navigate('/factures?from_quote=' + q.id) }}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-sm text-purple-700 hover:bg-purple-50">
+                        <FileText size={15} /> Créer une facture
+                      </button>
+                      <button onClick={() => { setActionMenuId(null); openSessionWizard(q) }}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-sm text-emerald-700 hover:bg-emerald-50">
+                        <GraduationCap size={15} /> Générer une session
+                      </button>
+                    </>
+                  )}
+                  {q.status === 'sent' && (
+                    <button onClick={() => { setActionMenuId(null); if (confirm('Créer une facture depuis ce devis ?')) navigate('/factures?from_quote=' + q.id) }}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-purple-700 hover:bg-purple-50">
+                      <FileText size={15} /> Créer une facture
+                    </button>
+                  )}
+                  <div className="border-t border-gray-100 my-1" />
+                  <button onClick={() => { setActionMenuId(null); deleteQuote(q.id); setMode('list') }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50">
+                    <Trash2 size={15} /> Supprimer
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 space-y-6">
+            {/* Objet */}
+            {q.object && (
+              <div className="bg-white rounded-xl border p-4">
+                <p className="text-xs font-semibold text-gray-400 uppercase mb-1">Objet</p>
+                <p className="text-gray-900">{q.object}</p>
+              </div>
+            )}
+
+            {/* Lignes */}
+            <div className="bg-white rounded-xl border overflow-hidden">
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-gray-50 text-xs text-gray-500 uppercase">
+                    <th className="text-left px-4 py-3">Désignation</th>
+                    <th className="text-center px-2 py-3 w-16">Qté</th>
+                    <th className="text-center px-2 py-3 w-20">Unité</th>
+                    <th className="text-right px-2 py-3 w-24">P.U. HT</th>
+                    <th className="text-right px-4 py-3 w-28">Total HT</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {items.map((item, i) => (
+                    <tr key={i} className="hover:bg-gray-50">
+                      <td className="px-4 py-3">
+                        <p className="font-medium text-gray-900 text-sm">{item.description_title}</p>
+                        {item.description_detail && <p className="text-xs text-gray-500 mt-0.5 whitespace-pre-line">{item.description_detail}</p>}
+                      </td>
+                      <td className="text-center px-2 py-3 text-sm">{item.quantity}</td>
+                      <td className="text-center px-2 py-3 text-xs text-gray-500">{item.unit || '-'}</td>
+                      <td className="text-right px-2 py-3 text-sm">{money(item.unit_price_ht)}</td>
+                      <td className="text-right px-4 py-3 text-sm font-medium">{money((item.quantity || 0) * (item.unit_price_ht || 0))}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Totaux */}
+            <div className="bg-white rounded-xl border p-4">
+              <div className="flex justify-end">
+                <div className="w-64 space-y-1.5 text-sm">
+                  <div className="flex justify-between"><span className="text-gray-500">Total HT</span><span className="font-medium">{money(totals.totalHT)}</span></div>
+                  {currentQuote.discount_percent > 0 && (
+                    <div className="flex justify-between text-red-600"><span>Remise {currentQuote.discount_percent}%{currentQuote.discount_label ? ` (${currentQuote.discount_label})` : ''}</span><span>-{money(totals.discountAmount)}</span></div>
+                  )}
+                  {currentQuote.tva_applicable !== false && (
+                    <div className="flex justify-between"><span className="text-gray-500">TVA {currentQuote.tva_rate || 20}%</span><span>{money(totals.tva)}</span></div>
+                  )}
+                  <div className="flex justify-between border-t pt-2 text-base font-bold"><span>Total TTC</span><span>{money(totals.totalTTC)}</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Sidebar infos */}
+          <div className="space-y-4">
+            <div className="bg-white rounded-xl border p-4 space-y-3">
+              <h3 className="font-semibold text-gray-900 text-sm flex items-center gap-2"><Building2 size={15} /> Client</h3>
+              <p className="font-medium text-gray-900">{q.clients?.name || '—'}</p>
+              {q.clients?.address && <p className="text-sm text-gray-500">{q.clients.address}</p>}
+              {q.clients?.siret && <p className="text-xs text-gray-400 font-mono">SIRET {q.clients.siret}</p>}
+            </div>
+            <div className="bg-white rounded-xl border p-4 space-y-2">
+              <h3 className="font-semibold text-gray-900 text-sm">Détails</h3>
+              <div className="text-sm space-y-1.5">
+                {q.client_reference && <div className="flex justify-between"><span className="text-gray-500">Réf. client</span><span>{q.client_reference}</span></div>}
+                <div className="flex justify-between"><span className="text-gray-500">Paiement</span><span className="text-right text-xs">{q.payment_method || '—'}</span></div>
+                {q.validity_date && <div className="flex justify-between"><span className="text-gray-500">Validité</span><span>{format(new Date(q.validity_date), 'dd/MM/yyyy')}</span></div>}
+                {q.payment_deadline && <div className="flex justify-between"><span className="text-gray-500">Échéance</span><span>{format(new Date(q.payment_deadline), 'dd/MM/yyyy')}</span></div>}
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     )
   }
