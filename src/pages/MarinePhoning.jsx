@@ -229,10 +229,11 @@ export default function MarinePhoning() {
   const [detectingOpco, setDetectingOpco] = useState(false)
   const [sendingReport, setSendingReport] = useState(false)
   // Stepped phoning flow
-  const [phoningStep, setPhoningStep] = useState('initial') // initial | no_response | responded | interested | callback | transfer | not_interested
+  const [phoningStep, setPhoningStep] = useState('initial') // initial | no_response | responded | interested | callback | transfer | not_interested | wrong_number
   const [transferReason, setTransferReason] = useState('')
   const [transferNote, setTransferNote] = useState('')
   const [notInterestedTag, setNotInterestedTag] = useState('')
+  const [wrongNumberNew, setWrongNumberNew] = useState('')
 
   // Email prospect modal
   const [showEmailModal, setShowEmailModal] = useState(false)
@@ -636,7 +637,39 @@ export default function MarinePhoning() {
     } finally { setSaving(false) }
   }
 
-  // ═══ EMAIL TEMPLATES ═══
+  async function handleWrongNumber() {
+    if (!current) return
+    setSaving(true)
+    try {
+      const clientId = await findOrCreateClient(current)
+      const hasNew = wrongNumberNew.trim().length >= 6
+      const noteText = hasNew
+        ? 'Numéro erroné. Nouveau numéro : ' + wrongNumberNew.trim()
+        : 'Numéro erroné'
+      await supabase.from('prospect_calls').insert({
+        client_id: clientId, called_by: callerName, call_result: 'wrong_number',
+        notes: noteText, duration_seconds: getElapsedSeconds(),
+      })
+      if (hasNew) {
+        // Mettre à jour le numéro + repasser en "à appeler"
+        await supabase.from('prospection_massive').update({
+          phone: wrongNumberNew.trim(), contacted: false, contacted_at: null,
+          prospection_status: 'a_appeler', prospection_notes: noteText, updated_at: new Date().toISOString(),
+        }).eq('siren', current.siren)
+        await supabase.from('clients').update({ contact_phone: wrongNumberNew.trim() }).eq('id', clientId)
+        toast.success('✅ Nouveau numéro enregistré — remis dans la file')
+      } else {
+        await supabase.from('prospection_massive').update({
+          contacted: true, contacted_at: new Date().toISOString(),
+          prospection_status: 'numero_errone', updated_at: new Date().toISOString(),
+        }).eq('siren', current.siren)
+        toast.success('❌ N° erroné — suivant')
+      }
+      loadDailyStats(); loadTodayCallbacks(); goNext(); await loadProspects()
+    } catch (error) {
+      toast.error('Erreur: ' + error.message)
+    } finally { setSaving(false) }
+  }
   const EMAIL_TEMPLATES = {
     suite_echange: {
       subject: (name) => 'Suite \u00e0 notre \u00e9change \u2013 formations sant\u00e9 & s\u00e9curit\u00e9',
@@ -1434,7 +1467,7 @@ export default function MarinePhoning() {
                       <PhoneOff className="w-7 h-7" />
                       <span className="text-sm">Pas de réponse</span>
                     </button>
-                    <button onClick={() => { handleQuickAction('wrong_number') }} disabled={saving}
+                    <button onClick={() => { setWrongNumberNew(''); setPhoningStep('wrong_number') }} disabled={saving}
                       className="flex flex-col items-center gap-2 px-4 py-5 bg-red-50 hover:bg-red-100 border-2 border-red-300 rounded-xl text-red-600 font-semibold transition-all hover:scale-[1.02]">
                       <XCircle className="w-7 h-7" />
                       <span className="text-sm">N° erroné</span>
@@ -1638,6 +1671,37 @@ export default function MarinePhoning() {
                     className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-50 font-semibold text-sm">
                     {saving ? <><Loader2 className="w-5 h-5 animate-spin" /> Envoi...</> : <><Send className="w-5 h-5" /> Passer la main & Suivant</>}
                   </button>
+                </div>
+              )}
+
+              {/* ═══ ÉTAPE : Numéro erroné — Saisir nouveau numéro ═══ */}
+              {phoningStep === 'wrong_number' && (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => setPhoningStep('initial')} className="p-1 hover:bg-gray-100 rounded"><ArrowLeft className="w-4 h-4 text-gray-400" /></button>
+                    <h3 className="font-semibold text-red-700 text-sm">❌ Numéro erroné — {current.name}</h3>
+                  </div>
+
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                    <p className="text-sm text-red-700 mb-2">Nouveau numéro trouvé ?</p>
+                    <input type="tel" value={wrongNumberNew} onChange={e => setWrongNumberNew(e.target.value)}
+                      placeholder="Ex: 02 98 12 34 56"
+                      className="w-full px-3 py-2 border border-red-200 rounded-lg text-sm focus:ring-2 focus:ring-red-400 focus:border-transparent" />
+                    {wrongNumberNew.trim().length > 0 && wrongNumberNew.trim().length < 6 && (
+                      <p className="text-xs text-red-500 mt-1">Numéro trop court</p>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <button onClick={handleWrongNumber} disabled={saving || (wrongNumberNew.trim().length > 0 && wrongNumberNew.trim().length < 6)}
+                      className={'w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-semibold text-sm transition-colors disabled:opacity-50 ' + (wrongNumberNew.trim().length >= 6 ? 'bg-green-600 text-white hover:bg-green-700' : 'bg-red-600 text-white hover:bg-red-700')}>
+                      {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : wrongNumberNew.trim().length >= 6 ? <><Phone className="w-4 h-4" /> Enregistrer & remettre dans la file</> : <><XCircle className="w-4 h-4" /> Marquer erroné & suivant</>}
+                    </button>
+                    <button onClick={() => setPhoningStep('initial')}
+                      className="w-full px-4 py-3 bg-gray-100 text-gray-600 rounded-xl font-semibold text-sm hover:bg-gray-200">
+                      Annuler
+                    </button>
+                  </div>
                 </div>
               )}
 
