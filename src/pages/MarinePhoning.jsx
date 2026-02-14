@@ -361,24 +361,24 @@ export default function MarinePhoning() {
       const found = []
       const myId = prospect.id
       if (prospect.siren) {
-        const { data } = await supabase.from('prospection_massive').select('id, name, city, departement, phone, prospection_status').eq('siren', prospect.siren).neq('id', myId).limit(20)
+        const { data } = await supabase.from('prospection_massive').select('id, name, city, departement, phone, prospection_status, contacted, contacted_at, prospection_notes').eq('siren', prospect.siren).neq('id', myId).limit(20)
         if (data) data.forEach(d => found.push({ ...d, reason: 'Même SIREN (groupe)' }))
       }
       if (prospect.phone) {
-        const { data } = await supabase.from('prospection_massive').select('id, name, city, departement, phone, prospection_status').eq('phone', prospect.phone).neq('id', myId).limit(10)
+        const { data } = await supabase.from('prospection_massive').select('id, name, city, departement, phone, prospection_status, contacted, contacted_at, prospection_notes').eq('phone', prospect.phone).neq('id', myId).limit(10)
         if (data) data.forEach(d => { if (!found.some(f => f.id === d.id)) found.push({ ...d, reason: 'Même téléphone' }) })
       }
       if (prospect.email) {
         const generic = ['contact@','info@','accueil@','reception@','secretariat@','administration@']
         if (!generic.some(g => prospect.email.toLowerCase().startsWith(g))) {
-          const { data } = await supabase.from('prospection_massive').select('id, name, city, departement, phone, prospection_status').eq('email', prospect.email).neq('id', myId).limit(10)
+          const { data } = await supabase.from('prospection_massive').select('id, name, city, departement, phone, prospection_status, contacted, contacted_at, prospection_notes').eq('email', prospect.email).neq('id', myId).limit(10)
           if (data) data.forEach(d => { if (!found.some(f => f.id === d.id)) found.push({ ...d, reason: 'Même email' }) })
         }
       }
       if (prospect.site_web) {
         const domain = prospect.site_web.replace(/^https?:\/\//,'').replace(/^www\./,'').split('/')[0].toLowerCase()
         if (domain && domain.includes('.')) {
-          const { data } = await supabase.from('prospection_massive').select('id, name, city, departement, phone, prospection_status').ilike('site_web', '%' + domain + '%').neq('id', myId).limit(10)
+          const { data } = await supabase.from('prospection_massive').select('id, name, city, departement, phone, prospection_status, contacted, contacted_at, prospection_notes').ilike('site_web', '%' + domain + '%').neq('id', myId).limit(10)
           if (data) data.forEach(d => { if (!found.some(f => f.id === d.id)) found.push({ ...d, reason: 'Même site web' }) })
         }
       }
@@ -1316,6 +1316,37 @@ export default function MarinePhoning() {
                 })()}
               </div>
 
+
+              {/* ═══ ALERTE GROUPE SIREN CONTACTÉ ═══ */}
+              {duplicates.some(d => d.contacted && ['rdv_pris','a_rappeler'].includes(d.prospection_status)) && (() => {
+                const hot = duplicates.filter(d => d.contacted && ['rdv_pris','a_rappeler'].includes(d.prospection_status))
+                const statusIcons = { rdv_pris: '✅ RDV pris', a_rappeler: '🔄 À rappeler' }
+                return (
+                  <div className="bg-green-50 border-2 border-green-400 rounded-lg px-3 py-2 animate-pulse">
+                    <p className="text-xs font-bold text-green-800 mb-1">🔔 Établissement(s) du même groupe déjà contacté(s) :</p>
+                    {hot.map((d, i) => (
+                      <p key={i} className="text-xs text-green-700">
+                        <span className="font-semibold">{d.name}</span> ({d.city}) — {statusIcons[d.prospection_status] || d.prospection_status}
+                        {d.contacted_at && <span className="text-green-600"> le {new Date(d.contacted_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}</span>}
+                        {d.prospection_notes && <span className="text-green-600 italic"> — {d.prospection_notes.substring(0, 80)}</span>}
+                      </p>
+                    ))}
+                  </div>
+                )
+              })()}
+              {duplicates.some(d => d.contacted && d.prospection_status === 'pas_interesse') && !duplicates.some(d => d.contacted && ['rdv_pris','a_rappeler'].includes(d.prospection_status)) && (() => {
+                const cold = duplicates.filter(d => d.contacted && d.prospection_status === 'pas_interesse')
+                return (
+                  <div className="bg-red-50 border border-red-300 rounded-lg px-3 py-2">
+                    <p className="text-xs text-red-700">
+                      ❄️ <span className="font-semibold">{cold[0].name}</span> ({cold[0].city}) — Pas intéressé
+                      {cold[0].contacted_at && <span> le {new Date(cold[0].contacted_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}</span>}
+                      {cold.length > 1 && <span> (+{cold.length - 1} autre{cold.length > 2 ? 's' : ''})</span>}
+                    </p>
+                  </div>
+                )
+              })()}
+
               {/* Téléphone — éditable */}
               {editingPhone ? (
                 <div className="flex items-center gap-2">
@@ -1450,12 +1481,20 @@ export default function MarinePhoning() {
                   <button type="button" onClick={() => setShowDuplicates(!showDuplicates)} className="flex items-center gap-2 text-amber-700 font-medium text-sm w-full">
                     <AlertTriangle className="w-4 h-4" /><span>Similaires ({duplicates.length})</span><span className="ml-auto text-amber-500">{showDuplicates ? '▲' : '▼'}</span>
                   </button>
-                  {showDuplicates && <div className="space-y-1 mt-2 pt-2 border-t border-amber-200">{duplicates.map((d, i) => {
-                    const sl = d.prospection_status === 'rdv_pris' ? '✅' : d.prospection_status === 'a_rappeler' ? '🔄' : d.prospection_status === 'pas_interesse' ? '❌' : '⬜'
-                    return <div key={i} className="text-xs text-amber-800 flex items-center gap-2 flex-wrap"><span className="font-medium">{d.name}</span><span className="text-amber-600">({d.city})</span><span className="bg-amber-100 px-1.5 py-0.5 rounded">{d.reason}</span><span>{sl}</span></div>
+                  {showDuplicates && <div className="space-y-1.5 mt-2 pt-2 border-t border-amber-200">{duplicates.map((d, i) => {
+                    const sl = { rdv_pris: { icon: '✅ RDV pris', cls: 'bg-green-100 text-green-700' }, a_rappeler: { icon: '🔄 À rappeler', cls: 'bg-orange-100 text-orange-700' }, pas_interesse: { icon: '❌ Refus', cls: 'bg-red-100 text-red-700' }, numero_errone: { icon: '❌ N° erroné', cls: 'bg-purple-100 text-purple-700' } }
+                    const st = sl[d.prospection_status] || { icon: d.contacted ? '📞 Contacté' : '⬜ Non contacté', cls: 'bg-gray-100 text-gray-600' }
+                    return <div key={i} className="text-xs text-amber-800 flex items-center gap-1.5 flex-wrap">
+                      <span className="font-semibold">{d.name}</span>
+                      <span className="text-amber-600">({d.city})</span>
+                      <span className={'px-1.5 py-0.5 rounded text-[10px] font-medium ' + st.cls}>{st.icon}</span>
+                      {d.contacted_at && <span className="text-amber-500">{new Date(d.contacted_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}</span>}
+                      {d.prospection_notes && <span className="text-amber-500 italic truncate max-w-[200px]">{d.prospection_notes}</span>}
+                    </div>
                   })}</div>}
                 </div>
               )}
+
 
               {/* Résumé IA */}
               <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
