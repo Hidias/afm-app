@@ -325,7 +325,7 @@ export default function MarinePhoning() {
     setCurrent(prospect)
     setContactName('')
     setContactFunction('Dirigeant')
-    setContactEmail(prospect.email || '')
+    setContactEmail(prospect.email || prospect.contact_email || '')
     setContactMobile('')
     setFormationsSelected([])
     setNotes('')
@@ -1400,7 +1400,7 @@ export default function MarinePhoning() {
               <div className="flex items-center gap-2">
                 <div className="flex-1 relative">
                   <Mail className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
-                  <input type="email" value={contactEmail || current.email || ''} onChange={e => setContactEmail(e.target.value)}
+                  <input type="email" value={contactEmail} onChange={e => setContactEmail(e.target.value)}
                     onBlur={async (e) => {
                       const val = e.target.value.trim()
                       if (val && val !== current.email && current.siren) {
@@ -1412,13 +1412,28 @@ export default function MarinePhoning() {
                     placeholder="email@entreprise.fr"
                     className="w-full pl-8 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
                 </div>
-                <button onClick={() => openEmailModal(current, (contactEmail || current.email) ? 'suite_echange' : 'nrp', false)}
-                  disabled={!contactEmail && !current.email}
+                <button onClick={() => openEmailModal(current, contactEmail ? 'suite_echange' : 'nrp', false)}
+                  disabled={!contactEmail}
                   title="Envoyer un email"
                   className="p-2 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
                   <Send className="w-4 h-4" />
                 </button>
               </div>
+              {current.siren && emailSentMap[current.siren] && (() => {
+                const em = emailSentMap[current.siren]
+                const days = Math.floor((Date.now() - new Date(em.date).getTime()) / 86400000)
+                const tplLabels = { suite_echange: 'Suite \u00e9change', nrp: 'NRP', relance: 'Relance' }
+                return (
+                  <div className="flex items-center gap-2 text-xs px-2">
+                    <span className={days >= 7 && em.template !== 'relance' ? 'text-orange-500' : 'text-green-600'}>
+                      {days >= 7 && em.template !== 'relance' ? '\u2709\ufe0f' : '\u2705'} Email "{tplLabels[em.template] || em.template}" envoy\u00e9 il y a {days === 0 ? "aujourd'hui" : days === 1 ? 'hier' : days + 'j'}
+                    </span>
+                    {days >= 7 && em.template !== 'relance' && (
+                      <button onClick={() => openEmailModal(current, 'relance', false)} className="text-orange-600 hover:text-orange-800 font-medium underline">Relancer</button>
+                    )}
+                  </div>
+                )
+              })()}
 
               {/* Détecter OPCO */}
               {current.siret && !current.siret.startsWith('MANUAL_') && !current.opco_name && (
