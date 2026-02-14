@@ -11,6 +11,7 @@ import {
   Download, RefreshCw, Building2, GripVertical, Pen, Mail, Loader2, Paperclip,
   GraduationCap, Calendar, MapPin, Users
 } from 'lucide-react'
+import { money } from '../lib/utils'
 import { useNavigate } from 'react-router-dom'
 
 const STATUS_CONFIG = {
@@ -798,9 +799,7 @@ export default function Quotes() {
     })
   }, [quotes, search, statusFilter])
 
-  function money(val) {
-    return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(val || 0)
-  }
+  // money() → importé depuis ../lib/utils
 
   // ==================== RENDER ====================
   return (
