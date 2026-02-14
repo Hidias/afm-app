@@ -18,7 +18,6 @@ import Sessions from './pages/Sessions'
 import SessionDetail from './pages/SessionDetail'
 import Documents from './pages/Documents'
 import DocumentsVierges from './pages/DocumentsVierges'
-import Questionnaires from './pages/Questionnaires'
 import Settings from './pages/Settings'
 import VersionHistory from './pages/VersionHistory'
 import NonConformites from './pages/NonConformites'
@@ -45,7 +44,7 @@ import AdminImport from './pages/AdminImport'
 // ========== NOUVEAU : Configuration Email ==========
 import EmailSettings from './pages/EmailSettings'
 
-// Pages publiques (émargement, questionnaires)
+// Pages publiques
 import PublicAttendance from './pages/public/Attendance'
 import PublicQuestionnaire from './pages/public/Questionnaire'
 import PublicInfoSheet from './pages/public/InfoSheet'
@@ -167,7 +166,6 @@ export default function App() {
           <Route path="qualite" element={<QualiteEditables />} />
           <Route path="qualite/completude" element={<Completude />} />
           <Route path="tests-positionnement" element={<TestsPositionnement />} />
-          <Route path="questionnaires" element={<Questionnaires />} />
           <Route path="non-conformites" element={<NonConformites />} />
           <Route path="registre-psh" element={<RegistrePSH />} />
           <Route path="indicateurs" element={<Indicateurs />} />
