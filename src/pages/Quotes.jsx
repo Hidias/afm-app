@@ -1189,8 +1189,8 @@ export default function Quotes() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 space-y-6">
+        <div className="space-y-6">
+          <div className="space-y-6">
             {/* Client + Contact */}
             <div className="bg-white rounded-xl border border-gray-200 p-5">
               <h2 className="font-semibold text-gray-900 mb-4 flex items-center gap-2"><Building2 size={18} /> Client</h2>
@@ -1319,257 +1319,209 @@ export default function Quotes() {
               </div>
             </div>
 
-            {/* Line items */}
-            <div className="bg-white rounded-xl border border-gray-200 p-5">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="font-semibold text-gray-900">Lignes du devis</h2>
-                <div className="flex gap-2">
-                  <div className="relative group">
-                    <button className="text-sm px-3 py-1.5 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 transition-colors flex items-center gap-1">
-                      <Plus size={14} /> Depuis formation
-                    </button>
-                    <div className="absolute right-0 top-full mt-1 w-80 bg-white border border-gray-200 rounded-xl shadow-xl z-50 hidden group-hover:block max-h-64 overflow-y-auto">
-                      {courses.map(c => (
-                        <button key={c.id} onClick={() => addFromCourse(c)}
-                          className="w-full text-left px-4 py-2.5 hover:bg-gray-50 border-b border-gray-100 last:border-0">
-                          <p className="text-sm font-medium text-gray-800">{c.title}</p>
-                          <p className="text-xs text-gray-400">{c.code} · {c.price_ht ? money(c.price_ht) : 'Prix à définir'}</p>
-                        </button>
-                      ))}
-                    </div>
+
+            {/* Dates + Conditions + TVA — inline compact */}
+            <div className="bg-white rounded-xl border border-gray-200 p-4">
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Date devis</label>
+                  <input type="date" value={currentQuote.quote_date} onChange={(e) => handleDateChange(e.target.value)}
+                    className="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Validité</label>
+                  <input type="date" value={currentQuote.validity_date}
+                    onChange={(e) => setCurrentQuote(prev => ({ ...prev, validity_date: e.target.value }))}
+                    className="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Moyen de règlement</label>
+                  <select value={currentQuote.payment_method}
+                    onChange={(e) => setCurrentQuote(prev => ({ ...prev, payment_method: e.target.value }))}
+                    className="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-sm">
+                    {PAYMENT_METHODS.map(m => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Délai règlement</label>
+                  <select value={currentQuote.payment_terms}
+                    onChange={(e) => setCurrentQuote(prev => ({ ...prev, payment_terms: e.target.value }))}
+                    className="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-sm">
+                    {PAYMENT_TERMS.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">TVA</label>
+                  <div className="flex items-center gap-2">
+                    <input type="checkbox" checked={currentQuote.tva_applicable}
+                      onChange={(e) => setCurrentQuote(prev => ({ ...prev, tva_applicable: e.target.checked }))}
+                      className="rounded" id="tva-check" />
+                    {currentQuote.tva_applicable && (
+                      <input type="text" inputMode="decimal" value={currentQuote.tva_rate}
+                        onChange={(e) => setCurrentQuote(prev => ({ ...prev, tva_rate: e.target.value }))}
+                        className="w-16 px-2 py-1.5 border border-gray-200 rounded-lg text-sm text-center" />
+                    )}
+                    {currentQuote.tva_applicable && <span className="text-xs text-gray-400">%</span>}
+                    {!currentQuote.tva_applicable && <span className="text-xs text-gray-400">Non applicable</span>}
                   </div>
-                  <div className="relative group">
-                    <button className="text-sm px-3 py-1.5 bg-orange-50 text-orange-600 rounded-lg hover:bg-orange-100 transition-colors flex items-center gap-1">
-                      <Plus size={14} /> Matériel
-                    </button>
-                    <div className="absolute right-0 top-full mt-1 w-80 bg-white border border-gray-200 rounded-xl shadow-xl z-50 hidden group-hover:block">
-                      {predefinedMaterials.map((mat, i) => (
-                        <button key={i} onClick={() => addFromMaterial(mat)}
-                          className="w-full text-left px-4 py-2.5 hover:bg-orange-50 border-b border-gray-100 last:border-0">
-                          <p className="text-sm font-medium text-gray-800">{mat.description_title}</p>
-                          <p className="text-xs text-gray-400">{mat.code} · {mat.description_detail} · {money(mat.unit_price_ht)}</p>
-                        </button>
-                      ))}
-                    </div>
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Remise</label>
+                  <div className="flex items-center gap-1">
+                    <input type="text" inputMode="decimal" value={currentQuote.discount_percent}
+                      onChange={(e) => setCurrentQuote(prev => ({ ...prev, discount_percent: e.target.value }))}
+                      className="w-16 px-2 py-1.5 border border-gray-200 rounded-lg text-sm text-center" />
+                    <span className="text-xs text-gray-400">%</span>
+                    {parseFloat(currentQuote.discount_percent) > 0 && (
+                      <input type="text" value={currentQuote.discount_label}
+                        onChange={(e) => setCurrentQuote(prev => ({ ...prev, discount_label: e.target.value }))}
+                        placeholder="Libellé"
+                        className="flex-1 px-2 py-1.5 border border-gray-200 rounded-lg text-sm" />
+                    )}
                   </div>
-                  <button onClick={addItem}
-                    className="text-sm px-3 py-1.5 bg-primary-50 text-primary-600 rounded-lg hover:bg-primary-100 transition-colors flex items-center gap-1">
-                    <Plus size={14} /> Ligne libre
-                  </button>
                 </div>
               </div>
-              <div className="space-y-3">
+            </div>
+
+            {/* Line items — compact */}
+            <div className="bg-white rounded-xl border border-gray-200 p-5">
+              <h2 className="font-semibold text-gray-900 mb-3">Lignes du devis</h2>
+              <div className="space-y-2">
                 {items.map((item, idx) => (
-                  <div key={idx} className="border border-gray-100 rounded-lg p-4 bg-gray-50">
-                    <div className="grid grid-cols-12 gap-3">
-                      <div className="col-span-2">
-                        <label className="block text-xs text-gray-500 mb-1">Code</label>
-                        <input type="text" value={item.code} onChange={(e) => updateItem(idx, 'code', e.target.value)}
-                          placeholder="B0H0FIA" className="w-full px-2 py-1.5 border border-gray-200 rounded text-sm" />
+                  <div key={idx} className="border border-gray-100 rounded-lg p-3 bg-gray-50">
+                    {/* Row 1: Code + Title + Description inline */}
+                    <div className="flex items-start gap-2 mb-2">
+                      <input type="text" value={item.code} onChange={(e) => updateItem(idx, 'code', e.target.value)}
+                        placeholder="Code" className="w-24 px-2 py-1.5 border border-gray-200 rounded text-xs font-mono flex-shrink-0" />
+                      <input type="text" value={item.description_title} onChange={(e) => updateItem(idx, 'description_title', e.target.value)}
+                        placeholder="Titre de la ligne *"
+                        className="flex-1 px-2 py-1.5 border border-gray-200 rounded text-sm font-medium" />
+                      <button onClick={() => removeItem(idx)}
+                        className="p-1.5 text-gray-300 hover:text-red-500 transition-colors flex-shrink-0"><Trash2 size={14} /></button>
+                    </div>
+                    {/* Row 2: Description (collapsible — shown if has content or on focus) */}
+                    <input type="text" value={item.description_detail} onChange={(e) => updateItem(idx, 'description_detail', e.target.value)}
+                      placeholder="Description détaillée (optionnel)"
+                      className="w-full px-2 py-1 border border-gray-200 rounded text-xs text-gray-600 mb-2" />
+                    {/* Row 3: Qté + Unité + PU HT + TVA% + Total = tout sur une ligne */}
+                    <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1">
+                        <label className="text-[10px] text-gray-400 whitespace-nowrap">Qté</label>
+                        <input type="text" inputMode="decimal" value={item.quantity} onChange={(e) => updateItem(idx, 'quantity', e.target.value)}
+                          className="w-14 px-2 py-1 border border-gray-200 rounded text-sm text-center" />
                       </div>
-                      <div className="col-span-10">
-                        <label className="block text-xs text-gray-500 mb-1">Titre *</label>
-                        <input type="text" value={item.description_title} onChange={(e) => updateItem(idx, 'description_title', e.target.value)}
-                          placeholder="Formation initiale B0H0 en Intra 7 heures :"
-                          className="w-full px-2 py-1.5 border border-gray-200 rounded text-sm font-medium" />
-                      </div>
-                      <div className="col-span-12">
-                        <label className="block text-xs text-gray-500 mb-1">Description</label>
-                        <textarea value={item.description_detail} onChange={(e) => updateItem(idx, 'description_detail', e.target.value)}
-                          rows={2} placeholder="Formation initiale à la préparation à l'habilitation électrique en Intra (7 heures)"
-                          className="w-full px-2 py-1.5 border border-gray-200 rounded text-sm resize-none" />
-                      </div>
-                      <div className="col-span-2">
-                        <label className="block text-xs text-gray-500 mb-1">Qté</label>
-                        <input type="number" step="0.01" min="0" value={item.quantity}
-                          onChange={(e) => updateItem(idx, 'quantity', e.target.value)}
-                          className="w-full px-2 py-1.5 border border-gray-200 rounded text-sm text-right" />
-                      </div>
-                      <div className="col-span-2">
-                        <label className="block text-xs text-gray-500 mb-1">Unité</label>
+                      <div className="flex items-center gap-1">
+                        <label className="text-[10px] text-gray-400">Unité</label>
                         <input type="text" value={item.unit} onChange={(e) => updateItem(idx, 'unit', e.target.value)}
-                          className="w-full px-2 py-1.5 border border-gray-200 rounded text-sm" />
+                          className="w-16 px-2 py-1 border border-gray-200 rounded text-sm" />
                       </div>
-                      <div className="col-span-3">
-                        <label className="block text-xs text-gray-500 mb-1">PU HT (€)</label>
-                        <input type="number" step="0.01" min="0" value={item.unit_price_ht}
-                          onChange={(e) => updateItem(idx, 'unit_price_ht', e.target.value)}
-                          className="w-full px-2 py-1.5 border border-gray-200 rounded text-sm text-right" />
+                      <div className="flex items-center gap-1">
+                        <label className="text-[10px] text-gray-400">PU HT</label>
+                        <input type="text" inputMode="decimal" value={item.unit_price_ht} onChange={(e) => updateItem(idx, 'unit_price_ht', e.target.value)}
+                          className="w-20 px-2 py-1 border border-gray-200 rounded text-sm text-right" />
                       </div>
-                      <div className="col-span-2">
-                        <label className="block text-xs text-gray-500 mb-1">TVA %</label>
-                        <input type="number" step="0.01" value={item.tva_rate}
-                          onChange={(e) => updateItem(idx, 'tva_rate', e.target.value)}
-                          className="w-full px-2 py-1.5 border border-gray-200 rounded text-sm text-right" />
+                      <div className="flex items-center gap-1">
+                        <label className="text-[10px] text-gray-400">TVA%</label>
+                        <input type="text" inputMode="decimal" value={item.tva_rate} onChange={(e) => updateItem(idx, 'tva_rate', e.target.value)}
+                          className="w-14 px-2 py-1 border border-gray-200 rounded text-sm text-center" />
                       </div>
-                      <div className="col-span-3 flex items-end justify-between">
-                        <div>
-                          <label className="block text-xs text-gray-500 mb-1">Total HT</label>
-                          <p className="text-sm font-semibold text-gray-900 py-1.5">{money(calcItemTotal(item))}</p>
-                        </div>
-                        <button onClick={() => removeItem(idx)}
-                          className="p-1.5 text-gray-300 hover:text-red-500 transition-colors mb-1"><Trash2 size={16} /></button>
+                      <div className="ml-auto text-right">
+                        <span className="text-sm font-semibold text-gray-900">{money(calcItemTotal(item))}</span>
                       </div>
                     </div>
                   </div>
                 ))}
               </div>
+              {/* Add buttons — always at bottom after lines */}
+              <div className="flex gap-2 mt-3 pt-3 border-t border-gray-100">
+                <div className="relative group">
+                  <button className="text-sm px-3 py-1.5 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 transition-colors flex items-center gap-1">
+                    <Plus size={14} /> Depuis formation
+                  </button>
+                  <div className="absolute left-0 top-full mt-1 w-80 bg-white border border-gray-200 rounded-xl shadow-xl z-50 hidden group-hover:block max-h-64 overflow-y-auto">
+                    {courses.map(c => (
+                      <button key={c.id} onClick={() => addFromCourse(c)}
+                        className="w-full text-left px-4 py-2.5 hover:bg-gray-50 border-b border-gray-100 last:border-0">
+                        <p className="text-sm font-medium text-gray-800">{c.title}</p>
+                        <p className="text-xs text-gray-400">{c.code} · {c.price_ht ? money(c.price_ht) : 'Prix à définir'}</p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="relative group">
+                  <button className="text-sm px-3 py-1.5 bg-orange-50 text-orange-600 rounded-lg hover:bg-orange-100 transition-colors flex items-center gap-1">
+                    <Plus size={14} /> Matériel
+                  </button>
+                  <div className="absolute left-0 top-full mt-1 w-80 bg-white border border-gray-200 rounded-xl shadow-xl z-50 hidden group-hover:block">
+                    {predefinedMaterials.map((mat, i) => (
+                      <button key={i} onClick={() => addFromMaterial(mat)}
+                        className="w-full text-left px-4 py-2.5 hover:bg-orange-50 border-b border-gray-100 last:border-0">
+                        <p className="text-sm font-medium text-gray-800">{mat.description_title}</p>
+                        <p className="text-xs text-gray-400">{mat.code} · {mat.description_detail} · {money(mat.unit_price_ht)}</p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <button onClick={addItem}
+                  className="text-sm px-3 py-1.5 bg-primary-50 text-primary-600 rounded-lg hover:bg-primary-100 transition-colors flex items-center gap-1">
+                  <Plus size={14} /> Ligne libre
+                </button>
+              </div>
               {/* Totals */}
-              <div className="mt-6 flex justify-end">
-                <div className="w-80 space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-500">Montant total HT</span>
+              <div className="mt-4 pt-4 border-t border-gray-200 flex justify-end">
+                <div className="w-72 space-y-1.5 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Total HT</span>
                     <span className="font-medium">{money(totals.subtotalHt)}</span>
                   </div>
                   {parseFloat(currentQuote.discount_percent) > 0 && (
                     <>
-                      <div className="flex justify-between text-sm text-orange-600">
-                        <span>Réduction HT ({currentQuote.discount_percent}%){currentQuote.discount_label ? ` — ${currentQuote.discount_label}` : ''}</span>
+                      <div className="flex justify-between text-orange-600">
+                        <span>Remise {currentQuote.discount_percent}%{currentQuote.discount_label ? ` (${currentQuote.discount_label})` : ''}</span>
                         <span>-{money(totals.discountAmount)}</span>
                       </div>
-                      <div className="flex justify-between text-sm border-t pt-1">
-                        <span className="text-gray-500">Total net après réduction</span>
+                      <div className="flex justify-between border-t pt-1">
+                        <span className="text-gray-500">Net HT</span>
                         <span className="font-medium">{money(totals.totalHt)}</span>
                       </div>
                     </>
                   )}
-                  <div className="border-t pt-2">
-                    <div className="flex justify-between text-sm font-semibold">
-                      <span>Total net HT</span><span>{money(totals.totalHt)}</span>
-                    </div>
-                  </div>
                   {currentQuote.tva_applicable ? (
-                    <div className="flex justify-between text-sm">
+                    <div className="flex justify-between">
                       <span className="text-gray-500">TVA {currentQuote.tva_rate}%</span>
                       <span>{money(totals.totalTva)}</span>
                     </div>
                   ) : (
                     <div className="text-xs text-gray-400 italic">TVA non applicable (art. 261 CGI)</div>
                   )}
-                  <div className="flex justify-between text-lg font-bold border-t pt-2 text-primary-700">
-                    <span>Montant total TTC</span><span>{money(totals.totalTtc)}</span>
+                  <div className="flex justify-between text-base font-bold border-t pt-2 text-primary-700">
+                    <span>Total TTC</span><span>{money(totals.totalTtc)}</span>
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* Notes */}
-            <div className="bg-white rounded-xl border border-gray-200 p-5">
-              <label className="block text-sm font-medium text-gray-700 mb-2">Notes</label>
-              <textarea value={currentQuote.notes}
-                onChange={(e) => setCurrentQuote(prev => ({ ...prev, notes: e.target.value }))}
-                rows={3} placeholder="Notes visibles sur le devis (ex: 5% remise BNI)"
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm resize-none focus:ring-2 focus:ring-primary-500" />
-            </div>
-
-            {/* Signature pad */}
-            <div className="bg-white rounded-xl border border-gray-200 p-5">
-              <h2 className="font-semibold text-gray-900 mb-2 flex items-center gap-2"><Pen size={16} /> Signature client</h2>
-              <p className="text-xs text-gray-400 mb-3">
-                Signature précédée de la mention "Lu et approuvé, bon pour accord". Laissez vide pour imprimer avec zone de signature.
-              </p>
-              <SignaturePad
-                value={currentQuote.signature_base64}
-                onChange={(data) => setCurrentQuote(prev => ({ ...prev, signature_base64: data }))}
-                onClear={() => setCurrentQuote(prev => ({ ...prev, signature_base64: null }))}
-              />
-            </div>
-          </div>
-
-          {/* RIGHT: Sidebar */}
-          <div className="space-y-6">
-            <div className="bg-white rounded-xl border border-gray-200 p-5">
-              <h2 className="font-semibold text-gray-900 mb-4">📅 Dates</h2>
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Date du devis</label>
-                  <input type="date" value={currentQuote.quote_date} onChange={(e) => handleDateChange(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Date de validité</label>
-                  <input type="date" value={currentQuote.validity_date}
-                    onChange={(e) => setCurrentQuote(prev => ({ ...prev, validity_date: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
-                </div>
+            {/* Notes + Signature — side by side */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="bg-white rounded-xl border border-gray-200 p-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">Notes</label>
+                <textarea value={currentQuote.notes}
+                  onChange={(e) => setCurrentQuote(prev => ({ ...prev, notes: e.target.value }))}
+                  rows={3} placeholder="Notes visibles sur le devis (ex: 5% remise BNI)"
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm resize-none focus:ring-2 focus:ring-primary-500" />
+              </div>
+              <div className="bg-white rounded-xl border border-gray-200 p-4">
+                <h2 className="font-semibold text-gray-900 mb-2 flex items-center gap-2"><Pen size={16} /> Signature client</h2>
+                <p className="text-xs text-gray-400 mb-2">
+                  Mention "Lu et approuvé, bon pour accord". Vide = zone de signature à imprimer.
+                </p>
+                <SignaturePad
+                  value={currentQuote.signature_base64}
+                  onChange={(data) => setCurrentQuote(prev => ({ ...prev, signature_base64: data }))}
+                  onClear={() => setCurrentQuote(prev => ({ ...prev, signature_base64: null }))}
+                />
               </div>
             </div>
-            <div className="bg-white rounded-xl border border-gray-200 p-5">
-              <h2 className="font-semibold text-gray-900 mb-4">💰 Conditions</h2>
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Moyen de règlement</label>
-                  <select value={currentQuote.payment_method}
-                    onChange={(e) => setCurrentQuote(prev => ({ ...prev, payment_method: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
-                    {PAYMENT_METHODS.map(m => <option key={m} value={m}>{m}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Délai de règlement</label>
-                  <select value={currentQuote.payment_terms}
-                    onChange={(e) => setCurrentQuote(prev => ({ ...prev, payment_terms: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
-                    {PAYMENT_TERMS.map(t => <option key={t} value={t}>{t}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Date limite de règlement</label>
-                  <input type="date" value={currentQuote.payment_deadline}
-                    onChange={(e) => setCurrentQuote(prev => ({ ...prev, payment_deadline: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
-                </div>
-              </div>
-            </div>
-            <div className="bg-white rounded-xl border border-gray-200 p-5">
-              <h2 className="font-semibold text-gray-900 mb-4">📊 TVA & Remise</h2>
-              <div className="space-y-3">
-                <div className="flex items-center gap-2">
-                  <input type="checkbox" checked={currentQuote.tva_applicable}
-                    onChange={(e) => setCurrentQuote(prev => ({ ...prev, tva_applicable: e.target.checked }))}
-                    className="rounded" id="tva-check" />
-                  <label htmlFor="tva-check" className="text-sm text-gray-700">TVA applicable</label>
-                </div>
-                {currentQuote.tva_applicable && (
-                  <div>
-                    <label className="block text-xs text-gray-500 mb-1">Taux TVA (%)</label>
-                    <input type="number" step="0.01" value={currentQuote.tva_rate}
-                      onChange={(e) => setCurrentQuote(prev => ({ ...prev, tva_rate: e.target.value }))}
-                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
-                  </div>
-                )}
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Remise globale (%)</label>
-                  <input type="number" step="0.01" min="0" max="100" value={currentQuote.discount_percent}
-                    onChange={(e) => setCurrentQuote(prev => ({ ...prev, discount_percent: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
-                </div>
-                {parseFloat(currentQuote.discount_percent) > 0 && (
-                  <div>
-                    <label className="block text-xs text-gray-500 mb-1">Libellé remise</label>
-                    <input type="text" value={currentQuote.discount_label}
-                      onChange={(e) => setCurrentQuote(prev => ({ ...prev, discount_label: e.target.value }))}
-                      placeholder="Ex: 5% remise BNI"
-                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
-                  </div>
-                )}
-              </div>
-            </div>
-            <div className="bg-gradient-to-br from-primary-50 to-blue-50 rounded-xl border border-primary-100 p-5">
-              <h2 className="font-semibold text-primary-800 mb-3">Récapitulatif</h2>
-              <div className="space-y-1.5 text-sm">
-                <div className="flex justify-between"><span className="text-gray-600">Lignes</span><span className="font-medium">{items.filter(i => i.description_title).length}</span></div>
-                <div className="flex justify-between"><span className="text-gray-600">Total HT</span><span className="font-medium">{money(totals.totalHt)}</span></div>
-                <div className="flex justify-between"><span className="text-gray-600">TVA</span><span className="font-medium">{money(totals.totalTva)}</span></div>
-                <div className="flex justify-between font-bold text-primary-700 text-base border-t pt-2 mt-2">
-                  <span>Total TTC</span><span>{money(totals.totalTtc)}</span>
-                </div>
-              </div>
-            </div>
-            <button onClick={downloadCurrentPDF} disabled={generatingPdf || !currentQuote.client_id}
-              className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-orange-500 text-white rounded-xl hover:bg-orange-600 transition-colors disabled:opacity-50 font-medium">
-              <Download size={18} /> {generatingPdf ? 'Génération...' : 'Télécharger le PDF'}
-            </button>
           </div>
         </div>
       </div>
