@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { useDataStore } from '../lib/store'
 import { supabase } from '../lib/supabase'
-import { Plus, Search, Edit, Trash2, X, Save, Building2, Mail, Phone, MapPin, User, Eye, Users, Upload, FileSpreadsheet, FileText, RefreshCw, CheckCircle, AlertCircle, Archive } from 'lucide-react'
+import { Plus, Search, Edit, Trash2, X, Save, Building2, Mail, Phone, MapPin, User, Eye, Users, Upload, FileSpreadsheet, FileText, RefreshCw, CheckCircle, AlertCircle, Archive, MoreVertical } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 // Formatage nom entreprise (majuscules)
@@ -283,7 +283,7 @@ const parseProspectText = (text) => {
 }
 
 // Modal de confirmation
-const ConfirmModal = ({ show, onConfirm, onCancel, message }) => {
+const ConfirmModal = ({ show, onConfirm, onCancel, message, description, confirmLabel = 'Confirmer', confirmColor = 'bg-red-600 hover:bg-red-700' }) => {
   if (!show) return null
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center">
@@ -294,13 +294,13 @@ const ConfirmModal = ({ show, onConfirm, onCancel, message }) => {
             <span className="text-accent-600 font-bold text-lg">C</span>
           </div>
           <div>
-            <p className="text-sm text-gray-500">Campus vous demande</p>
             <p className="text-gray-900 font-medium">{message}</p>
+            {description && <p className="text-sm text-gray-500 mt-1">{description}</p>}
           </div>
         </div>
         <div className="flex justify-end gap-2">
           <button onClick={onCancel} className="btn btn-secondary">Annuler</button>
-          <button onClick={onConfirm} className="btn bg-red-600 text-white hover:bg-red-700">Confirmer</button>
+          <button onClick={onConfirm} className={`btn text-white ${confirmColor}`}>{confirmLabel}</button>
         </div>
       </div>
     </div>
@@ -317,6 +317,9 @@ export default function Clients() {
   const [showPreview, setShowPreview] = useState(false)
   const [selectedClient, setSelectedClient] = useState(null)
   const [confirmDelete, setConfirmDelete] = useState(null)
+  const [confirmArchive, setConfirmArchive] = useState(null)
+  const [actionMenuId, setActionMenuId] = useState(null)
+  const actionMenuRef = useRef(null)
   const [contacts, setContacts] = useState([])
   const [importing, setImporting] = useState(false)
   const [importPreview, setImportPreview] = useState(null)
@@ -329,6 +332,14 @@ export default function Clients() {
   })
   
   useEffect(() => { fetchClients() }, [])
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (actionMenuRef.current && !actionMenuRef.current.contains(e.target)) setActionMenuId(null)
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
   
   const filtered = clients.filter(c => {
     const searchFields = `${c.name || ''} ${c.siret || ''} ${c.contact_name || ''} ${c.address || ''} ${c.email || ''} ${c.contact_email || ''}`.toLowerCase()
@@ -405,10 +416,12 @@ export default function Clients() {
     }
   }
 
-  const handleArchive = async (client) => {
-    const newStatus = client.status === 'archive' ? 'actif' : 'archive'
-    await supabase.from('clients').update({ status: newStatus, updated_at: new Date().toISOString() }).eq('id', client.id)
+  const handleArchive = async () => {
+    if (!confirmArchive) return
+    const newStatus = confirmArchive.status === 'archive' ? 'actif' : 'archive'
+    await supabase.from('clients').update({ status: newStatus, updated_at: new Date().toISOString() }).eq('id', confirmArchive.id)
     toast.success(newStatus === 'archive' ? 'Client archivé' : 'Client restauré')
+    setConfirmArchive(null)
     fetchClients()
   }
   
@@ -732,7 +745,7 @@ export default function Clients() {
                 { key: null, label: 'Contact', cls: 'px-2 py-3 text-left hidden md:table-cell' },
                 { key: null, label: 'Tél', cls: 'px-2 py-3 text-left hidden md:table-cell' },
                 { key: 'updated_at', label: 'Modifié', cls: 'px-2 py-3 text-left hidden xl:table-cell' },
-                { key: null, label: '', cls: 'px-4 py-3 w-24' },
+                { key: null, label: '', cls: 'px-4 py-3 w-12' },
               ].map(col => (
                 <th key={col.label || 'actions'} className={col.cls + (col.key ? ' cursor-pointer hover:text-gray-700 select-none' : '')}
                   onClick={() => col.key && (sortField === col.key ? setSortDir(d => d === 'asc' ? 'desc' : 'asc') : (setSortField(col.key), setSortDir('asc')))}>
@@ -775,19 +788,32 @@ export default function Clients() {
                     {client.updated_at && new Date(client.updated_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
                   </td>
                   <td className="px-4 py-3">
-                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <Link to={`/clients/${client.id}`} className="p-1.5 text-gray-400 hover:text-primary-600 hover:bg-gray-100 rounded" title="Voir la fiche">
-                        <Eye className="w-4 h-4" />
-                      </Link>
-                      <button onClick={() => openForm(client)} className="p-1.5 text-gray-400 hover:text-primary-600 hover:bg-gray-100 rounded" title="Modifier">
-                        <Edit className="w-4 h-4" />
+                    <div className="relative">
+                      <button onClick={(e) => { e.stopPropagation(); setActionMenuId(actionMenuId === client.id ? null : client.id) }}
+                        className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded opacity-0 group-hover:opacity-100 transition-opacity">
+                        <MoreVertical className="w-4 h-4" />
                       </button>
-                      <button onClick={() => handleArchive(client)} className="p-1.5 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded" title={client.status === 'archive' ? 'Restaurer' : 'Archiver'}>
-                        <Archive className="w-4 h-4" />
-                      </button>
-                      <button onClick={() => handleDeleteClick(client)} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded" title="Supprimer">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      {actionMenuId === client.id && (
+                        <div ref={actionMenuRef} className="absolute right-0 top-8 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-50 min-w-[180px]">
+                          <Link to={`/clients/${client.id}`}
+                            className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 w-full">
+                            <Eye className="w-4 h-4 text-gray-400" /> Voir la fiche
+                          </Link>
+                          <button onClick={() => { setActionMenuId(null); openForm(client) }}
+                            className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 w-full text-left">
+                            <Edit className="w-4 h-4 text-gray-400" /> Modifier
+                          </button>
+                          <div className="border-t border-gray-100 my-1" />
+                          <button onClick={() => { setActionMenuId(null); setConfirmArchive(client) }}
+                            className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-amber-50 w-full text-left">
+                            <Archive className="w-4 h-4 text-amber-500" /> {client.status === 'archive' ? 'Restaurer' : 'Archiver'}
+                          </button>
+                          <button onClick={() => { setActionMenuId(null); setConfirmDelete(client) }}
+                            className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 w-full text-left">
+                            <Trash2 className="w-4 h-4" /> Supprimer
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -1191,7 +1217,17 @@ export default function Clients() {
         </div>
       )}
       
-      <ConfirmModal show={!!confirmDelete} message="Supprimer ce client ?" onConfirm={handleDelete} onCancel={() => setConfirmDelete(null)} />
+      <ConfirmModal show={!!confirmArchive}
+        message={confirmArchive?.status === 'archive' ? `Restaurer ${confirmArchive?.name} ?` : `Archiver ${confirmArchive?.name} ?`}
+        description={confirmArchive?.status === 'archive' ? 'Le client réapparaîtra dans la liste.' : 'Le client sera masqué de la liste principale.'}
+        confirmLabel={confirmArchive?.status === 'archive' ? 'Restaurer' : 'Archiver'}
+        confirmColor={confirmArchive?.status === 'archive' ? 'bg-green-600 hover:bg-green-700' : 'bg-amber-600 hover:bg-amber-700'}
+        onConfirm={handleArchive} onCancel={() => setConfirmArchive(null)} />
+      <ConfirmModal show={!!confirmDelete}
+        message={`Supprimer ${confirmDelete?.name} ?`}
+        description="Cette action est irréversible. Les factures et sessions liées pourraient empêcher la suppression."
+        confirmLabel="Supprimer"
+        onConfirm={handleDelete} onCancel={() => setConfirmDelete(null)} />
     </div>
   )
 }
