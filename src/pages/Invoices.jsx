@@ -9,10 +9,7 @@ import {
   Plus, Search, FileText, Download, Send, Pencil, Trash2, X, ChevronLeft,
   CreditCard, AlertTriangle, CheckCircle, Clock, Ban, Copy, Receipt
 } from 'lucide-react'
-
-const money = (v) => parseFloat(v||0).toLocaleString('fr-FR',{style:'currency',currency:'EUR'})
-const calcItemTotal = (it) => (parseFloat(it.quantity)||0)*(parseFloat(it.unit_price_ht)||0)
-const fmtDateShort = (d) => { if(!d) return ''; try{return format(new Date(d),'dd/MM/yyyy')}catch{return ''} }
+import { money, fmtDate as fmtDateShort, calcLineTotal as calcItemTotal } from '../lib/utils'
 
 const STATUS_MAP = {
   draft:{label:'Brouillon',color:'gray',icon:FileText}, sent:{label:'Envoyée',color:'blue',icon:Send},
