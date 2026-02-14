@@ -1632,9 +1632,9 @@ export default function MarinePhoning() {
 
                   <textarea value={transferNote} onChange={e => setTransferNote(e.target.value)} placeholder="Précisions (ce qu'il a dit, numéro siège, nom du contact...)" rows="2"
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent" />
-                  {transferReason === '📝 Autre' && !transferNote.trim() && <p className="text-xs text-red-500">⚠️ Précise la raison dans le champ ci-dessus</p>}
+                  {transferReason && !transferNote.trim() && <p className="text-xs text-red-500">⚠️ Précise dans le champ ci-dessus</p>}
 
-                  <button onClick={handleTransfer} disabled={saving || !transferReason || (transferReason === '📝 Autre' && !transferNote.trim())}
+                  <button onClick={handleTransfer} disabled={saving || !transferReason || !transferNote.trim()}
                     className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-50 font-semibold text-sm">
                     {saving ? <><Loader2 className="w-5 h-5 animate-spin" /> Envoi...</> : <><Send className="w-5 h-5" /> Passer la main & Suivant</>}
                   </button>
