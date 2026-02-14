@@ -60,6 +60,7 @@ export default function ClientDetail() {
   // Timeline
   const [interactions, setInteractions] = useState([])
   const [phoningCalls, setPhoningCalls] = useState([])
+  const [emailLogs, setEmailLogs] = useState([])
   const [showInteractionForm, setShowInteractionForm] = useState(false)
   const [interactionForm, setInteractionForm] = useState({ type: 'call', title: '', content: '', author: 'Hicham' })
 
@@ -137,6 +138,8 @@ export default function ClientDetail() {
     setInteractions(manual || [])
     const { data: calls } = await supabase.from('prospect_calls').select('*').eq('client_id', id).order('called_at', { ascending: false })
     setPhoningCalls(calls || [])
+    const { data: emails } = await supabase.from('prospect_email_logs').select('*').eq('client_id', id).order('sent_at', { ascending: false })
+    setEmailLogs(emails || [])
   }
 
   async function loadFormations() {
@@ -320,6 +323,19 @@ export default function ClientDetail() {
           c.notes || ''
         ].filter(Boolean).join('\n'),
         author: c.called_by, date: c.called_at, source: 'phoning', deletable: false,
+      })
+    })
+    emailLogs.forEach(e => {
+      const tplLabels = { suite_echange: 'Suite \u00e9change', nrp: 'NRP', relance: 'Relance' }
+      items.push({
+        id: 'email-' + e.id, type: 'email',
+        title: '\u2709\ufe0f Email "' + (tplLabels[e.template_type] || e.template_type) + '" envoy\u00e9',
+        content: [
+          '\u00c0 : ' + e.to_email,
+          'Objet : ' + (e.subject || ''),
+          e.body_preview ? e.body_preview.substring(0, 150) + '...' : '',
+        ].filter(Boolean).join('\n'),
+        author: e.sent_by || 'Syst\u00e8me', date: e.sent_at, source: 'email', deletable: false,
       })
     })
     return items.sort((a, b) => new Date(b.date) - new Date(a.date))
@@ -674,6 +690,7 @@ export default function ClientDetail() {
                               <div className="flex items-center gap-2 flex-wrap">
                                 <span className="font-medium text-sm text-gray-900">{item.title}</span>
                                 {item.source === 'phoning' && <span className="text-[10px] bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded font-medium">Prospection</span>}
+                                {item.source === 'email' && <span className="text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded font-medium">Campus</span>}
                                 <span className="text-xs text-gray-400 ml-auto shrink-0">
                                   {item.author && <span className="font-medium text-gray-500">{item.author}</span>}
                                   {item.author && ' · '}
