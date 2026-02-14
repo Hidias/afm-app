@@ -959,7 +959,8 @@ export default function Clients() {
                       { value: 'prospect', label: '🎯 Prospect', active: 'bg-orange-500 text-white', inactive: 'bg-orange-50 text-orange-700 hover:bg-orange-100' },
                       { value: 'en_discussion', label: '💬 En discussion', active: 'bg-blue-500 text-white', inactive: 'bg-blue-50 text-blue-700 hover:bg-blue-100' },
                       { value: 'actif', label: '✓ Actif', active: 'bg-green-500 text-white', inactive: 'bg-green-50 text-green-700 hover:bg-green-100' },
-                      { value: 'a_completer', label: '📝 À compléter', active: 'bg-purple-500 text-white', inactive: 'bg-purple-50 text-purple-700 hover:bg-purple-100' }
+                      { value: 'a_completer', label: '📝 À compléter', active: 'bg-purple-500 text-white', inactive: 'bg-purple-50 text-purple-700 hover:bg-purple-100' },
+                      { value: 'archive', label: '📦 Archivé', active: 'bg-gray-500 text-white', inactive: 'bg-gray-50 text-gray-500 hover:bg-gray-100' }
                     ].map(s => (
                       <button key={s.value} type="button" onClick={() => setForm({...form, status: s.value})}
                         className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${form.status === s.value ? s.active : s.inactive}`}>
