@@ -1109,14 +1109,14 @@ export default function Quotes() {
             <div className="bg-white rounded-xl border p-4">
               <div className="flex justify-end">
                 <div className="w-64 space-y-1.5 text-sm">
-                  <div className="flex justify-between"><span className="text-gray-500">Total HT</span><span className="font-medium">{money(totals.totalHT)}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Total HT</span><span className="font-medium">{money(totals.totalHt)}</span></div>
                   {currentQuote.discount_percent > 0 && (
                     <div className="flex justify-between text-red-600"><span>Remise {currentQuote.discount_percent}%{currentQuote.discount_label ? ` (${currentQuote.discount_label})` : ''}</span><span>-{money(totals.discountAmount)}</span></div>
                   )}
                   {currentQuote.tva_applicable !== false && (
-                    <div className="flex justify-between"><span className="text-gray-500">TVA {currentQuote.tva_rate || 20}%</span><span>{money(totals.tva)}</span></div>
+                    <div className="flex justify-between"><span className="text-gray-500">TVA {currentQuote.tva_rate || 20}%</span><span>{money(totals.totalTva)}</span></div>
                   )}
-                  <div className="flex justify-between border-t pt-2 text-base font-bold"><span>Total TTC</span><span>{money(totals.totalTTC)}</span></div>
+                  <div className="flex justify-between border-t pt-2 text-base font-bold"><span>Total TTC</span><span>{money(totals.totalTtc)}</span></div>
                 </div>
               </div>
             </div>
