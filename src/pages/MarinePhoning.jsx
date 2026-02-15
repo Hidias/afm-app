@@ -1,11 +1,10 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuthStore } from '../lib/store'
 import { 
   Phone, CheckCircle, RefreshCw, SkipForward,
   Building2, MapPin, Mail, List, Search, Sparkles, Loader2, Map as MapIcon, Navigation, AlertTriangle,
-  Clock, PhoneOff, XCircle, Snowflake, Bell, Plus, Edit2, Briefcase, Send, ArrowLeft, MessageSquare, BarChart3, ChevronRight, X,
-  Mic, MicOff, Square, Brain, Settings, Volume2, Info, Pause, Play
+  Clock, PhoneOff, XCircle, Snowflake, Bell, Plus, Edit2, Briefcase, Send, ArrowLeft, MessageSquare, BarChart3, ChevronRight, X
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { MapContainer, TileLayer, CircleMarker, Circle, Popup, useMap } from 'react-leaflet'
@@ -238,21 +237,6 @@ export default function MarinePhoning() {
   const [showTodayCalls, setShowTodayCalls] = useState(false)
   const [todayCalls, setTodayCalls] = useState([])
 
-  // ─── Transcription vocale ────────────────────────────────
-  const [isRecording, setIsRecording] = useState(false)
-  const [isPaused, setIsPaused] = useState(false)
-  const [transcript, setTranscript] = useState('')
-  const [interimText, setInterimText] = useState('')
-  const [aiCallAnalysis, setAiCallAnalysis] = useState(null)
-  const [analyzingCall, setAnalyzingCall] = useState(false)
-  const [audioDevices, setAudioDevices] = useState([])
-  const [selectedAudioDevice, setSelectedAudioDevice] = useState('')
-  const [showAudioConfig, setShowAudioConfig] = useState(false)
-  const [speechSupported] = useState(() => 'SpeechRecognition' in window || 'webkitSpeechRecognition' in window)
-  const recognitionRef = useRef(null)
-  const mediaStreamRef = useRef(null)
-  const transcriptBoxRef = useRef(null)
-
   // Email prospect modal
   const [showEmailModal, setShowEmailModal] = useState(false)
   const [emailTo, setEmailTo] = useState('')
@@ -269,17 +253,12 @@ export default function MarinePhoning() {
   const listRef = useRef(null)
   const departements = [...new Set(prospects.map(p => p.departement))].filter(Boolean).sort()
 
-  useEffect(() => { loadProspects(); loadDailyStats(); loadTodayCallbacks(); loadAudioDevices() }, [])
+  useEffect(() => { loadProspects(); loadDailyStats(); loadTodayCallbacks() }, [])
 
   // Scroll en haut quand on change de filtre
   useEffect(() => {
     if (listRef.current) listRef.current.scrollTop = 0
   }, [statusFilter, departementFilter, effectifFilter, formeFilter, searchTerm])
-
-  // Auto-scroll transcription
-  useEffect(() => {
-    if (transcriptBoxRef.current) transcriptBoxRef.current.scrollTop = transcriptBoxRef.current.scrollHeight
-  }, [transcript, interimText])
 
   async function loadProspects() {
     setLoading(true)
@@ -340,141 +319,6 @@ export default function MarinePhoning() {
     return Math.round((Date.now() - prospectStartTime.current) / 1000)
   }
 
-  // ─── Audio & Transcription ─────────────────────────────────
-  async function loadAudioDevices() {
-    try {
-      await navigator.mediaDevices.getUserMedia({ audio: true })
-      const devices = await navigator.mediaDevices.enumerateDevices()
-      const inputs = devices.filter(d => d.kind === 'audioinput')
-      setAudioDevices(inputs)
-      const phoning = inputs.find(d => d.label.toLowerCase().includes('phoning') || d.label.toLowerCase().includes('agrégé') || d.label.toLowerCase().includes('aggregate'))
-      if (phoning) setSelectedAudioDevice(phoning.deviceId)
-      else if (inputs.length > 0) setSelectedAudioDevice(inputs[0].deviceId)
-    } catch {}
-  }
-
-  function stopTranscription() {
-    if (recognitionRef.current) {
-      recognitionRef.current.onend = null
-      recognitionRef.current.stop()
-      recognitionRef.current = null
-    }
-    if (mediaStreamRef.current) {
-      mediaStreamRef.current.getTracks().forEach(t => t.stop())
-      mediaStreamRef.current = null
-    }
-    setIsRecording(false)
-    setIsPaused(false)
-    setInterimText('')
-  }
-
-  async function startTranscription() {
-    if (!speechSupported) { toast.error('Utilisez Chrome pour la transcription.'); return }
-    try {
-      if (mediaStreamRef.current) mediaStreamRef.current.getTracks().forEach(t => t.stop())
-      const constraints = selectedAudioDevice ? { audio: { deviceId: { exact: selectedAudioDevice } } } : { audio: true }
-      mediaStreamRef.current = await navigator.mediaDevices.getUserMedia(constraints)
-    } catch { toast.error('Accès micro refusé'); return }
-
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
-    const recognition = new SpeechRecognition()
-    recognition.lang = 'fr-FR'
-    recognition.continuous = true
-    recognition.interimResults = true
-
-    recognition.onresult = (event) => {
-      let interim = '', final = ''
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const t = event.results[i][0].transcript
-        if (event.results[i].isFinal) final += t + ' '
-        else interim += t
-      }
-      if (final) setTranscript(prev => prev + final)
-      setInterimText(interim)
-    }
-    recognition.onerror = (event) => {
-      if (event.error === 'not-allowed') toast.error('Micro refusé. Cliquez 🔒 → Autoriser.')
-      else if (event.error !== 'no-speech' && event.error !== 'aborted') {
-        setTimeout(() => { if (recognitionRef.current) try { recognitionRef.current.start() } catch {} }, 500)
-      }
-    }
-    recognition.onend = () => {
-      if (recognitionRef.current && !isPaused) try { recognitionRef.current.start() } catch {}
-    }
-
-    recognitionRef.current = recognition
-    recognition.start()
-    setIsRecording(true)
-    setIsPaused(false)
-    setTranscript('')
-    setInterimText('')
-    setAiCallAnalysis(null)
-    toast.success('🎙️ Transcription démarrée')
-  }
-
-  function pauseTranscription() {
-    if (recognitionRef.current) { recognitionRef.current.onend = null; recognitionRef.current.stop() }
-    setIsPaused(true)
-  }
-
-  function resumeTranscription() {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
-    const r = new SR()
-    r.lang = 'fr-FR'; r.continuous = true; r.interimResults = true
-    r.onresult = (event) => {
-      let interim = '', final = ''
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const t = event.results[i][0].transcript
-        if (event.results[i].isFinal) final += t + ' '
-        else interim += t
-      }
-      if (final) setTranscript(prev => prev + final)
-      setInterimText(interim)
-    }
-    r.onend = () => { if (recognitionRef.current && !isPaused) try { recognitionRef.current.start() } catch {} }
-    recognitionRef.current = r
-    try { r.start(); setIsPaused(false) } catch {}
-  }
-
-  async function analyzeCallTranscript() {
-    const text = transcript.trim()
-    if (!text || text.length < 20) { toast.error('Transcription trop courte'); return }
-    setAnalyzingCall(true)
-    try {
-      const res = await fetch('/api/analyze-call', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          transcript: text,
-          client_name: current?.name || '',
-          contact_name: contactName || current?.contact_name || '',
-          context: current?.prospection_notes || ''
-        })
-      })
-      const data = await res.json()
-      if (data.success && data.analysis) {
-        setAiCallAnalysis(data.analysis)
-        // Pré-remplir depuis l'analyse
-        if (data.analysis.next_action && !notes) setNotes(data.analysis.next_action)
-        if (data.analysis.interlocuteur && !contactName) setContactName(data.analysis.interlocuteur)
-        if (data.analysis.formations_identifiees?.length > 0 && formationsSelected.length === 0) {
-          const matched = data.analysis.formations_identifiees.map(f => {
-            const fl = f.toLowerCase()
-            if (fl.includes('sst')) return 'SST / MAC SST'
-            if (fl.includes('incendie') || fl.includes('epi')) return 'Incendie / EPI / EvRP'
-            if (fl.includes('élect') || fl.includes('habil')) return 'Habilitation électrique'
-            if (fl.includes('conduit') || fl.includes('caces') || fl.includes('485') || fl.includes('489')) return 'Conduite d\'engins / R485 / R489'
-            return null
-          }).filter(Boolean)
-          if (matched.length > 0) setFormationsSelected(matched)
-        }
-        toast.success('Analyse terminée')
-      } else {
-        toast.error(data.error || 'Erreur analyse')
-      }
-    } catch { toast.error('Erreur analyse IA') }
-    finally { setAnalyzingCall(false) }
-  }
-
   function selectProspect(prospect) {
     prospectStartTime.current = Date.now() // Démarrer le chrono
     currentProspectRef.current = prospect.id
@@ -501,10 +345,6 @@ export default function MarinePhoning() {
     setTransferReason('')
     setTransferNote('')
     setNotInterestedTag('')
-    // Stop transcription si en cours
-    stopTranscription()
-    setTranscript('')
-    setAiCallAnalysis(null)
     // Pré-remplir résultat selon statut précédent
     if (prospect.prospection_status === 'a_rappeler') setCallResult('tiede')
     else if (prospect.prospection_status === 'rdv_pris') setCallResult('chaud')
@@ -643,7 +483,6 @@ export default function MarinePhoning() {
         notes: notes || null, rdv_created: createRdv, needs_callback: needsCallback,
         callback_date: needsCallback ? callbackDate : null, callback_time: needsCallback ? callbackTime : null,
         callback_reason: needsCallback ? callbackReason : null, duration_seconds: getElapsedSeconds(),
-        transcript: transcript.trim() || null, ai_analysis: aiCallAnalysis || null,
       }).select().single()
       if (callError) throw callError
 
@@ -1552,7 +1391,6 @@ export default function MarinePhoning() {
                         <span className="ml-auto text-xs opacity-50">{callHistory.length > 1 ? callHistory.length + ' appels' : '1 appel'} {showHistory ? '▲' : '▼'}</span>
                       </div>
                       {last.notes && <p className="text-xs mt-1 opacity-80 truncate">{last.notes}</p>}
-                      {last.ai_analysis?.resume && <p className="text-xs mt-0.5 opacity-80 truncate">🤖 {last.ai_analysis.resume}</p>}
                       {last.formations_mentioned && last.formations_mentioned.length > 0 && (
                         <p className="text-xs mt-0.5 opacity-70">🎓 {last.formations_mentioned.join(', ')}</p>
                       )}
@@ -1571,19 +1409,6 @@ export default function MarinePhoning() {
                             {call.contact_name && <div className="mt-0.5 opacity-80">👤 {call.contact_name}{call.contact_function ? ' — ' + call.contact_function : ''}{call.contact_email ? ' • ' + call.contact_email : ''}</div>}
                             {call.notes && <div className="mt-0.5 opacity-90">{call.notes}</div>}
                             {call.formations_mentioned && call.formations_mentioned.length > 0 && <div className="mt-0.5 opacity-70">🎓 {call.formations_mentioned.join(', ')}</div>}
-                            {call.ai_analysis?.resume && (
-                              <div className="mt-1 bg-purple-50 rounded p-1.5">
-                                <span className="text-purple-700 font-medium">🤖 IA :</span> {call.ai_analysis.resume}
-                                {call.ai_analysis.besoin && <div className="mt-0.5 text-green-700">🎯 {call.ai_analysis.besoin}</div>}
-                                {call.ai_analysis.objections && <div className="mt-0.5 text-red-700">⚠️ {call.ai_analysis.objections}</div>}
-                              </div>
-                            )}
-                            {call.transcript && (
-                              <details className="mt-1">
-                                <summary className="text-gray-400 cursor-pointer hover:text-gray-600">📝 Transcription ({call.transcript.split(/\s+/).length} mots)</summary>
-                                <div className="mt-1 bg-gray-50 rounded p-1.5 max-h-24 overflow-y-auto whitespace-pre-wrap text-gray-600">{call.transcript}</div>
-                              </details>
-                            )}
                           </div>
                         ))}
                       </div>
@@ -1695,126 +1520,6 @@ export default function MarinePhoning() {
           {/* DROITE : Formulaire stepped */}
           <div className="col-span-3 bg-white rounded-xl border overflow-y-auto">
             {current && <div className="p-4 space-y-4">
-
-              {/* ═══ BARRE TRANSCRIPTION ═══ */}
-              {speechSupported && (
-                <div className="bg-gray-50 rounded-lg border p-3 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      {!isRecording ? (
-                        <button onClick={startTranscription}
-                          className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded-lg text-xs font-medium transition-colors">
-                          <Mic className="w-3.5 h-3.5" /> Transcrire l'appel
-                        </button>
-                      ) : (
-                        <>
-                          <div className="flex items-center gap-1 px-2 py-1 bg-red-100 rounded-lg">
-                            <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-                            <span className="text-xs font-medium text-red-700">REC</span>
-                          </div>
-                          {!isPaused ? (
-                            <button onClick={pauseTranscription} className="p-1.5 hover:bg-gray-200 rounded text-gray-500" title="Pause">
-                              <Pause className="w-3.5 h-3.5" />
-                            </button>
-                          ) : (
-                            <button onClick={resumeTranscription} className="p-1.5 hover:bg-gray-200 rounded text-green-600" title="Reprendre">
-                              <Play className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                          <button onClick={() => { stopTranscription(); toast.success('Transcription terminée') }}
-                            className="p-1.5 hover:bg-gray-200 rounded text-gray-500" title="Arrêter">
-                            <Square className="w-3.5 h-3.5" />
-                          </button>
-                        </>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1">
-                      {transcript && !isRecording && (
-                        <button onClick={analyzeCallTranscript} disabled={analyzingCall}
-                          className="flex items-center gap-1 px-2 py-1 bg-purple-100 hover:bg-purple-200 text-purple-700 rounded text-xs font-medium">
-                          {analyzingCall ? <Loader2 className="w-3 h-3 animate-spin" /> : <Brain className="w-3 h-3" />}
-                          Analyser
-                        </button>
-                      )}
-                      <button onClick={() => setShowAudioConfig(!showAudioConfig)}
-                        className="p-1.5 hover:bg-gray-200 rounded text-gray-400" title="Config audio">
-                        <Settings className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Config audio */}
-                  {showAudioConfig && (
-                    <div className="bg-blue-50 rounded p-2 space-y-1">
-                      <div className="flex items-center gap-2">
-                        <select value={selectedAudioDevice} onChange={(e) => setSelectedAudioDevice(e.target.value)}
-                          className="flex-1 border rounded px-2 py-1 text-xs bg-white">
-                          {audioDevices.map(d => (
-                            <option key={d.deviceId} value={d.deviceId}>
-                              {d.label || 'Micro ' + d.deviceId.slice(0, 8)}
-                              {(d.label.toLowerCase().includes('phoning') || d.label.toLowerCase().includes('agrégé') || d.label.toLowerCase().includes('aggregate')) ? ' ✅' : ''}
-                            </option>
-                          ))}
-                        </select>
-                        <button onClick={loadAudioDevices} className="text-blue-500 hover:text-blue-700"><RefreshCw className="w-3 h-3" /></button>
-                      </div>
-                      <p className="text-xs text-blue-600"><Info className="w-3 h-3 inline" /> Sélectionnez "Phoning Micro" pour capter les 2 côtés.</p>
-                    </div>
-                  )}
-
-                  {/* Transcription en cours */}
-                  {(transcript || interimText || isRecording) && (
-                    <div ref={transcriptBoxRef} className="bg-white rounded p-2 max-h-32 overflow-y-auto text-xs leading-relaxed border">
-                      {!transcript && !interimText && isRecording && (
-                        <span className="text-gray-400 italic">En écoute...</span>
-                      )}
-                      {transcript && <span className="text-gray-700">{transcript}</span>}
-                      {interimText && <span className="text-blue-400 italic">{interimText}</span>}
-                    </div>
-                  )}
-
-                  {/* Édition post-appel */}
-                  {transcript && !isRecording && (
-                    <textarea className="w-full border rounded p-2 text-xs font-mono" rows={3}
-                      value={transcript} onChange={(e) => setTranscript(e.target.value)}
-                      placeholder="Corriger la transcription..." />
-                  )}
-
-                  {/* Résultat analyse IA */}
-                  {aiCallAnalysis && (
-                    <div className="space-y-1.5">
-                      {aiCallAnalysis.resume && (
-                        <div className="bg-purple-50 rounded p-2">
-                          <p className="text-xs font-medium text-purple-900">{aiCallAnalysis.resume}</p>
-                        </div>
-                      )}
-                      <div className="flex gap-1 flex-wrap">
-                        {aiCallAnalysis.temperature && (
-                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                            aiCallAnalysis.temperature === 'chaud' ? 'bg-red-100 text-red-800' :
-                            aiCallAnalysis.temperature === 'tiede' ? 'bg-amber-100 text-amber-800' :
-                            'bg-blue-100 text-blue-800'
-                          }`}>
-                            {aiCallAnalysis.temperature === 'chaud' ? '🔥 Chaud' : aiCallAnalysis.temperature === 'tiede' ? '🟡 Tiède' : '🥶 Froid'}
-                          </span>
-                        )}
-                        {aiCallAnalysis.formations_identifiees?.map((f, i) => (
-                          <span key={i} className="px-2 py-0.5 rounded bg-indigo-100 text-indigo-800 text-xs">🎓 {f}</span>
-                        ))}
-                        {aiCallAnalysis.opco_mentionne && (
-                          <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-800 text-xs">💼 {aiCallAnalysis.opco_mentionne}</span>
-                        )}
-                      </div>
-                      {aiCallAnalysis.besoin && (
-                        <p className="text-xs text-green-700">🎯 {aiCallAnalysis.besoin}</p>
-                      )}
-                      {aiCallAnalysis.objections && (
-                        <p className="text-xs text-red-700">⚠️ {aiCallAnalysis.objections}</p>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
 
               {/* Status reset pour prospects déjà marqués */}
               {current.prospection_status && !['a_appeler', null].includes(current.prospection_status) && (
