@@ -98,7 +98,7 @@ export default function DuerpProjects() {
   const [showCreate, setShowCreate] = useState(false)
   const [createStep, setCreateStep] = useState(1) // 1: client, 2: secteur, 3: confirm
   const [selectedClient, setSelectedClient] = useState(null)
-  const [selectedSector, setSelectedSector] = useState(null)
+  const [selectedSectors, setSelectedSectors] = useState([])
   const [clientSearch, setClientSearch] = useState('')
   const [apiSearch, setApiSearch] = useState('')
   const [apiResults, setApiResults] = useState([])
@@ -216,14 +216,17 @@ export default function DuerpProjects() {
     if (company.naf_code && sectors.length) {
       const prefix2 = company.naf_code.substring(0, 2)
       const match = sectors.find(s => s.naf_prefix === prefix2)
-      if (match) setSelectedSector(match)
+      if (match) setSelectedSectors([match])
     }
     setCreateStep(2)
   }
 
-  const selectSector = (sector) => {
-    setSelectedSector(sector)
-    setCreateStep(3)
+  const toggleSector = (sector) => {
+    setSelectedSectors(prev => {
+      const exists = prev.find(s => s.sector_code === sector.sector_code)
+      if (exists) return prev.filter(s => s.sector_code !== sector.sector_code)
+      return [...prev, sector]
+    })
   }
 
   const generateReference = () => {
@@ -235,7 +238,7 @@ export default function DuerpProjects() {
 
   const createProject = async () => {
     if (!newProject.company_name) return toast.error('Nom entreprise requis')
-    if (!selectedSector) return toast.error('Sélectionnez un secteur')
+    if (!selectedSectors.length) return toast.error('Sélectionnez au moins un secteur')
     
     setCreating(true)
     try {
@@ -244,7 +247,7 @@ export default function DuerpProjects() {
         .from('duerp_projects')
         .insert({
           ...newProject,
-          sector_template: selectedSector.sector_code,
+          sector_template: selectedSectors.map(s => s.sector_code).join(','),
           reference: ref,
           status: 'brouillon',
           date_elaboration: new Date().toISOString().split('T')[0],
@@ -256,10 +259,19 @@ export default function DuerpProjects() {
       
       if (error) throw error
 
-      // Créer les unités de travail par défaut
-      const defaultUnits = selectedSector.default_units || []
-      if (defaultUnits.length) {
-        const units = defaultUnits.map((u, i) => ({
+      // Fusionner les unités de travail de tous les secteurs (dédupliquées par code)
+      const allUnits = []
+      const seenCodes = new Set()
+      for (const sector of selectedSectors) {
+        for (const u of (sector.default_units || [])) {
+          if (!seenCodes.has(u.code)) {
+            seenCodes.add(u.code)
+            allUnits.push(u)
+          }
+        }
+      }
+      if (allUnits.length) {
+        const units = allUnits.map((u, i) => ({
           project_id: project.id,
           code: u.code,
           name: u.name,
@@ -268,9 +280,9 @@ export default function DuerpProjects() {
         await supabase.from('duerp_units').insert(units)
       }
 
-      // Créer les risques pré-remplis depuis les templates
-      const riskCodes = selectedSector.default_risk_codes || []
-      if (riskCodes.length) {
+      // Fusionner les catégories de risques de tous les secteurs (dédupliquées)
+      const allRiskCodes = [...new Set(selectedSectors.flatMap(s => s.default_risk_codes || []))]
+      if (allRiskCodes.length) {
         const { data: templates } = await supabase
           .from('duerp_risk_templates')
           .select('*')
@@ -315,7 +327,7 @@ export default function DuerpProjects() {
     setShowCreate(false)
     setCreateStep(1)
     setSelectedClient(null)
-    setSelectedSector(null)
+    setSelectedSectors([])
     setClientSearch('')
     setApiSearch('')
     setApiResults([])
@@ -520,7 +532,7 @@ export default function DuerpProjects() {
             const rc = riskCounts[p.id] || { total: 0, max: 0 }
             const ac = actionCounts[p.id] || { total: 0, done: 0 }
             const maxLevel = getRiskLevel(rc.max)
-            const sectorMatch = sectors.find(s => s.sector_code === p.sector_template)
+            const sectorLabels = (p.sector_template || '').split(',').map(code => sectors.find(s => s.sector_code === code.trim())?.sector_label).filter(Boolean)
 
             return (
               <div key={p.id} className="bg-white rounded-xl shadow-sm border hover:shadow-md transition group relative">
@@ -545,7 +557,7 @@ export default function DuerpProjects() {
                           </span>
                         )}
                         {p.siret && <span className="font-mono">{p.siret}</span>}
-                        {sectorMatch && <span className="text-amber-600">{sectorMatch.sector_label}</span>}
+                        {sectorLabels.length > 0 && <span className="text-amber-600">{sectorLabels.join(' + ')}</span>}
                         {p.effectif && <span>👥 {p.effectif}</span>}
                       </div>
                     </div>
@@ -754,7 +766,7 @@ export default function DuerpProjects() {
                   </div>
 
                   <p className="text-sm text-gray-600">
-                    Sélectionnez le secteur d'activité pour pré-remplir les risques et unités de travail.
+                    Sélectionnez un ou plusieurs secteurs d'activité pour pré-remplir les risques et unités.
                     {newProject.naf_code && (
                       <span className="ml-1 text-amber-600 font-medium">
                         (NAF détecté : {newProject.naf_code} — {newProject.naf_label})
@@ -765,9 +777,9 @@ export default function DuerpProjects() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     {sectors.map(s => {
                       const isAutoDetected = newProject.naf_code && s.naf_prefix === newProject.naf_code?.substring(0, 2)
-                      const isSelected = selectedSector?.sector_code === s.sector_code
+                      const isSelected = selectedSectors.some(sel => sel.sector_code === s.sector_code)
                       return (
-                        <button key={s.sector_code} onClick={() => selectSector(s)}
+                        <button key={s.sector_code} onClick={() => toggleSector(s)}
                           className={`text-left p-3 rounded-lg border-2 transition
                             ${isSelected ? 'border-amber-500 bg-amber-50' :
                               isAutoDetected ? 'border-amber-300 bg-amber-50/50' :
@@ -789,6 +801,16 @@ export default function DuerpProjects() {
                       )
                     })}
                   </div>
+                  {selectedSectors.length > 0 && (
+                    <div className="mt-3 p-3 bg-amber-50 rounded-lg border border-amber-200">
+                      <p className="text-sm text-amber-800 font-medium">
+                        {selectedSectors.length} secteur(s) : {selectedSectors.map(s => s.sector_label).join(' + ')}
+                      </p>
+                      <p className="text-xs text-amber-600 mt-1">
+                        {(() => { const seen = new Set(); selectedSectors.forEach(s => (s.default_units || []).forEach(u => seen.add(u.code))); return seen.size })()} unités • {[...new Set(selectedSectors.flatMap(s => s.default_risk_codes || []))].length} catégories de risques (fusionnés)
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -802,7 +824,7 @@ export default function DuerpProjects() {
                       <div><span className="text-gray-500">NAF :</span> {newProject.naf_code || '—'}</div>
                       <div><span className="text-gray-500">Ville :</span> {newProject.postal_code} {newProject.city || '—'}</div>
                       <div><span className="text-gray-500">Effectif :</span> {newProject.effectif || '—'}</div>
-                      <div className="col-span-2"><span className="text-gray-500">Secteur :</span> <span className="text-amber-700 font-medium">{selectedSector?.sector_label}</span></div>
+                      <div className="col-span-2"><span className="text-gray-500">Secteur(s) :</span> <span className="text-amber-700 font-medium">{selectedSectors.map(s => s.sector_label).join(' + ')}</span></div>
                     </div>
                   </div>
 
@@ -833,8 +855,8 @@ export default function DuerpProjects() {
                   <div className="bg-blue-50 rounded-lg p-3 text-sm text-blue-700">
                     <p className="font-medium mb-1">Ce qui sera créé automatiquement :</p>
                     <ul className="text-xs space-y-0.5 ml-4 list-disc">
-                      <li>{(selectedSector?.default_units || []).length} unités de travail pré-configurées</li>
-                      <li>Risques types du secteur « {selectedSector?.sector_label} » pré-chargés</li>
+                      <li>{(() => { const seen = new Set(); selectedSectors.forEach(s => (s.default_units || []).forEach(u => seen.add(u.code))); return seen.size })() } unités de travail pré-configurées</li>
+                      <li>Risques types des secteurs « {selectedSectors.map(s => s.sector_label).join(' + ')} » pré-chargés</li>
                       <li>Grille de cotation F×G avec maîtrise → risque résiduel</li>
                       {newProject.client_id && <li>Lié au client existant dans Access Formation</li>}
                     </ul>
@@ -853,10 +875,10 @@ export default function DuerpProjects() {
               {createStep < 3 ? (
                 <button onClick={() => {
                   if (createStep === 1 && !newProject.company_name) return toast.error('Sélectionnez une entreprise')
-                  if (createStep === 2 && !selectedSector) return toast.error('Sélectionnez un secteur')
+                  if (createStep === 2 && !selectedSectors.length) return toast.error('Sélectionnez au moins un secteur')
                   setCreateStep(createStep + 1)
                 }}
-                  disabled={createStep === 2 && !selectedSector}
+                  disabled={createStep === 2 && !selectedSectors.length}
                   className="px-6 py-2.5 bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-50 text-sm font-medium flex items-center gap-1">
                   Suivant <ArrowRight className="w-4 h-4" />
                 </button>
