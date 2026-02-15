@@ -709,6 +709,11 @@ export default function DuerpDetail() {
       }
     }
     toast.success(`${created} risque(s) + actions créé(s)`)
+    // Retirer ce manque de la liste pour qu'il disparaisse après ajout
+    setAiResult(prev => prev ? {
+      ...prev,
+      manques: (prev.manques || []).filter(m => m !== manque)
+    } : null)
     loadAll()
   }
 
