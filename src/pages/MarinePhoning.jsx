@@ -1552,6 +1552,7 @@ export default function MarinePhoning() {
                         <span className="ml-auto text-xs opacity-50">{callHistory.length > 1 ? callHistory.length + ' appels' : '1 appel'} {showHistory ? '▲' : '▼'}</span>
                       </div>
                       {last.notes && <p className="text-xs mt-1 opacity-80 truncate">{last.notes}</p>}
+                      {last.ai_analysis?.resume && <p className="text-xs mt-0.5 opacity-80 truncate">🤖 {last.ai_analysis.resume}</p>}
                       {last.formations_mentioned && last.formations_mentioned.length > 0 && (
                         <p className="text-xs mt-0.5 opacity-70">🎓 {last.formations_mentioned.join(', ')}</p>
                       )}
@@ -1570,6 +1571,19 @@ export default function MarinePhoning() {
                             {call.contact_name && <div className="mt-0.5 opacity-80">👤 {call.contact_name}{call.contact_function ? ' — ' + call.contact_function : ''}{call.contact_email ? ' • ' + call.contact_email : ''}</div>}
                             {call.notes && <div className="mt-0.5 opacity-90">{call.notes}</div>}
                             {call.formations_mentioned && call.formations_mentioned.length > 0 && <div className="mt-0.5 opacity-70">🎓 {call.formations_mentioned.join(', ')}</div>}
+                            {call.ai_analysis?.resume && (
+                              <div className="mt-1 bg-purple-50 rounded p-1.5">
+                                <span className="text-purple-700 font-medium">🤖 IA :</span> {call.ai_analysis.resume}
+                                {call.ai_analysis.besoin && <div className="mt-0.5 text-green-700">🎯 {call.ai_analysis.besoin}</div>}
+                                {call.ai_analysis.objections && <div className="mt-0.5 text-red-700">⚠️ {call.ai_analysis.objections}</div>}
+                              </div>
+                            )}
+                            {call.transcript && (
+                              <details className="mt-1">
+                                <summary className="text-gray-400 cursor-pointer hover:text-gray-600">📝 Transcription ({call.transcript.split(/\s+/).length} mots)</summary>
+                                <div className="mt-1 bg-gray-50 rounded p-1.5 max-h-24 overflow-y-auto whitespace-pre-wrap text-gray-600">{call.transcript}</div>
+                              </details>
+                            )}
                           </div>
                         ))}
                       </div>
