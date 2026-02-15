@@ -6,7 +6,7 @@ import {
   PieChart, BarChart3, TrendingUp, User, Briefcase, Heart, Info
 } from 'lucide-react'
 import toast from 'react-hot-toast'
-import * as XLSX from 'xlsx'
+import * as XLSX from 'xlsx-js-style'
 
 export default function ProfilStagiaires() {
   const { sessions, fetchSessions, clients, fetchClients, courses, fetchCourses } = useDataStore()
