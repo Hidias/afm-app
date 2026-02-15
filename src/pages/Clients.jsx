@@ -734,10 +734,10 @@ export default function Clients() {
 
       <p className="text-xs text-gray-400 mb-2">{filtered.length} résultat{filtered.length > 1 ? 's' : ''}</p>
 
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div className="bg-white rounded-xl border border-gray-200">
         <table className="w-full">
           <thead>
-            <tr className="bg-gray-50 border-b text-xs text-gray-500 uppercase tracking-wider">
+            <tr className="bg-gray-50 border-b text-xs text-gray-500 uppercase tracking-wider rounded-t-xl [&>th:first-child]:rounded-tl-xl [&>th:last-child]:rounded-tr-xl">
               {[
                 { key: 'name', label: 'Entreprise', cls: 'pl-4 pr-2 py-3 text-left' },
                 { key: 'city', label: 'Ville', cls: 'px-2 py-3 text-left hidden lg:table-cell' },
