@@ -276,6 +276,7 @@ export default function BPF() {
           switch (clientType) {
             case 'organisme_formation': caSousTraitance += amount; break
             case 'public': caAgentsPublics += amount; break
+            case 'opco': caOpco += amount; break
             default: caEntreprises += amount
           }
         })
