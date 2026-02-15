@@ -137,6 +137,35 @@ export default function SessionDetail() {
     notes: ''
   })
   
+  // Financements multi-financeurs
+  const [sessionFundings, setSessionFundings] = useState([])
+  const [showAddFunding, setShowAddFunding] = useState(false)
+  const [editingFunding, setEditingFunding] = useState(null)
+  const [fundingForm, setFundingForm] = useState({
+    funder_type: 'entreprise',
+    funder_name: '',
+    funder_client_id: '',
+    funder_contact_name: '',
+    funder_contact_email: '',
+    funder_address: '',
+    funder_siret: '',
+    amount_ht: '',
+    percentage: '',
+    dossier_number: '',
+    notes: '',
+    use_percentage: false
+  })
+
+  const FUNDER_TYPES = [
+    { value: 'entreprise', label: 'Entreprise', color: 'blue' },
+    { value: 'opco', label: 'OPCO', color: 'purple' },
+    { value: 'cpf', label: 'CPF', color: 'green' },
+    { value: 'pole_emploi', label: 'France Travail', color: 'orange' },
+    { value: 'region', label: 'Région', color: 'teal' },
+    { value: 'stagiaire', label: 'Stagiaire', color: 'yellow' },
+    { value: 'autre', label: 'Autre', color: 'gray' },
+  ]
+
   // Modal forçage résultat
   const [showForceModal, setShowForceModal] = useState(false)
   const [forceModalData, setForceModalData] = useState({ traineeId: null, newResult: null, reason: '' })
@@ -717,6 +746,14 @@ export default function SessionDetail() {
       .eq('session_id', sess.id)
       .order('created_at', { ascending: true })
     setSessionCosts(costs || [])
+    
+    // Charger les financements multi-financeurs
+    const { data: fundings } = await supabase
+      .from('session_fundings')
+      .select('*, clients:funder_client_id(name, siret, address, postal_code, city)')
+      .eq('session_id', sess.id)
+      .order('created_at', { ascending: true })
+    setSessionFundings(fundings || [])
   }
   
   const loadQuestions = async (sess) => {
@@ -964,6 +1001,166 @@ export default function SessionDetail() {
     
     setSessionCosts(prev => prev.filter(c => c.id !== costId))
     toast.success('Coût supprimé')
+  }
+
+  // ============================================================
+  // GESTION FINANCEMENTS MULTI-FINANCEURS
+  // ============================================================
+
+  const getSessionTotalHT = () => {
+    const basePrice = parseFloat(session?.total_price || session?.courses?.price_ht || 0)
+    const costsTotal = calculateTotalCosts()
+    return basePrice + costsTotal
+  }
+
+  const getFundingTotal = () => {
+    return sessionFundings.reduce((sum, f) => sum + parseFloat(f.amount_ht || 0), 0)
+  }
+
+  const getFundingCoverage = () => {
+    const total = getSessionTotalHT()
+    if (!total) return 0
+    return Math.round((getFundingTotal() / total) * 100)
+  }
+
+  const resetFundingForm = () => {
+    setFundingForm({
+      funder_type: 'entreprise', funder_name: '', funder_client_id: '',
+      funder_contact_name: '', funder_contact_email: '', funder_address: '',
+      funder_siret: '', amount_ht: '', percentage: '', dossier_number: '', notes: '',
+      use_percentage: false
+    })
+    setEditingFunding(null)
+  }
+
+  const handleAddFunding = async () => {
+    if (!fundingForm.funder_name) {
+      toast.error('Veuillez indiquer le nom du financeur')
+      return
+    }
+    const totalHT = getSessionTotalHT()
+    let amountHt = parseFloat(fundingForm.amount_ht || 0)
+    let pct = parseFloat(fundingForm.percentage || 0)
+
+    if (fundingForm.use_percentage && pct > 0 && totalHT > 0) {
+      amountHt = Math.round((totalHT * pct / 100) * 100) / 100
+    } else if (amountHt > 0 && totalHT > 0) {
+      pct = Math.round((amountHt / totalHT) * 10000) / 100
+    }
+
+    if (amountHt <= 0) {
+      toast.error('Le montant doit être supérieur à 0')
+      return
+    }
+
+    const payload = {
+      session_id: session.id,
+      funder_type: fundingForm.funder_type,
+      funder_name: fundingForm.funder_name,
+      funder_client_id: fundingForm.funder_client_id || null,
+      funder_contact_name: fundingForm.funder_contact_name || null,
+      funder_contact_email: fundingForm.funder_contact_email || null,
+      funder_address: fundingForm.funder_address || null,
+      funder_siret: fundingForm.funder_siret || null,
+      amount_ht: amountHt,
+      percentage: pct || null,
+      dossier_number: fundingForm.dossier_number || null,
+      notes: fundingForm.notes || null,
+      status: 'pending'
+    }
+
+    if (editingFunding) {
+      const { data, error } = await supabase
+        .from('session_fundings')
+        .update(payload)
+        .eq('id', editingFunding.id)
+        .select('*, clients:funder_client_id(name, siret, address, postal_code, city)')
+        .single()
+
+      if (error) { toast.error('Erreur modification'); console.error(error); return }
+      setSessionFundings(prev => prev.map(f => f.id === editingFunding.id ? data : f))
+      toast.success('Financement modifié ✓')
+    } else {
+      const { data, error } = await supabase
+        .from('session_fundings')
+        .insert(payload)
+        .select('*, clients:funder_client_id(name, siret, address, postal_code, city)')
+        .single()
+
+      if (error) { toast.error('Erreur ajout financement'); console.error(error); return }
+      setSessionFundings(prev => [...prev, data])
+      toast.success('Financement ajouté ✓')
+    }
+
+    resetFundingForm()
+    setShowAddFunding(false)
+  }
+
+  const handleDeleteFunding = async (fundingId) => {
+    if (!confirm('Supprimer ce financement ?')) return
+    const { error } = await supabase.from('session_fundings').delete().eq('id', fundingId)
+    if (error) { toast.error('Erreur suppression'); return }
+    setSessionFundings(prev => prev.filter(f => f.id !== fundingId))
+    toast.success('Financement supprimé')
+  }
+
+  const handleEditFunding = (funding) => {
+    setEditingFunding(funding)
+    setFundingForm({
+      funder_type: funding.funder_type,
+      funder_name: funding.funder_name || '',
+      funder_client_id: funding.funder_client_id || '',
+      funder_contact_name: funding.funder_contact_name || '',
+      funder_contact_email: funding.funder_contact_email || '',
+      funder_address: funding.funder_address || '',
+      funder_siret: funding.funder_siret || '',
+      amount_ht: funding.amount_ht || '',
+      percentage: funding.percentage || '',
+      dossier_number: funding.dossier_number || '',
+      notes: funding.notes || '',
+      use_percentage: false
+    })
+    setShowAddFunding(true)
+  }
+
+  const handleFundingStatus = async (fundingId, newStatus) => {
+    const { error } = await supabase
+      .from('session_fundings')
+      .update({ status: newStatus })
+      .eq('id', fundingId)
+    if (error) { toast.error('Erreur changement statut'); return }
+    setSessionFundings(prev => prev.map(f => f.id === fundingId ? { ...f, status: newStatus } : f))
+    toast.success(`Statut → ${newStatus}`)
+  }
+
+  const handleGenerateFundingInvoice = (funding) => {
+    // Rediriger vers la page factures avec pré-remplissage
+    const params = new URLSearchParams({
+      from_session: session.id,
+      funder_name: funding.funder_name || '',
+      funder_type: funding.funder_type || '',
+      funder_client_id: funding.funder_client_id || '',
+      funder_amount: funding.amount_ht || '',
+      funder_siret: funding.funder_siret || '',
+      funder_email: funding.funder_contact_email || '',
+      funder_dossier: funding.dossier_number || '',
+      funding_id: funding.id
+    })
+    navigate(`/invoices?${params.toString()}`)
+  }
+
+  const handlePrefillClientFunding = (clientId) => {
+    const client = clients.find(c => c.id === clientId)
+    if (client) {
+      setFundingForm(prev => ({
+        ...prev,
+        funder_client_id: clientId,
+        funder_name: prev.funder_name || client.name,
+        funder_siret: prev.funder_siret || client.siret || '',
+        funder_address: prev.funder_address || [client.address, client.postal_code, client.city].filter(Boolean).join(', '),
+        funder_contact_email: prev.funder_contact_email || client.contact_email || ''
+      }))
+    }
   }
   
   // ============================================================
@@ -2593,6 +2790,7 @@ ${trainer ? `${trainer.first_name} ${trainer.last_name}` : 'Access Formation'}`
             { id: 'suivi', label: 'Évaluations' },
             { id: 'materiel', label: '📦 Matériel' },
             { id: 'costs', label: 'Coûts supplémentaires' },
+            { id: 'funding', label: `💰 Financement${sessionFundings.length > 0 ? ` (${sessionFundings.length})` : ''}` },
             { id: 'documents', label: 'Documents' },
             ...(isSST ? [{ id: 'sst_certification', label: '🏥 Certification SST' }] : []),
             { id: 'positionnement', label: 'Test positionnement' },
@@ -3696,6 +3894,382 @@ ${trainer ? `${trainer.first_name} ${trainer.last_name}` : 'Access Formation'}`
         </div>
       )}
       
+      {/* TAB: Financement multi-financeurs */}
+      {activeTab === 'funding' && (
+        <div className="card">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="font-semibold">Financement de la session</h3>
+              <p className="text-sm text-gray-500">Répartition entre financeurs (OPCO, entreprise, CPF…)</p>
+            </div>
+            <button 
+              onClick={() => { resetFundingForm(); setShowAddFunding(true) }} 
+              className="btn btn-primary flex items-center gap-2"
+            >
+              <Plus className="w-4 h-4" />Ajouter un financeur
+            </button>
+          </div>
+
+          {/* Barre de couverture */}
+          {(() => {
+            const totalHT = getSessionTotalHT()
+            const fundingTotal = getFundingTotal()
+            const coverage = getFundingCoverage()
+            const diff = totalHT - fundingTotal
+            const isOver = fundingTotal > totalHT
+            const isExact = Math.abs(diff) < 0.01
+            return (
+              <div className="mb-5 p-4 rounded-lg border bg-gray-50">
+                <div className="flex items-center justify-between text-sm mb-2">
+                  <span className="font-medium">Couverture financière</span>
+                  <span className={`font-bold ${isExact ? 'text-green-600' : isOver ? 'text-red-600' : 'text-orange-600'}`}>
+                    {fundingTotal.toFixed(2)} € / {totalHT.toFixed(2)} € HT ({coverage}%)
+                  </span>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-3">
+                  <div 
+                    className={`h-3 rounded-full transition-all ${isExact ? 'bg-green-500' : isOver ? 'bg-red-500' : coverage >= 80 ? 'bg-yellow-500' : 'bg-orange-500'}`}
+                    style={{ width: `${Math.min(coverage, 100)}%` }}
+                  />
+                </div>
+                {!isExact && (
+                  <p className={`text-xs mt-1 ${isOver ? 'text-red-600' : 'text-orange-600'}`}>
+                    {isOver 
+                      ? `⚠️ Surfinancement de ${(fundingTotal - totalHT).toFixed(2)} €` 
+                      : `💡 Reste à financer : ${diff.toFixed(2)} € HT`}
+                  </p>
+                )}
+                {isExact && sessionFundings.length > 0 && (
+                  <p className="text-xs mt-1 text-green-600">✅ Financement complet</p>
+                )}
+              </div>
+            )
+          })()}
+
+          {/* Liste des financeurs */}
+          {sessionFundings.length === 0 ? (
+            <p className="text-gray-500 text-center py-8">Aucun financement renseigné — cliquez sur "Ajouter un financeur" pour commencer</p>
+          ) : (
+            <div className="space-y-3">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="text-left py-2 px-3 font-medium">Type</th>
+                    <th className="text-left py-2 px-3 font-medium">Financeur</th>
+                    <th className="text-right py-2 px-3 font-medium">Montant HT</th>
+                    <th className="text-center py-2 px-3 font-medium">%</th>
+                    <th className="text-left py-2 px-3 font-medium">N° dossier</th>
+                    <th className="text-center py-2 px-3 font-medium">Statut</th>
+                    <th className="text-center py-2 px-3 font-medium">Facture</th>
+                    <th className="w-20"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {sessionFundings.map(funding => {
+                    const typeInfo = FUNDER_TYPES.find(t => t.value === funding.funder_type) || FUNDER_TYPES[6]
+                    const statusColors = {
+                      pending: 'bg-yellow-100 text-yellow-800',
+                      invoiced: 'bg-blue-100 text-blue-800',
+                      paid: 'bg-green-100 text-green-800',
+                      refused: 'bg-red-100 text-red-800',
+                      cancelled: 'bg-gray-100 text-gray-500',
+                    }
+                    const statusLabelsF = {
+                      pending: 'En attente',
+                      invoiced: 'Facturé',
+                      paid: 'Payé',
+                      refused: 'Refusé',
+                      cancelled: 'Annulé',
+                    }
+                    return (
+                      <tr key={funding.id} className="hover:bg-gray-50">
+                        <td className="py-2 px-3">
+                          <span className={`text-xs px-2 py-1 rounded-full bg-${typeInfo.color}-100 text-${typeInfo.color}-700`}>
+                            {typeInfo.label}
+                          </span>
+                        </td>
+                        <td className="py-2 px-3">
+                          <div className="font-medium">{funding.funder_name}</div>
+                          {funding.funder_siret && <div className="text-xs text-gray-400">SIRET: {funding.funder_siret}</div>}
+                          {funding.funder_contact_email && <div className="text-xs text-gray-400">{funding.funder_contact_email}</div>}
+                        </td>
+                        <td className="py-2 px-3 text-right font-medium">{parseFloat(funding.amount_ht).toFixed(2)} €</td>
+                        <td className="py-2 px-3 text-center text-gray-500">{funding.percentage ? `${funding.percentage}%` : '—'}</td>
+                        <td className="py-2 px-3">
+                          {funding.dossier_number ? (
+                            <span className="text-xs bg-gray-100 px-2 py-1 rounded">{funding.dossier_number}</span>
+                          ) : <span className="text-gray-400">—</span>}
+                        </td>
+                        <td className="py-2 px-3 text-center">
+                          <select
+                            value={funding.status}
+                            onChange={(e) => handleFundingStatus(funding.id, e.target.value)}
+                            className={`text-xs px-2 py-1 rounded-full border-0 cursor-pointer ${statusColors[funding.status] || ''}`}
+                          >
+                            <option value="pending">En attente</option>
+                            <option value="invoiced">Facturé</option>
+                            <option value="paid">Payé</option>
+                            <option value="refused">Refusé</option>
+                            <option value="cancelled">Annulé</option>
+                          </select>
+                        </td>
+                        <td className="py-2 px-3 text-center">
+                          {funding.invoice_id ? (
+                            <Link to={`/invoices?id=${funding.invoice_id}`} className="text-xs text-blue-600 hover:underline flex items-center justify-center gap-1">
+                              <Receipt className="w-3 h-3" /> Voir
+                            </Link>
+                          ) : (
+                            <button
+                              onClick={() => handleGenerateFundingInvoice(funding)}
+                              className="text-xs text-primary-600 hover:text-primary-800 flex items-center justify-center gap-1"
+                            >
+                              <FileText className="w-3 h-3" /> Facturer
+                            </button>
+                          )}
+                        </td>
+                        <td className="py-2 px-3">
+                          <div className="flex items-center gap-1 justify-end">
+                            <button onClick={() => handleEditFunding(funding)} className="p-1 text-gray-400 hover:text-blue-600" title="Modifier">
+                              <Edit className="w-4 h-4" />
+                            </button>
+                            <button onClick={() => handleDeleteFunding(funding.id)} className="p-1 text-gray-400 hover:text-red-600" title="Supprimer">
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+                <tfoot className="bg-gray-50">
+                  <tr>
+                    <td colSpan="2" className="py-2 px-3 text-right font-semibold">Total financements</td>
+                    <td className="py-2 px-3 text-right font-bold text-primary-600">{getFundingTotal().toFixed(2)} €</td>
+                    <td className="py-2 px-3 text-center font-bold text-primary-600">{getFundingCoverage()}%</td>
+                    <td colSpan="4"></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )}
+
+          {/* Quick action : pré-remplir avec le client de la session */}
+          {sessionFundings.length === 0 && session?.client_id && (
+            <div className="mt-4 flex gap-2 justify-center">
+              <button
+                onClick={() => {
+                  const client = clients.find(c => c.id === session.client_id)
+                  if (client) {
+                    setFundingForm(prev => ({
+                      ...prev,
+                      funder_type: 'entreprise',
+                      funder_name: client.name,
+                      funder_client_id: client.id,
+                      funder_siret: client.siret || '',
+                      funder_address: [client.address, client.postal_code, client.city].filter(Boolean).join(', '),
+                      funder_contact_email: client.contact_email || '',
+                      amount_ht: getSessionTotalHT().toFixed(2)
+                    }))
+                    setShowAddFunding(true)
+                  }
+                }}
+                className="text-sm text-blue-600 hover:text-blue-800 underline"
+              >
+                💡 Pré-remplir avec le client de la session (100%)
+              </button>
+            </div>
+          )}
+
+          {/* Modal ajout/modification financeur */}
+          {showAddFunding && (
+            <div className="fixed inset-0 z-50 overflow-y-auto">
+              <div className="fixed inset-0 bg-black/50" onClick={() => { setShowAddFunding(false); resetFundingForm() }} />
+              <div className="relative min-h-full flex items-center justify-center p-4">
+                <div className="relative bg-white rounded-xl shadow-xl w-full max-w-lg">
+                  <div className="flex items-center justify-between p-4 border-b">
+                    <h3 className="text-lg font-semibold">
+                      {editingFunding ? 'Modifier le financement' : 'Ajouter un financeur'}
+                    </h3>
+                    <button onClick={() => { setShowAddFunding(false); resetFundingForm() }}><X className="w-5 h-5" /></button>
+                  </div>
+                  <div className="p-4 space-y-4 max-h-[70vh] overflow-y-auto">
+                    {/* Type */}
+                    <div>
+                      <label className="label">Type de financeur *</label>
+                      <select
+                        className="input"
+                        value={fundingForm.funder_type}
+                        onChange={(e) => setFundingForm({ ...fundingForm, funder_type: e.target.value })}
+                      >
+                        {FUNDER_TYPES.map(t => (
+                          <option key={t.value} value={t.value}>{t.label}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Lier à un client existant */}
+                    {(fundingForm.funder_type === 'opco' || fundingForm.funder_type === 'entreprise') && (
+                      <div>
+                        <label className="label">Lier à un client existant (optionnel)</label>
+                        <select
+                          className="input"
+                          value={fundingForm.funder_client_id}
+                          onChange={(e) => handlePrefillClientFunding(e.target.value)}
+                        >
+                          <option value="">— Saisie manuelle —</option>
+                          {clients.filter(c => c.status === 'active' || c.status === 'client').map(c => (
+                            <option key={c.id} value={c.id}>{c.name}{c.siret ? ` (${c.siret})` : ''}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    {/* Nom */}
+                    <div>
+                      <label className="label">Nom du financeur *</label>
+                      <input
+                        type="text"
+                        className="input"
+                        placeholder="Ex: OPCO EP, AKTO, Uniformation..."
+                        value={fundingForm.funder_name}
+                        onChange={(e) => setFundingForm({ ...fundingForm, funder_name: e.target.value })}
+                      />
+                    </div>
+
+                    {/* Montant : switch % / HT */}
+                    <div className="border rounded-lg p-3 bg-gray-50">
+                      <div className="flex items-center gap-3 mb-2">
+                        <label className="label mb-0">Mode de saisie :</label>
+                        <button
+                          type="button"
+                          onClick={() => setFundingForm({ ...fundingForm, use_percentage: false })}
+                          className={`text-xs px-3 py-1 rounded-full ${!fundingForm.use_percentage ? 'bg-primary-600 text-white' : 'bg-gray-200 text-gray-600'}`}
+                        >
+                          Montant HT
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setFundingForm({ ...fundingForm, use_percentage: true })}
+                          className={`text-xs px-3 py-1 rounded-full ${fundingForm.use_percentage ? 'bg-primary-600 text-white' : 'bg-gray-200 text-gray-600'}`}
+                        >
+                          Pourcentage
+                        </button>
+                      </div>
+                      {fundingForm.use_percentage ? (
+                        <div>
+                          <label className="label">Pourcentage du total session *</label>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="number"
+                              className="input"
+                              step="0.01"
+                              min="0"
+                              max="100"
+                              placeholder="50"
+                              value={fundingForm.percentage}
+                              onChange={(e) => {
+                                const pct = e.target.value
+                                const totalHT = getSessionTotalHT()
+                                setFundingForm({ ...fundingForm, percentage: pct, amount_ht: totalHT > 0 ? (totalHT * parseFloat(pct || 0) / 100).toFixed(2) : '' })
+                              }}
+                            />
+                            <span className="text-sm text-gray-500">%</span>
+                          </div>
+                          {fundingForm.percentage && getSessionTotalHT() > 0 && (
+                            <p className="text-xs text-blue-600 mt-1">
+                              = {(getSessionTotalHT() * parseFloat(fundingForm.percentage) / 100).toFixed(2)} € HT
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        <div>
+                          <label className="label">Montant HT (€) *</label>
+                          <input
+                            type="number"
+                            className="input"
+                            step="0.01"
+                            min="0"
+                            placeholder="0.00"
+                            value={fundingForm.amount_ht}
+                            onChange={(e) => {
+                              const amt = e.target.value
+                              const totalHT = getSessionTotalHT()
+                              setFundingForm({ ...fundingForm, amount_ht: amt, percentage: totalHT > 0 ? (parseFloat(amt || 0) / totalHT * 100).toFixed(2) : '' })
+                            }}
+                          />
+                          {fundingForm.amount_ht && getSessionTotalHT() > 0 && (
+                            <p className="text-xs text-blue-600 mt-1">
+                              = {(parseFloat(fundingForm.amount_ht) / getSessionTotalHT() * 100).toFixed(1)}% du total session
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* N° dossier */}
+                    {(fundingForm.funder_type === 'opco' || fundingForm.funder_type === 'cpf' || fundingForm.funder_type === 'pole_emploi') && (
+                      <div>
+                        <label className="label">N° de dossier</label>
+                        <input
+                          type="text"
+                          className="input"
+                          placeholder="Référence dossier OPCO / CPF..."
+                          value={fundingForm.dossier_number}
+                          onChange={(e) => setFundingForm({ ...fundingForm, dossier_number: e.target.value })}
+                        />
+                      </div>
+                    )}
+
+                    {/* Infos contact facturation */}
+                    <details className="border rounded-lg">
+                      <summary className="p-3 cursor-pointer text-sm font-medium text-gray-600 hover:text-gray-800">
+                        📧 Coordonnées de facturation (optionnel)
+                      </summary>
+                      <div className="p-3 pt-0 space-y-3">
+                        <div>
+                          <label className="label">SIRET</label>
+                          <input type="text" className="input" value={fundingForm.funder_siret} onChange={(e) => setFundingForm({ ...fundingForm, funder_siret: e.target.value })} placeholder="N° SIRET" />
+                        </div>
+                        <div>
+                          <label className="label">Nom du contact</label>
+                          <input type="text" className="input" value={fundingForm.funder_contact_name} onChange={(e) => setFundingForm({ ...fundingForm, funder_contact_name: e.target.value })} placeholder="Nom du contact" />
+                        </div>
+                        <div>
+                          <label className="label">Email de facturation</label>
+                          <input type="email" className="input" value={fundingForm.funder_contact_email} onChange={(e) => setFundingForm({ ...fundingForm, funder_contact_email: e.target.value })} placeholder="email@opco.fr" />
+                        </div>
+                        <div>
+                          <label className="label">Adresse</label>
+                          <input type="text" className="input" value={fundingForm.funder_address} onChange={(e) => setFundingForm({ ...fundingForm, funder_address: e.target.value })} placeholder="Adresse de facturation" />
+                        </div>
+                      </div>
+                    </details>
+
+                    {/* Notes */}
+                    <div>
+                      <label className="label">Notes (optionnel)</label>
+                      <textarea
+                        className="input"
+                        rows="2"
+                        placeholder="Informations complémentaires..."
+                        value={fundingForm.notes}
+                        onChange={(e) => setFundingForm({ ...fundingForm, notes: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-2 p-4 border-t">
+                    <button onClick={() => { setShowAddFunding(false); resetFundingForm() }} className="btn btn-secondary">Annuler</button>
+                    <button onClick={handleAddFunding} className="btn btn-primary">
+                      {editingFunding ? 'Modifier' : 'Ajouter'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* TAB: Documents */}
       {activeTab === 'documents' && (
         <div className="card">
