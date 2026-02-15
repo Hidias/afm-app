@@ -328,7 +328,7 @@ export default function Clients() {
   const [enriching, setEnriching] = useState(false)
   const fileInputRef = useRef(null)
   const [form, setForm] = useState({
-    name: '', siret: '', address: '', email: '', phone: '', contact_name: '', contact_function: '', notes: '', status: 'prospect'
+    name: '', siret: '', address: '', email: '', phone: '', contact_name: '', contact_function: '', notes: '', status: 'prospect', client_type: 'entreprise'
   })
   
   useEffect(() => { fetchClients() }, [])
@@ -367,10 +367,11 @@ export default function Clients() {
         contact_function: client.contact_function || '',
         notes: client.notes || '',
         status: client.status || 'prospect',
+        client_type: client.client_type || 'entreprise',
       })
       setSelectedClient(client)
     } else {
-      setForm({ name: '', siret: '', address: '', email: '', phone: '', contact_name: '', contact_function: '', notes: '', status: 'prospect' })
+      setForm({ name: '', siret: '', address: '', email: '', phone: '', contact_name: '', contact_function: '', notes: '', status: 'prospect', client_type: 'entreprise' })
       setSelectedClient(null)
     }
     setShowForm(true)
@@ -990,6 +991,22 @@ export default function Clients() {
                     ].map(s => (
                       <button key={s.value} type="button" onClick={() => setForm({...form, status: s.value})}
                         className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${form.status === s.value ? s.active : s.inactive}`}>
+                        {s.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="font-medium text-gray-700 mb-3">Type de client <span className="text-xs text-gray-400 font-normal">(pour le BPF)</span></h4>
+                  <div className="flex gap-2 flex-wrap">
+                    {[
+                      { value: 'entreprise', label: '🏢 Entreprise', active: 'bg-blue-500 text-white', inactive: 'bg-blue-50 text-blue-700 hover:bg-blue-100' },
+                      { value: 'organisme_formation', label: '🎓 Organisme de formation', active: 'bg-purple-500 text-white', inactive: 'bg-purple-50 text-purple-700 hover:bg-purple-100' },
+                      { value: 'public', label: '🏛️ Établissement public', active: 'bg-teal-500 text-white', inactive: 'bg-teal-50 text-teal-700 hover:bg-teal-100' },
+                    ].map(s => (
+                      <button key={s.value} type="button" onClick={() => setForm({...form, client_type: s.value})}
+                        className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${form.client_type === s.value ? s.active : s.inactive}`}>
                         {s.label}
                       </button>
                     ))}
