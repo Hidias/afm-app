@@ -176,14 +176,319 @@ export function generateDuerpPDF({ project, units, risks, actions, categories })
   addFooter()
 
   // ───────────────────────────────────────────────────────────
-  // PAGE 2 : MÉTHODOLOGIE
+  // PAGES 2-3 : SYNTHÈSE POUR LE DIRIGEANT
+  // ───────────────────────────────────────────────────────────
+  newPage()
+  y = 20
+
+  // Titre
+  doc.setFillColor(...COLORS.primary)
+  doc.roundedRect(14, y - 4, pw - 28, 14, 2, 2, 'F')
+  doc.setTextColor(...COLORS.white)
+  doc.setFontSize(14)
+  doc.setFont(undefined, 'bold')
+  doc.text('SYNTHÈSE POUR LE DIRIGEANT', pw / 2, y + 5, { align: 'center' })
+  y += 18
+
+  // Texte intro pédagogique
+  doc.setTextColor(...COLORS.black)
+  doc.setFontSize(9)
+  doc.setFont(undefined, 'normal')
+  const introText = `Ce document est votre Document Unique d'Évaluation des Risques Professionnels (DUERP). Il recense l'ensemble des risques auxquels vos salariés sont exposés dans le cadre de leur activité, et définit les actions à mettre en place pour les protéger. Cette synthèse vous donne une vision claire et actionnable de la situation.`
+  const introLines = doc.splitTextToSize(introText, pw - 32)
+  doc.text(introLines, 16, y)
+  y += introLines.length * 4.5 + 6
+
+  // ─── VOS POSTES ET UNITÉS DE TRAVAIL ───
+  doc.setFillColor(...COLORS.accent)
+  doc.rect(14, y, pw - 28, 0.8, 'F')
+  y += 5
+  doc.setFontSize(11)
+  doc.setFont(undefined, 'bold')
+  doc.setTextColor(...COLORS.primary)
+  doc.text('VOS POSTES ET UNITÉS DE TRAVAIL', 16, y)
+  y += 7
+
+  doc.setFontSize(8.5)
+  doc.setFont(undefined, 'normal')
+  doc.setTextColor(...COLORS.black)
+  const unitIntro = `Votre entreprise a été découpée en ${units.length} unité(s) de travail, c'est-à-dire des regroupements de postes partageant les mêmes conditions d'exposition aux risques :`
+  const unitIntroLines = doc.splitTextToSize(unitIntro, pw - 36)
+  doc.text(unitIntroLines, 18, y)
+  y += unitIntroLines.length * 4 + 4
+
+  units.forEach(u => {
+    if (y > ph - 30) { newPage(); y = 20 }
+    const unitRisks = risks.filter(r => r.unit_id === u.id)
+    const unitCritique = unitRisks.filter(r => { const s = (r.frequence||0)*(r.gravite||0)*(r.maitrise||1); return s >= 9 }).length
+    const unitEval = unitRisks.filter(r => r.frequence && r.gravite).length
+
+    // Pastille colorée
+    const maxScore = Math.max(0, ...unitRisks.map(r => (r.frequence||0)*(r.gravite||0)*(r.maitrise||1)))
+    const lvlKey = maxScore >= 13 ? 'critique' : maxScore >= 9 ? 'eleve' : maxScore >= 5 ? 'moyen' : 'faible'
+    doc.setFillColor(...RISK_COLORS[lvlKey].bg)
+    doc.roundedRect(18, y - 3, pw - 40, 12, 1.5, 1.5, 'F')
+
+    doc.setFont(undefined, 'bold')
+    doc.setFontSize(9)
+    doc.setTextColor(...RISK_COLORS[lvlKey].text)
+    doc.text(`${u.name}`, 22, y + 4)
+
+    doc.setFont(undefined, 'normal')
+    doc.setFontSize(7.5)
+    doc.setTextColor(...COLORS.gray)
+    const unitInfo = [
+      u.effectif ? `${u.effectif} pers.` : null,
+      u.metiers || null,
+      `${unitRisks.length} risque(s)`,
+      unitCritique > 0 ? `dont ${unitCritique} élevé(s)/critique(s)` : null,
+    ].filter(Boolean).join(' — ')
+    doc.text(unitInfo, pw - 22, y + 4, { align: 'right' })
+    y += 14
+  })
+
+  // ─── PRINCIPAUX RISQUES IDENTIFIÉS ───
+  y += 4
+  if (y > ph - 60) { newPage(); y = 20 }
+  doc.setFillColor(...COLORS.accent)
+  doc.rect(14, y, pw - 28, 0.8, 'F')
+  y += 5
+  doc.setFontSize(11)
+  doc.setFont(undefined, 'bold')
+  doc.setTextColor(...COLORS.primary)
+  doc.text('PRINCIPAUX RISQUES IDENTIFIÉS', 16, y)
+  y += 7
+
+  // Trier les risques par score décroissant, prendre les top 10
+  const scoredRisks = risks.map(r => {
+    const brut = (r.frequence||0) * (r.gravite||0)
+    const residuel = brut * (r.maitrise||1)
+    return { ...r, _score: residuel || brut }
+  }).filter(r => r._score > 0).sort((a, b) => b._score - a._score)
+
+  const topRisks = scoredRisks.slice(0, 10)
+
+  if (topRisks.length === 0) {
+    doc.setFontSize(8.5)
+    doc.setFont(undefined, 'italic')
+    doc.setTextColor(...COLORS.gray)
+    doc.text('Aucun risque n\'a encore été évalué. Complétez les cotations pour voir apparaître cette synthèse.', 18, y)
+    y += 8
+  } else {
+    doc.setFontSize(8.5)
+    doc.setFont(undefined, 'normal')
+    doc.setTextColor(...COLORS.black)
+    const riskIntro = `Sur les ${risks.length} risques identifiés, voici les ${topRisks.length} plus importants nécessitant votre attention en priorité :`
+    doc.text(riskIntro, 18, y)
+    y += 6
+
+    topRisks.forEach((r, i) => {
+      if (y > ph - 22) { newPage(); y = 20 }
+      const unit = units.find(u => u.id === r.unit_id)
+      const lvl = getRiskLevel(r._score)
+      const lvlKey = lvl.key
+
+      doc.setFillColor(...RISK_COLORS[lvlKey].bg)
+      doc.circle(22, y + 1.5, 2, 'F')
+
+      doc.setFont(undefined, 'bold')
+      doc.setFontSize(8.5)
+      doc.setTextColor(...RISK_COLORS[lvlKey].text)
+      doc.text(`${i + 1}. ${r.danger || 'Risque non titré'}`, 27, y + 3)
+
+      doc.setFont(undefined, 'normal')
+      doc.setFontSize(7.5)
+      doc.setTextColor(...COLORS.gray)
+      const detail = `${unit?.name || 'Sans unité'} — Score ${r._score} (${lvl.label}) — F${r.frequence}×G${r.gravite}×M${r.maitrise}`
+      doc.text(detail, 27, y + 8)
+
+      if (r.situation) {
+        doc.setTextColor(80, 80, 80)
+        const sitLines = doc.splitTextToSize(r.situation, pw - 48)
+        doc.text(sitLines.slice(0, 2), 27, y + 12.5)
+        y += Math.min(sitLines.length, 2) * 3.5
+      }
+      y += 14
+    })
+  }
+
+  // ─── CE QUE VOUS DEVEZ FAIRE : ACTIONS PRIORITAIRES ───
+  if (y > ph - 50) { newPage(); y = 20 }
+  y += 2
+  doc.setFillColor(...COLORS.accent)
+  doc.rect(14, y, pw - 28, 0.8, 'F')
+  y += 5
+  doc.setFontSize(11)
+  doc.setFont(undefined, 'bold')
+  doc.setTextColor(...COLORS.primary)
+  doc.text('CE QUE VOUS DEVEZ FAIRE : ACTIONS PRIORITAIRES', 16, y)
+  y += 7
+
+  const sortedActions = [...actions].sort((a, b) => {
+    const pOrder = { critique: 0, haute: 1, moyenne: 2, basse: 3 }
+    return (pOrder[a.priorite] ?? 9) - (pOrder[b.priorite] ?? 9)
+  })
+  const topActions = sortedActions.slice(0, 12)
+
+  if (topActions.length === 0 && scoredRisks.length > 0) {
+    doc.setFontSize(8.5)
+    doc.setFont(undefined, 'normal')
+    doc.setTextColor(...COLORS.black)
+    const noActionText = `Aucune action de prévention n'a été définie pour le moment. Il est impératif de définir des actions correctives pour les ${Math.min(critique + eleve, risks.length)} risque(s) élevé(s) ou critique(s) identifié(s). Rendez-vous dans l'onglet "Actions" de votre DUERP pour créer votre plan d'action.`
+    const noActionLines = doc.splitTextToSize(noActionText, pw - 36)
+    doc.text(noActionLines, 18, y)
+    y += noActionLines.length * 4 + 4
+  } else if (topActions.length > 0) {
+    doc.setFontSize(8.5)
+    doc.setFont(undefined, 'normal')
+    doc.setTextColor(...COLORS.black)
+
+    const doneActions = actions.filter(a => a.statut === 'fait').length
+    const actionIntro = `${actions.length} action(s) de prévention ont été définies, dont ${doneActions} réalisée(s). Voici les actions à mener en priorité :`
+    doc.text(actionIntro, 18, y)
+    y += 6
+
+    topActions.forEach((a, i) => {
+      if (y > ph - 20) { newPage(); y = 20 }
+      const risk = risks.find(r => r.id === a.risk_id)
+      const priColors = {
+        critique: { bg: RISK_COLORS.critique.bg, text: RISK_COLORS.critique.text },
+        haute:    { bg: RISK_COLORS.eleve.bg, text: RISK_COLORS.eleve.text },
+        moyenne:  { bg: RISK_COLORS.moyen.bg, text: RISK_COLORS.moyen.text },
+        basse:    { bg: RISK_COLORS.faible.bg, text: RISK_COLORS.faible.text },
+      }
+      const pc = priColors[a.priorite] || priColors.moyenne
+
+      // Pastille priorité
+      doc.setFillColor(...pc.bg)
+      doc.roundedRect(18, y - 2.5, 16, 7, 1, 1, 'F')
+      doc.setFontSize(6)
+      doc.setFont(undefined, 'bold')
+      doc.setTextColor(...pc.text)
+      doc.text((PRIO[a.priorite] || '').substring(0, 8), 26, y + 2, { align: 'center' })
+
+      // Action
+      doc.setFontSize(8.5)
+      doc.setFont(undefined, 'normal')
+      doc.setTextColor(...COLORS.black)
+      const actionText = a.action || 'Action non décrite'
+      const actionLines = doc.splitTextToSize(actionText, pw - 58)
+      doc.text(actionLines.slice(0, 2), 37, y + 2)
+
+      // Détails
+      doc.setFontSize(7)
+      doc.setTextColor(...COLORS.gray)
+      const details = [
+        a.responsable ? `Resp: ${a.responsable}` : null,
+        a.echeance ? `Échéance: ${formatDate(a.echeance)}` : null,
+        a.cout_estime ? `Coût: ${a.cout_estime}` : null,
+        STAT[a.statut] ? `[${STAT[a.statut]}]` : null,
+      ].filter(Boolean).join(' — ')
+      const detailY = y + 2 + Math.min(actionLines.length, 2) * 3.5
+      doc.text(details, 37, detailY + 1)
+
+      y += Math.min(actionLines.length, 2) * 3.5 + 10
+    })
+  }
+
+  // ─── VOS OBLIGATIONS : CE QU'IL FAUT RETENIR ───
+  if (y > ph - 70) { newPage(); y = 20 }
+  y += 4
+  doc.setFillColor(...COLORS.accent)
+  doc.rect(14, y, pw - 28, 0.8, 'F')
+  y += 5
+  doc.setFontSize(11)
+  doc.setFont(undefined, 'bold')
+  doc.setTextColor(...COLORS.primary)
+  doc.text('VOS OBLIGATIONS : CE QU\'IL FAUT RETENIR', 16, y)
+  y += 8
+
+  doc.setFontSize(8.5)
+  doc.setFont(undefined, 'normal')
+  doc.setTextColor(...COLORS.black)
+
+  const eff = parseInt(project.effectif) || 0
+  const obligations = [
+    {
+      title: 'Mise à jour du DUERP',
+      text: eff >= 11
+        ? `En tant qu'entreprise de ${eff} salariés (≥ 11), vous devez mettre à jour votre DUERP au minimum une fois par an. Vous devez également le mettre à jour lors de tout aménagement important modifiant les conditions de travail, ou lorsqu'une information nouvelle concernant un risque est portée à votre connaissance (accident du travail, maladie professionnelle, alerte d'un salarié...).`
+        : `En tant qu'entreprise de moins de 11 salariés, vous n'êtes pas obligé de mettre à jour votre DUERP chaque année, mais vous devez le faire lors de tout aménagement important ou lorsqu'une information nouvelle sur un risque apparaît. Nous vous recommandons néanmoins une mise à jour annuelle pour maintenir la pertinence de votre évaluation.`,
+    },
+    {
+      title: 'Conservation',
+      text: 'Le DUERP et ses mises à jour successives doivent être conservés pendant une durée de 40 ans à compter de leur élaboration. Chaque version doit être datée. Un dépôt dématérialisé sur un portail numérique est prévu par la réglementation.',
+    },
+    {
+      title: eff >= 50 ? 'Programme annuel de prévention (PAPRIPACT)' : 'Liste des actions de prévention',
+      text: eff >= 50
+        ? 'En tant qu\'entreprise de 50 salariés et plus, vous devez établir un Programme Annuel de Prévention des Risques Professionnels et d\'Amélioration des Conditions de Travail (PAPRIPACT), comprenant les mesures prises, les conditions d\'exécution, les indicateurs de résultat et l\'estimation de leur coût.'
+        : 'En tant qu\'entreprise de moins de 50 salariés, vous devez définir des actions de prévention des risques et de protection des salariés. La liste de ces actions et leur condition d\'exécution sont consignées dans le présent DUERP.',
+    },
+    {
+      title: 'Consultation et diffusion',
+      text: `Le DUERP doit être tenu à la disposition de vos salariés, des anciens salariés, du médecin du travail, de l'inspection du travail et des agents de la CARSAT.${eff >= 11 ? ' Le Comité Social et Économique (CSE), s\'il existe, doit être consulté sur le DUERP et sur le programme annuel de prévention.' : ''} Pensez à transmettre le DUERP à votre service de prévention et de santé au travail à chaque mise à jour.`,
+    },
+    {
+      title: 'Évaluation différenciée femmes/hommes',
+      text: 'Depuis la loi du 2 août 2021, l\'évaluation des risques doit tenir compte de l\'impact différencié de l\'exposition en fonction du sexe. Cela signifie que certains risques peuvent affecter différemment les femmes et les hommes (ergonomie des postes, exposition chimique, risques psychosociaux...) et que votre évaluation doit en tenir compte.',
+    },
+  ]
+
+  obligations.forEach(ob => {
+    if (y > ph - 30) { newPage(); y = 20 }
+    doc.setFont(undefined, 'bold')
+    doc.setFontSize(8.5)
+    doc.setTextColor(...COLORS.primary)
+    doc.text(`▸ ${ob.title}`, 18, y)
+    y += 5
+
+    doc.setFont(undefined, 'normal')
+    doc.setTextColor(60, 60, 60)
+    doc.setFontSize(8)
+    const lines = doc.splitTextToSize(ob.text, pw - 40)
+    doc.text(lines, 20, y)
+    y += lines.length * 3.8 + 6
+  })
+
+  // ─── PROCHAINES ÉTAPES ───
+  if (y > ph - 40) { newPage(); y = 20 }
+  y += 2
+  doc.setFillColor(240, 248, 255)
+  doc.setDrawColor(...COLORS.primary)
+  doc.setLineWidth(0.5)
+  const nextStepsText = [
+    '1. Prenez connaissance de cette synthèse et du détail des risques dans les pages suivantes.',
+    '2. Vérifiez que tous les risques identifiés correspondent à la réalité de votre entreprise.',
+    '3. Complétez si nécessaire avec des risques spécifiques à votre activité.',
+    '4. Mettez en œuvre les actions prioritaires (critiques et hautes) dans les plus brefs délais.',
+    '5. Planifiez les actions de priorité moyenne et basse sur les prochains mois.',
+    '6. Conservez ce document et programmez sa prochaine mise à jour.',
+  ]
+  const nextH = nextStepsText.length * 5 + 14
+  doc.roundedRect(14, y, pw - 28, nextH, 2, 2, 'FD')
+
+  doc.setFontSize(9)
+  doc.setFont(undefined, 'bold')
+  doc.setTextColor(...COLORS.primary)
+  doc.text('PROCHAINES ÉTAPES', 20, y + 7)
+
+  doc.setFont(undefined, 'normal')
+  doc.setFontSize(8)
+  doc.setTextColor(50, 50, 50)
+  nextStepsText.forEach((step, i) => {
+    doc.text(step, 20, y + 14 + i * 5)
+  })
+
+  // ───────────────────────────────────────────────────────────
+  // PAGE SUIVANTE : MÉTHODOLOGIE
   // ───────────────────────────────────────────────────────────
   newPage()
   y = 20
   doc.setFontSize(16)
   doc.setFont(undefined, 'bold')
   doc.setTextColor(...COLORS.primary)
-  doc.text('1. Méthodologie de cotation', 14, y)
+  doc.text('2. Méthodologie de cotation', 14, y)
 
   y += 10
   doc.setFontSize(9)
@@ -302,7 +607,7 @@ export function generateDuerpPDF({ project, units, risks, actions, categories })
   doc.setFontSize(16)
   doc.setFont(undefined, 'bold')
   doc.setTextColor(...COLORS.primary)
-  doc.text('2. Inventaire des risques par unité de travail', 14, y)
+  doc.text('3. Inventaire des risques par unité de travail', 14, y)
 
   units.forEach((unit, ui) => {
     const unitRisks = risks.filter(r => r.unit_id === unit.id)
@@ -426,7 +731,7 @@ export function generateDuerpPDF({ project, units, risks, actions, categories })
   doc.setFontSize(16)
   doc.setFont(undefined, 'bold')
   doc.setTextColor(...COLORS.primary)
-  doc.text("3. Plan d'action de prévention", 14, y)
+  doc.text("4. Plan d'action de prévention", 14, y)
 
   y += 10
   if (actions.length === 0) {
@@ -492,7 +797,7 @@ export function generateDuerpPDF({ project, units, risks, actions, categories })
   doc.setFontSize(16)
   doc.setFont(undefined, 'bold')
   doc.setTextColor(...COLORS.primary)
-  doc.text('4. Rappels réglementaires et mentions légales', 14, y)
+  doc.text('5. Rappels réglementaires et mentions légales', 14, y)
 
   y += 12
   doc.setFontSize(8)
@@ -576,6 +881,79 @@ export function generateDuerpPDF({ project, units, risks, actions, categories })
 // ═══════════════════════════════════════════════════════════
 export function generateDuerpExcel({ project, units, risks, actions, categories }) {
   const wb = XLSX.utils.book_new()
+
+  // ───────────────────────────────────────────────────────────
+  // FEUILLE 0 : Synthèse dirigeant
+  // ───────────────────────────────────────────────────────────
+  const eff = parseInt(project.effectif) || 0
+  const evaluatedX = risks.filter(r => r.frequence && r.gravite).length
+  const critiqueX = risks.filter(r => { const s = (r.frequence||0)*(r.gravite||0)*(r.maitrise||1); return s >= 13 }).length
+  const eleveX = risks.filter(r => { const s = (r.frequence||0)*(r.gravite||0)*(r.maitrise||1); return s >= 9 && s < 13 }).length
+  const doneX = actions.filter(a => a.statut === 'fait').length
+
+  const synthData = [
+    ['SYNTHÈSE POUR LE DIRIGEANT — ' + (project.company_name || '')],
+    [''],
+    ['Ce document est votre Document Unique d\'Évaluation des Risques Professionnels (DUERP). Il recense les risques auxquels vos salariés sont exposés et définit les actions à mettre en place pour les protéger.'],
+    [''],
+    ['═══ VOS CHIFFRES CLÉS ═══'],
+    ['Risques identifiés', risks.length],
+    ['Risques évalués', evaluatedX],
+    ['Risques critiques + élevés', critiqueX + eleveX],
+    ['Actions de prévention', actions.length],
+    ['Actions réalisées', doneX],
+    [''],
+    ['═══ VOS UNITÉS DE TRAVAIL ═══'],
+  ]
+  units.forEach(u => {
+    const ur = risks.filter(r => r.unit_id === u.id)
+    const maxS = Math.max(0, ...ur.map(r => (r.frequence||0)*(r.gravite||0)*(r.maitrise||1)))
+    synthData.push([
+      u.name,
+      `${ur.length} risque(s)${maxS > 0 ? ` — Niveau max : ${getRiskLevel(maxS).label} (${maxS})` : ''}`,
+    ])
+  })
+
+  synthData.push([''])
+  synthData.push(['═══ TOP 10 RISQUES PRIORITAIRES ═══'])
+  const scoredX = risks.map(r => ({ ...r, _s: (r.frequence||0)*(r.gravite||0)*(r.maitrise||1) }))
+    .filter(r => r._s > 0).sort((a, b) => b._s - a._s).slice(0, 10)
+  scoredX.forEach((r, i) => {
+    const u = units.find(u => u.id === r.unit_id)
+    synthData.push([
+      `${i+1}. ${r.danger} (${u?.name || 'Sans unité'})`,
+      `Score ${r._s} — ${getRiskLevel(r._s).label} — F${r.frequence}×G${r.gravite}×M${r.maitrise}`,
+    ])
+  })
+
+  synthData.push([''])
+  synthData.push(['═══ ACTIONS PRIORITAIRES ═══'])
+  const topAx = [...actions].sort((a, b) => {
+    const p = { critique: 0, haute: 1, moyenne: 2, basse: 3 }; return (p[a.priorite]??9)-(p[b.priorite]??9)
+  }).slice(0, 12)
+  topAx.forEach(a => {
+    const risk = risks.find(r => r.id === a.risk_id)
+    synthData.push([
+      `[${(PRIO[a.priorite]||'').toUpperCase()}] ${a.action}`,
+      [a.responsable, formatDate(a.echeance), STAT[a.statut], risk?.danger].filter(Boolean).join(' — '),
+    ])
+  })
+
+  synthData.push([''])
+  synthData.push(['═══ VOS OBLIGATIONS ═══'])
+  synthData.push(['Mise à jour', eff >= 11
+    ? 'Obligatoire au minimum annuelle (≥11 salariés) + lors de tout aménagement important ou nouvelle information sur un risque'
+    : 'Obligatoire lors de tout aménagement important ou nouvelle information (recommandée annuellement)'])
+  synthData.push(['Conservation', '40 ans — chaque version datée — dépôt dématérialisé prévu'])
+  synthData.push(['Plan d\'action', eff >= 50 ? 'PAPRIPACT obligatoire (≥50 salariés)' : 'Liste des actions intégrée au DUERP (<50 salariés)'])
+  synthData.push(['Consultation', 'Salariés, anciens salariés, médecin du travail, inspection du travail, CARSAT' + (eff >= 11 ? ', CSE' : '')])
+  synthData.push(['Différenciation H/F', 'Évaluation des risques tenant compte de l\'impact différencié selon le sexe'])
+  synthData.push([''])
+  synthData.push([DISCLAIMER_SHORT])
+
+  const wsSynth = XLSX.utils.aoa_to_sheet(synthData)
+  wsSynth['!cols'] = [{ wch: 50 }, { wch: 60 }]
+  XLSX.utils.book_append_sheet(wb, wsSynth, 'Synthèse')
 
   // ───────────────────────────────────────────────────────────
   // FEUILLE 1 : Informations générales
