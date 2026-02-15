@@ -46,6 +46,7 @@ import AdminImport from './pages/AdminImport'
 import EmailSettings from './pages/EmailSettings'
 // ========== NOUVEAU : Module DUERP ==========
 import DuerpProjects from './pages/DuerpProjects'
+import DuerpDetail from './pages/DuerpDetail'
 
 // Pages publiques
 import PublicAttendance from './pages/public/Attendance'
@@ -160,6 +161,7 @@ export default function App() {
           <Route path="admin/import" element={<AdminImport />} />
           {/* ========== NOUVEAU : Module DUERP ========== */}
           <Route path="duerp" element={<DuerpProjects />} />
+          <Route path="duerp/:id" element={<DuerpDetail />} />
           {/* ================================================== */}
           <Route path="formations" element={<Courses />} />
           <Route path="formateurs" element={<Trainers />} />
