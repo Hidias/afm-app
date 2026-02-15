@@ -758,6 +758,7 @@ function generateEmargement(session, trainees = [], trainer = null, isBlank = fa
 
   const signatures = attendanceData?.signatures || []   // table "attendances"
   const halfdays = attendanceData?.halfdays || []       // table "attendance_halfdays"
+  const digitalSignatures = attendanceData?.digitalSignatures || [] // table "document_signatures"
 
   // Helper : trouver une signature électronique pour un stagiaire + date + période
   const getSignature = (traineeId, dateStr, period) => {
@@ -778,6 +779,11 @@ function generateEmargement(session, trainees = [], trainer = null, isBlank = fa
     if (!hd) return null
     const isPresent = period === 'morning' ? hd.morning : hd.afternoon
     return isPresent ? hd : null
+  }
+
+  // Helper : vérifier si le stagiaire a une signature électronique (document_signatures)
+  const hasDigitalSignature = (traineeId) => {
+    return digitalSignatures.some(ds => ds.trainee_id === traineeId)
   }
 
   // Helper : formater un timestamp en "JJ/MM/AAAA à XXhXX"
@@ -960,9 +966,10 @@ function generateEmargement(session, trainees = [], trainer = null, isBlank = fa
         const hh = d ? String(d.getHours()).padStart(2, '0') : '--'
         const min = d ? String(d.getMinutes()).padStart(2, '0') : '--'
 
-        // Couleur : vert si signature num OU stagiaire a signé (signed_morning/afternoon_at), bleu si validé formateur uniquement
+        // Couleur : vert si signature num OU stagiaire a signé (signed_morning/afternoon_at) OU signature électronique, bleu si validé formateur uniquement
         const hdSigned = hd && (period === 'morning' ? hd.signed_morning_at : hd.signed_afternoon_at)
-        const color = (sig || hdSigned) ? [0, 120, 0] : [0, 80, 160]
+        const digiSig = hasDigitalSignature(t.id)
+        const color = (sig || hdSigned || digiSig) ? [0, 120, 0] : [0, 80, 160]
 
         // Dessiner la coche
         drawCheckmark(cellX + 1.5, y + 1.5, 4.5, color)
