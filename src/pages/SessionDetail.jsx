@@ -20,6 +20,7 @@ import SessionChecklist from '../components/SessionChecklist'
 import SessionNeedsAnalysis from '../components/SessionNeedsAnalysis'
 import SessionEmailModal from '../components/SessionEmailModal'
 import StageEmailModal from '../components/StageEmailModal'
+import { SignatureAuditBadge } from '../components/SignaturePad'
 import { getNeedsAnalysisPDFBytes } from '../lib/needsAnalysisPDF'
 
 const statusLabels = {
@@ -4315,10 +4316,13 @@ ${trainer ? `${trainer.first_name} ${trainer.last_name}` : 'Access Formation'}`
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
             {docTypes.map(doc => (
               <div key={doc.id} className="border rounded-lg p-3">
-                <div className="flex items-center gap-2 mb-2">
+                <div className="flex items-center gap-2 mb-1">
                   <doc.icon className="w-4 h-4 text-gray-500" />
                   <span className="font-medium text-sm">{doc.name}</span>
                   {doc.qualiopi && <span className="text-xs bg-blue-100 text-blue-700 px-1 rounded">Ind.{doc.qualiopi}</span>}
+                </div>
+                <div className="mb-2">
+                  <SignatureAuditBadge sessionId={session.id} documentType={doc.id} />
                 </div>
                 {doc.forAll && <button onClick={() => handleDownload(doc.id)} className="btn btn-sm btn-secondary w-full"><Download className="w-3 h-3 mr-1" />Télécharger</button>}
                 {doc.forEach && (
