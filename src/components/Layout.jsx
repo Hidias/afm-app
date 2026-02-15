@@ -61,6 +61,7 @@ const navSections = [
       { to: '/indicateurs', icon: BarChart3, label: 'Indicateurs' },
       { to: '/non-conformites', icon: AlertTriangle, label: 'Non-conformités' },
       { to: '/qualiopi', icon: Award, label: 'Qualiopi' },
+      { to: '/bpf', icon: FileText, label: 'BPF' },
       { to: '/veille-qualiopi', icon: Eye, label: 'Veille' },
       { to: '/registre-psh', icon: Shield, label: 'Registre PSH' },
       { to: '/profil-stagiaires', icon: Target, label: 'Profil stagiaires' },
