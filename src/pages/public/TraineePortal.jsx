@@ -9,6 +9,7 @@ import { format, parseISO, isToday, eachDayOfInterval } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import TraineeDocuments from '../../components/TraineeDocuments'
 import PositioningTestForm from '../../components/PositioningTestForm'
+import SignaturePad from '../../components/SignaturePad'
 
 const evalQuestions = {
   organisation: [
@@ -1340,108 +1341,30 @@ export default function TraineePortal() {
                 
                 {/* Certification et signature (première demi-journée uniquement) */}
                 {isFirst && (
-                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-4">
-                    <div className="flex items-start gap-2">
-                      <Shield className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
-                      <div className="text-sm text-blue-900 space-y-2">
-                        <p className="font-medium">Certification et protection des données</p>
-                        <p>
-                          Je certifie que les informations renseignées (identité, coordonnées, etc.) sont exactes 
-                          et que ma présence à cette formation est effective.
-                        </p>
-                        <p className="text-xs">
-                          Je reconnais avoir pris connaissance de la politique de protection des données personnelles 
-                          conformément au RGPD. Mes données seront traitées uniquement dans le cadre de cette formation 
-                          et conservées selon les obligations légales (durée : 3 ans après la formation).
-                        </p>
-                      </div>
-                    </div>
-                    
-                    <label className="flex items-start gap-3 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={certificationAccepted}
-                        onChange={(e) => setCertificationAccepted(e.target.checked)}
-                        className="mt-1 w-4 h-4 text-blue-600"
-                      />
-                      <span className="text-sm text-blue-900">
-                        J'accepte et certifie l'exactitude des informations
-                      </span>
-                    </label>
-                    
-                    {certificationAccepted && (
-                      <div className="space-y-2">
-                        <p className="text-sm font-medium text-blue-900">Signature obligatoire :</p>
-                        <canvas
-                          ref={(canvas) => {
-                            if (!canvas || signatureData) return
-                            const ctx = canvas.getContext('2d')
-                            canvas.width = canvas.offsetWidth
-                            canvas.height = 100
-                            ctx.strokeStyle = '#1e40af'
-                            ctx.lineWidth = 2
-                            ctx.lineCap = 'round'
-                            
-                            let drawing = false
-                            const startDrawing = (e) => {
-                              drawing = true
-                              const rect = canvas.getBoundingClientRect()
-                              const x = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left
-                              const y = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top
-                              ctx.beginPath()
-                              ctx.moveTo(x, y)
-                            }
-                            const draw = (e) => {
-                              if (!drawing) return
-                              e.preventDefault()
-                              const rect = canvas.getBoundingClientRect()
-                              const x = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left
-                              const y = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top
-                              ctx.lineTo(x, y)
-                              ctx.stroke()
-                            }
-                            const stopDrawing = () => {
-                              if (drawing) {
-                                setSignatureData(canvas.toDataURL())
-                              }
-                              drawing = false
-                            }
-                            
-                            canvas.addEventListener('mousedown', startDrawing)
-                            canvas.addEventListener('mousemove', draw)
-                            canvas.addEventListener('mouseup', stopDrawing)
-                            canvas.addEventListener('touchstart', startDrawing)
-                            canvas.addEventListener('touchmove', draw)
-                            canvas.addEventListener('touchend', stopDrawing)
-                          }}
-                          className="w-full border-2 border-blue-300 rounded bg-white"
-                          style={{ touchAction: 'none' }}
-                        />
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSignatureData(null)
-                              const canvas = document.querySelector('canvas')
-                              if (canvas) {
-                                const ctx = canvas.getContext('2d')
-                                ctx.clearRect(0, 0, canvas.width, canvas.height)
-                              }
-                            }}
-                            className="text-xs px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
-                          >
-                            Effacer
-                          </button>
-                          {signatureData && (
-                            <span className="text-xs text-green-600 flex items-center gap-1">
-                              <CheckCircle className="w-4 h-4" />
-                              Signature enregistrée
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                  <SignaturePad
+                    documentType="emargement"
+                    sessionId={session.id}
+                    traineeId={selectedTrainee.id}
+                    signerType="trainee"
+                    signerName={`${selectedTrainee.first_name} ${selectedTrainee.last_name}`}
+                    signerEmail={selectedTrainee.email}
+                    signerRole="Stagiaire"
+                    documentRef={session.reference || session.id}
+                    metadata={{ step: 'attendance', half_day: today }}
+                    requireCertification={true}
+                    compact={true}
+                    label="Signature obligatoire pour émarger"
+                    showAuditInfo={true}
+                    strokeColor="#1e40af"
+                    existingSignature={signatureData}
+                    onSigned={({ signatureData: sigData }) => {
+                      setSignatureData(sigData)
+                      setCertificationAccepted(true)
+                    }}
+                    onClear={() => {
+                      setSignatureData(null)
+                    }}
+                  />
                 )}
 
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
