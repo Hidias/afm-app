@@ -1,1123 +1,1054 @@
 // src/lib/duerpExport.js
-// Génération des rapports DUERP en PDF et Excel
-// Access Formation — Module DUERP
+// Génération des rapports DUERP — PDF & Excel
+// Access Formation — Refonte v2
 
 import jsPDF from 'jspdf'
 import 'jspdf-autotable'
 import * as XLSX from 'xlsx'
+import { LOGO_BASE64 } from './duerpLogo'
 
 // ═══════════════════════════════════════════════════════════
 // CONSTANTES
 // ═══════════════════════════════════════════════════════════
-const COLORS = {
-  primary: [34, 85, 96],       // #225560 — Access Formation teal
-  accent: [233, 180, 76],      // #E9B44C — amber
-  danger: [220, 38, 38],       // red
-  warning: [245, 158, 11],     // orange
-  caution: [234, 179, 8],      // yellow
-  success: [22, 163, 74],      // green
+const C = {
+  teal: [34, 85, 96],
+  tealDark: [20, 60, 70],
+  amber: [233, 180, 76],
+  red: [185, 28, 28],
+  orange: [194, 65, 12],
+  yellow: [161, 98, 7],
+  green: [22, 101, 52],
   gray: [107, 114, 128],
-  lightGray: [243, 244, 246],
+  grayLight: [156, 163, 175],
+  grayBg: [243, 244, 246],
   white: [255, 255, 255],
   black: [30, 30, 30],
 }
 
-const RISK_COLORS = {
-  critique: { bg: [254, 226, 226], text: [153, 27, 27] },
-  eleve:    { bg: [255, 237, 213], text: [154, 52, 18] },
-  moyen:    { bg: [254, 249, 195], text: [113, 63, 18] },
-  faible:   { bg: [220, 252, 231], text: [22, 101, 52] },
+const LVL = {
+  critique: { label: 'Critique', bg: [254, 226, 226], text: [153, 27, 27], hex: 'FEE2E2' },
+  eleve:    { label: 'Eleve',    bg: [255, 237, 213], text: [154, 52, 18], hex: 'FFEDD5' },
+  moyen:    { label: 'Moyen',    bg: [254, 249, 195], text: [113, 63, 18], hex: 'FEF9C3' },
+  faible:   { label: 'Faible',   bg: [220, 252, 231], text: [22, 101, 52], hex: 'DCFCE7' },
 }
 
-const getRiskLevel = (score) => {
-  if (score >= 13) return { label: 'Critique', key: 'critique' }
-  if (score >= 9) return { label: 'Élevé', key: 'eleve' }
-  if (score >= 5) return { label: 'Moyen', key: 'moyen' }
-  return { label: 'Faible', key: 'faible' }
-}
+const riskLevel = (score) => score >= 13 ? LVL.critique : score >= 9 ? LVL.eleve : score >= 5 ? LVL.moyen : LVL.faible
+const riskLevelKey = (score) => score >= 13 ? 'critique' : score >= 9 ? 'eleve' : score >= 5 ? 'moyen' : 'faible'
+const riskScore = (r) => Math.round((r.frequence || 0) * (r.gravite || 0) * (r.maitrise || 1))
 
-const FREQ = { 1: 'Occasionnel', 2: 'Fréquent', 3: 'Très fréquent', 4: 'Permanent' }
-const GRAV = { 1: 'Minime', 2: 'Significatif', 3: 'Grave', 4: 'Très grave' }
+const FREQ = { 1: 'Occasionnel', 2: 'Frequent', 3: 'Tres frequent', 4: 'Permanent' }
+const GRAV = { 1: 'Minime', 2: 'Significatif', 3: 'Grave', 4: 'Tres grave' }
 const MAIT = { 0.5: 'Bonne', 0.75: 'Partielle', 1: 'Insuffisante' }
 const PRIO = { critique: 'CRITIQUE', haute: 'Haute', moyenne: 'Moyenne', basse: 'Basse' }
-const STAT = { a_faire: 'À faire', en_cours: 'En cours', fait: 'Fait', annule: 'Annulé' }
-const TYPE_ACTION = {
-  prevention: 'Prévention', protection: 'Protection', formation: 'Formation',
+const STAT = { a_faire: 'A faire', en_cours: 'En cours', fait: 'Fait', annule: 'Annule' }
+const TYPE_A = {
+  prevention: 'Prevention', protection: 'Protection', formation: 'Formation',
   organisationnelle: 'Organisation', technique: 'Technique',
 }
 
-const DISCLAIMER = `AVERTISSEMENT IMPORTANT — LIMITES DE RESPONSABILITÉ
-
-Le présent Document Unique d'Évaluation des Risques Professionnels (DUERP) a été élaboré avec l'assistance d'Access Formation dans le cadre d'une prestation d'accompagnement et de conseil.
-
-Access Formation intervient en tant que prestataire d'aide à la rédaction et à la structuration du DUERP. Cette prestation ne se substitue en aucun cas à l'obligation légale de l'employeur.
-
-Conformément aux articles L.4121-1 à L.4121-5 et R.4121-1 à R.4121-4 du Code du travail :
-• L'employeur est seul responsable de la transcription et de la mise à jour du DUERP
-• L'employeur est seul responsable de l'exhaustivité et de l'exactitude de l'évaluation des risques
-• L'employeur est seul responsable de la mise en œuvre des actions de prévention
-• L'employeur est seul garant de la consultation des représentants du personnel (CSE le cas échéant)
-
-Access Formation ne saurait être tenue responsable d'éventuelles omissions, inexactitudes ou insuffisances dans le présent document. L'employeur s'engage à vérifier, compléter et valider l'ensemble des informations avant finalisation.
-
-Ce document constitue un outil d'aide à la décision et ne remplace pas l'expertise d'un IPRP (Intervenant en Prévention des Risques Professionnels) pour les situations complexes.`
-
-const DISCLAIMER_SHORT = `Document élaboré avec l'assistance d'Access Formation. L'employeur reste seul responsable de l'exhaustivité, de l'exactitude de l'évaluation des risques et de la mise en œuvre des actions de prévention (Art. L.4121-1 et suivants du Code du travail). Access Formation intervient en aide à la rédaction et ne saurait être tenue responsable d'éventuelles omissions ou insuffisances.`
-
-const formatDate = (d) => {
-  if (!d) return '—'
-  try { return new Date(d).toLocaleDateString('fr-FR') } catch { return d }
+const fmtDate = (d) => {
+  if (!d) return '--'
+  try { return new Date(d).toLocaleDateString('fr-FR') } catch { return String(d) }
 }
 
+const DISCLAIMER_SHORT = "Document elabore avec l'assistance d'Access Formation. L'employeur reste seul responsable de l'exhaustivite, de l'exactitude de l'evaluation des risques et de la mise en oeuvre des actions de prevention (Art. L.4121-1 et suivants du Code du travail)."
+
+const DISCLAIMER_FULL = [
+  'AVERTISSEMENT IMPORTANT -- LIMITES DE RESPONSABILITE',
+  '',
+  "Le present Document Unique d'Evaluation des Risques Professionnels (DUERP) a ete elabore avec l'assistance d'Access Formation dans le cadre d'une prestation d'accompagnement et de conseil.",
+  '',
+  "Access Formation intervient en tant que prestataire d'aide a la redaction et a la structuration du DUERP. Cette prestation ne se substitue en aucun cas a l'obligation legale de l'employeur.",
+  '',
+  'Conformement aux articles L.4121-1 a L.4121-5 et R.4121-1 a R.4121-4 du Code du travail :',
+  "  - L'employeur est seul responsable de la transcription et de la mise a jour du DUERP",
+  "  - L'employeur est seul responsable de l'exhaustivite et de l'exactitude de l'evaluation des risques",
+  "  - L'employeur est seul responsable de la mise en oeuvre des actions de prevention",
+  "  - L'employeur est seul garant de la consultation des representants du personnel (CSE le cas echeant)",
+  '',
+  "Access Formation ne saurait etre tenue responsable d'eventuelles omissions, inexactitudes ou insuffisances dans le present document. L'employeur s'engage a verifier, completer et valider l'ensemble des informations avant finalisation.",
+  '',
+  "Ce document constitue un outil d'aide a la decision et ne remplace pas l'expertise d'un IPRP (Intervenant en Prevention des Risques Professionnels) pour les situations complexes.",
+]
+
 // ═══════════════════════════════════════════════════════════
-// EXPORT PDF
+// PDF GENERATION
 // ═══════════════════════════════════════════════════════════
 export function generateDuerpPDF({ project, units, risks, actions, categories }) {
   const doc = new jsPDF()
   const pw = doc.internal.pageSize.getWidth()
   const ph = doc.internal.pageSize.getHeight()
+  const ml = 14, mr = 14
+  const cw = pw - ml - mr
+  const footerY = ph - 12
+  const safeY = ph - 24
+
   let pageNum = 0
 
-  // Helper: footer sur chaque page
+  // ── Computed ──
+  const evaluated = risks.filter(r => r.frequence && r.gravite).length
+  const scored = risks.map(r => ({ ...r, _score: riskScore(r) }))
+  const critiqueCount = scored.filter(r => r._score >= 13).length
+  const eleveCount = scored.filter(r => r._score >= 9 && r._score < 13).length
+  const doneActions = actions.filter(a => a.statut === 'fait').length
+  const eff = parseInt(project.effectif) || 0
+
+  // ── Footer ──
   const addFooter = () => {
     pageNum++
+    doc.setDrawColor(...C.amber)
+    doc.setLineWidth(0.4)
+    doc.line(ml, footerY - 2, pw - mr, footerY - 2)
     doc.setFontSize(7)
-    doc.setTextColor(...COLORS.gray)
-    doc.text(`DUERP — ${project.company_name} — ${project.reference} — Page ${pageNum}`, 14, ph - 8)
-    doc.text(`Généré le ${new Date().toLocaleDateString('fr-FR')} — Access Formation`, pw - 14, ph - 8, { align: 'right' })
-    doc.setDrawColor(...COLORS.accent)
-    doc.setLineWidth(0.5)
-    doc.line(14, ph - 12, pw - 14, ph - 12)
+    doc.setTextColor(...C.grayLight)
+    doc.text(`DUERP -- ${project.company_name} -- ${project.reference || ''}`, ml, footerY + 2)
+    doc.text(`Page ${pageNum}`, pw / 2, footerY + 2, { align: 'center' })
+    doc.text(`${new Date().toLocaleDateString('fr-FR')} -- Access Formation`, pw - mr, footerY + 2, { align: 'right' })
   }
 
+  // ── Header (pages after cover) ──
+  const addHeader = () => {
+    try { doc.addImage(LOGO_BASE64, 'JPEG', ml, 4, 18, 18) } catch (e) { /* fallback sans logo */ }
+    doc.setFontSize(8)
+    doc.setTextColor(...C.gray)
+    doc.text(`DUERP -- ${project.company_name}`, ml + 22, 12)
+    doc.text(project.reference || '', ml + 22, 17)
+    doc.setDrawColor(...C.teal)
+    doc.setLineWidth(0.3)
+    doc.line(ml, 24, pw - mr, 24)
+  }
+
+  // ── New page ──
   const newPage = () => {
     doc.addPage()
+    addHeader()
     addFooter()
+    return 30
   }
 
-  // ───────────────────────────────────────────────────────────
+  // ── Check Y ──
+  const checkY = (y, needed = 20) => (y + needed > safeY) ? newPage() : y
+
+  // ── Section title ──
+  const sectionTitle = (y, num, title) => {
+    y = checkY(y, 20)
+    doc.setFillColor(...C.teal)
+    doc.roundedRect(ml, y - 5, cw, 12, 2, 2, 'F')
+    doc.setTextColor(...C.white)
+    doc.setFontSize(13)
+    doc.setFont(undefined, 'bold')
+    doc.text(`${num}. ${title}`, ml + 5, y + 3)
+    doc.setFont(undefined, 'normal')
+    return y + 14
+  }
+
+  // ── Sub-title ──
+  const subTitle = (y, title) => {
+    y = checkY(y, 16)
+    doc.setFillColor(...C.amber)
+    doc.rect(ml, y, cw, 0.8, 'F')
+    y += 5
+    doc.setFontSize(11)
+    doc.setFont(undefined, 'bold')
+    doc.setTextColor(...C.teal)
+    doc.text(title, ml + 2, y)
+    doc.setFont(undefined, 'normal')
+    return y + 7
+  }
+
+  // ── Paragraph ──
+  const para = (y, text, opts = {}) => {
+    const sz = opts.size || 8.5
+    doc.setFontSize(sz)
+    doc.setTextColor(...(opts.color || C.black))
+    if (opts.bold) doc.setFont(undefined, 'bold')
+    else if (opts.italic) doc.setFont(undefined, 'italic')
+    else doc.setFont(undefined, 'normal')
+    const lines = doc.splitTextToSize(text, opts.maxW || (cw - 4))
+    const lh = sz * 0.42
+    lines.forEach(line => {
+      if (y > safeY) y = newPage()
+      doc.text(line, opts.x || (ml + 2), y)
+      y += lh
+    })
+    return y + 2
+  }
+
+  // ════════════════════════════════════════════════════════
   // PAGE 1 : COUVERTURE
-  // ───────────────────────────────────────────────────────────
-  // Bandeau supérieur
-  doc.setFillColor(...COLORS.primary)
-  doc.rect(0, 0, pw, 50, 'F')
-  doc.setFillColor(...COLORS.accent)
-  doc.rect(0, 50, pw, 4, 'F')
+  // ════════════════════════════════════════════════════════
 
-  doc.setTextColor(...COLORS.white)
-  doc.setFontSize(10)
-  doc.text('ACCESS FORMATION', 14, 18)
-  doc.setFontSize(7)
-  doc.text('Organisme de formation professionnelle — Concarneau', 14, 25)
+  // Bandeau teal pleine largeur
+  doc.setFillColor(...C.teal)
+  doc.rect(0, 0, pw, 55, 'F')
+  doc.setFillColor(...C.amber)
+  doc.rect(0, 55, pw, 3, 'F')
 
-  doc.setFontSize(24)
+  // Logo centré dans le bandeau
+  try { doc.addImage(LOGO_BASE64, 'JPEG', pw / 2 - 22, 5, 44, 44) } catch (e) {}
+
+  // Titre
+  let y = 70
+  doc.setTextColor(...C.teal)
+  doc.setFontSize(22)
   doc.setFont(undefined, 'bold')
-  doc.text('DOCUMENT UNIQUE', pw / 2, 37, { align: 'center' })
-  doc.setFontSize(13)
-  doc.text("d'Évaluation des Risques Professionnels", pw / 2, 45, { align: 'center' })
+  doc.text('DOCUMENT UNIQUE', pw / 2, y, { align: 'center' })
+  y += 9
+  doc.setFontSize(12)
+  doc.text("d'Evaluation des Risques Professionnels", pw / 2, y, { align: 'center' })
+  y += 5
+  doc.setDrawColor(...C.amber)
+  doc.setLineWidth(1)
+  doc.line(pw / 2 - 50, y, pw / 2 + 50, y)
 
-  // Infos entreprise
-  let y = 68
-  doc.setTextColor(...COLORS.black)
-  doc.setFontSize(20)
-  doc.setFont(undefined, 'bold')
+  // Nom entreprise
+  y += 14
+  doc.setTextColor(...C.black)
+  doc.setFontSize(22)
   doc.text(project.company_name || '', pw / 2, y, { align: 'center' })
 
-  y += 12
-  doc.setFontSize(10)
+  // Infos
+  y += 14
+  doc.setFontSize(9.5)
   doc.setFont(undefined, 'normal')
-  doc.setTextColor(...COLORS.gray)
+  doc.setTextColor(...C.gray)
   const infoLines = [
-    `Référence : ${project.reference}`,
+    `Reference : ${project.reference || ''}`,
     project.siret ? `SIRET : ${project.siret}` : null,
-    project.naf_code ? `Code NAF : ${project.naf_code} — ${project.naf_label || ''}` : null,
-    project.address ? `Adresse : ${project.address}, ${project.postal_code} ${project.city}` : null,
-    project.effectif ? `Effectif : ${project.effectif} salarié(s)` : null,
-    project.evaluateur ? `Évaluateur : ${project.evaluateur}` : null,
-    `Date d'élaboration : ${formatDate(project.date_elaboration)}`,
-    project.date_mise_a_jour ? `Dernière mise à jour : ${formatDate(project.date_mise_a_jour)}` : null,
+    project.naf_code ? `Code NAF : ${project.naf_code} -- ${project.naf_label || ''}` : null,
+    project.address ? `Adresse : ${project.address}, ${project.postal_code || ''} ${project.city || ''}` : null,
+    project.effectif ? `Effectif : ${project.effectif} salarie(s)` : null,
+    project.evaluateur ? `Evaluateur : ${project.evaluateur}` : null,
+    `Date d'elaboration : ${fmtDate(project.date_elaboration)}`,
   ].filter(Boolean)
+  infoLines.forEach(line => { doc.text(line, pw / 2, y, { align: 'center' }); y += 6 })
 
-  infoLines.forEach(line => {
-    doc.text(line, pw / 2, y, { align: 'center' })
-    y += 6
-  })
-
-  // Encadré stats
-  y += 10
-  const evaluated = risks.filter(r => r.frequence && r.gravite).length
-  const critique = risks.filter(r => { const s = (r.frequence||0)*(r.gravite||0)*(r.maitrise||1); return s >= 13 }).length
-  const eleve = risks.filter(r => { const s = (r.frequence||0)*(r.gravite||0)*(r.maitrise||1); return s >= 9 && s < 13 }).length
-
-  doc.setFillColor(...COLORS.lightGray)
-  doc.roundedRect(30, y, pw - 60, 30, 3, 3, 'F')
-  doc.setFontSize(9)
-  doc.setTextColor(...COLORS.black)
-  doc.setFont(undefined, 'bold')
-  const stats = [
-    `${risks.length} risques identifiés`,
-    `${evaluated} évalués`,
-    `${critique + eleve} critiques/élevés`,
-    `${actions.length} actions de prévention`,
+  // Stats
+  y += 8
+  doc.setFillColor(...C.grayBg)
+  doc.roundedRect(25, y, pw - 50, 28, 3, 3, 'F')
+  const statsData = [
+    [`${risks.length}`, 'risques identifies'],
+    [`${evaluated}`, 'evalues'],
+    [`${critiqueCount + eleveCount}`, 'critiques/eleves'],
+    [`${actions.length}`, 'actions prevention'],
   ]
-  const statW = (pw - 60) / stats.length
-  stats.forEach((s, i) => {
-    doc.text(s, 30 + statW * i + statW / 2, y + 18, { align: 'center' })
+  const sw = (pw - 50) / 4
+  statsData.forEach((s, i) => {
+    doc.setFontSize(14)
+    doc.setFont(undefined, 'bold')
+    doc.setTextColor(...C.teal)
+    doc.text(s[0], 25 + sw * i + sw / 2, y + 11, { align: 'center' })
+    doc.setFontSize(7)
+    doc.setFont(undefined, 'normal')
+    doc.setTextColor(...C.gray)
+    doc.text(s[1], 25 + sw * i + sw / 2, y + 18, { align: 'center' })
   })
 
-  // Disclaimer en bas de couverture
-  y = ph - 65
-  doc.setFontSize(6.5)
+  // Disclaimer bas de page couverture
+  y = ph - 40
+  doc.setFontSize(6)
   doc.setFont(undefined, 'italic')
-  doc.setTextColor(...COLORS.gray)
-  const disclaimerLines = doc.splitTextToSize(DISCLAIMER_SHORT, pw - 40)
-  doc.text(disclaimerLines, 20, y)
+  doc.setTextColor(...C.grayLight)
+  doc.text(doc.splitTextToSize(DISCLAIMER_SHORT, pw - 40), 20, y)
 
   addFooter()
 
-  // ───────────────────────────────────────────────────────────
-  // PAGES 2-3 : SYNTHÈSE POUR LE DIRIGEANT
-  // ───────────────────────────────────────────────────────────
-  newPage()
-  y = 20
+  // ════════════════════════════════════════════════════════
+  // PAGE 2 : SOMMAIRE
+  // ════════════════════════════════════════════════════════
+  y = newPage()
 
-  // Titre
-  doc.setFillColor(...COLORS.primary)
-  doc.roundedRect(14, y - 4, pw - 28, 14, 2, 2, 'F')
-  doc.setTextColor(...COLORS.white)
-  doc.setFontSize(14)
+  doc.setFontSize(16)
   doc.setFont(undefined, 'bold')
-  doc.text('SYNTHÈSE POUR LE DIRIGEANT', pw / 2, y + 5, { align: 'center' })
-  y += 18
+  doc.setTextColor(...C.teal)
+  doc.text('SOMMAIRE', pw / 2, y, { align: 'center' })
+  y += 14
 
-  // Texte intro pédagogique
-  doc.setTextColor(...COLORS.black)
+  const tocItems = [
+    { num: '1', title: 'Synthese pour le dirigeant', desc: 'Vue d\'ensemble : postes, risques, actions, obligations' },
+    { num: '2', title: 'Methodologie de cotation', desc: 'Grille Frequence x Gravite x Maitrise et matrice' },
+    { num: '3', title: 'Inventaire des risques par unite', desc: `${units.length} unite(s), ${risks.length} risque(s) identifies` },
+    { num: '4', title: 'Plan d\'action de prevention', desc: `${actions.length} action(s) dont ${doneActions} realisee(s)` },
+    { num: '5', title: 'Mentions legales et signatures', desc: 'Obligations, avertissement, signatures' },
+  ]
+
+  tocItems.forEach((item, i) => {
+    doc.setFillColor(...C.teal)
+    doc.circle(ml + 8, y + 2, 5, 'F')
+    doc.setTextColor(...C.white)
+    doc.setFontSize(11)
+    doc.setFont(undefined, 'bold')
+    doc.text(item.num, ml + 8, y + 4.5, { align: 'center' })
+    doc.setTextColor(...C.black)
+    doc.setFontSize(11)
+    doc.text(item.title, ml + 18, y + 3)
+    doc.setFontSize(8)
+    doc.setFont(undefined, 'normal')
+    doc.setTextColor(...C.gray)
+    doc.text(item.desc, ml + 18, y + 9)
+    if (i < tocItems.length - 1) {
+      doc.setDrawColor(...C.grayBg)
+      doc.setLineWidth(0.3)
+      doc.line(ml + 18, y + 14, pw - mr, y + 14)
+    }
+    y += 22
+  })
+
+  // Encadré guide de lecture
+  y += 6
+  doc.setFillColor(240, 248, 255)
+  doc.setDrawColor(...C.teal)
+  doc.setLineWidth(0.5)
+  doc.roundedRect(ml, y, cw, 28, 2, 2, 'FD')
   doc.setFontSize(9)
-  doc.setFont(undefined, 'normal')
-  const introText = `Ce document est votre Document Unique d'Évaluation des Risques Professionnels (DUERP). Il recense l'ensemble des risques auxquels vos salariés sont exposés dans le cadre de leur activité, et définit les actions à mettre en place pour les protéger. Cette synthèse vous donne une vision claire et actionnable de la situation.`
-  const introLines = doc.splitTextToSize(introText, pw - 32)
-  doc.text(introLines, 16, y)
-  y += introLines.length * 4.5 + 6
-
-  // ─── VOS POSTES ET UNITÉS DE TRAVAIL ───
-  doc.setFillColor(...COLORS.accent)
-  doc.rect(14, y, pw - 28, 0.8, 'F')
-  y += 5
-  doc.setFontSize(11)
   doc.setFont(undefined, 'bold')
-  doc.setTextColor(...COLORS.primary)
-  doc.text('VOS POSTES ET UNITÉS DE TRAVAIL', 16, y)
-  y += 7
-
-  doc.setFontSize(8.5)
+  doc.setTextColor(...C.teal)
+  doc.text('Comment lire ce document ?', ml + 5, y + 7)
   doc.setFont(undefined, 'normal')
-  doc.setTextColor(...COLORS.black)
-  const unitIntro = `Votre entreprise a été découpée en ${units.length} unité(s) de travail, c'est-à-dire des regroupements de postes partageant les mêmes conditions d'exposition aux risques :`
-  const unitIntroLines = doc.splitTextToSize(unitIntro, pw - 36)
-  doc.text(unitIntroLines, 18, y)
-  y += unitIntroLines.length * 4 + 4
+  doc.setFontSize(8)
+  doc.setTextColor(60, 60, 60)
+  doc.text('Dirigeant presse : lisez uniquement la section 1 (Synthese) pour une vision complete.', ml + 5, y + 14)
+  doc.text('Pour le detail : les sections 2 a 4 contiennent l\'inventaire complet et le plan d\'action.', ml + 5, y + 20)
+  doc.text('Reglementaire : la section 5 rappelle vos obligations et contient les zones de signatures.', ml + 5, y + 26)
+
+  // ════════════════════════════════════════════════════════
+  // SECTION 1 : SYNTHÈSE DIRIGEANT
+  // ════════════════════════════════════════════════════════
+  y = newPage()
+  y = sectionTitle(y, 1, 'SYNTHESE POUR LE DIRIGEANT')
+
+  y = para(y, "Ce document est votre Document Unique d'Evaluation des Risques Professionnels (DUERP). Il recense l'ensemble des risques auxquels vos salaries sont exposes et definit les actions a mettre en place. Cette synthese vous donne une vision claire et actionnable.")
+
+  // -- Unités --
+  y += 2
+  y = subTitle(y, 'VOS POSTES ET UNITES DE TRAVAIL')
+  y = para(y, `Votre entreprise a ete decoupee en ${units.length} unite(s) de travail :`)
+  y += 2
 
   units.forEach(u => {
-    if (y > ph - 30) { newPage(); y = 20 }
-    const unitRisks = risks.filter(r => r.unit_id === u.id)
-    const unitCritique = unitRisks.filter(r => { const s = (r.frequence||0)*(r.gravite||0)*(r.maitrise||1); return s >= 9 }).length
-    const unitEval = unitRisks.filter(r => r.frequence && r.gravite).length
+    y = checkY(y, 14)
+    const unitRisks = scored.filter(r => r.unit_id === u.id)
+    const highCount = unitRisks.filter(r => r._score >= 9).length
+    const maxScore = Math.max(0, ...unitRisks.map(r => r._score))
+    const lvl = riskLevel(maxScore || 0)
 
-    // Pastille colorée
-    const maxScore = Math.max(0, ...unitRisks.map(r => (r.frequence||0)*(r.gravite||0)*(r.maitrise||1)))
-    const lvlKey = maxScore >= 13 ? 'critique' : maxScore >= 9 ? 'eleve' : maxScore >= 5 ? 'moyen' : 'faible'
-    doc.setFillColor(...RISK_COLORS[lvlKey].bg)
-    doc.roundedRect(18, y - 3, pw - 40, 12, 1.5, 1.5, 'F')
+    doc.setFillColor(...lvl.bg)
+    doc.roundedRect(ml + 2, y - 3.5, cw - 4, 11, 1.5, 1.5, 'F')
+    doc.setDrawColor(...lvl.text)
+    doc.setLineWidth(1.5)
+    doc.line(ml + 2, y - 3.5, ml + 2, y + 7.5)
 
     doc.setFont(undefined, 'bold')
     doc.setFontSize(9)
-    doc.setTextColor(...RISK_COLORS[lvlKey].text)
-    doc.text(`${u.name}`, 22, y + 4)
+    doc.setTextColor(...lvl.text)
+    doc.text(u.name, ml + 7, y + 3)
 
     doc.setFont(undefined, 'normal')
-    doc.setFontSize(7.5)
-    doc.setTextColor(...COLORS.gray)
-    const unitInfo = [
+    doc.setFontSize(7)
+    doc.setTextColor(...C.gray)
+    const info = [
       u.effectif ? `${u.effectif} pers.` : null,
       u.metiers || null,
       `${unitRisks.length} risque(s)`,
-      unitCritique > 0 ? `dont ${unitCritique} élevé(s)/critique(s)` : null,
-    ].filter(Boolean).join(' — ')
-    doc.text(unitInfo, pw - 22, y + 4, { align: 'right' })
+      highCount > 0 ? `dont ${highCount} eleve(s)/critique(s)` : null,
+    ].filter(Boolean).join(' -- ')
+    const infoW = doc.getTextWidth(info)
+    if (infoW < cw - 12) {
+      doc.text(info, pw - mr - 2, y + 3, { align: 'right' })
+    } else {
+      doc.text(doc.splitTextToSize(info, cw - 60).slice(0, 1), ml + 7, y + 8)
+    }
     y += 14
   })
 
-  // ─── PRINCIPAUX RISQUES IDENTIFIÉS ───
-  y += 4
-  if (y > ph - 60) { newPage(); y = 20 }
-  doc.setFillColor(...COLORS.accent)
-  doc.rect(14, y, pw - 28, 0.8, 'F')
-  y += 5
-  doc.setFontSize(11)
-  doc.setFont(undefined, 'bold')
-  doc.setTextColor(...COLORS.primary)
-  doc.text('PRINCIPAUX RISQUES IDENTIFIÉS', 16, y)
-  y += 7
-
-  // Trier les risques par score décroissant, prendre les top 10
-  const scoredRisks = risks.map(r => {
-    const brut = (r.frequence||0) * (r.gravite||0)
-    const residuel = brut * (r.maitrise||1)
-    return { ...r, _score: residuel || brut }
-  }).filter(r => r._score > 0).sort((a, b) => b._score - a._score)
-
-  const topRisks = scoredRisks.slice(0, 10)
+  // -- Top 10 risques --
+  y += 2
+  y = subTitle(y, 'PRINCIPAUX RISQUES IDENTIFIES')
+  const topRisks = scored.filter(r => r._score > 0).sort((a, b) => b._score - a._score).slice(0, 10)
 
   if (topRisks.length === 0) {
-    doc.setFontSize(8.5)
-    doc.setFont(undefined, 'italic')
-    doc.setTextColor(...COLORS.gray)
-    doc.text('Aucun risque n\'a encore été évalué. Complétez les cotations pour voir apparaître cette synthèse.', 18, y)
-    y += 8
+    y = para(y, 'Aucun risque evalue. Completez les cotations.', { italic: true, color: C.gray })
   } else {
-    doc.setFontSize(8.5)
-    doc.setFont(undefined, 'normal')
-    doc.setTextColor(...COLORS.black)
-    const riskIntro = `Sur les ${risks.length} risques identifiés, voici les ${topRisks.length} plus importants nécessitant votre attention en priorité :`
-    doc.text(riskIntro, 18, y)
-    y += 6
+    y = para(y, `Sur les ${risks.length} risques identifies, voici les ${topRisks.length} plus importants :`)
+    y += 2
 
     topRisks.forEach((r, i) => {
-      if (y > ph - 22) { newPage(); y = 20 }
+      y = checkY(y, 20)
       const unit = units.find(u => u.id === r.unit_id)
-      const lvl = getRiskLevel(r._score)
-      const lvlKey = lvl.key
+      const lvl = riskLevel(r._score)
 
-      doc.setFillColor(...RISK_COLORS[lvlKey].bg)
-      doc.circle(22, y + 1.5, 2, 'F')
-
+      doc.setFillColor(...lvl.bg)
+      doc.circle(ml + 5, y + 1.5, 3.5, 'F')
+      doc.setFontSize(8)
       doc.setFont(undefined, 'bold')
+      doc.setTextColor(...lvl.text)
+      doc.text(`${i + 1}`, ml + 5, y + 3, { align: 'center' })
+
       doc.setFontSize(8.5)
-      doc.setTextColor(...RISK_COLORS[lvlKey].text)
-      doc.text(`${i + 1}. ${r.danger || 'Risque non titré'}`, 27, y + 3)
+      doc.text((r.danger || '').substring(0, 70), ml + 12, y + 3)
 
       doc.setFont(undefined, 'normal')
-      doc.setFontSize(7.5)
-      doc.setTextColor(...COLORS.gray)
-      const detail = `${unit?.name || 'Sans unité'} — Score ${r._score} (${lvl.label}) — F${r.frequence}×G${r.gravite}×M${r.maitrise}`
-      doc.text(detail, 27, y + 8)
+      doc.setFontSize(7)
+      doc.setTextColor(...C.gray)
+      doc.text(`${unit?.name || '--'} -- Score ${r._score} (${lvl.label}) -- F${r.frequence}xG${r.gravite}xM${r.maitrise}`, ml + 12, y + 8)
 
       if (r.situation) {
         doc.setTextColor(80, 80, 80)
-        const sitLines = doc.splitTextToSize(r.situation, pw - 48)
-        doc.text(sitLines.slice(0, 2), 27, y + 12.5)
-        y += Math.min(sitLines.length, 2) * 3.5
+        const sitLines = doc.splitTextToSize(r.situation, cw - 18).slice(0, 2)
+        sitLines.forEach((line, li) => {
+          const lineY = y + 12 + li * 3.5
+          if (lineY < safeY) doc.text(line, ml + 12, lineY)
+        })
+        y += sitLines.length * 3.5
       }
       y += 14
     })
   }
 
-  // ─── CE QUE VOUS DEVEZ FAIRE : ACTIONS PRIORITAIRES ───
-  if (y > ph - 50) { newPage(); y = 20 }
-  y += 2
-  doc.setFillColor(...COLORS.accent)
-  doc.rect(14, y, pw - 28, 0.8, 'F')
-  y += 5
-  doc.setFontSize(11)
-  doc.setFont(undefined, 'bold')
-  doc.setTextColor(...COLORS.primary)
-  doc.text('CE QUE VOUS DEVEZ FAIRE : ACTIONS PRIORITAIRES', 16, y)
-  y += 7
+  // -- Actions prioritaires --
+  y = checkY(y, 30)
+  y = subTitle(y, 'CE QUE VOUS DEVEZ FAIRE : ACTIONS PRIORITAIRES')
 
-  const sortedActions = [...actions].sort((a, b) => {
-    const pOrder = { critique: 0, haute: 1, moyenne: 2, basse: 3 }
-    return (pOrder[a.priorite] ?? 9) - (pOrder[b.priorite] ?? 9)
+  const sortedAct = [...actions].sort((a, b) => {
+    const p = { critique: 0, haute: 1, moyenne: 2, basse: 3 }
+    return (p[a.priorite] ?? 9) - (p[b.priorite] ?? 9)
   })
-  const topActions = sortedActions.slice(0, 12)
+  const topAct = sortedAct.slice(0, 12)
 
-  if (topActions.length === 0 && scoredRisks.length > 0) {
-    doc.setFontSize(8.5)
-    doc.setFont(undefined, 'normal')
-    doc.setTextColor(...COLORS.black)
-    const noActionText = `Aucune action de prévention n'a été définie pour le moment. Il est impératif de définir des actions correctives pour les ${Math.min(critique + eleve, risks.length)} risque(s) élevé(s) ou critique(s) identifié(s). Rendez-vous dans l'onglet "Actions" de votre DUERP pour créer votre plan d'action.`
-    const noActionLines = doc.splitTextToSize(noActionText, pw - 36)
-    doc.text(noActionLines, 18, y)
-    y += noActionLines.length * 4 + 4
-  } else if (topActions.length > 0) {
-    doc.setFontSize(8.5)
-    doc.setFont(undefined, 'normal')
-    doc.setTextColor(...COLORS.black)
+  if (topAct.length > 0) {
+    y = para(y, `${actions.length} action(s) definies, dont ${doneActions} realisee(s). Prioritaires :`)
+    y += 2
 
-    const doneActions = actions.filter(a => a.statut === 'fait').length
-    const actionIntro = `${actions.length} action(s) de prévention ont été définies, dont ${doneActions} réalisée(s). Voici les actions à mener en priorité :`
-    doc.text(actionIntro, 18, y)
-    y += 6
+    topAct.forEach(a => {
+      y = checkY(y, 14)
+      const priCol = { critique: LVL.critique, haute: LVL.eleve, moyenne: LVL.moyen, basse: LVL.faible }
+      const pc = priCol[a.priorite] || LVL.moyen
 
-    topActions.forEach((a, i) => {
-      if (y > ph - 20) { newPage(); y = 20 }
-      const risk = risks.find(r => r.id === a.risk_id)
-      const priColors = {
-        critique: { bg: RISK_COLORS.critique.bg, text: RISK_COLORS.critique.text },
-        haute:    { bg: RISK_COLORS.eleve.bg, text: RISK_COLORS.eleve.text },
-        moyenne:  { bg: RISK_COLORS.moyen.bg, text: RISK_COLORS.moyen.text },
-        basse:    { bg: RISK_COLORS.faible.bg, text: RISK_COLORS.faible.text },
-      }
-      const pc = priColors[a.priorite] || priColors.moyenne
-
-      // Pastille priorité
       doc.setFillColor(...pc.bg)
-      doc.roundedRect(18, y - 2.5, 16, 7, 1, 1, 'F')
-      doc.setFontSize(6)
+      doc.roundedRect(ml + 2, y - 2.5, 18, 7, 1, 1, 'F')
+      doc.setFontSize(5.5)
       doc.setFont(undefined, 'bold')
       doc.setTextColor(...pc.text)
-      doc.text((PRIO[a.priorite] || '').substring(0, 8), 26, y + 2, { align: 'center' })
+      doc.text((PRIO[a.priorite] || '').substring(0, 8), ml + 11, y + 2, { align: 'center' })
 
-      // Action
-      doc.setFontSize(8.5)
+      doc.setFontSize(8)
       doc.setFont(undefined, 'normal')
-      doc.setTextColor(...COLORS.black)
-      const actionText = a.action || 'Action non décrite'
-      const actionLines = doc.splitTextToSize(actionText, pw - 58)
-      doc.text(actionLines.slice(0, 2), 37, y + 2)
+      doc.setTextColor(...C.black)
+      const actLines = doc.splitTextToSize(a.action || '', cw - 28).slice(0, 2)
+      doc.text(actLines, ml + 23, y + 2)
 
-      // Détails
-      doc.setFontSize(7)
-      doc.setTextColor(...COLORS.gray)
-      const details = [
+      doc.setFontSize(6.5)
+      doc.setTextColor(...C.gray)
+      const det = [
         a.responsable ? `Resp: ${a.responsable}` : null,
-        a.echeance ? `Échéance: ${formatDate(a.echeance)}` : null,
-        a.cout_estime ? `Coût: ${a.cout_estime}` : null,
+        a.echeance ? `Ech: ${fmtDate(a.echeance)}` : null,
+        a.cout_estime ? `Cout: ${a.cout_estime}` : null,
         STAT[a.statut] ? `[${STAT[a.statut]}]` : null,
-      ].filter(Boolean).join(' — ')
-      const detailY = y + 2 + Math.min(actionLines.length, 2) * 3.5
-      doc.text(details, 37, detailY + 1)
+      ].filter(Boolean).join(' -- ')
+      const detY = y + 2 + Math.min(actLines.length, 2) * 3.5
+      if (detY < safeY) doc.text(det, ml + 23, detY)
 
-      y += Math.min(actionLines.length, 2) * 3.5 + 10
+      y += Math.min(actLines.length, 2) * 3.5 + 10
     })
+  } else {
+    y = para(y, 'Aucune action definie. Definissez des actions pour les risques critiques/eleves.', { italic: true })
   }
 
-  // ─── VOS OBLIGATIONS : CE QU'IL FAUT RETENIR ───
-  if (y > ph - 70) { newPage(); y = 20 }
-  y += 4
-  doc.setFillColor(...COLORS.accent)
-  doc.rect(14, y, pw - 28, 0.8, 'F')
-  y += 5
-  doc.setFontSize(11)
-  doc.setFont(undefined, 'bold')
-  doc.setTextColor(...COLORS.primary)
-  doc.text('VOS OBLIGATIONS : CE QU\'IL FAUT RETENIR', 16, y)
-  y += 8
+  // -- Obligations --
+  y = checkY(y, 40)
+  y = subTitle(y, 'VOS OBLIGATIONS : CE QU\'IL FAUT RETENIR')
 
-  doc.setFontSize(8.5)
-  doc.setFont(undefined, 'normal')
-  doc.setTextColor(...COLORS.black)
-
-  const eff = parseInt(project.effectif) || 0
-  const obligations = [
-    {
-      title: 'Mise à jour du DUERP',
+  const oblis = [
+    { title: 'Mise a jour du DUERP',
       text: eff >= 11
-        ? `En tant qu'entreprise de ${eff} salariés (≥ 11), vous devez mettre à jour votre DUERP au minimum une fois par an. Vous devez également le mettre à jour lors de tout aménagement important modifiant les conditions de travail, ou lorsqu'une information nouvelle concernant un risque est portée à votre connaissance (accident du travail, maladie professionnelle, alerte d'un salarié...).`
-        : `En tant qu'entreprise de moins de 11 salariés, vous n'êtes pas obligé de mettre à jour votre DUERP chaque année, mais vous devez le faire lors de tout aménagement important ou lorsqu'une information nouvelle sur un risque apparaît. Nous vous recommandons néanmoins une mise à jour annuelle pour maintenir la pertinence de votre évaluation.`,
-    },
-    {
-      title: 'Conservation',
-      text: 'Le DUERP et ses mises à jour successives doivent être conservés pendant une durée de 40 ans à compter de leur élaboration. Chaque version doit être datée. Un dépôt dématérialisé sur un portail numérique est prévu par la réglementation.',
-    },
-    {
-      title: eff >= 50 ? 'Programme annuel de prévention (PAPRIPACT)' : 'Liste des actions de prévention',
+        ? `Entreprise >= 11 salaries : mise a jour annuelle obligatoire + lors de tout changement significatif.`
+        : `Entreprise < 11 salaries : MAJ lors de tout changement significatif. Annuelle recommandee.` },
+    { title: 'Conservation',
+      text: 'Le DUERP et ses versions successives doivent etre conserves 40 ans. Chaque version datee. Depot dematerialise prevu.' },
+    { title: eff >= 50 ? 'PAPRIPACT (>= 50 sal.)' : 'Liste des actions',
       text: eff >= 50
-        ? 'En tant qu\'entreprise de 50 salariés et plus, vous devez établir un Programme Annuel de Prévention des Risques Professionnels et d\'Amélioration des Conditions de Travail (PAPRIPACT), comprenant les mesures prises, les conditions d\'exécution, les indicateurs de résultat et l\'estimation de leur coût.'
-        : 'En tant qu\'entreprise de moins de 50 salariés, vous devez définir des actions de prévention des risques et de protection des salariés. La liste de ces actions et leur condition d\'exécution sont consignées dans le présent DUERP.',
-    },
-    {
-      title: 'Consultation et diffusion',
-      text: `Le DUERP doit être tenu à la disposition de vos salariés, des anciens salariés, du médecin du travail, de l'inspection du travail et des agents de la CARSAT.${eff >= 11 ? ' Le Comité Social et Économique (CSE), s\'il existe, doit être consulté sur le DUERP et sur le programme annuel de prévention.' : ''} Pensez à transmettre le DUERP à votre service de prévention et de santé au travail à chaque mise à jour.`,
-    },
-    {
-      title: 'Évaluation différenciée femmes/hommes',
-      text: 'Depuis la loi du 2 août 2021, l\'évaluation des risques doit tenir compte de l\'impact différencié de l\'exposition en fonction du sexe. Cela signifie que certains risques peuvent affecter différemment les femmes et les hommes (ergonomie des postes, exposition chimique, risques psychosociaux...) et que votre évaluation doit en tenir compte.',
-    },
+        ? 'Programme Annuel de Prevention obligatoire avec mesures, indicateurs et cout.'
+        : 'Actions de prevention et conditions d\'execution consignees dans le DUERP.' },
+    { title: 'Consultation et diffusion',
+      text: `A disposition des salaries, anciens salaries, medecin du travail, inspection, CARSAT.${eff >= 11 ? ' Consultation du CSE obligatoire.' : ''}` },
+    { title: 'Evaluation H/F',
+      text: 'Loi du 2 aout 2021 : l\'evaluation doit tenir compte de l\'impact differencie selon le sexe.' },
   ]
 
-  obligations.forEach(ob => {
-    if (y > ph - 30) { newPage(); y = 20 }
+  oblis.forEach(ob => {
+    y = checkY(y, 18)
     doc.setFont(undefined, 'bold')
     doc.setFontSize(8.5)
-    doc.setTextColor(...COLORS.primary)
-    doc.text(`▸ ${ob.title}`, 18, y)
-    y += 5
-
+    doc.setTextColor(...C.teal)
+    doc.text(`> ${ob.title}`, ml + 2, y)
+    y += 4.5
     doc.setFont(undefined, 'normal')
     doc.setTextColor(60, 60, 60)
-    doc.setFontSize(8)
-    const lines = doc.splitTextToSize(ob.text, pw - 40)
-    doc.text(lines, 20, y)
-    y += lines.length * 3.8 + 6
+    doc.setFontSize(7.5)
+    const lines = doc.splitTextToSize(ob.text, cw - 8)
+    lines.forEach(line => {
+      if (y > safeY) y = newPage()
+      doc.text(line, ml + 4, y)
+      y += 3.5
+    })
+    y += 4
   })
 
-  // ─── PROCHAINES ÉTAPES ───
-  if (y > ph - 40) { newPage(); y = 20 }
-  y += 2
+  // -- Prochaines étapes --
+  y = checkY(y, 50)
+  const nextDateStr = fmtDate(project.date_prochaine_maj) !== '--'
+    ? fmtDate(project.date_prochaine_maj)
+    : (eff >= 11 ? `avant le ${fmtDate(new Date(new Date().setFullYear(new Date().getFullYear() + 1)))}` : 'lors du prochain changement significatif')
+
+  const steps = [
+    '1. Prenez connaissance de cette synthese et du detail dans les pages suivantes.',
+    '2. Verifiez que tous les risques correspondent a la realite de votre entreprise.',
+    '3. Completez si necessaire avec des risques specifiques.',
+    '4. Mettez en oeuvre les actions prioritaires (critiques et hautes) en premier.',
+    '5. Planifiez les actions moyenne et basse priorite sur les prochains mois.',
+    `6. Prochaine mise a jour recommandee : ${nextDateStr}.`,
+  ]
+  const boxH = steps.length * 5 + 14
   doc.setFillColor(240, 248, 255)
-  doc.setDrawColor(...COLORS.primary)
+  doc.setDrawColor(...C.teal)
   doc.setLineWidth(0.5)
-  const nextStepsText = [
-    '1. Prenez connaissance de cette synthèse et du détail des risques dans les pages suivantes.',
-    '2. Vérifiez que tous les risques identifiés correspondent à la réalité de votre entreprise.',
-    '3. Complétez si nécessaire avec des risques spécifiques à votre activité.',
-    '4. Mettez en œuvre les actions prioritaires (critiques et hautes) dans les plus brefs délais.',
-    '5. Planifiez les actions de priorité moyenne et basse sur les prochains mois.',
-    '6. Conservez ce document et programmez sa prochaine mise à jour.',
-  ]
-  const nextH = nextStepsText.length * 5 + 14
-  doc.roundedRect(14, y, pw - 28, nextH, 2, 2, 'FD')
-
+  doc.roundedRect(ml, y, cw, boxH, 2, 2, 'FD')
   doc.setFontSize(9)
   doc.setFont(undefined, 'bold')
-  doc.setTextColor(...COLORS.primary)
-  doc.text('PROCHAINES ÉTAPES', 20, y + 7)
-
+  doc.setTextColor(...C.teal)
+  doc.text('PROCHAINES ETAPES', ml + 5, y + 8)
   doc.setFont(undefined, 'normal')
-  doc.setFontSize(8)
+  doc.setFontSize(7.5)
   doc.setTextColor(50, 50, 50)
-  nextStepsText.forEach((step, i) => {
-    doc.text(step, 20, y + 14 + i * 5)
-  })
+  steps.forEach((s, i) => doc.text(s, ml + 5, y + 15 + i * 5))
 
-  // ───────────────────────────────────────────────────────────
-  // PAGE SUIVANTE : MÉTHODOLOGIE
-  // ───────────────────────────────────────────────────────────
-  newPage()
-  y = 20
-  doc.setFontSize(16)
-  doc.setFont(undefined, 'bold')
-  doc.setTextColor(...COLORS.primary)
-  doc.text('2. Méthodologie de cotation', 14, y)
+  // ════════════════════════════════════════════════════════
+  // SECTION 2 : MÉTHODOLOGIE
+  // ════════════════════════════════════════════════════════
+  y = newPage()
+  y = sectionTitle(y, 2, 'METHODOLOGIE DE COTATION')
 
-  y += 10
-  doc.setFontSize(9)
-  doc.setFont(undefined, 'normal')
-  doc.setTextColor(...COLORS.black)
-  const methodo = [
-    'La cotation des risques repose sur 3 critères multipliés entre eux :',
-    '',
-    'Risque résiduel = Fréquence × Gravité × Maîtrise',
-    '',
-    '• Fréquence d\'exposition (1 à 4) : d\'occasionnel à permanent',
-    '• Gravité des dommages (1 à 4) : de minime à très grave (IPP/décès)',
-    '• Niveau de maîtrise (0.5 à 1) : de bonne maîtrise à insuffisante',
-  ]
-  methodo.forEach(line => {
-    doc.text(line, 14, y)
-    y += 5
-  })
+  y = para(y, 'La cotation des risques repose sur 3 criteres multiplies entre eux :')
+  y = para(y, 'Risque residuel = Frequence x Gravite x Maitrise', { bold: true, size: 10, color: C.teal })
+  y += 4
 
-  // Table fréquence
-  y += 5
+  // Fréquence
   doc.autoTable({
     startY: y,
-    head: [['Niveau', 'Fréquence', 'Description']],
+    head: [['Niveau', 'Frequence', 'Description']],
     body: [
       ['1', 'Occasionnel', 'Quelques fois par mois'],
-      ['2', 'Fréquent', 'Plusieurs fois par jour'],
-      ['3', 'Très fréquent', 'Plusieurs fois par heure'],
+      ['2', 'Frequent', 'Plusieurs fois par jour'],
+      ['3', 'Tres frequent', 'Plusieurs fois par heure'],
       ['4', 'Permanent', 'Exposition continue'],
     ],
-    theme: 'grid',
-    styles: { fontSize: 8, cellPadding: 2 },
-    headStyles: { fillColor: COLORS.primary, textColor: COLORS.white },
-    columnStyles: { 0: { cellWidth: 15, halign: 'center' } },
-    margin: { left: 14, right: 14 },
+    theme: 'grid', styles: { fontSize: 7.5, cellPadding: 2 },
+    headStyles: { fillColor: C.teal, textColor: C.white, fontSize: 8 },
+    columnStyles: { 0: { cellWidth: 15, halign: 'center', fontStyle: 'bold' } },
+    margin: { left: ml, right: mr, bottom: 24 },
   })
+  y = doc.lastAutoTable.finalY + 6
 
-  y = doc.lastAutoTable.finalY + 8
+  // Gravité
   doc.autoTable({
     startY: y,
-    head: [['Niveau', 'Gravité', 'Description']],
+    head: [['Niveau', 'Gravite', 'Description']],
     body: [
-      ['1', 'Minime', 'Premiers soins, incident bénin'],
-      ['2', 'Significatif', 'Accident sans arrêt de travail'],
-      ['3', 'Grave', 'Accident avec arrêt, maladie pro.'],
-      ['4', 'Très grave', 'IPP, décès'],
+      ['1', 'Minime', 'Premiers soins, incident benin'],
+      ['2', 'Significatif', 'Accident sans arret de travail'],
+      ['3', 'Grave', 'Accident avec arret, maladie pro.'],
+      ['4', 'Tres grave', 'IPP, deces'],
     ],
-    theme: 'grid',
-    styles: { fontSize: 8, cellPadding: 2 },
-    headStyles: { fillColor: COLORS.primary, textColor: COLORS.white },
-    columnStyles: { 0: { cellWidth: 15, halign: 'center' } },
-    margin: { left: 14, right: 14 },
+    theme: 'grid', styles: { fontSize: 7.5, cellPadding: 2 },
+    headStyles: { fillColor: C.teal, textColor: C.white, fontSize: 8 },
+    columnStyles: { 0: { cellWidth: 15, halign: 'center', fontStyle: 'bold' } },
+    margin: { left: ml, right: mr, bottom: 24 },
   })
+  y = doc.lastAutoTable.finalY + 6
 
-  y = doc.lastAutoTable.finalY + 8
+  // Maîtrise
   doc.autoTable({
     startY: y,
-    head: [['Coeff.', 'Maîtrise', 'Description']],
+    head: [['Coeff.', 'Maitrise', 'Description']],
     body: [
-      ['×0.5', 'Bonne', 'Mesures 100% en place et vérifiées'],
-      ['×0.75', 'Partielle', 'Mesures partielles ou non systématiques'],
-      ['×1', 'Insuffisante', 'Aucune mesure ou mesures inefficaces'],
+      ['x0.5', 'Bonne', 'Mesures 100% en place et verifiees'],
+      ['x0.75', 'Partielle', 'Mesures partielles ou non systematiques'],
+      ['x1', 'Insuffisante', 'Aucune mesure ou mesures inefficaces'],
     ],
-    theme: 'grid',
-    styles: { fontSize: 8, cellPadding: 2 },
-    headStyles: { fillColor: COLORS.primary, textColor: COLORS.white },
-    columnStyles: { 0: { cellWidth: 15, halign: 'center' } },
-    margin: { left: 14, right: 14 },
+    theme: 'grid', styles: { fontSize: 7.5, cellPadding: 2 },
+    headStyles: { fillColor: C.teal, textColor: C.white, fontSize: 8 },
+    columnStyles: { 0: { cellWidth: 15, halign: 'center', fontStyle: 'bold' } },
+    margin: { left: ml, right: mr, bottom: 24 },
   })
+  y = doc.lastAutoTable.finalY + 10
 
-  // Matrice F×G
-  y = doc.lastAutoTable.finalY + 12
+  // Matrice
+  y = checkY(y, 40)
   doc.setFontSize(11)
   doc.setFont(undefined, 'bold')
-  doc.setTextColor(...COLORS.primary)
-  doc.text('Matrice Fréquence × Gravité', 14, y)
-  y += 2
+  doc.setTextColor(...C.teal)
+  doc.text('Matrice Frequence x Gravite', ml, y)
+  y += 4
 
-  const matrixData = []
+  const matrixBody = []
   for (let f = 4; f >= 1; f--) {
-    const row = [`${f} — ${FREQ[f]}`]
+    const row = [`${f} -- ${FREQ[f]}`]
     for (let g = 1; g <= 4; g++) {
       const score = f * g
       const count = risks.filter(r => r.frequence === f && r.gravite === g).length
       row.push(count > 0 ? `${score} (${count})` : `${score}`)
     }
-    matrixData.push(row)
+    matrixBody.push(row)
   }
 
   doc.autoTable({
     startY: y,
-    head: [['F \\ G', '1 — Minime', '2 — Significatif', '3 — Grave', '4 — Très grave']],
-    body: matrixData,
+    head: [['F \\ G', '1 Minime', '2 Significatif', '3 Grave', '4 Tres grave']],
+    body: matrixBody,
     theme: 'grid',
     styles: { fontSize: 8, cellPadding: 3, halign: 'center' },
-    headStyles: { fillColor: COLORS.primary, textColor: COLORS.white },
-    columnStyles: { 0: { halign: 'left', fontStyle: 'bold' } },
-    margin: { left: 14, right: 14 },
+    headStyles: { fillColor: C.teal, textColor: C.white },
+    columnStyles: { 0: { halign: 'left', fontStyle: 'bold', cellWidth: 35 } },
+    margin: { left: ml, right: mr, bottom: 24 },
     didParseCell: (data) => {
       if (data.section === 'body' && data.column.index > 0) {
         const f = 4 - data.row.index
         const g = data.column.index
-        const score = f * g
-        const lvl = getRiskLevel(score)
-        data.cell.styles.fillColor = RISK_COLORS[lvl.key].bg
-        data.cell.styles.textColor = RISK_COLORS[lvl.key].text
+        const lvl = riskLevel(f * g)
+        data.cell.styles.fillColor = lvl.bg
+        data.cell.styles.textColor = lvl.text
       }
     },
   })
 
-  // ───────────────────────────────────────────────────────────
-  // PAGES : INVENTAIRE DES RISQUES PAR UNITÉ
-  // ───────────────────────────────────────────────────────────
-  newPage()
-  y = 20
-  doc.setFontSize(16)
-  doc.setFont(undefined, 'bold')
-  doc.setTextColor(...COLORS.primary)
-  doc.text('3. Inventaire des risques par unité de travail', 14, y)
+  // ════════════════════════════════════════════════════════
+  // SECTION 3 : INVENTAIRE PAR UNITÉ
+  // ════════════════════════════════════════════════════════
+  y = newPage()
+  y = sectionTitle(y, 3, 'INVENTAIRE DES RISQUES PAR UNITE')
 
-  units.forEach((unit, ui) => {
-    const unitRisks = risks.filter(r => r.unit_id === unit.id)
-    if (y > ph - 60) { newPage(); y = 20 }
+  // Helper pour ajouter header+footer sur les pages autoTable
+  const autoTablePageHook = () => { addHeader(); addFooter() }
 
-    y += 12
-    doc.setFillColor(...COLORS.primary)
-    doc.roundedRect(14, y - 5, pw - 28, 10, 1, 1, 'F')
-    doc.setTextColor(...COLORS.white)
-    doc.setFontSize(10)
+  units.forEach(u => {
+    const unitRisks = risks.filter(r => r.unit_id === u.id)
+    y = checkY(y, 30)
+
+    doc.setFillColor(...C.teal)
+    doc.roundedRect(ml, y - 4, cw, 10, 1.5, 1.5, 'F')
+    doc.setTextColor(...C.white)
+    doc.setFontSize(9)
     doc.setFont(undefined, 'bold')
-    doc.text(`${unit.code?.toUpperCase()} — ${unit.name}`, 18, y + 2)
-    doc.setFont(undefined, 'normal')
-    doc.setFontSize(8)
-    if (unit.effectif) doc.text(`${unit.effectif} pers.`, pw - 18, y + 2, { align: 'right' })
+    doc.text(`${(u.code || '').toUpperCase()} -- ${u.name}`, ml + 4, y + 2.5)
+    if (u.effectif) {
+      doc.setFont(undefined, 'normal')
+      doc.setFontSize(8)
+      doc.text(`${u.effectif} pers.`, pw - mr - 4, y + 2.5, { align: 'right' })
+    }
     y += 10
 
     if (unitRisks.length === 0) {
-      doc.setTextColor(...COLORS.gray)
       doc.setFontSize(8)
-      doc.text('Aucun risque identifié pour cette unité.', 18, y)
+      doc.setFont(undefined, 'italic')
+      doc.setTextColor(...C.gray)
+      doc.text('Aucun risque identifie pour cette unite.', ml + 4, y)
       y += 8
       return
     }
 
-    const tableBody = unitRisks.map(r => {
+    const tbody = unitRisks.map(r => {
       const cat = categories.find(c => c.code === r.category_code)
-      const brut = (r.frequence || 0) * (r.gravite || 0)
-      const residuel = brut * (r.maitrise || 1)
-      const lvl = getRiskLevel(residuel || brut)
+      const score = riskScore(r)
+      const lvl = score > 0 ? riskLevel(score) : null
       return [
-        cat?.label || r.category_code || '—',
-        r.danger || '—',
-        r.situation || '—',
-        r.frequence ? `F${r.frequence} G${r.gravite}` : '—',
-        r.maitrise ? `×${r.maitrise}` : '—',
-        residuel > 0 ? `${residuel}` : '—',
-        residuel > 0 ? lvl.label : 'Non évalué',
-        r.prevention_existante || '—',
+        cat?.label || r.category_code || '--',
+        r.danger || '--',
+        r.situation || '--',
+        r.frequence ? `F${r.frequence} G${r.gravite}` : '--',
+        r.maitrise != null ? `x${r.maitrise}` : '--',
+        score > 0 ? `${score}` : '--',
+        score > 0 ? lvl.label : 'Non eval.',
+        r.prevention_existante || '--',
       ]
     })
 
     doc.autoTable({
       startY: y,
-      head: [['Catégorie', 'Danger', 'Situation', 'F×G', 'Maîtr.', 'Score', 'Niveau', 'Prévention existante']],
-      body: tableBody,
+      head: [['Categorie', 'Danger', 'Situation', 'FxG', 'M.', 'Score', 'Niveau', 'Prevention existante']],
+      body: tbody,
       theme: 'grid',
       styles: { fontSize: 6.5, cellPadding: 2, overflow: 'linebreak', lineWidth: 0.1 },
-      headStyles: { fillColor: COLORS.accent, textColor: COLORS.black, fontStyle: 'bold', fontSize: 7 },
+      headStyles: { fillColor: C.amber, textColor: C.black, fontStyle: 'bold', fontSize: 6.5 },
       columnStyles: {
-        0: { cellWidth: 22 },
-        1: { cellWidth: 25 },
-        2: { cellWidth: 35 },
-        3: { cellWidth: 14, halign: 'center' },
-        4: { cellWidth: 12, halign: 'center' },
-        5: { cellWidth: 12, halign: 'center' },
-        6: { cellWidth: 18, halign: 'center' },
-        7: { cellWidth: 40 },
+        0: { cellWidth: 20 }, 1: { cellWidth: 26 }, 2: { cellWidth: 38 },
+        3: { cellWidth: 13, halign: 'center' }, 4: { cellWidth: 9, halign: 'center' },
+        5: { cellWidth: 10, halign: 'center', fontStyle: 'bold' }, 6: { cellWidth: 16, halign: 'center' }, 7: { cellWidth: 42 },
       },
-      margin: { left: 14, right: 14 },
+      margin: { left: ml, right: mr, bottom: 24 },
       didParseCell: (data) => {
         if (data.section === 'body' && data.column.index === 6) {
           const val = data.cell.raw
-          const key = val === 'Critique' ? 'critique' : val === 'Élevé' ? 'eleve' : val === 'Moyen' ? 'moyen' : val === 'Faible' ? 'faible' : null
+          const key = val === 'Critique' ? 'critique' : val === 'Eleve' ? 'eleve' : val === 'Moyen' ? 'moyen' : val === 'Faible' ? 'faible' : null
           if (key) {
-            data.cell.styles.fillColor = RISK_COLORS[key].bg
-            data.cell.styles.textColor = RISK_COLORS[key].text
+            data.cell.styles.fillColor = LVL[key].bg
+            data.cell.styles.textColor = LVL[key].text
             data.cell.styles.fontStyle = 'bold'
           }
         }
       },
+      didDrawPage: autoTablePageHook,
     })
-    y = doc.lastAutoTable.finalY + 4
+    y = doc.lastAutoTable.finalY + 10
   })
 
-  // Risques sans unité
-  const orphanRisks = risks.filter(r => !r.unit_id)
-  if (orphanRisks.length) {
-    if (y > ph - 60) { newPage(); y = 20 }
-    y += 8
-    doc.setFillColor(...COLORS.gray)
-    doc.roundedRect(14, y - 5, pw - 28, 10, 1, 1, 'F')
-    doc.setTextColor(...COLORS.white)
-    doc.setFontSize(10)
+  // Risques orphelins (sans unité)
+  const orphans = risks.filter(r => !r.unit_id)
+  if (orphans.length > 0) {
+    y = checkY(y, 30)
+    doc.setFillColor(...C.gray)
+    doc.roundedRect(ml, y - 4, cw, 10, 1.5, 1.5, 'F')
+    doc.setTextColor(...C.white)
+    doc.setFontSize(9)
     doc.setFont(undefined, 'bold')
-    doc.text('RISQUES NON RATTACHÉS À UNE UNITÉ', 18, y + 2)
+    doc.text('RISQUES NON RATTACHES A UNE UNITE', ml + 4, y + 2.5)
     y += 10
 
-    const tableBody = orphanRisks.map(r => {
+    const orphBody = orphans.map(r => {
       const cat = categories.find(c => c.code === r.category_code)
-      const brut = (r.frequence||0) * (r.gravite||0)
-      const residuel = brut * (r.maitrise||1)
-      const lvl = getRiskLevel(residuel || brut)
-      return [cat?.label || '—', r.danger || '—', r.situation || '—',
-        r.frequence ? `F${r.frequence} G${r.gravite}` : '—', r.maitrise ? `×${r.maitrise}` : '—',
-        residuel > 0 ? `${residuel}` : '—', residuel > 0 ? lvl.label : 'Non évalué', r.prevention_existante || '—']
-    })
-
-    doc.autoTable({
-      startY: y,
-      head: [['Catégorie', 'Danger', 'Situation', 'F×G', 'Maîtr.', 'Score', 'Niveau', 'Prévention existante']],
-      body: tableBody,
-      theme: 'grid',
-      styles: { fontSize: 6.5, cellPadding: 2, overflow: 'linebreak', lineWidth: 0.1 },
-      headStyles: { fillColor: COLORS.accent, textColor: COLORS.black, fontStyle: 'bold', fontSize: 7 },
-      columnStyles: {
-        0: { cellWidth: 22 }, 1: { cellWidth: 25 }, 2: { cellWidth: 35 },
-        3: { cellWidth: 14, halign: 'center' }, 4: { cellWidth: 12, halign: 'center' },
-        5: { cellWidth: 12, halign: 'center' }, 6: { cellWidth: 18, halign: 'center' }, 7: { cellWidth: 40 },
-      },
-      margin: { left: 14, right: 14 },
-    })
-    y = doc.lastAutoTable.finalY + 4
-  }
-
-  // ───────────────────────────────────────────────────────────
-  // PAGES : PLAN D'ACTION
-  // ───────────────────────────────────────────────────────────
-  newPage()
-  y = 20
-  doc.setFontSize(16)
-  doc.setFont(undefined, 'bold')
-  doc.setTextColor(...COLORS.primary)
-  doc.text("4. Plan d'action de prévention", 14, y)
-
-  y += 10
-  if (actions.length === 0) {
-    doc.setFontSize(9)
-    doc.setFont(undefined, 'italic')
-    doc.setTextColor(...COLORS.gray)
-    doc.text('Aucune action de prévention définie pour le moment.', 14, y)
-  } else {
-    const sortedActions = [...actions].sort((a, b) => {
-      const pOrder = { critique: 0, haute: 1, moyenne: 2, basse: 3 }
-      return (pOrder[a.priorite] ?? 9) - (pOrder[b.priorite] ?? 9)
-    })
-    const actionBody = sortedActions.map(a => {
-      const risk = risks.find(r => r.id === a.risk_id)
+      const score = riskScore(r)
+      const lvl = score > 0 ? riskLevel(score) : null
       return [
-        PRIO[a.priorite] || a.priorite || '—',
-        a.action || '—',
-        TYPE_ACTION[a.type_action] || a.type_action || '—',
-        a.responsable || '—',
-        formatDate(a.echeance),
-        a.cout_estime || '—',
-        STAT[a.statut] || a.statut || '—',
-        risk?.danger?.substring(0, 30) || '—',
+        cat?.label || '--', r.danger || '--', r.situation || '--',
+        r.frequence ? `F${r.frequence} G${r.gravite}` : '--',
+        r.maitrise != null ? `x${r.maitrise}` : '--',
+        score > 0 ? `${score}` : '--',
+        score > 0 ? lvl.label : 'Non eval.',
+        r.prevention_existante || '--',
       ]
     })
 
     doc.autoTable({
       startY: y,
-      head: [['Priorité', 'Action', 'Type', 'Responsable', 'Échéance', 'Coût est.', 'Statut', 'Risque lié']],
-      body: actionBody,
+      head: [['Categorie', 'Danger', 'Situation', 'FxG', 'M.', 'Score', 'Niveau', 'Prevention']],
+      body: orphBody,
       theme: 'grid',
       styles: { fontSize: 6.5, cellPadding: 2, overflow: 'linebreak', lineWidth: 0.1 },
-      headStyles: { fillColor: COLORS.primary, textColor: COLORS.white, fontStyle: 'bold', fontSize: 7 },
+      headStyles: { fillColor: C.gray, textColor: C.white, fontStyle: 'bold', fontSize: 6.5 },
       columnStyles: {
-        0: { cellWidth: 18, halign: 'center' },
-        1: { cellWidth: 42 },
-        2: { cellWidth: 18 },
-        3: { cellWidth: 22 },
-        4: { cellWidth: 18, halign: 'center' },
-        5: { cellWidth: 15 },
-        6: { cellWidth: 16, halign: 'center' },
-        7: { cellWidth: 28 },
+        0: { cellWidth: 20 }, 1: { cellWidth: 26 }, 2: { cellWidth: 38 },
+        3: { cellWidth: 13, halign: 'center' }, 4: { cellWidth: 9, halign: 'center' },
+        5: { cellWidth: 10, halign: 'center' }, 6: { cellWidth: 16, halign: 'center' }, 7: { cellWidth: 42 },
       },
-      margin: { left: 14, right: 14 },
+      margin: { left: ml, right: mr, bottom: 24 },
+      didDrawPage: autoTablePageHook,
+    })
+    y = doc.lastAutoTable.finalY + 10
+  }
+
+  // ════════════════════════════════════════════════════════
+  // SECTION 4 : PLAN D'ACTION
+  // ════════════════════════════════════════════════════════
+  y = newPage()
+  y = sectionTitle(y, 4, "PLAN D'ACTION DE PREVENTION")
+
+  if (actions.length === 0) {
+    y = para(y, 'Aucune action definie.', { italic: true, color: C.gray })
+  } else {
+    const actBody = sortedAct.map(a => {
+      const risk = risks.find(r => r.id === a.risk_id)
+      return [
+        PRIO[a.priorite] || a.priorite || '--',
+        a.action || '--',
+        TYPE_A[a.type_action] || a.type_action || '--',
+        a.responsable || '--',
+        fmtDate(a.echeance),
+        a.cout_estime || '--',
+        STAT[a.statut] || a.statut || '--',
+        (risk?.danger || '').substring(0, 35) || '--',
+      ]
+    })
+
+    doc.autoTable({
+      startY: y,
+      head: [['Priorite', 'Action', 'Type', 'Responsable', 'Echeance', 'Cout', 'Statut', 'Risque lie']],
+      body: actBody,
+      theme: 'grid',
+      styles: { fontSize: 6.5, cellPadding: 2, overflow: 'linebreak', lineWidth: 0.1 },
+      headStyles: { fillColor: C.teal, textColor: C.white, fontStyle: 'bold', fontSize: 6.5 },
+      columnStyles: {
+        0: { cellWidth: 17, halign: 'center' }, 1: { cellWidth: 42 }, 2: { cellWidth: 17 },
+        3: { cellWidth: 22 }, 4: { cellWidth: 17, halign: 'center' }, 5: { cellWidth: 15 },
+        6: { cellWidth: 14, halign: 'center' }, 7: { cellWidth: 30 },
+      },
+      margin: { left: ml, right: mr, bottom: 24 },
       didParseCell: (data) => {
         if (data.section === 'body' && data.column.index === 0) {
-          const p = data.cell.raw
-          if (p === 'CRITIQUE') { data.cell.styles.fillColor = RISK_COLORS.critique.bg; data.cell.styles.textColor = RISK_COLORS.critique.text }
-          else if (p === 'Haute') { data.cell.styles.fillColor = RISK_COLORS.eleve.bg; data.cell.styles.textColor = RISK_COLORS.eleve.text }
+          const val = data.cell.raw
+          if (val === 'CRITIQUE') { data.cell.styles.fillColor = LVL.critique.bg; data.cell.styles.textColor = LVL.critique.text; data.cell.styles.fontStyle = 'bold' }
+          else if (val === 'Haute') { data.cell.styles.fillColor = LVL.eleve.bg; data.cell.styles.textColor = LVL.eleve.text }
         }
         if (data.section === 'body' && data.column.index === 6) {
-          if (data.cell.raw === 'Fait') { data.cell.styles.fillColor = RISK_COLORS.faible.bg; data.cell.styles.textColor = RISK_COLORS.faible.text }
+          if (data.cell.raw === 'Fait') { data.cell.styles.fillColor = LVL.faible.bg; data.cell.styles.textColor = LVL.faible.text; data.cell.styles.fontStyle = 'bold' }
         }
       },
+      didDrawPage: autoTablePageHook,
     })
   }
 
-  // ───────────────────────────────────────────────────────────
-  // DERNIÈRE PAGE : MENTIONS LÉGALES + DISCLAIMER
-  // ───────────────────────────────────────────────────────────
-  newPage()
-  y = 20
-  doc.setFontSize(16)
-  doc.setFont(undefined, 'bold')
-  doc.setTextColor(...COLORS.primary)
-  doc.text('5. Rappels réglementaires et mentions légales', 14, y)
+  // ════════════════════════════════════════════════════════
+  // SECTION 5 : MENTIONS LÉGALES + SIGNATURES
+  // ════════════════════════════════════════════════════════
+  y = newPage()
+  y = sectionTitle(y, 5, 'RAPPELS REGLEMENTAIRES ET MENTIONS LEGALES')
 
-  y += 12
-  doc.setFontSize(8)
-  doc.setFont(undefined, 'normal')
-  doc.setTextColor(...COLORS.black)
-  const reglementaire = [
-    '• Conservation obligatoire du DUERP pendant 40 ans (Art. L.4121-3-1 V du Code du travail)',
-    '• Mise à jour : au minimum annuelle pour les entreprises ≥ 11 salariés, et lors de tout aménagement',
-    '  important modifiant les conditions de travail ou lorsqu\'une information nouvelle est portée à connaissance',
-    '• Consultation obligatoire du CSE (si applicable) sur le DUERP et ses mises à jour',
-    '• Évaluation des risques tenant compte de l\'impact différencié de l\'exposition selon le sexe (Art. L.4121-3)',
-    `• ${(parseInt(project.effectif) || 0) >= 50 ? 'Programme Annuel de Prévention (PAPRIPACT) obligatoire pour les entreprises ≥ 50 salariés' : 'Liste des actions de prévention et de protection intégrée au DUERP (entreprises < 50 salariés)'}`,
-    '• Transmission au service de prévention et de santé au travail à chaque mise à jour',
-    '• Mise à disposition des travailleurs, anciens travailleurs et toute personne justifiant d\'un intérêt',
-    '• Dépôt dématérialisé sur le portail numérique prévu par la réglementation',
+  const reglItems = [
+    'Conservation obligatoire du DUERP pendant 40 ans (Art. L.4121-3-1 V)',
+    `Mise a jour : ${eff >= 11 ? 'annuelle obligatoire (>= 11 sal.)' : 'lors de tout changement significatif'} + amenagement important`,
+    'Consultation du CSE (si applicable) sur le DUERP et ses mises a jour',
+    'Evaluation tenant compte de l\'impact differencie selon le sexe (Art. L.4121-3)',
+    eff >= 50 ? 'PAPRIPACT obligatoire (>= 50 sal.)' : 'Liste actions de prevention integree au DUERP (< 50 sal.)',
+    'Transmission au service de sante au travail a chaque mise a jour',
+    'Mise a disposition des travailleurs, anciens travailleurs et personnes justifiant d\'un interet',
+    'Depot dematerialise prevu par la reglementation',
   ]
-  reglementaire.forEach(line => {
-    doc.text(line, 14, y)
-    y += 5
+  reglItems.forEach(item => {
+    y = checkY(y, 8)
+    doc.setFontSize(8)
+    doc.setTextColor(...C.black)
+    doc.text(`  - ${item}`, ml + 2, y)
+    y += 5.5
   })
 
   // Disclaimer encadré
-  y += 10
+  y += 6
+  y = checkY(y, 65)
+  const dlLines = doc.splitTextToSize(DISCLAIMER_FULL.join('\n'), cw - 12)
+  const dlH = dlLines.length * 3 + 16
   doc.setFillColor(255, 250, 240)
-  doc.setDrawColor(...COLORS.accent)
+  doc.setDrawColor(...C.amber)
   doc.setLineWidth(0.8)
-  const disclaimerSplit = doc.splitTextToSize(DISCLAIMER, pw - 36)
-  const disclaimerH = disclaimerSplit.length * 3.8 + 16
-  doc.roundedRect(14, y, pw - 28, disclaimerH, 2, 2, 'FD')
-
+  doc.roundedRect(ml, y, cw, dlH, 2, 2, 'FD')
   doc.setFontSize(9)
   doc.setFont(undefined, 'bold')
-  doc.setTextColor(...COLORS.primary)
-  doc.text('⚠️ AVERTISSEMENT', 20, y + 8)
-
-  doc.setFontSize(7)
+  doc.setTextColor(...C.amber)
+  doc.text('/!\\ AVERTISSEMENT', ml + 5, y + 8)
+  doc.setFontSize(6.5)
   doc.setFont(undefined, 'normal')
   doc.setTextColor(80, 80, 80)
-  doc.text(disclaimerSplit, 20, y + 16)
+  doc.text(dlLines, ml + 6, y + 14)
+  y += dlH + 10
 
   // Signatures
-  y += disclaimerH + 15
-  if (y < ph - 50) {
-    doc.setFontSize(9)
-    doc.setTextColor(...COLORS.black)
-    doc.setFont(undefined, 'bold')
-    doc.text("Signatures", 14, y)
-    y += 8
-    doc.setFont(undefined, 'normal')
-    doc.setFontSize(8)
+  y = checkY(y, 55)
+  doc.setFontSize(10)
+  doc.setFont(undefined, 'bold')
+  doc.setTextColor(...C.teal)
+  doc.text('Signatures', ml, y)
+  y += 8
 
-    const sigW = (pw - 42) / 2
-    // Employeur
-    doc.setDrawColor(...COLORS.gray)
-    doc.rect(14, y, sigW, 35)
-    doc.text("L'employeur", 14 + sigW / 2, y + 6, { align: 'center' })
-    doc.text(`${project.contact_name || '(Nom et prénom)'}`, 14 + sigW / 2, y + 12, { align: 'center' })
-    doc.setFontSize(7)
-    doc.setTextColor(...COLORS.gray)
-    doc.text('Date et signature', 14 + sigW / 2, y + 30, { align: 'center' })
+  const sigW = (cw - 14) / 2
 
-    // Évaluateur
-    doc.setTextColor(...COLORS.black)
-    doc.setFontSize(8)
-    doc.rect(14 + sigW + 14, y, sigW, 35)
-    doc.text("L'évaluateur", 14 + sigW + 14 + sigW / 2, y + 6, { align: 'center' })
-    doc.text(`${project.evaluateur || '(Nom et prénom)'}`, 14 + sigW + 14 + sigW / 2, y + 12, { align: 'center' })
-    doc.setFontSize(7)
-    doc.setTextColor(...COLORS.gray)
-    doc.text('Date et signature', 14 + sigW + 14 + sigW / 2, y + 30, { align: 'center' })
-  }
+  // Employeur
+  doc.setDrawColor(...C.teal)
+  doc.setLineWidth(0.5)
+  doc.roundedRect(ml, y, sigW, 40, 2, 2, 'D')
+  doc.setFontSize(9)
+  doc.setFont(undefined, 'bold')
+  doc.setTextColor(...C.teal)
+  doc.text("L'employeur", ml + sigW / 2, y + 8, { align: 'center' })
+  doc.setFont(undefined, 'normal')
+  doc.setFontSize(8)
+  doc.setTextColor(...C.black)
+  doc.text(project.contact_name || '(Nom et prenom)', ml + sigW / 2, y + 15, { align: 'center' })
+  doc.setFontSize(7)
+  doc.setTextColor(...C.grayLight)
+  doc.text('Date et signature', ml + sigW / 2, y + 35, { align: 'center' })
 
-  // Sauvegarder
-  const filename = `DUERP_${project.company_name?.replace(/[^a-zA-Z0-9]/g, '_')}_${project.reference}.pdf`
-  doc.save(filename)
-  return filename
+  // Évaluateur
+  const sig2X = ml + sigW + 14
+  doc.roundedRect(sig2X, y, sigW, 40, 2, 2, 'D')
+  doc.setFontSize(9)
+  doc.setFont(undefined, 'bold')
+  doc.setTextColor(...C.teal)
+  doc.text("L'evaluateur", sig2X + sigW / 2, y + 8, { align: 'center' })
+  doc.setFont(undefined, 'normal')
+  doc.setFontSize(8)
+  doc.setTextColor(...C.black)
+  doc.text(project.evaluateur || '(Nom et prenom)', sig2X + sigW / 2, y + 15, { align: 'center' })
+  doc.setFontSize(7)
+  doc.setTextColor(...C.grayLight)
+  doc.text('Date et signature', sig2X + sigW / 2, y + 35, { align: 'center' })
+
+  // ── Save ──
+  const fname = `DUERP_${(project.company_name || 'export').replace(/[^a-zA-Z0-9]/g, '_')}_${project.reference || ''}.pdf`
+  doc.save(fname)
+  return fname
 }
 
 // ═══════════════════════════════════════════════════════════
-// EXPORT EXCEL
+// EXCEL GENERATION (xlsx — max features)
 // ═══════════════════════════════════════════════════════════
 export function generateDuerpExcel({ project, units, risks, actions, categories }) {
   const wb = XLSX.utils.book_new()
-
-  // ───────────────────────────────────────────────────────────
-  // FEUILLE 0 : Synthèse dirigeant
-  // ───────────────────────────────────────────────────────────
   const eff = parseInt(project.effectif) || 0
-  const evaluatedX = risks.filter(r => r.frequence && r.gravite).length
-  const critiqueX = risks.filter(r => { const s = (r.frequence||0)*(r.gravite||0)*(r.maitrise||1); return s >= 13 }).length
-  const eleveX = risks.filter(r => { const s = (r.frequence||0)*(r.gravite||0)*(r.maitrise||1); return s >= 9 && s < 13 }).length
-  const doneX = actions.filter(a => a.statut === 'fait').length
+  const scored = risks.map(r => ({ ...r, _score: riskScore(r) }))
+  const doneAct = actions.filter(a => a.statut === 'fait').length
 
-  const synthData = [
-    ['SYNTHÈSE POUR LE DIRIGEANT — ' + (project.company_name || '')],
-    [''],
-    ['Ce document est votre Document Unique d\'Évaluation des Risques Professionnels (DUERP). Il recense les risques auxquels vos salariés sont exposés et définit les actions à mettre en place pour les protéger.'],
-    [''],
-    ['═══ VOS CHIFFRES CLÉS ═══'],
-    ['Risques identifiés', risks.length],
-    ['Risques évalués', evaluatedX],
-    ['Risques critiques + élevés', critiqueX + eleveX],
-    ['Actions de prévention', actions.length],
-    ['Actions réalisées', doneX],
-    [''],
-    ['═══ VOS UNITÉS DE TRAVAIL ═══'],
+  // Helper : sheet with cols + freeze + autofilter
+  const makeSheet = (data, colWidths, opts = {}) => {
+    const ws = XLSX.utils.aoa_to_sheet(data)
+    ws['!cols'] = colWidths.map(w => ({ wch: w }))
+    const freezeRow = opts.freezeRow ?? 1
+    if (freezeRow > 0) {
+      ws['!views'] = [{ state: 'frozen', ySplit: freezeRow, xSplit: 0 }]
+    }
+    if (opts.autoFilter !== false && data.length > 1 && data[0]) {
+      const lastCol = XLSX.utils.encode_col(data[0].length - 1)
+      ws['!autofilter'] = { ref: `A1:${lastCol}${data.length}` }
+    }
+    return ws
+  }
+
+  // ═══ Synthèse ═══
+  const synthRows = [
+    ['SYNTHESE POUR LE DIRIGEANT'],
+    [],
+    ['INFORMATIONS GENERALES'],
+    ['Entreprise', project.company_name, '', 'Reference', project.reference],
+    ['SIRET', project.siret || '', '', 'NAF', `${project.naf_code || ''} ${project.naf_label || ''}`],
+    ['Adresse', `${project.address || ''}, ${project.postal_code || ''} ${project.city || ''}`, '', 'Effectif', `${project.effectif || ''} salarie(s)`],
+    ['Evaluateur', project.evaluateur || '', '', 'Date', fmtDate(project.date_elaboration)],
+    [],
+    ['CHIFFRES CLES'],
+    ['', 'Nombre', '', '', ''],
+    ['Risques identifies', risks.length, '', 'Actions de prevention', actions.length],
+    ['Risques evalues', scored.filter(r => r._score > 0).length, '', 'Actions realisees', doneAct],
+    ['Risques critiques/eleves', scored.filter(r => r._score >= 9).length, '', 'Actions a faire', actions.filter(a => a.statut === 'a_faire').length],
+    [],
+    ['UNITES DE TRAVAIL'],
+    ['Unite', 'Effectif', 'Nb risques', 'Niveau max'],
   ]
   units.forEach(u => {
-    const ur = risks.filter(r => r.unit_id === u.id)
-    const maxS = Math.max(0, ...ur.map(r => (r.frequence||0)*(r.gravite||0)*(r.maitrise||1)))
-    synthData.push([
-      u.name,
-      `${ur.length} risque(s)${maxS > 0 ? ` — Niveau max : ${getRiskLevel(maxS).label} (${maxS})` : ''}`,
-    ])
+    const ur = scored.filter(r => r.unit_id === u.id)
+    const maxS = Math.max(0, ...ur.map(r => r._score))
+    synthRows.push([u.name, u.effectif || '', ur.length, maxS > 0 ? `${riskLevel(maxS).label} (${maxS})` : '--'])
   })
-
-  synthData.push([''])
-  synthData.push(['═══ TOP 10 RISQUES PRIORITAIRES ═══'])
-  const scoredX = risks.map(r => ({ ...r, _s: (r.frequence||0)*(r.gravite||0)*(r.maitrise||1) }))
-    .filter(r => r._s > 0).sort((a, b) => b._s - a._s).slice(0, 10)
-  scoredX.forEach((r, i) => {
+  synthRows.push([])
+  synthRows.push(['TOP 10 RISQUES'])
+  synthRows.push(['N.', 'Danger', 'Unite', 'Score', 'Niveau'])
+  scored.filter(r => r._score > 0).sort((a, b) => b._score - a._score).slice(0, 10).forEach((r, i) => {
     const u = units.find(u => u.id === r.unit_id)
-    synthData.push([
-      `${i+1}. ${r.danger} (${u?.name || 'Sans unité'})`,
-      `Score ${r._s} — ${getRiskLevel(r._s).label} — F${r.frequence}×G${r.gravite}×M${r.maitrise}`,
-    ])
+    synthRows.push([i + 1, r.danger, u?.name || '', r._score, riskLevel(r._score).label])
   })
-
-  synthData.push([''])
-  synthData.push(['═══ ACTIONS PRIORITAIRES ═══'])
-  const topAx = [...actions].sort((a, b) => {
-    const p = { critique: 0, haute: 1, moyenne: 2, basse: 3 }; return (p[a.priorite]??9)-(p[b.priorite]??9)
-  }).slice(0, 12)
-  topAx.forEach(a => {
-    const risk = risks.find(r => r.id === a.risk_id)
-    synthData.push([
-      `[${(PRIO[a.priorite]||'').toUpperCase()}] ${a.action}`,
-      [a.responsable, formatDate(a.echeance), STAT[a.statut], risk?.danger].filter(Boolean).join(' — '),
-    ])
+  synthRows.push([])
+  synthRows.push(['ACTIONS PRIORITAIRES'])
+  synthRows.push(['Priorite', 'Action', 'Responsable', 'Echeance', 'Statut'])
+  const sortedActX = [...actions].sort((a, b) => {
+    const p = { critique: 0, haute: 1, moyenne: 2, basse: 3 }; return (p[a.priorite] ?? 9) - (p[b.priorite] ?? 9)
   })
-
-  synthData.push([''])
-  synthData.push(['═══ VOS OBLIGATIONS ═══'])
-  synthData.push(['Mise à jour', eff >= 11
-    ? 'Obligatoire au minimum annuelle (≥11 salariés) + lors de tout aménagement important ou nouvelle information sur un risque'
-    : 'Obligatoire lors de tout aménagement important ou nouvelle information (recommandée annuellement)'])
-  synthData.push(['Conservation', '40 ans — chaque version datée — dépôt dématérialisé prévu'])
-  synthData.push(['Plan d\'action', eff >= 50 ? 'PAPRIPACT obligatoire (≥50 salariés)' : 'Liste des actions intégrée au DUERP (<50 salariés)'])
-  synthData.push(['Consultation', 'Salariés, anciens salariés, médecin du travail, inspection du travail, CARSAT' + (eff >= 11 ? ', CSE' : '')])
-  synthData.push(['Différenciation H/F', 'Évaluation des risques tenant compte de l\'impact différencié selon le sexe'])
-  synthData.push([''])
-  synthData.push([DISCLAIMER_SHORT])
-
-  const wsSynth = XLSX.utils.aoa_to_sheet(synthData)
-  wsSynth['!cols'] = [{ wch: 50 }, { wch: 60 }]
-  XLSX.utils.book_append_sheet(wb, wsSynth, 'Synthèse')
-
-  // ───────────────────────────────────────────────────────────
-  // FEUILLE 1 : Informations générales
-  // ───────────────────────────────────────────────────────────
-  const infoData = [
-    ['DOCUMENT UNIQUE D\'ÉVALUATION DES RISQUES PROFESSIONNELS (DUERP)'],
-    [''],
-    ['Référence', project.reference],
-    ['Entreprise', project.company_name],
-    ['SIRET', project.siret || ''],
-    ['Code NAF', `${project.naf_code || ''} — ${project.naf_label || ''}`],
-    ['Adresse', `${project.address || ''}, ${project.postal_code || ''} ${project.city || ''}`],
-    ['Effectif', project.effectif || ''],
-    ['Évaluateur', project.evaluateur || ''],
-    ['Date élaboration', formatDate(project.date_elaboration)],
-    ['Date mise à jour', formatDate(project.date_mise_a_jour)],
-    ['Statut', project.status],
-    [''],
-    ['Statistiques'],
-    ['Risques identifiés', risks.length],
-    ['Risques évalués', risks.filter(r => r.frequence && r.gravite).length],
-    ['Actions de prévention', actions.length],
-    [''],
-    ['AVERTISSEMENT'],
-    [DISCLAIMER_SHORT],
-  ]
-  const wsInfo = XLSX.utils.aoa_to_sheet(infoData)
-  wsInfo['!cols'] = [{ wch: 25 }, { wch: 60 }]
-  wsInfo['!merges'] = [
-    { s: { r: 0, c: 0 }, e: { r: 0, c: 1 } },
-    { s: { r: 18, c: 0 }, e: { r: 18, c: 1 } },
-    { s: { r: 19, c: 0 }, e: { r: 19, c: 1 } },
-  ]
-  XLSX.utils.book_append_sheet(wb, wsInfo, 'Infos')
-
-  // ───────────────────────────────────────────────────────────
-  // FEUILLE 2 : Unités de travail
-  // ───────────────────────────────────────────────────────────
-  const unitHeader = ['Code', 'Nom', 'Effectif', 'Métiers', 'Nb risques', 'Risque max']
-  const unitRows = units.map(u => {
-    const unitRisks = risks.filter(r => r.unit_id === u.id)
-    const maxScore = Math.max(0, ...unitRisks.map(r => (r.frequence||0) * (r.gravite||0) * (r.maitrise||1)))
-    return [u.code, u.name, u.effectif || '', u.metiers || '', unitRisks.length, maxScore > 0 ? `${maxScore} (${getRiskLevel(maxScore).label})` : '—']
+  sortedActX.slice(0, 15).forEach(a => {
+    synthRows.push([PRIO[a.priorite] || '', a.action, a.responsable || '', fmtDate(a.echeance), STAT[a.statut] || ''])
   })
-  const wsUnits = XLSX.utils.aoa_to_sheet([unitHeader, ...unitRows])
-  wsUnits['!cols'] = [{ wch: 12 }, { wch: 30 }, { wch: 10 }, { wch: 30 }, { wch: 12 }, { wch: 18 }]
-  XLSX.utils.book_append_sheet(wb, wsUnits, 'Unités')
+  synthRows.push([])
+  synthRows.push(['OBLIGATIONS REGLEMENTAIRES'])
+  synthRows.push(['Mise a jour', eff >= 11 ? 'Annuelle obligatoire + changement significatif' : 'Lors de changement significatif (annuelle recommandee)'])
+  synthRows.push(['Conservation', '40 ans -- chaque version datee'])
+  synthRows.push(['Plan action', eff >= 50 ? 'PAPRIPACT obligatoire' : 'Liste actions integree au DUERP'])
+  synthRows.push(['Diffusion', 'Salaries, medecin travail, inspection, CARSAT' + (eff >= 11 ? ', CSE' : '')])
+  synthRows.push(['Evaluation H/F', 'Impact differencie selon le sexe (loi 2 aout 2021)'])
+  synthRows.push([])
+  synthRows.push([DISCLAIMER_SHORT])
 
-  // ───────────────────────────────────────────────────────────
-  // FEUILLE 3 : Inventaire des risques
-  // ───────────────────────────────────────────────────────────
-  const riskHeader = [
-    'Unité', 'Catégorie', 'Danger', 'Situation à risque', 'Conséquences',
-    'Fréquence', 'F (label)', 'Gravité', 'G (label)', 'Maîtrise', 'M (label)',
-    'Risque brut', 'Risque résiduel', 'Niveau', 'Prévention existante', 'Description travail', 'Notes'
+  const wsSynth = XLSX.utils.aoa_to_sheet(synthRows)
+  wsSynth['!cols'] = [{ wch: 25 }, { wch: 45 }, { wch: 12 }, { wch: 18 }, { wch: 25 }]
+  // Merge titre
+  wsSynth['!merges'] = [
+    { s: { r: 0, c: 0 }, e: { r: 0, c: 4 } },
+    { s: { r: 2, c: 0 }, e: { r: 2, c: 4 } },
+    { s: { r: 8, c: 0 }, e: { r: 8, c: 4 } },
   ]
-  const riskRows = risks.map(r => {
-    const unit = units.find(u => u.id === r.unit_id)
-    const cat = categories.find(c => c.code === r.category_code)
-    const brut = (r.frequence || 0) * (r.gravite || 0)
-    const residuel = brut * (r.maitrise || 1)
-    return [
-      unit?.name || 'Sans unité',
-      cat?.label || r.category_code || '',
-      r.danger || '',
-      r.situation || '',
-      r.consequences || '',
-      r.frequence || '',
-      FREQ[r.frequence] || '',
-      r.gravite || '',
-      GRAV[r.gravite] || '',
-      r.maitrise || '',
-      MAIT[r.maitrise] || '',
-      brut || '',
-      residuel || '',
-      residuel > 0 ? getRiskLevel(residuel).label : (brut > 0 ? getRiskLevel(brut).label : 'Non évalué'),
-      r.prevention_existante || '',
-      r.description_travail || '',
-      r.notes || '',
-    ]
-  })
-  const wsRisks = XLSX.utils.aoa_to_sheet([riskHeader, ...riskRows])
-  wsRisks['!cols'] = [
-    { wch: 18 }, { wch: 20 }, { wch: 25 }, { wch: 35 }, { wch: 25 },
-    { wch: 5 }, { wch: 14 }, { wch: 5 }, { wch: 14 }, { wch: 5 }, { wch: 14 },
-    { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 30 }, { wch: 25 }, { wch: 20 },
-  ]
-  XLSX.utils.book_append_sheet(wb, wsRisks, 'Risques')
+  XLSX.utils.book_append_sheet(wb, wsSynth, 'Synthese')
 
-  // ───────────────────────────────────────────────────────────
-  // FEUILLE 4 : Plan d'action
-  // ───────────────────────────────────────────────────────────
-  const actionHeader = [
-    'Priorité', 'Action', 'Type', 'Responsable', 'Échéance', 'Coût estimé',
-    'Statut', 'Date réalisation', 'Risque lié', 'Unité', 'Notes'
+  // ═══ Unités ═══
+  const unitData = [
+    ['Code', 'Unite de travail', 'Effectif', 'Metiers / Postes', 'Nb risques', 'Risques >= eleve', 'Score max', 'Niveau max'],
+    ...units.map(u => {
+      const ur = scored.filter(r => r.unit_id === u.id)
+      const maxS = Math.max(0, ...ur.map(r => r._score))
+      return [u.code, u.name, u.effectif || '', u.metiers || '', ur.length, ur.filter(r => r._score >= 9).length, maxS || '', maxS > 0 ? riskLevel(maxS).label : '--']
+    })
   ]
-  const actionRows = actions.map(a => {
-    const risk = risks.find(r => r.id === a.risk_id)
-    const unit = risk ? units.find(u => u.id === risk.unit_id) : null
-    return [
-      PRIO[a.priorite] || a.priorite || '',
-      a.action || '',
-      TYPE_ACTION[a.type_action] || a.type_action || '',
-      a.responsable || '',
-      formatDate(a.echeance),
-      a.cout_estime || '',
-      STAT[a.statut] || a.statut || '',
-      formatDate(a.date_realisation),
-      risk?.danger || '',
-      unit?.name || '',
-      a.notes || '',
-    ]
-  })
-  const wsActions = XLSX.utils.aoa_to_sheet([actionHeader, ...actionRows])
-  wsActions['!cols'] = [
-    { wch: 12 }, { wch: 40 }, { wch: 14 }, { wch: 18 }, { wch: 12 }, { wch: 12 },
-    { wch: 12 }, { wch: 14 }, { wch: 25 }, { wch: 18 }, { wch: 25 },
+  XLSX.utils.book_append_sheet(wb, makeSheet(unitData, [10, 28, 8, 38, 10, 13, 10, 12]), 'Unites')
+
+  // ═══ Risques ═══
+  const riskData = [
+    ['Unite', 'Categorie', 'Danger', 'Situation', 'Consequences', 'F', 'Frequence', 'G', 'Gravite', 'M', 'Maitrise', 'Brut', 'Residuel', 'Niveau', 'Prevention existante'],
+    ...risks.map(r => {
+      const unit = units.find(u => u.id === r.unit_id)
+      const cat = categories.find(c => c.code === r.category_code)
+      const brut = (r.frequence || 0) * (r.gravite || 0)
+      const score = riskScore(r)
+      return [
+        unit?.name || 'Sans unite', cat?.label || r.category_code || '', r.danger || '', r.situation || '', r.consequences || '',
+        r.frequence || '', FREQ[r.frequence] || '', r.gravite || '', GRAV[r.gravite] || '', r.maitrise || '', MAIT[r.maitrise] || '',
+        brut || '', score || '', score > 0 ? riskLevel(score).label : 'Non evalue', r.prevention_existante || '',
+      ]
+    })
   ]
-  XLSX.utils.book_append_sheet(wb, wsActions, 'Actions')
+  XLSX.utils.book_append_sheet(wb, makeSheet(riskData, [18, 18, 28, 35, 25, 4, 14, 4, 14, 5, 12, 9, 10, 10, 38]), 'Risques')
 
-  // ───────────────────────────────────────────────────────────
-  // FEUILLE 5 : Matrice
-  // ───────────────────────────────────────────────────────────
-  const matrixHeader = ['F \\ G', '1 — Minime', '2 — Significatif', '3 — Grave', '4 — Très grave']
-  const matrixRows = []
-  for (let f = 4; f >= 1; f--) {
-    const row = [`${f} — ${FREQ[f]}`]
-    for (let g = 1; g <= 4; g++) {
-      const count = risks.filter(r => r.frequence === f && r.gravite === g).length
-      const score = f * g
-      row.push(count > 0 ? `${score} (${count} risque${count > 1 ? 's' : ''})` : `${score}`)
-    }
-    matrixRows.push(row)
-  }
-  const wsMatrix = XLSX.utils.aoa_to_sheet([matrixHeader, ...matrixRows])
-  wsMatrix['!cols'] = [{ wch: 22 }, { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 20 }]
-  XLSX.utils.book_append_sheet(wb, wsMatrix, 'Matrice')
+  // ═══ Actions ═══
+  const actData = [
+    ['Priorite', 'Action', 'Type', 'Responsable', 'Echeance', 'Cout estime', 'Statut', 'Date realisation', 'Risque lie', 'Unite'],
+    ...sortedActX.map(a => {
+      const risk = risks.find(r => r.id === a.risk_id)
+      const unit = risk ? units.find(u => u.id === risk.unit_id) : null
+      return [
+        PRIO[a.priorite] || a.priorite || '', a.action || '', TYPE_A[a.type_action] || a.type_action || '',
+        a.responsable || '', fmtDate(a.echeance), a.cout_estime || '', STAT[a.statut] || '',
+        fmtDate(a.date_realisation), risk?.danger || '', unit?.name || '',
+      ]
+    })
+  ]
+  XLSX.utils.book_append_sheet(wb, makeSheet(actData, [12, 45, 14, 22, 12, 12, 10, 13, 30, 18]), 'Actions')
 
-  // ───────────────────────────────────────────────────────────
-  // FEUILLE 6 : Mentions légales
-  // ───────────────────────────────────────────────────────────
-  const legalData = [
-    ['MENTIONS LÉGALES ET AVERTISSEMENT'],
+  // ═══ Matrice ═══
+  const matData = [
+    ['F \\ G', '1 Minime', '2 Significatif', '3 Grave', '4 Tres grave'],
+    ...([4, 3, 2, 1].map(f => {
+      const row = [`${f} -- ${FREQ[f]}`]
+      for (let g = 1; g <= 4; g++) {
+        const count = risks.filter(r => r.frequence === f && r.gravite === g).length
+        row.push(count > 0 ? `${f * g} (${count} risque${count > 1 ? 's' : ''})` : `${f * g}`)
+      }
+      return row
+    }))
+  ]
+  XLSX.utils.book_append_sheet(wb, makeSheet(matData, [22, 18, 18, 18, 18]), 'Matrice')
+
+  // ═══ Mentions légales ═══
+  const legalRows = [
+    ['MENTIONS LEGALES ET AVERTISSEMENT'],
     [''],
-    ...DISCLAIMER.split('\n').map(line => [line]),
+    ...DISCLAIMER_FULL.map(l => [l]),
     [''],
+    ['RAPPELS REGLEMENTAIRES'],
+    ['Conservation obligatoire 40 ans (Art. L.4121-3-1 V)'],
+    [`Mise a jour : ${eff >= 11 ? 'annuelle obligatoire' : 'lors de changement significatif'}`],
+    ['Consultation CSE obligatoire le cas echeant'],
+    ['Evaluation differenciee H/F (Art. L.4121-3)'],
+    [eff >= 50 ? 'PAPRIPACT obligatoire' : 'Liste actions integree au DUERP'],
+    ['Transmission medecine du travail a chaque MAJ'],
     [''],
-    ['Rappels réglementaires'],
-    ['Conservation obligatoire du DUERP pendant 40 ans (Art. L.4121-3-1 V)'],
-    ['Mise à jour annuelle obligatoire (≥11 salariés) + aménagement important + nouvelle info'],
-    ['Consultation CSE obligatoire le cas échéant'],
-    ['Évaluation différenciée H/F (Art. L.4121-3)'],
-    [(parseInt(project.effectif) || 0) >= 50 ? 'PAPRIPACT obligatoire (≥50 salariés)' : 'Liste actions intégrée au DUERP (<50 salariés)'],
-    ['Transmission médecine du travail à chaque mise à jour'],
-    ['Mise à disposition des travailleurs et anciens travailleurs'],
-    [''],
-    ['Document généré le ' + new Date().toLocaleDateString('fr-FR') + ' via Access Campus — Access Formation, Concarneau'],
+    [`Document genere le ${new Date().toLocaleDateString('fr-FR')} -- Access Campus -- Access Formation, Concarneau`],
   ]
-  const wsLegal = XLSX.utils.aoa_to_sheet(legalData)
-  wsLegal['!cols'] = [{ wch: 90 }]
-  XLSX.utils.book_append_sheet(wb, wsLegal, 'Mentions légales')
+  const wsLegal = XLSX.utils.aoa_to_sheet(legalRows)
+  wsLegal['!cols'] = [{ wch: 95 }]
+  XLSX.utils.book_append_sheet(wb, wsLegal, 'Mentions legales')
 
-  // Télécharger
-  const filename = `DUERP_${project.company_name?.replace(/[^a-zA-Z0-9]/g, '_')}_${project.reference}.xlsx`
-  XLSX.writeFile(wb, filename)
-  return filename
+  // Save
+  const fname = `DUERP_${(project.company_name || 'export').replace(/[^a-zA-Z0-9]/g, '_')}_${project.reference || ''}.xlsx`
+  XLSX.writeFile(wb, fname)
+  return fname
 }
