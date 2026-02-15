@@ -97,7 +97,7 @@ export default function Invoices() {
     setCurrent({reference:ref,type,client_id:'',contact_id:'',quote_id:'',session_id:'',sellsy_reference:'',client_reference:'',
       invoice_date:format(new Date(),'yyyy-MM-dd'),service_start_date:'',service_end_date:'',due_date:dd,
       object:'',payment_method:'virement bancaire',payment_terms:'à 30 jours',discount_percent:0,discount_label:'',
-      tva_applicable:true,notes:'',created_by:'Hicham Saidi',status:'draft',parent_reference:'',parent_invoice_id:null,amount_paid:0})
+      tva_applicable:true,notes:'',created_by:'Hicham Saidi',status:'draft',parent_reference:'',parent_invoice_id:null,amount_paid:0,is_formation_pro:true})
     setItems([emptyItem()]); setPayments([]); setContacts([]); setMode('create')
   }
 
@@ -115,7 +115,7 @@ export default function Invoices() {
       invoice_date:format(new Date(),'yyyy-MM-dd'),service_start_date:sStart,service_end_date:sEnd,due_date:dd,
       object:quote.object||'',payment_method:quote.payment_method||'virement bancaire',payment_terms:quote.payment_terms||'à 30 jours',
       discount_percent:quote.discount_percent||0,discount_label:quote.discount_label||'',tva_applicable:quote.tva_applicable!==false,
-      notes:'',created_by:'Hicham Saidi',status:'draft',parent_reference:quote.reference,parent_invoice_id:null,amount_paid:0,session_reference:sRef})
+      notes:'',created_by:'Hicham Saidi',status:'draft',parent_reference:quote.reference,parent_invoice_id:null,amount_paid:0,is_formation_pro:true,session_reference:sRef})
     setItems((qItems||[]).map((it,i)=>({...it,id:undefined,quote_id:undefined,invoice_id:undefined,position:i})))
     setPayments([]); setShowQuoteSelector(false); setMode('create')
   }
@@ -149,7 +149,7 @@ export default function Invoices() {
       invoice_date: format(new Date(), 'yyyy-MM-dd'), service_start_date: sess.start_date || '', service_end_date: sess.end_date || '', due_date: dd,
       object: sess.courses?.title || '', payment_method: 'virement bancaire', payment_terms: 'à 30 jours',
       discount_percent: 0, discount_label: '', tva_applicable: true,
-      notes: '', created_by: 'Hicham Saidi', status: 'draft', parent_reference: '', parent_invoice_id: null, amount_paid: 0
+      notes: '', created_by: 'Hicham Saidi', status: 'draft', parent_reference: '', parent_invoice_id: null, amount_paid: 0, is_formation_pro: true
     })
     setItems(invoiceItems.length > 0 ? invoiceItems : [emptyItem()])
     setPayments([]); setMode('create')
@@ -166,7 +166,7 @@ export default function Invoices() {
       invoice_date:format(new Date(),'yyyy-MM-dd'),service_start_date:inv.service_start_date||'',service_end_date:inv.service_end_date||'',due_date:'',
       object:'Avoir sur facture '+inv.reference,payment_method:inv.payment_method,payment_terms:inv.payment_terms,
       discount_percent:inv.discount_percent||0,discount_label:inv.discount_label||'',tva_applicable:inv.tva_applicable!==false,
-      notes:'',created_by:'Hicham Saidi',status:'draft',parent_reference:inv.reference,parent_invoice_id:inv.id,amount_paid:0})
+      notes:'',created_by:'Hicham Saidi',status:'draft',parent_reference:inv.reference,parent_invoice_id:inv.id,amount_paid:0,is_formation_pro:true})
     setItems((invItems||[]).map((it,i)=>({...it,id:undefined,invoice_id:undefined,position:i})))
     setPayments([]); setMode('create')
   }
@@ -193,7 +193,7 @@ export default function Invoices() {
       discount_label:current.discount_label||'', tva_applicable:current.tva_applicable,
       total_ht:totals.subtotalHt, total_discount:totals.discountAmt, total_net_ht:totals.netHt,
       total_tva:totals.totalTva, total_ttc:totals.totalTtc, amount_paid:ap, amount_due:totals.totalTtc-ap,
-      status:current.status, notes:current.notes||'', created_by:current.created_by, updated_at:new Date().toISOString(),
+      status:current.status, notes:current.notes||'', created_by:current.created_by, is_formation_pro:current.is_formation_pro!==false, updated_at:new Date().toISOString(),
     }
     try {
       let iid
@@ -443,6 +443,10 @@ export default function Invoices() {
               <div><label className="text-xs text-gray-500">Date d'échéance</label><input type="date" value={current?.due_date||''} onChange={e=>setCurrent({...current,due_date:e.target.value})} className="w-full border rounded-lg px-3 py-2 text-sm mt-1" readOnly={ro}/></div>
               <div><label className="text-xs text-gray-500">Remise globale (%)</label><input type="number" value={current?.discount_percent||0} onChange={e=>setCurrent({...current,discount_percent:e.target.value})} className="w-full border rounded-lg px-3 py-2 text-sm mt-1" readOnly={ro} step="0.01" min="0" max="100"/></div>
               <div><label className="text-xs text-gray-500">Notes</label><textarea value={current?.notes||''} onChange={e=>setCurrent({...current,notes:e.target.value})} className="w-full border rounded-lg px-3 py-2 text-sm mt-1" rows={2} readOnly={ro}/></div>
+              <div className="flex items-center gap-2 mt-1">
+                <input type="checkbox" id="is_formation_pro" checked={current?.is_formation_pro!==false} onChange={e=>setCurrent({...current,is_formation_pro:e.target.checked})} disabled={ro} className="w-4 h-4 rounded" />
+                <label htmlFor="is_formation_pro" className="text-sm text-gray-700">Formation professionnelle <span className="text-xs text-gray-400">(incluse dans le BPF)</span></label>
+              </div>
             </div>
           </div>
           <div className="bg-white rounded-xl border p-5">
