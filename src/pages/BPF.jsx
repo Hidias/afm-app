@@ -17,7 +17,7 @@ const DEFAULT_YEAR = CURRENT_YEAR - 1 // BPF porte sur l'exercice précédent
 // Codes NSF pour les formations Access Formation
 const NSF_CODES = {
   sst: { code: '344', label: 'Sécurité des biens et des personnes, police, surveillance' },
-  caces: { code: '311', label: 'Transport, manutention, magasinage' },
+  conduite: { code: '311', label: 'Transport, manutention, magasinage' },
   incendie: { code: '344', label: 'Sécurité des biens et des personnes, police, surveillance' },
   elec: { code: '255', label: 'Électricité, électronique (non compris automatismes, productique)' },
   autre: { code: '333', label: 'Enseignement, formation' },
@@ -33,10 +33,10 @@ const ORG = {
   postal_code: '29900',
   city: 'Concarneau',
   phone: '',
-  email: 'contact@access-formation.com',
-  forme_juridique: 'SAS',
+  email: 'contact@accessformation.pro',
+  forme_juridique: 'SARL',
   dirigeant: 'Hicham Saidi',
-  qualite_dirigeant: 'Président',
+  qualite_dirigeant: 'Gérant',
 }
 
 export default function BPF() {
@@ -115,7 +115,7 @@ export default function BPF() {
     // Cadre F-4 — Spécialités
     specialites: [
       { code: '344', label: 'Sécurité des biens et des personnes (SST, Incendie)', nb: 0, heures: 0 },
-      { code: '311', label: 'Transport, manutention, magasinage (CACES)', nb: 0, heures: 0 },
+      { code: '311', label: 'Transport, manutention, magasinage (Conduite d\'engins)', nb: 0, heures: 0 },
       { code: '255', label: 'Électricité, électronique (Habilitation)', nb: 0, heures: 0 },
       { code: '', label: '', nb: 0, heures: 0 },
       { code: '', label: '', nb: 0, heures: 0 },
@@ -221,16 +221,24 @@ export default function BPF() {
       const allSessions = sessions || []
       const completedSessions = allSessions.filter(s => ['completed', 'closed'].includes(s.status))
 
-      // 2. Factures de l'année
+      // 2. Factures de l'année (uniquement formation professionnelle)
       const { data: invoices } = await supabase
         .from('invoices')
-        .select('id, total_net_ht, status, client_id, session_id, invoice_date')
+        .select('id, total_net_ht, status, client_id, session_id, invoice_date, is_formation_pro')
         .gte('invoice_date', startDate)
         .lte('invoice_date', endDate)
         .in('status', ['paid', 'sent', 'due', 'overdue'])
 
-      const allInvoices = invoices || []
+      // Exclure les factures hors formation professionnelle
+      const allInvoices = (invoices || []).filter(inv => inv.is_formation_pro !== false)
+      const excludedInvoices = (invoices || []).filter(inv => inv.is_formation_pro === false)
       const totalCA = allInvoices.reduce((sum, inv) => sum + (parseFloat(inv.total_net_ht) || 0), 0)
+      const totalHorsFP = excludedInvoices.reduce((sum, inv) => sum + (parseFloat(inv.total_net_ht) || 0), 0)
+
+      // 2b. Clients avec leur type (entreprise, organisme_formation, public)
+      const { data: clients } = await supabase
+        .from('clients')
+        .select('id, name, client_type')
 
       // 3. Financements multi-financeurs
       const sessionIds = allSessions.map(s => s.id)
@@ -245,6 +253,9 @@ export default function BPF() {
 
       // Répartir le CA par type de financeur
       let caEntreprises = 0, caOpco = 0, caCpf = 0, caParticuliers = 0, caAutres = 0
+      let caAgentsPublics = 0, caSousTraitance = 0
+      const clientMap = new Map((clients || []).map(c => [c.id, c]))
+
       if (fundings.length > 0) {
         fundings.forEach(f => {
           const amount = parseFloat(f.amount_ht) || 0
@@ -257,8 +268,17 @@ export default function BPF() {
           }
         })
       } else {
-        // Pas de multi-financeurs → tout en "entreprises"
-        caEntreprises = totalCA
+        // Pas de multi-financeurs → dispatcher par type de client
+        allInvoices.forEach(inv => {
+          const amount = parseFloat(inv.total_net_ht) || 0
+          const client = clientMap.get(inv.client_id)
+          const clientType = client?.client_type || 'entreprise'
+          switch (clientType) {
+            case 'organisme_formation': caSousTraitance += amount; break
+            case 'public': caAgentsPublics += amount; break
+            default: caEntreprises += amount
+          }
+        })
       }
 
       // 4. Stagiaires
@@ -340,11 +360,11 @@ export default function BPF() {
         const code = (session?.courses?.code || '').toLowerCase()
         const hours = parseFloat(session?.courses?.duration_hours) || 0
 
-        let nsfCode = '333', nsfLabel = 'Autres'
+        let nsfCode = '333', nsfLabel = 'Autres formations'
         if (title.includes('sst') || code.includes('sst')) {
           nsfCode = '344'; nsfLabel = 'Sécurité des biens et des personnes (SST)'
-        } else if (title.includes('caces') || title.includes('r489') || title.includes('r482') || title.includes('r486') || code.includes('caces')) {
-          nsfCode = '311'; nsfLabel = 'Transport, manutention, magasinage (CACES)'
+        } else if (title.includes('r489') || title.includes('r485') || title.includes('r482') || title.includes('r486') || title.includes('chariot') || title.includes('nacelle') || title.includes('engin')) {
+          nsfCode = '311'; nsfLabel = 'Transport, manutention, magasinage (Conduite d\'engins)'
         } else if (title.includes('incendie') || title.includes('epi') || title.includes('evacuation')) {
           nsfCode = '344'; nsfLabel = 'Sécurité des biens et des personnes (Incendie)'
         } else if (title.includes('electri') || title.includes('habilit') || code.includes('elec')) {
@@ -363,17 +383,13 @@ export default function BPF() {
         spec5.push(specialitesCalc[i] || { code: '', label: '', nb: 0, heures: 0 })
       }
 
-      // 8. Objectifs — SST/CACES/Habilitation/Incendie = RS (certification)
-      let rsNb = 0, rsHeures = 0, autresNb = 0, autresHeures = 0
-      stList.forEach(st => {
-        const session = allSessions.find(s => s.id === st.session_id)
-        const title = (session?.courses?.title || '').toLowerCase()
-        const code = (session?.courses?.code || '').toLowerCase()
-        const hours = parseFloat(session?.courses?.duration_hours) || 0
-        const isCertif = title.includes('sst') || title.includes('caces') || title.includes('r489') || title.includes('r482') || title.includes('r486') || title.includes('habilit') || title.includes('incendie') || title.includes('epi') || code.includes('sst') || code.includes('caces') || code.includes('elec')
-        if (isCertif) { rsNb++; rsHeures += hours }
-        else { autresNb++; autresHeures += hours }
-      })
+      // 8. Objectifs — Aucune formation inscrite au RS ou RNCP → tout en "Autres formations"
+      const totalStNb = stList.length
+      const totalStHeures = totalHeuresStagiaires
+
+      // Calculer le % CA formation pro
+      const totalCAGlobal = totalCA + totalHorsFP
+      const pctFormation = totalCAGlobal > 0 ? Math.round((totalCA / totalCAGlobal) * 100) : 100
 
       // Mettre à jour le formulaire
       setForm(prev => ({
@@ -381,8 +397,11 @@ export default function BPF() {
         c1_entreprises: Math.round(caEntreprises * 100) / 100,
         c2h_plan_dev: Math.round(caOpco * 100) / 100,
         c2e_cpf: Math.round(caCpf * 100) / 100,
+        c3_agents_publics: Math.round(caAgentsPublics * 100) / 100,
         c9_particuliers: Math.round(caParticuliers * 100) / 100,
+        c10_sous_traitance: Math.round(caSousTraitance * 100) / 100,
         c11_autres: Math.round(caAutres * 100) / 100,
+        ca_pct_formation: pctFormation,
         e_internes_nb: internes.length,
         e_internes_heures: Math.round(heuresInternes * 10) / 10,
         e_externes_nb: externes.length,
@@ -395,17 +414,16 @@ export default function BPF() {
         f1d_particuliers_heures: Math.round(totalHeuresStagiaires * (particuliers / (uniqueTrainees.size || 1)) * 10) / 10,
         f1e_autres_nb: autresSt,
         f1e_autres_heures: Math.round(totalHeuresStagiaires * (autresSt / (uniqueTrainees.size || 1)) * 10) / 10,
-        f3b_rs_nb: rsNb,
-        f3b_rs_heures: Math.round(rsHeures * 10) / 10,
-        f3d_autres_nb: autresNb,
-        f3d_autres_heures: Math.round(autresHeures * 10) / 10,
+        f3d_autres_nb: totalStNb,
+        f3d_autres_heures: Math.round(totalStHeures * 10) / 10,
         specialites: spec5,
         nb_sessions: allSessions.length,
         nb_sessions_realisees: completedSessions.length,
         calculated_at: new Date().toISOString(),
       }))
 
-      toast.success(`Calcul terminé : ${allSessions.length} sessions, ${uniqueTrainees.size} stagiaires, ${totalCA.toFixed(0)}€ CA`)
+      const exclMsg = totalHorsFP > 0 ? ` (${excludedInvoices.length} factures hors FP exclues : ${totalHorsFP.toFixed(0)}€)` : ''
+      toast.success(`Calcul terminé : ${allSessions.length} sessions, ${uniqueTrainees.size} stagiaires, ${totalCA.toFixed(0)}€ CA FP${exclMsg}`)
     } catch (err) {
       console.error('Erreur calcul BPF:', err)
       toast.error('Erreur lors du calcul')
@@ -825,7 +843,7 @@ export default function BPF() {
             <div className="bg-green-50 border border-green-200 rounded p-2 mt-2">
               <p className="text-xs text-green-800">
                 <Info className="w-3 h-3 inline mr-1" />
-                SST, CACES, Habilitations électriques, Incendie → ligne b (RS). Les totaux (1) et (3) doivent être égaux.
+                Aucune formation Access Formation n'est inscrite au RS ou RNCP actuellement → tout en ligne d. Les totaux (1) et (3) doivent être égaux.
               </p>
             </div>
           </div>
