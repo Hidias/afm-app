@@ -1004,6 +1004,7 @@ export default function Clients() {
                       { value: 'entreprise', label: '🏢 Entreprise', active: 'bg-blue-500 text-white', inactive: 'bg-blue-50 text-blue-700 hover:bg-blue-100' },
                       { value: 'organisme_formation', label: '🎓 Organisme de formation', active: 'bg-purple-500 text-white', inactive: 'bg-purple-50 text-purple-700 hover:bg-purple-100' },
                       { value: 'public', label: '🏛️ Établissement public', active: 'bg-teal-500 text-white', inactive: 'bg-teal-50 text-teal-700 hover:bg-teal-100' },
+                      { value: 'opco', label: '💼 OPCO', active: 'bg-amber-500 text-white', inactive: 'bg-amber-50 text-amber-700 hover:bg-amber-100' },
                     ].map(s => (
                       <button key={s.value} type="button" onClick={() => setForm({...form, client_type: s.value})}
                         className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${form.client_type === s.value ? s.active : s.inactive}`}>
