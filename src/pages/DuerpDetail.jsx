@@ -6,11 +6,12 @@ import {
   ArrowLeft, Shield, Building2, Calendar, MapPin, ChevronDown, ChevronUp,
   X, Save, AlertTriangle, CheckCircle, Clock, FileText, Trash2, Plus,
   Edit, Loader2, Target, Users, BarChart3, Filter, Search, Copy,
-  Briefcase, GraduationCap, RefreshCw, Info, Zap, Eye, Hash, Bot, Sparkles, ThumbsUp, ThumbsDown
+  Briefcase, GraduationCap, RefreshCw, Info, Zap, Eye, Hash, Bot, Sparkles, ThumbsUp, ThumbsDown, Download
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
+import { generateDuerpPDF, generateDuerpExcel } from '../lib/duerpExport'
 
 // ═══════════════════════════════════════════════════════════
 // CONSTANTES — alignées sur le schéma SQL déployé
@@ -2063,6 +2064,38 @@ export default function DuerpDetail() {
               </div>
             </div>
           )}
+
+          {/* ═══ EXPORT PDF / EXCEL ═══ */}
+          <div className="bg-white rounded-xl border shadow-sm p-4 sm:p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+                  <FileText className="w-5 h-5 text-amber-600" /> Exporter le DUERP
+                </h3>
+                <p className="text-xs text-gray-500 mt-1">Rapport complet avec inventaire, plan d'action et mentions légales</p>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => {
+                  try {
+                    generateDuerpPDF({ project, units, risks, actions, categories })
+                    toast.success('PDF généré et téléchargé')
+                  } catch (err) { console.error(err); toast.error('Erreur génération PDF') }
+                }}
+                  className="flex items-center gap-2 px-4 py-2.5 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700">
+                  <Download className="w-4 h-4" /> PDF
+                </button>
+                <button onClick={() => {
+                  try {
+                    generateDuerpExcel({ project, units, risks, actions, categories })
+                    toast.success('Excel généré et téléchargé')
+                  } catch (err) { console.error(err); toast.error('Erreur génération Excel') }
+                }}
+                  className="flex items-center gap-2 px-4 py-2.5 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700">
+                  <Download className="w-4 h-4" /> Excel
+                </button>
+              </div>
+            </div>
+          </div>
 
           {/* Matrice F × G */}
           <div className="bg-white rounded-xl border shadow-sm p-4 sm:p-6">
