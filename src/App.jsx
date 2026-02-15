@@ -44,6 +44,8 @@ import MultiEtablissements from './pages/MultiEtablissements'
 import AdminImport from './pages/AdminImport'
 // ========== NOUVEAU : Configuration Email ==========
 import EmailSettings from './pages/EmailSettings'
+// ========== NOUVEAU : Module DUERP ==========
+import DuerpProjects from './pages/DuerpProjects'
 
 // Pages publiques
 import PublicAttendance from './pages/public/Attendance'
@@ -156,6 +158,8 @@ export default function App() {
           <Route path="prospection-massive" element={<ProspectionMassive />} />
           <Route path="multi-etablissements" element={<MultiEtablissements />} />
           <Route path="admin/import" element={<AdminImport />} />
+          {/* ========== NOUVEAU : Module DUERP ========== */}
+          <Route path="duerp" element={<DuerpProjects />} />
           {/* ================================================== */}
           <Route path="formations" element={<Courses />} />
           <Route path="formateurs" element={<Trainers />} />
