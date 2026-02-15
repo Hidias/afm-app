@@ -6,7 +6,7 @@ import {
   ArrowLeft, Shield, Building2, Calendar, MapPin, ChevronDown, ChevronUp,
   X, Save, AlertTriangle, CheckCircle, Clock, FileText, Trash2, Plus,
   Edit, Loader2, Target, Users, BarChart3, Filter, Search, Copy,
-  Briefcase, GraduationCap, RefreshCw, Info, Zap, Eye, Hash
+  Briefcase, GraduationCap, RefreshCw, Info, Zap, Eye, Hash, Bot, Sparkles, ThumbsUp, ThumbsDown
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { format } from 'date-fns'
@@ -128,6 +128,14 @@ export default function DuerpDetail() {
   // Actions
   const [editingAction, setEditingAction] = useState(null)
   const [actionForm, setActionForm] = useState({})
+
+  // IA Évaluation
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiRiskId, setAiRiskId] = useState(null)           // Mode 1: risque en cours d'évaluation
+  const [aiDescription, setAiDescription] = useState('')     // Description terrain
+  const [aiResult, setAiResult] = useState(null)             // Résultat IA (risk ou unit)
+  const [showAiUnitModal, setShowAiUnitModal] = useState(null) // Mode 2: unit_id en analyse
+  const [aiUnitDescription, setAiUnitDescription] = useState('')
 
   // ═══════════════════════════════════════════════════════════
   // CHARGEMENT
@@ -368,6 +376,179 @@ export default function DuerpDetail() {
     if (error) return toast.error('Erreur : ' + error.message)
     setActions(prev => prev.map(a => a.id === actionId ? { ...a, ...updates } : a))
     toast.success('Statut mis à jour')
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // IA — MODE 1 : Évaluation d'un risque individuel
+  // ═══════════════════════════════════════════════════════════
+  const evaluateRiskWithAI = async (risk) => {
+    if (!aiDescription.trim() && !risk.situation) {
+      return toast.error('Décrivez la situation terrain avant de lancer l\'IA')
+    }
+    setAiLoading(true)
+    setAiRiskId(risk.id)
+    setAiResult(null)
+    try {
+      const unit = units.find(u => u.id === risk.unit_id)
+      const cat = categories.find(c => c.code === risk.category_code)
+      const res = await fetch('/api/duerp-ai-evaluate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: 'risk',
+          context: {
+            company_name: project.company_name,
+            sector: project.sector_template,
+            naf_code: project.naf_code,
+            naf_label: project.naf_label,
+            effectif: project.effectif,
+            unit_name: unit?.name || '',
+            danger: risk.danger,
+            category: cat?.label || '',
+            situation: risk.situation || '',
+            consequences: risk.consequences || '',
+            prevention_existante: risk.prevention_existante || '',
+            description: aiDescription || risk.situation || '',
+          }
+        })
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Erreur API')
+      setAiResult({ mode: 'risk', riskId: risk.id, ...data.result })
+      toast.success('Évaluation IA terminée')
+    } catch (err) {
+      console.error(err)
+      toast.error('Erreur IA : ' + (err.message || 'Réessayez'))
+    }
+    setAiLoading(false)
+  }
+
+  const applyAiRiskResult = async (risk) => {
+    if (!aiResult || aiResult.riskId !== risk.id) return
+    // Appliquer les scores
+    const updates = {
+      frequence: aiResult.frequence,
+      gravite: aiResult.gravite,
+      maitrise: aiResult.maitrise,
+    }
+    if (aiResult.situation_completee) updates.situation = aiResult.situation_completee
+    if (aiResult.consequences_completees) updates.consequences = aiResult.consequences_completees
+    if (aiResult.description_travail) updates.description_travail = aiResult.description_travail
+
+    const { error } = await supabase.from('duerp_risks').update(updates).eq('id', risk.id)
+    if (error) return toast.error('Erreur sauvegarde : ' + error.message)
+
+    // Créer les actions proposées
+    if (aiResult.actions?.length) {
+      for (const a of aiResult.actions) {
+        await supabase.from('duerp_actions').insert({
+          project_id: id,
+          risk_id: risk.id,
+          action: a.action,
+          type_action: a.type_action || 'prevention',
+          priorite: a.priorite || 'moyenne',
+          cout_estime: a.cout_estime || null,
+          statut: 'a_faire',
+        })
+      }
+    }
+    setAiResult(null)
+    setAiRiskId(null)
+    setAiDescription('')
+    toast.success(`Cotation appliquée + ${aiResult.actions?.length || 0} action(s) créée(s)`)
+    loadAll()
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // IA — MODE 2 : Analyse complète d'une unité de travail
+  // ═══════════════════════════════════════════════════════════
+  const evaluateUnitWithAI = async (unitId) => {
+    if (!aiUnitDescription.trim()) {
+      return toast.error('Décrivez ce que vous observez dans cette unité')
+    }
+    setAiLoading(true)
+    setAiResult(null)
+    try {
+      const unit = units.find(u => u.id === unitId)
+      const existingRisks = risks.filter(r => r.unit_id === unitId).map(r => ({
+        danger: r.danger,
+        category: categories.find(c => c.code === r.category_code)?.label || '',
+      }))
+      const res = await fetch('/api/duerp-ai-evaluate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: 'unit',
+          context: {
+            company_name: project.company_name,
+            sector: project.sector_template,
+            naf_code: project.naf_code,
+            naf_label: project.naf_label,
+            effectif: project.effectif,
+            unit_name: unit?.name || '',
+            unit_code: unit?.code || '',
+            unit_effectif: unit?.effectif || '',
+            unit_metiers: unit?.metiers || '',
+            existing_risks: existingRisks,
+            available_categories: categories.map(c => ({ code: c.code, label: c.label })),
+            description: aiUnitDescription,
+          }
+        })
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Erreur API')
+      setAiResult({ mode: 'unit', unitId, ...data.result })
+      toast.success(`${data.result.risques?.length || 0} risque(s) identifié(s) par l'IA`)
+    } catch (err) {
+      console.error(err)
+      toast.error('Erreur IA : ' + (err.message || 'Réessayez'))
+    }
+    setAiLoading(false)
+  }
+
+  const applyAiUnitResults = async (unitId) => {
+    if (!aiResult || aiResult.mode !== 'unit' || !aiResult.risques?.length) return
+    let createdRisks = 0
+    let createdActions = 0
+    for (const r of aiResult.risques) {
+      if (r._skip) continue // risques décochés par l'utilisateur
+      const { data: newRisk, error } = await supabase.from('duerp_risks').insert({
+        project_id: id,
+        unit_id: unitId,
+        category_code: r.category_code || null,
+        danger: r.danger,
+        situation: r.situation,
+        consequences: r.consequences,
+        description_travail: r.description_travail || '',
+        frequence: r.frequence,
+        gravite: r.gravite,
+        maitrise: r.maitrise,
+        prevention_existante: r.prevention_existante || '',
+        sort_order: risks.length + createdRisks,
+      }).select().single()
+      if (error) { console.error(error); continue }
+      createdRisks++
+      // Créer les actions liées
+      if (r.actions?.length && newRisk) {
+        for (const a of r.actions) {
+          await supabase.from('duerp_actions').insert({
+            project_id: id,
+            risk_id: newRisk.id,
+            action: a.action,
+            type_action: a.type_action || 'prevention',
+            priorite: a.priorite || 'moyenne',
+            cout_estime: a.cout_estime || null,
+            statut: 'a_faire',
+          })
+          createdActions++
+        }
+      }
+    }
+    setAiResult(null)
+    setShowAiUnitModal(null)
+    setAiUnitDescription('')
+    toast.success(`${createdRisks} risque(s) + ${createdActions} action(s) créé(s)`)
+    loadAll()
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -711,6 +892,10 @@ export default function DuerpDetail() {
                         </div>
                       </div>
                       <div className="flex items-center gap-1 ml-2">
+                        <button onClick={() => { setShowAiUnitModal(u.id); setAiUnitDescription(''); setAiResult(null) }}
+                          className="p-1.5 rounded hover:bg-purple-50 text-gray-400 hover:text-purple-600" title="IA : analyser cette unité">
+                          <Bot className="w-4 h-4" />
+                        </button>
                         <button onClick={() => { setActiveTab('risks'); setRiskFilter({ ...riskFilter, unit: u.id }) }}
                           className="p-1.5 rounded hover:bg-amber-50 text-gray-400 hover:text-amber-600" title="Voir les risques">
                           <AlertTriangle className="w-4 h-4" />
@@ -726,11 +911,118 @@ export default function DuerpDetail() {
               })}
             </div>
           )}
+
+          {/* ═══ MODAL IA — Analyse complète unité (Mode 2) ═══ */}
+          {showAiUnitModal && (
+            <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={e => { if (e.target === e.currentTarget) { setShowAiUnitModal(null); setAiResult(null) } }}>
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+                <div className="flex items-center justify-between px-6 py-4 border-b bg-gradient-to-r from-purple-50 to-amber-50">
+                  <div className="flex items-center gap-2">
+                    <Bot className="w-6 h-6 text-purple-600" />
+                    <div>
+                      <h3 className="font-bold text-gray-900">IA — Analyse de l'unité</h3>
+                      <p className="text-xs text-gray-500">{units.find(u => u.id === showAiUnitModal)?.name || ''}</p>
+                    </div>
+                  </div>
+                  <button onClick={() => { setShowAiUnitModal(null); setAiResult(null) }} className="p-2 hover:bg-gray-100 rounded-lg"><X className="w-5 h-5" /></button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-6">
+                  {/* Zone de saisie description terrain */}
+                  {!aiResult && (
+                    <div>
+                      <label className="text-sm font-medium text-gray-700 block mb-2">
+                        📝 Décrivez ce que vous observez dans cette unité de travail
+                      </label>
+                      <textarea value={aiUnitDescription} onChange={e => setAiUnitDescription(e.target.value)}
+                        rows={6} autoFocus
+                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl text-sm focus:border-purple-400 focus:ring-1 focus:ring-purple-200 transition"
+                        placeholder={"Exemple : Les salariés réceptionnent les palettes avec un transpalette manuel. Le sol est irrégulier avec des trous devant le quai. Pas de zone de déchargement balisée. Les cartons lourds (+15kg) sont portés à la main jusqu'aux racks. Les racks font 3 mètres de haut, ils utilisent un escabeau en mauvais état pour les niveaux hauts. Éclairage faible dans le fond de la réserve. Produits chimiques de nettoyage stockés à côté des denrées alimentaires..."} />
+                      <p className="text-xs text-gray-400 mt-2 flex items-center gap-1">
+                        <Sparkles className="w-3 h-3" /> Plus votre description est détaillée, plus l'IA sera précise.
+                        Décrivez les lieux, équipements, gestes, ambiance, organisation...
+                      </p>
+                      <button onClick={() => evaluateUnitWithAI(showAiUnitModal)} disabled={aiLoading || !aiUnitDescription.trim()}
+                        className="mt-4 w-full flex items-center justify-center gap-2 px-4 py-3 bg-purple-600 text-white rounded-xl font-medium hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition">
+                        {aiLoading ? <><Loader2 className="w-5 h-5 animate-spin" /> Analyse en cours...</>
+                          : <><Bot className="w-5 h-5" /> Lancer l'analyse IA</>}
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Résultats IA */}
+                  {aiResult?.mode === 'unit' && (
+                    <div>
+                      {aiResult.analyse_resume && (
+                        <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 mb-4">
+                          <p className="text-sm text-purple-800 flex items-center gap-2">
+                            <Sparkles className="w-4 h-4 shrink-0" />
+                            {aiResult.analyse_resume}
+                          </p>
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between mb-3">
+                        <h4 className="font-semibold text-sm text-gray-900">{aiResult.risques?.length || 0} risques identifiés par l'IA</h4>
+                        <button onClick={() => setAiResult(null)} className="text-xs text-gray-400 hover:underline">← Modifier la description</button>
+                      </div>
+                      <div className="space-y-3">
+                        {(aiResult.risques || []).map((r, idx) => {
+                          const scores = { brut: (r.frequence || 0) * (r.gravite || 0), residuel: (r.frequence || 0) * (r.gravite || 0) * (r.maitrise || 1) }
+                          const lvl = getRiskLevel(scores.residuel || scores.brut)
+                          const cat = categories.find(c => c.code === r.category_code)
+                          return (
+                            <div key={idx} className={`border rounded-xl p-4 transition ${r._skip ? 'opacity-40 bg-gray-50' : 'bg-white hover:shadow-sm'}`}>
+                              <div className="flex items-start justify-between">
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex flex-wrap items-center gap-2 mb-1">
+                                    <input type="checkbox" checked={!r._skip} onChange={e => {
+                                      setAiResult(prev => ({
+                                        ...prev,
+                                        risques: prev.risques.map((x, i) => i === idx ? { ...x, _skip: !e.target.checked } : x)
+                                      }))
+                                    }} className="rounded text-purple-600" />
+                                    {cat && <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">{cat.icon} {cat.label}</span>}
+                                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${lvl.badge}`}>
+                                      F{r.frequence}×G{r.gravite}×M{r.maitrise} = {scores.residuel} ({lvl.label})
+                                    </span>
+                                  </div>
+                                  <h5 className="font-semibold text-sm text-gray-900">{r.danger}</h5>
+                                  <p className="text-xs text-gray-500 mt-0.5">{r.situation}</p>
+                                  {r.consequences && <p className="text-xs text-red-400 mt-0.5">→ {r.consequences}</p>}
+                                  {r.justification && <p className="text-xs text-purple-500 mt-1 italic">💡 {r.justification}</p>}
+                                  {r.actions?.length > 0 && (
+                                    <div className="mt-2 pl-3 border-l-2 border-purple-200 space-y-1">
+                                      {r.actions.map((a, ai) => (
+                                        <p key={ai} className="text-xs text-gray-600">
+                                          🎯 <strong>{a.action}</strong>
+                                          <span className="text-gray-400 ml-1">({a.type_action}, {a.priorite}{a.cout_estime ? `, ~${a.cout_estime}` : ''})</span>
+                                        </p>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                      <div className="flex justify-end gap-3 mt-6 pt-4 border-t">
+                        <button onClick={() => { setShowAiUnitModal(null); setAiResult(null) }}
+                          className="px-4 py-2.5 text-gray-600 hover:bg-gray-100 rounded-lg text-sm">Annuler</button>
+                        <button onClick={() => applyAiUnitResults(showAiUnitModal)}
+                          className="px-6 py-2.5 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 flex items-center gap-2">
+                          <ThumbsUp className="w-4 h-4" />
+                          Créer {(aiResult.risques || []).filter(r => !r._skip).length} risque(s) + actions
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
-
-      {/* ════════════════════════════════════════════════════════════════ */}
-      {/* ONGLET 2 : ÉVALUATION DES RISQUES                              */}
       {/* ════════════════════════════════════════════════════════════════ */}
       {activeTab === 'risks' && (
         <div>
@@ -819,6 +1111,14 @@ export default function DuerpDetail() {
                           )}
                         </div>
                         <div className="flex items-center gap-1 ml-2 shrink-0">
+                          <button onClick={() => {
+                            if (aiRiskId === r.id) { setAiRiskId(null); setAiDescription(''); setAiResult(null) }
+                            else { setAiRiskId(r.id); setAiDescription(''); setAiResult(null) }
+                          }}
+                            className={`p-1.5 rounded ${aiRiskId === r.id ? 'bg-purple-100 text-purple-700' : 'hover:bg-purple-50 text-gray-400 hover:text-purple-600'}`}
+                            title="IA : évaluer ce risque">
+                            <Bot className="w-4 h-4" />
+                          </button>
                           <button onClick={() => setEditingRisk(isEditing ? null : r.id)}
                             className={`p-1.5 rounded ${isEditing ? 'bg-amber-100 text-amber-700' : 'hover:bg-gray-100 text-gray-400'}`}>
                             <Edit className="w-4 h-4" />
@@ -875,6 +1175,95 @@ export default function DuerpDetail() {
                           </div>
                         </div>
                       </div>
+
+                      {/* ═══ PANNEAU IA — Évaluation risque (Mode 1) ═══ */}
+                      {aiRiskId === r.id && (
+                        <div className="mt-3 p-4 bg-gradient-to-r from-purple-50 to-amber-50 rounded-xl border border-purple-200">
+                          <div className="flex items-center gap-2 mb-3">
+                            <Bot className="w-5 h-5 text-purple-600" />
+                            <span className="font-semibold text-sm text-purple-800">IA — Évaluation de ce risque</span>
+                          </div>
+
+                          {!aiResult?.riskId && (
+                            <>
+                              <textarea value={aiDescription} onChange={e => setAiDescription(e.target.value)}
+                                rows={3} autoFocus
+                                className="w-full px-3 py-2 border border-purple-200 rounded-lg text-sm bg-white focus:border-purple-400 focus:ring-1 focus:ring-purple-200"
+                                placeholder="Décrivez la situation terrain : ce que vous voyez, les gestes, les équipements, les incidents passés..." />
+                              <div className="flex items-center justify-between mt-2">
+                                <p className="text-[10px] text-gray-400 flex items-center gap-1">
+                                  <Sparkles className="w-3 h-3" /> L'IA cotera F/G/M et proposera des actions
+                                </p>
+                                <button onClick={() => evaluateRiskWithAI(r)} disabled={aiLoading}
+                                  className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 disabled:opacity-50 flex items-center gap-2">
+                                  {aiLoading ? <><Loader2 className="w-4 h-4 animate-spin" /> Analyse...</>
+                                    : <><Bot className="w-4 h-4" /> Évaluer</>}
+                                </button>
+                              </div>
+                            </>
+                          )}
+
+                          {aiResult?.riskId === r.id && (
+                            <div className="space-y-3">
+                              {/* Scores proposés */}
+                              <div className="grid grid-cols-3 gap-2">
+                                <div className="bg-white rounded-lg p-2 text-center border">
+                                  <div className="text-lg font-bold text-gray-900">F={aiResult.frequence}</div>
+                                  <p className="text-[10px] text-gray-500">{aiResult.justification?.frequence}</p>
+                                </div>
+                                <div className="bg-white rounded-lg p-2 text-center border">
+                                  <div className="text-lg font-bold text-gray-900">G={aiResult.gravite}</div>
+                                  <p className="text-[10px] text-gray-500">{aiResult.justification?.gravite}</p>
+                                </div>
+                                <div className="bg-white rounded-lg p-2 text-center border">
+                                  <div className="text-lg font-bold text-gray-900">M=×{aiResult.maitrise}</div>
+                                  <p className="text-[10px] text-gray-500">{aiResult.justification?.maitrise}</p>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2 text-sm">
+                                {(() => {
+                                  const b = aiResult.frequence * aiResult.gravite
+                                  const res = b * aiResult.maitrise
+                                  const lvl = getRiskLevel(res)
+                                  return <span className={`px-3 py-1 rounded-full font-medium text-xs ${lvl.badge}`}>
+                                    Brut {b} → Résiduel {res} ({lvl.label})
+                                  </span>
+                                })()}
+                              </div>
+
+                              {/* Actions proposées */}
+                              {aiResult.actions?.length > 0 && (
+                                <div>
+                                  <h5 className="text-xs font-semibold text-gray-700 mb-1">🎯 Actions proposées :</h5>
+                                  <div className="space-y-1">
+                                    {aiResult.actions.map((a, i) => (
+                                      <div key={i} className="bg-white rounded-lg p-2 border text-xs">
+                                        <strong>{a.action}</strong>
+                                        <span className="text-gray-400 ml-1">({a.type_action}, {a.priorite}{a.cout_estime ? `, ~${a.cout_estime}` : ''})</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
+                              <div className="flex justify-end gap-2 pt-2">
+                                <button onClick={() => { setAiResult(null); setAiDescription('') }}
+                                  className="px-3 py-2 text-gray-500 hover:bg-gray-100 rounded-lg text-sm flex items-center gap-1">
+                                  <RefreshCw className="w-3.5 h-3.5" /> Réessayer
+                                </button>
+                                <button onClick={() => { setAiRiskId(null); setAiResult(null); setAiDescription('') }}
+                                  className="px-3 py-2 text-gray-500 hover:bg-gray-100 rounded-lg text-sm">
+                                  Ignorer
+                                </button>
+                                <button onClick={() => applyAiRiskResult(r)}
+                                  className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 flex items-center gap-2">
+                                  <ThumbsUp className="w-4 h-4" /> Appliquer cotation + actions
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
 
                       {/* ═══ ÉDITION DÉTAILLÉE ═══ */}
                       {isEditing && (
