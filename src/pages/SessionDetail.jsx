@@ -2082,16 +2082,17 @@ export default function SessionDetail() {
       }
 
       // 5. Émargement — rempli avec données de présence
-      const [{ data: signatures }, { data: halfDays }] = await Promise.all([
+      const [{ data: signatures }, { data: halfDays }, { data: digitalSigs }] = await Promise.all([
         supabase.from('attendances').select('*').eq('session_id', session.id),
-        supabase.from('attendance_halfdays').select('*').eq('session_id', session.id)
+        supabase.from('attendance_halfdays').select('*').eq('session_id', session.id),
+        supabase.from('document_signatures').select('*').eq('session_id', session.id).eq('document_type', 'emargement').eq('status', 'valid')
       ])
-      const hasAttendance = (signatures && signatures.length > 0) || (halfDays && halfDays.length > 0)
+      const hasAttendance = (signatures && signatures.length > 0) || (halfDays && halfDays.length > 0) || (digitalSigs && digitalSigs.length > 0)
       const emargement = generatePDF('emargement', session, {
         trainees: traineesWithResult,
         trainer,
         isBlank: !hasAttendance,
-        attendanceData: hasAttendance ? { signatures: signatures || [], halfdays: halfDays || [] } : null
+        attendanceData: hasAttendance ? { signatures: signatures || [], halfdays: halfDays || [], digitalSignatures: digitalSigs || [] } : null
       })
       if (emargement) zip.file(`Emargement_${ref}.pdf`, emargement.base64, { base64: true })
 
@@ -2283,11 +2284,12 @@ export default function SessionDetail() {
     
     // Ajouter les données d'émargement pour le PDF émargement
     if (docType === 'emargement') {
-      const [{ data: signatures }, { data: halfDays }] = await Promise.all([
+      const [{ data: signatures }, { data: halfDays }, { data: digitalSigs }] = await Promise.all([
         supabase.from('attendances').select('*').eq('session_id', session.id),
-        supabase.from('attendance_halfdays').select('*').eq('session_id', session.id)
+        supabase.from('attendance_halfdays').select('*').eq('session_id', session.id),
+        supabase.from('document_signatures').select('*').eq('session_id', session.id).eq('document_type', 'emargement').eq('status', 'valid')
       ])
-      options.attendanceData = { signatures: signatures || [], halfdays: halfDays || [] }
+      options.attendanceData = { signatures: signatures || [], halfdays: halfDays || [], digitalSignatures: digitalSigs || [] }
     }
 
     downloadDocument(docType, session, options)
@@ -2985,6 +2987,7 @@ ${trainer ? `${trainer.first_name} ${trainer.last_name}` : 'Access Formation'}`
                     ))}
                     <th className="text-center py-3 px-2 font-medium">Total</th>
                     <th className="text-center py-3 px-2 font-medium">Statut</th>
+                    <th className="text-center py-3 px-2 font-medium" title="Signature électronique">✍️</th>
                     <th className="text-center py-3 px-2 font-medium" title="Départ Anticipé">DA</th>
                   </tr>
                 </thead>
@@ -3034,6 +3037,9 @@ ${trainer ? `${trainer.first_name} ${trainer.last_name}` : 'Access Formation'}`
                           ) : (
                             <span className="text-orange-600 font-medium">{status.percentage}%</span>
                           )}
+                        </td>
+                        <td className="text-center py-3 px-2">
+                          <SignatureAuditBadge sessionId={session.id} documentType="emargement" traineeId={t.id} />
                         </td>
                         <td className="text-center py-3 px-2">
                           {hasEarlyDeparture ? (
