@@ -183,8 +183,171 @@ Réponds UNIQUEMENT avec ce JSON :
     }
   ]
 }`
-    } else {
-      return res.status(400).json({ error: `Mode inconnu : ${mode}. Utilisez 'risk' ou 'unit'.` })
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // MODE 3 : Saisie libre générale (multi-unités)
+    // ═══════════════════════════════════════════════════════════
+    else if (mode === 'general') {
+      const existingRisks = (context.existing_risks || [])
+        .map(r => `- [${r.unit || 'Sans unité'}] ${r.danger} (${r.category || ''})`)
+        .join('\n')
+
+      const unitsList = (context.units || [])
+        .map(u => `${u.code} = ${u.name}`)
+        .join('\n')
+
+      userMessage = `Tu reçois les observations de terrain libres d'un évaluateur DUERP. Analyse et identifie les risques professionnels, en les ventilant par unité de travail existante ou en proposant de nouvelles unités si nécessaire.
+
+CONTEXTE ENTREPRISE :
+- Entreprise : ${context.company_name || ''}
+- Secteur : ${context.sector || 'Non précisé'}
+- Activité NAF : ${context.naf_code || ''} ${context.naf_label || ''}
+- Effectif total : ${context.effectif || 'Non précisé'}
+
+UNITÉS DE TRAVAIL EXISTANTES :
+${unitsList || '(aucune)'}
+
+RISQUES DÉJÀ IDENTIFIÉS (ne pas re-créer) :
+${existingRisks || '(aucun)'}
+
+OBSERVATIONS TERRAIN LIBRES :
+"""
+${context.description || ''}
+"""
+
+CATÉGORIES DISPONIBLES (utilise ces codes) :
+${(context.available_categories || []).map(c => `${c.code} = ${c.label}`).join('\n')}
+
+Identifie les risques NOUVEAUX. Pour chaque risque, rattache-le à une unité existante (via le code) OU propose une nouvelle unité.
+
+Réponds UNIQUEMENT avec ce JSON :
+{
+  "analyse_resume": "<résumé en 2-3 phrases>",
+  "nouvelles_unites": [
+    {
+      "code": "<code court>",
+      "name": "<nom unité>",
+      "description": "<description>"
+    }
+  ],
+  "risques": [
+    {
+      "danger": "<titre court du danger>",
+      "category_code": "<code catégorie>",
+      "unit_code": "<code unité existante OU nouvelle>",
+      "situation": "<situation à risque détaillée>",
+      "consequences": "<conséquences possibles>",
+      "description_travail": "<travail réalisé>",
+      "frequence": <1-4>,
+      "gravite": <1-4>,
+      "maitrise": <0.5 ou 0.75 ou 1>,
+      "prevention_existante": "<mesures déjà en place si mentionnées>",
+      "justification": "<explication courte>",
+      "actions": [
+        {
+          "action": "<action concrète>",
+          "type_action": "<prevention|protection|formation|organisationnelle|technique>",
+          "priorite": "<critique|haute|moyenne|basse>",
+          "cout_estime": "<estimation>"
+        }
+      ]
+    }
+  ]
+}`
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // MODE 4 : Audit de complétude DUERP
+    // ═══════════════════════════════════════════════════════════
+    else if (mode === 'audit') {
+      const unitsDetail = (context.units || []).map(u => {
+        const unitRisks = (context.risks || []).filter(r => r.unit_code === u.code || r.unit_id === u.id)
+        const coveredCats = [...new Set(unitRisks.map(r => r.category_code).filter(Boolean))]
+        return `- ${u.name} (${u.code}) — ${u.effectif || '?'} pers. — Métiers: ${u.metiers || '?'} — ${unitRisks.length} risques — Catégories couvertes: ${coveredCats.join(', ') || 'aucune'}`
+      }).join('\n')
+
+      const allRisks = (context.risks || []).map(r => {
+        const scores = r.frequence && r.gravite ? `F${r.frequence}×G${r.gravite}×M${r.maitrise || 1}` : 'non évalué'
+        return `- [${r.unit_name || 'Sans unité'}] ${r.danger} (${r.category || ''}) — ${scores}`
+      }).join('\n')
+
+      const coveredCategories = [...new Set((context.risks || []).map(r => r.category_code).filter(Boolean))]
+      const allCategories = (context.available_categories || []).map(c => c.code)
+      const missingCategories = allCategories.filter(c => !coveredCategories.includes(c))
+
+      const actionsCount = context.actions_count || 0
+      const risksWithActions = context.risks_with_actions || 0
+
+      userMessage = `Tu es un auditeur expert DUERP (IPRP). Analyse ce Document Unique et identifie TOUS les manques, oublis et points d'amélioration.
+
+CONTEXTE ENTREPRISE :
+- Entreprise : ${context.company_name || ''}
+- Secteur : ${context.sector || 'Non précisé'}
+- Activité NAF : ${context.naf_code || ''} ${context.naf_label || ''}
+- Effectif total : ${context.effectif || 'Non précisé'}
+
+UNITÉS DE TRAVAIL ET COUVERTURE :
+${unitsDetail || '(aucune unité)'}
+
+TOUS LES RISQUES IDENTIFIÉS (${(context.risks || []).length} total) :
+${allRisks || '(aucun)'}
+
+CATÉGORIES DE RISQUES NON COUVERTES :
+${missingCategories.length > 0 
+  ? missingCategories.map(c => {
+      const cat = (context.available_categories || []).find(x => x.code === c)
+      return `- ${c} = ${cat?.label || c}`
+    }).join('\n')
+  : '(toutes couvertes)'}
+
+ACTIONS DE PRÉVENTION : ${actionsCount} actions dont ${risksWithActions} risques couverts par au moins une action
+
+CATÉGORIES DISPONIBLES :
+${(context.available_categories || []).map(c => `${c.code} = ${c.label}`).join('\n')}
+
+Réalise un audit de complétude. Pour chaque constat, propose des risques concrets à ajouter.
+Sois pragmatique : ne signale que les manques RÉELLEMENT pertinents pour ce secteur d'activité et cette entreprise.
+Priorise les manques les plus dangereux en premier.
+
+Réponds UNIQUEMENT avec ce JSON :
+{
+  "score_completude": <0-100>,
+  "resume": "<résumé de l'audit en 3-4 phrases>",
+  "points_forts": ["<point fort 1>", "<point fort 2>"],
+  "manques": [
+    {
+      "gravite_manque": "<critique|important|mineur>",
+      "titre": "<titre court du manque identifié>",
+      "explication": "<pourquoi c'est un manque pour cette entreprise>",
+      "unite_concernee": "<code unité existante ou 'nouvelle' ou 'toutes'>",
+      "risques_suggeres": [
+        {
+          "danger": "<titre>",
+          "category_code": "<code>",
+          "unit_code": "<code unité>",
+          "situation": "<situation>",
+          "consequences": "<conséquences>",
+          "frequence": <1-4>,
+          "gravite": <1-4>,
+          "maitrise": <0.5 ou 0.75 ou 1>,
+          "actions": [
+            {
+              "action": "<action>",
+              "type_action": "<type>",
+              "priorite": "<priorité>"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "recommandations_generales": ["<recommandation 1>", "<recommandation 2>"]
+}`
+    }
+
+    else {
+      return res.status(400).json({ error: `Mode inconnu : ${mode}. Utilisez 'risk', 'unit', 'general' ou 'audit'.` })
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -199,7 +362,7 @@ Réponds UNIQUEMENT avec ce JSON :
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-20250514',
-        max_tokens: 4000,
+        max_tokens: mode === 'audit' ? 8000 : 4000,
         system: systemPrompt,
         messages: [{ role: 'user', content: userMessage }]
       })
