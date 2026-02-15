@@ -33,6 +33,7 @@ import Quotes from './pages/Quotes'
 import Invoices from './pages/Invoices'
 import QualiteEditables from './pages/QualiteEditables'
 import Completude from './pages/Completude'
+import BPF from './pages/BPF'
 import Login from './pages/Login'
 // ========== NOUVEAU : Pages Prospection ==========
 import ProspectionTabs from './pages/ProspectionTabs'
@@ -171,6 +172,7 @@ export default function App() {
           <Route path="indicateurs" element={<Indicateurs />} />
           <Route path="profil-stagiaires" element={<ProfilStagiaires />} />
           <Route path="qualiopi" element={<Qualiopi />} />
+          <Route path="bpf" element={<BPF />} />
           <Route path="veille-qualiopi" element={<VeilleQualiopi />} />
           <Route path="audit-logs" element={<AuditLogs />} />
           <Route path="parametres" element={<Settings />} />
