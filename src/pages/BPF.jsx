@@ -296,10 +296,13 @@ export default function BPF() {
         }
       })
 
-      // Compter par CSP
+      // Compter par CSP — sur les PARTICIPATIONS (pas les stagiaires uniques)
+      // pour cohérence F-1 = F-3 = F-4 (exigence Cerfa)
       let salaries = 0, demandeurs = 0, particuliers = 0, autresSt = 0
       let hommes = 0, femmes = 0
-      uniqueTrainees.forEach(t => {
+      stList.forEach(st => {
+        const t = st.trainees
+        if (!t) return
         const csp = (t.csp || '').toLowerCase()
         if (csp.includes('salar') || csp.includes('employé') || csp.includes('cadre') || csp.includes('ouvrier') || csp === '') {
           salaries++
@@ -316,7 +319,7 @@ export default function BPF() {
 
       // Si pas de CSP renseigné, tous en salariés (cas Access Formation = intra entreprise)
       if (salaries === 0 && demandeurs === 0 && particuliers === 0 && autresSt === 0) {
-        salaries = uniqueTrainees.size
+        salaries = stList.filter(st => st.trainees).length
       }
 
       // 5. Heures stagiaires
@@ -407,13 +410,13 @@ export default function BPF() {
         e_externes_nb: externes.length,
         e_externes_heures: Math.round(heuresExternes * 10) / 10,
         f1a_salaries_nb: salaries,
-        f1a_salaries_heures: Math.round(totalHeuresStagiaires * (salaries / (uniqueTrainees.size || 1)) * 10) / 10,
+        f1a_salaries_heures: Math.round(totalHeuresStagiaires * (salaries / (totalStNb || 1)) * 10) / 10,
         f1c_demandeurs_nb: demandeurs,
-        f1c_demandeurs_heures: Math.round(totalHeuresStagiaires * (demandeurs / (uniqueTrainees.size || 1)) * 10) / 10,
+        f1c_demandeurs_heures: Math.round(totalHeuresStagiaires * (demandeurs / (totalStNb || 1)) * 10) / 10,
         f1d_particuliers_nb: particuliers,
-        f1d_particuliers_heures: Math.round(totalHeuresStagiaires * (particuliers / (uniqueTrainees.size || 1)) * 10) / 10,
+        f1d_particuliers_heures: Math.round(totalHeuresStagiaires * (particuliers / (totalStNb || 1)) * 10) / 10,
         f1e_autres_nb: autresSt,
-        f1e_autres_heures: Math.round(totalHeuresStagiaires * (autresSt / (uniqueTrainees.size || 1)) * 10) / 10,
+        f1e_autres_heures: Math.round(totalHeuresStagiaires * (autresSt / (totalStNb || 1)) * 10) / 10,
         f3d_autres_nb: totalStNb,
         f3d_autres_heures: Math.round(totalStHeures * 10) / 10,
         specialites: spec5,
@@ -423,7 +426,7 @@ export default function BPF() {
       }))
 
       const exclMsg = totalHorsFP > 0 ? ` (${excludedInvoices.length} factures hors FP exclues : ${totalHorsFP.toFixed(0)}€)` : ''
-      toast.success(`Calcul terminé : ${allSessions.length} sessions, ${uniqueTrainees.size} stagiaires, ${totalCA.toFixed(0)}€ CA FP${exclMsg}`)
+      toast.success(`Calcul terminé : ${allSessions.length} sessions, ${totalStNb} participations (${uniqueTrainees.size} stagiaires uniques), ${totalCA.toFixed(0)}€ CA FP${exclMsg}`)
     } catch (err) {
       console.error('Erreur calcul BPF:', err)
       toast.error('Erreur lors du calcul')
@@ -625,11 +628,11 @@ export default function BPF() {
           <div className="grid grid-cols-2 gap-3 p-3">
             <div>
               <label className="text-xs text-gray-500">N° de déclaration (NDA)</label>
-              <input className="input text-sm" defaultValue={form.org_nda} onBlur={(e) => updateForm('org_nda', e.target.value)} />
+              <input className="input text-sm" value={form.org_nda} onChange={(e) => updateForm('org_nda', e.target.value)} />
             </div>
             <div>
               <label className="text-xs text-gray-500">SIRET</label>
-              <input className="input text-sm" defaultValue={form.org_siret} onBlur={(e) => updateForm('org_siret', e.target.value)} />
+              <input className="input text-sm" value={form.org_siret} onChange={(e) => updateForm('org_siret', e.target.value)} />
             </div>
             <div>
               <label className="text-xs text-gray-500">Forme juridique</label>
@@ -641,11 +644,11 @@ export default function BPF() {
             </div>
             <div className="col-span-2">
               <label className="text-xs text-gray-500">Dénomination</label>
-              <input className="input text-sm" defaultValue={form.org_name} onBlur={(e) => updateForm('org_name', e.target.value)} />
+              <input className="input text-sm" value={form.org_name} onChange={(e) => updateForm('org_name', e.target.value)} />
             </div>
             <div className="col-span-2">
               <label className="text-xs text-gray-500">Adresse</label>
-              <input className="input text-sm" defaultValue={form.org_address} onBlur={(e) => updateForm('org_address', e.target.value)} />
+              <input className="input text-sm" value={form.org_address} onChange={(e) => updateForm('org_address', e.target.value)} />
             </div>
           </div>
         )}
@@ -659,11 +662,11 @@ export default function BPF() {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-xs text-gray-500">Exercice comptable du</label>
-                <input type="date" className="input text-sm" defaultValue={form.exercice_start} onBlur={(e) => updateForm('exercice_start', e.target.value)} />
+                <input type="date" className="input text-sm" value={form.exercice_start} onChange={(e) => updateForm('exercice_start', e.target.value)} />
               </div>
               <div>
                 <label className="text-xs text-gray-500">Au</label>
-                <input type="date" className="input text-sm" defaultValue={form.exercice_end} onBlur={(e) => updateForm('exercice_end', e.target.value)} />
+                <input type="date" className="input text-sm" value={form.exercice_end} onChange={(e) => updateForm('exercice_end', e.target.value)} />
               </div>
             </div>
             <label className="flex items-center gap-2">
@@ -740,13 +743,13 @@ export default function BPF() {
               <tbody className="divide-y">
                 <tr>
                   <td className="py-2">Personnes de votre organisme (internes)</td>
-                  <td className="py-2"><input type="text" inputMode="numeric" className="input text-sm text-right w-28 ml-auto block" defaultValue={form.e_internes_nb} onBlur={(e) => updateForm('e_internes_nb', parseInt(e.target.value) || 0)} /></td>
-                  <td className="py-2"><input type="text" inputMode="decimal" className="input text-sm text-right w-28 ml-auto block" defaultValue={form.e_internes_heures} onBlur={(e) => updateForm('e_internes_heures', parseFloat(e.target.value) || 0)} /></td>
+                  <td className="py-2"><input type="text" inputMode="numeric" className="input text-sm text-right w-28 ml-auto block" value={form.e_internes_nb} onChange={(e) => updateForm('e_internes_nb', parseInt(e.target.value) || 0)} /></td>
+                  <td className="py-2"><input type="text" inputMode="decimal" className="input text-sm text-right w-28 ml-auto block" value={form.e_internes_heures} onChange={(e) => updateForm('e_internes_heures', parseFloat(e.target.value) || 0)} /></td>
                 </tr>
                 <tr>
                   <td className="py-2">Personnes extérieures (sous-traitance)</td>
-                  <td className="py-2"><input type="text" inputMode="numeric" className="input text-sm text-right w-28 ml-auto block" defaultValue={form.e_externes_nb} onBlur={(e) => updateForm('e_externes_nb', parseInt(e.target.value) || 0)} /></td>
-                  <td className="py-2"><input type="text" inputMode="decimal" className="input text-sm text-right w-28 ml-auto block" defaultValue={form.e_externes_heures} onBlur={(e) => updateForm('e_externes_heures', parseFloat(e.target.value) || 0)} /></td>
+                  <td className="py-2"><input type="text" inputMode="numeric" className="input text-sm text-right w-28 ml-auto block" value={form.e_externes_nb} onChange={(e) => updateForm('e_externes_nb', parseInt(e.target.value) || 0)} /></td>
+                  <td className="py-2"><input type="text" inputMode="decimal" className="input text-sm text-right w-28 ml-auto block" value={form.e_externes_heures} onChange={(e) => updateForm('e_externes_heures', parseFloat(e.target.value) || 0)} /></td>
                 </tr>
               </tbody>
             </table>
@@ -777,8 +780,8 @@ export default function BPF() {
                 ].map(row => (
                   <tr key={row.key}>
                     <td className="py-2">{row.label}</td>
-                    <td className="py-2"><input type="text" inputMode="numeric" className="input text-sm text-right w-24 ml-auto block" defaultValue={form[row.key + '_nb']} onBlur={(e) => updateForm(row.key + '_nb', parseInt(e.target.value) || 0)} /></td>
-                    <td className="py-2"><input type="text" inputMode="decimal" className="input text-sm text-right w-28 ml-auto block" defaultValue={form[row.key + '_heures']} onBlur={(e) => updateForm(row.key + '_heures', parseFloat(e.target.value) || 0)} /></td>
+                    <td className="py-2"><input type="text" inputMode="numeric" className="input text-sm text-right w-24 ml-auto block" value={form[row.key + '_nb']} onChange={(e) => updateForm(row.key + '_nb', parseInt(e.target.value) || 0)} /></td>
+                    <td className="py-2"><input type="text" inputMode="decimal" className="input text-sm text-right w-28 ml-auto block" value={form[row.key + '_heures']} onChange={(e) => updateForm(row.key + '_heures', parseFloat(e.target.value) || 0)} /></td>
                   </tr>
                 ))}
                 <tr className="bg-blue-50 font-semibold">
@@ -799,8 +802,8 @@ export default function BPF() {
           <div className="p-3">
             <div className="flex items-center gap-4">
               <span className="text-sm flex-1">Stagiaires dont l'action a été confiée à un autre organisme (2)</span>
-              <input type="text" inputMode="numeric" className="input text-sm text-right w-24" defaultValue={form.f2_nb} onBlur={(e) => updateForm('f2_nb', parseInt(e.target.value) || 0)} />
-              <input type="text" inputMode="decimal" className="input text-sm text-right w-28" defaultValue={form.f2_heures} onBlur={(e) => updateForm('f2_heures', parseFloat(e.target.value) || 0)} />
+              <input type="text" inputMode="numeric" className="input text-sm text-right w-24" value={form.f2_nb} onChange={(e) => updateForm('f2_nb', parseInt(e.target.value) || 0)} />
+              <input type="text" inputMode="decimal" className="input text-sm text-right w-28" value={form.f2_heures} onChange={(e) => updateForm('f2_heures', parseFloat(e.target.value) || 0)} />
             </div>
           </div>
         )}
@@ -830,8 +833,8 @@ export default function BPF() {
                 ].map(row => (
                   <tr key={row.key}>
                     <td className="py-2">{row.label}</td>
-                    <td className="py-2"><input type="text" inputMode="numeric" className="input text-sm text-right w-24 ml-auto block" defaultValue={form[row.key + '_nb']} onBlur={(e) => updateForm(row.key + '_nb', parseInt(e.target.value) || 0)} /></td>
-                    <td className="py-2"><input type="text" inputMode="decimal" className="input text-sm text-right w-28 ml-auto block" defaultValue={form[row.key + '_heures']} onBlur={(e) => updateForm(row.key + '_heures', parseFloat(e.target.value) || 0)} /></td>
+                    <td className="py-2"><input type="text" inputMode="numeric" className="input text-sm text-right w-24 ml-auto block" value={form[row.key + '_nb']} onChange={(e) => updateForm(row.key + '_nb', parseInt(e.target.value) || 0)} /></td>
+                    <td className="py-2"><input type="text" inputMode="decimal" className="input text-sm text-right w-28 ml-auto block" value={form[row.key + '_heures']} onChange={(e) => updateForm(row.key + '_heures', parseFloat(e.target.value) || 0)} /></td>
                   </tr>
                 ))}
                 <tr className="bg-blue-50 font-semibold">
@@ -869,28 +872,28 @@ export default function BPF() {
                 {form.specialites.map((spec, i) => (
                   <tr key={i}>
                     <td className="py-2">
-                      <input className="input text-sm w-14" defaultValue={spec.code} onBlur={(e) => {
+                      <input className="input text-sm w-14" value={spec.code} onChange={(e) => {
                         const s = [...form.specialites]
                         s[i] = { ...s[i], code: e.target.value }
                         updateForm('specialites', s)
                       }} />
                     </td>
                     <td className="py-2">
-                      <input className="input text-sm w-full" defaultValue={spec.label} onBlur={(e) => {
+                      <input className="input text-sm w-full" value={spec.label} onChange={(e) => {
                         const s = [...form.specialites]
                         s[i] = { ...s[i], label: e.target.value }
                         updateForm('specialites', s)
                       }} />
                     </td>
                     <td className="py-2">
-                      <input type="text" inputMode="numeric" className="input text-sm text-right w-24 ml-auto block" defaultValue={spec.nb} onBlur={(e) => {
+                      <input type="text" inputMode="numeric" className="input text-sm text-right w-24 ml-auto block" value={spec.nb} onChange={(e) => {
                         const s = [...form.specialites]
                         s[i] = { ...s[i], nb: parseInt(e.target.value) || 0 }
                         updateForm('specialites', s)
                       }} />
                     </td>
                     <td className="py-2">
-                      <input type="text" inputMode="decimal" className="input text-sm text-right w-28 ml-auto block" defaultValue={spec.heures} onBlur={(e) => {
+                      <input type="text" inputMode="decimal" className="input text-sm text-right w-28 ml-auto block" value={spec.heures} onChange={(e) => {
                         const s = [...form.specialites]
                         s[i] = { ...s[i], heures: parseFloat(e.target.value) || 0 }
                         updateForm('specialites', s)
@@ -900,8 +903,8 @@ export default function BPF() {
                 ))}
                 <tr>
                   <td colSpan={2} className="py-2 text-sm">Autres spécialités</td>
-                  <td className="py-2"><input type="text" inputMode="numeric" className="input text-sm text-right w-24 ml-auto block" defaultValue={form.specialites_autres_nb} onBlur={(e) => updateForm('specialites_autres_nb', parseInt(e.target.value) || 0)} /></td>
-                  <td className="py-2"><input type="text" inputMode="decimal" className="input text-sm text-right w-28 ml-auto block" defaultValue={form.specialites_autres_heures} onBlur={(e) => updateForm('specialites_autres_heures', parseFloat(e.target.value) || 0)} /></td>
+                  <td className="py-2"><input type="text" inputMode="numeric" className="input text-sm text-right w-24 ml-auto block" value={form.specialites_autres_nb} onChange={(e) => updateForm('specialites_autres_nb', parseInt(e.target.value) || 0)} /></td>
+                  <td className="py-2"><input type="text" inputMode="decimal" className="input text-sm text-right w-28 ml-auto block" value={form.specialites_autres_heures} onChange={(e) => updateForm('specialites_autres_heures', parseFloat(e.target.value) || 0)} /></td>
                 </tr>
                 <tr className="bg-blue-50 font-semibold">
                   <td colSpan={2} className="py-2">TOTAL (4)</td>
@@ -921,8 +924,8 @@ export default function BPF() {
           <div className="p-3">
             <div className="flex items-center gap-4">
               <span className="text-sm flex-1">Formations confiées par un autre OF (5)</span>
-              <input type="text" inputMode="numeric" className="input text-sm text-right w-24" defaultValue={form.g_nb} onBlur={(e) => updateForm('g_nb', parseInt(e.target.value) || 0)} />
-              <input type="text" inputMode="decimal" className="input text-sm text-right w-28" defaultValue={form.g_heures} onBlur={(e) => updateForm('g_heures', parseFloat(e.target.value) || 0)} />
+              <input type="text" inputMode="numeric" className="input text-sm text-right w-24" value={form.g_nb} onChange={(e) => updateForm('g_nb', parseInt(e.target.value) || 0)} />
+              <input type="text" inputMode="decimal" className="input text-sm text-right w-28" value={form.g_heures} onChange={(e) => updateForm('g_heures', parseFloat(e.target.value) || 0)} />
             </div>
           </div>
         )}
@@ -935,23 +938,23 @@ export default function BPF() {
           <div className="grid grid-cols-2 gap-3 p-3">
             <div>
               <label className="text-xs text-gray-500">Nom et prénom</label>
-              <input className="input text-sm" defaultValue={form.h_dirigeant} onBlur={(e) => updateForm('h_dirigeant', e.target.value)} />
+              <input className="input text-sm" value={form.h_dirigeant} onChange={(e) => updateForm('h_dirigeant', e.target.value)} />
             </div>
             <div>
               <label className="text-xs text-gray-500">Qualité</label>
-              <input className="input text-sm" defaultValue={form.h_qualite} onBlur={(e) => updateForm('h_qualite', e.target.value)} />
+              <input className="input text-sm" value={form.h_qualite} onChange={(e) => updateForm('h_qualite', e.target.value)} />
             </div>
             <div>
               <label className="text-xs text-gray-500">Email</label>
-              <input className="input text-sm" defaultValue={form.h_email} onBlur={(e) => updateForm('h_email', e.target.value)} />
+              <input className="input text-sm" value={form.h_email} onChange={(e) => updateForm('h_email', e.target.value)} />
             </div>
             <div>
               <label className="text-xs text-gray-500">Téléphone</label>
-              <input className="input text-sm" defaultValue={form.h_phone} onBlur={(e) => updateForm('h_phone', e.target.value)} />
+              <input className="input text-sm" value={form.h_phone} onChange={(e) => updateForm('h_phone', e.target.value)} />
             </div>
             <div>
               <label className="text-xs text-gray-500">Lieu de signature</label>
-              <input className="input text-sm" defaultValue={form.h_lieu} onBlur={(e) => updateForm('h_lieu', e.target.value)} />
+              <input className="input text-sm" value={form.h_lieu} onChange={(e) => updateForm('h_lieu', e.target.value)} />
             </div>
           </div>
         )}
