@@ -50,6 +50,16 @@ const navSections = [
     ],
   },
   {
+    id: 'prestations',
+    label: 'Prestations',
+    emoji: '🛡️',
+    activeClass: 'bg-amber-500 text-white font-semibold shadow-md',
+    headerActiveClass: 'text-amber-400',
+    items: [
+      { to: '/duerp', icon: Shield, label: 'DUERP' },
+    ],
+  },
+  {
     id: 'qualite',
     label: 'Qualité',
     emoji: '✅',
