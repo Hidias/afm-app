@@ -1,16 +1,15 @@
 // src/lib/duerpExport.js
 // Export DUERP — PDF & Excel Premium
-// Access Formation — v5 : formations catalogue + texte agrandi + formation dans plan d'action
+// Access Formation — v5.1 : formations catalogue + texte agrandi + formation dans plan d'action
 //
-// CORRECTIFS v5 :
-// - Catalogue formations Access Formation dans synthèse (matching dynamique + complet)
-// - Texte général agrandi (~10pt au lieu de 8.5pt) pour lisibilité
-// - Colonne "Formation AF" dans le plan d'action (section 4)
-// - Filigrane diagonal + bandeau sur chaque page
-// - Risques orphelins (sans unit_id) affichés dans l'inventaire
-// - Dédoublonnage top 10 risques synthèse
-// - Harmonisation description Fréquence 4
-// - Disclaimer renforcé
+// CORRECTIFS v5.1 :
+// - Filigrane diagonal corrige (centré, 2 lignes, plus visible)
+// - Disclaimer couverture agrandi (7.5pt bold rouge)
+// - Bandeau rouge agrandi (9mm, 7pt bold)
+// - Catalogue formations : matchKeys affinés (R489/R485 ne matchent plus 'conduite')
+// - Plan d'action : matchFormation explicite + normalisation accents
+// - Fix "Gnull" quand gravite est null
+// - Normalisation accents dans isFormationRelevant et matchFormation
 
 import jsPDF from 'jspdf'
 import 'jspdf-autotable'
@@ -74,20 +73,25 @@ const ACCESS_FORMATIONS = [
   { code: 'SST-FI', label: 'Sauveteur Secouriste du Travail (SST Initial)', ref: 'PROG-FI SST', duree: '14h (2 jours)', validite: '2 ans', reglementation: 'Art. R4224-15', matchKeys: ['*'], description: 'Obligation : au moins 1 SST par atelier' },
   { code: 'MAC-SST', label: 'MAC SST (Maintien & Actualisation)', ref: 'PROG-MAC SST', duree: '7h (1 jour)', validite: '2 ans', reglementation: 'Art. R4224-15', matchKeys: ['*'], description: 'Recyclage obligatoire tous les 2 ans' },
   { code: 'IGPS', label: 'Initiation Gestes de Premiers Secours', ref: 'PROG-IGPS', duree: '4h', validite: '1 an', reglementation: 'Art. R4224-15', matchKeys: ['*'], description: 'Sensibilisation premiers secours' },
-  { code: 'G&P', label: 'Gestes et Postures', ref: 'PROG-G&P', duree: '4h', validite: '1 an', reglementation: 'Art. R4541-8', matchKeys: ['tms', 'manutention', 'physique', 'posture', 'ergonomie', 'chute', 'port_charge'], description: 'Reduction TMS, postures adaptees' },
-  { code: 'EXT', label: 'Manipulation d\'Extincteurs', ref: 'PROG-EXT', duree: '2h', validite: '1 an', reglementation: 'Art. R4227-39', matchKeys: ['incendie', 'feu', 'thermique'], description: 'Reagir face a un depart de feu' },
-  { code: 'EPI', label: 'Equipier de Premiere Intervention (EPI)', ref: 'PROG-EPI', duree: '4h', validite: '1 an', reglementation: 'Art. R4227-39', matchKeys: ['incendie', 'feu', 'thermique', 'evacuation'], description: 'Extinction + evacuation coordonnee' },
-  { code: 'R489', label: 'Formation Interne R489 Cat 1B/3/5 (Chariots)', ref: 'PROG-R489', duree: '7h / categorie', validite: '5 ans', reglementation: 'Art. R4323-55', matchKeys: ['conduite', 'engin', 'chariot', 'mecanique', 'collision', 'renversement'], description: 'Autorisation de conduite chariots' },
-  { code: 'R485', label: 'Formation Interne R485 Cat 1/2 (Gerbeurs)', ref: 'PROG-R485', duree: '7h', validite: '5 ans', reglementation: 'Art. R4323-55', matchKeys: ['conduite', 'engin', 'gerbeur', 'mecanique', 'collision', 'renversement'], description: 'Autorisation de conduite gerbeurs' },
-  { code: 'ELEC', label: 'Habilitation Electrique B0-H0-H0V', ref: 'PROG-FI B0H0V', duree: '7h (1 jour)', validite: '3 ans', reglementation: 'NF C18-510', matchKeys: ['electrique', 'electricite', 'electrocution', 'electrisation'], description: 'Operations non electriques en zone a risque' },
+  { code: 'G&P', label: 'Gestes et Postures', ref: 'PROG-G&P', duree: '4h', validite: '1 an', reglementation: 'Art. R4541-8', matchKeys: ['tms', 'manutention', 'physique', 'posture', 'ergonomie', 'port_charge', 'port de charge', 'contrainte', 'fauteuil roulant', 'lourde'], description: 'Reduction TMS, postures adaptees' },
+  { code: 'EXT', label: 'Manipulation d\'Extincteurs', ref: 'PROG-EXT', duree: '2h', validite: '1 an', reglementation: 'Art. R4227-39', matchKeys: ['incendie', 'feu', 'depart de feu', 'combustible', 'inflammab', 'extincteur'], description: 'Reagir face a un depart de feu' },
+  { code: 'EPI', label: 'Equipier de Premiere Intervention (EPI)', ref: 'PROG-EPI', duree: '4h', validite: '1 an', reglementation: 'Art. R4227-39', matchKeys: ['incendie', 'feu', 'depart de feu', 'evacuation', 'combustible', 'inflammab'], description: 'Extinction + evacuation coordonnee' },
+  { code: 'R489', label: 'Formation Interne R489 Cat 1B/3/5 (Chariots)', ref: 'PROG-R489', duree: '7h / categorie', validite: '5 ans', reglementation: 'Art. R4323-55', matchKeys: ['chariot', 'cariste', 'gerbage', 'degerbage', 'fourche', 'palette', 'gerbeur_chariot', 'transpalette_electrique', 'r489'], description: 'Autorisation de conduite chariots' },
+  { code: 'R485', label: 'Formation Interne R485 Cat 1/2 (Gerbeurs)', ref: 'PROG-R485', duree: '7h', validite: '5 ans', reglementation: 'Art. R4323-55', matchKeys: ['gerbeur', 'gerbage', 'degerbage', 'palette', 'transpalette', 'r485'], description: 'Autorisation de conduite gerbeurs' },
+  { code: 'ELEC', label: 'Habilitation Electrique B0-H0-H0V', ref: 'PROG-FI B0H0V', duree: '7h (1 jour)', validite: '3 ans', reglementation: 'NF C18-510', matchKeys: ['electrique', 'electrocution', 'electrisation', 'multiprise', 'armoire electrique', 'habilitation'], description: 'Operations non electriques en zone a risque' },
 ]
+
+// Helper : normalise accents
+function normTxt(s) { return (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase() }
 
 // Helper : determine si une formation est pertinente pour les risques detectes
 function isFormationRelevant(formation, risks, categories) {
   if (formation.matchKeys.includes('*')) return true
-  const allCodes = risks.map(r => (r.category_code || '').toLowerCase())
-  const allDangers = risks.map(r => (r.danger || '').toLowerCase())
-  const allText = [...allCodes, ...allDangers].join(' ')
+  const allCodes = risks.map(r => normTxt(r.category_code))
+  const allDangers = risks.map(r => normTxt(r.danger))
+  const allSituations = risks.map(r => normTxt(r.situation))
+  const allCatNames = (categories || []).map(c => normTxt(c.name))
+  const allText = [...allCodes, ...allDangers, ...allSituations, ...allCatNames].join(' ')
   return formation.matchKeys.some(k => allText.includes(k))
 }
 
@@ -100,7 +104,7 @@ export function generateDuerpPDF({ project, units, risks, actions, categories })
   const ph = doc.internal.pageSize.getHeight()
   const ml = 14, mr = 14, cw = pw - ml - mr
   const bannerH = 7
-  const footerY = ph - 12, safeY = ph - 30 // ← agrandi pour laisser place au bandeau
+  const footerY = ph - 12, safeY = ph - 34 // ← agrandi pour bandeau 9mm + marge
   let pageNum = 0
   const evaluated = risks.filter(r => r.frequence && r.gravite).length
   const scored = risks.map(r => ({ ...r, _score: riskScore(r) }))
@@ -112,23 +116,32 @@ export function generateDuerpPDF({ project, units, risks, actions, categories })
 
   // ── FILIGRANE : diagonal + bandeau ──
   const addWatermark = () => {
-    // 1) Texte diagonal 15% opacité
+    // 1) Texte diagonal centré - opacité renforcée
     doc.saveGraphicsState()
-    doc.setGState(new doc.GState({ opacity: 0.15 }))
-    doc.setFontSize(44)
-    doc.setTextColor(120, 120, 120)
-    doc.text(WATERMARK_TEXT, pw / 2, ph / 2, { angle: 45, align: 'center' })
+    doc.setGState(new doc.GState({ opacity: 0.18 }))
+    doc.setTextColor(100, 100, 100)
+    doc.setFont(undefined, 'bold')
+    // Ligne 1 : DOCUMENT D'APPUI — positionnement manuel car align+angle buggé dans jsPDF
+    doc.setFontSize(52)
+    doc.text("DOCUMENT D'APPUI", pw / 2, ph / 2 - 6, { angle: 45 })
+    // Ligne 2 : SANS VALEUR JURIDIQUE
+    doc.setFontSize(38)
+    doc.text("SANS VALEUR JURIDIQUE", pw / 2 - 2, ph / 2 + 14, { angle: 45 })
+    doc.setFont(undefined, 'normal')
     doc.restoreGraphicsState()
 
-    // 2) Bandeau rouge en bas (au-dessus du footer)
-    const bannerY = footerY - bannerH - 2
+    // 2) Bandeau rouge en bas (au-dessus du footer) — 9mm, 7pt bold
+    const bH2 = 9
+    const bannerY = footerY - bH2 - 2
     doc.saveGraphicsState()
-    doc.setGState(new doc.GState({ opacity: 0.9 }))
+    doc.setGState(new doc.GState({ opacity: 0.92 }))
     doc.setFillColor(160, 30, 30)
-    doc.rect(0, bannerY, pw, bannerH, 'F')
-    doc.setFontSize(5.5)
+    doc.rect(0, bannerY, pw, bH2, 'F')
+    doc.setFontSize(7)
     doc.setTextColor(255, 255, 255)
-    doc.text(BANNER_TEXT, pw / 2, bannerY + 4.5, { align: 'center' })
+    doc.setFont(undefined, 'bold')
+    doc.text(BANNER_TEXT, pw / 2, bannerY + 5.5, { align: 'center' })
+    doc.setFont(undefined, 'normal')
     doc.restoreGraphicsState()
   }
 
@@ -214,8 +227,9 @@ export function generateDuerpPDF({ project, units, risks, actions, categories })
     doc.setFontSize(7); doc.setFont(undefined, 'normal'); doc.setTextColor(...C.gray)
     doc.text(s[1], 25 + sw * i + sw / 2, y + 18, { align: 'center' })
   })
-  y = ph - 40; doc.setFontSize(5.5); doc.setFont(undefined, 'italic'); doc.setTextColor(...C.red)
-  doc.text(doc.splitTextToSize(DISCLAIMER_SHORT, pw - 40), 20, y)
+  y = ph - 48; doc.setFontSize(7.5); doc.setFont(undefined, 'bold'); doc.setTextColor(...C.red)
+  doc.text(doc.splitTextToSize(DISCLAIMER_SHORT, pw - 36), 18, y)
+  doc.setFont(undefined, 'normal')
   addFooter()
   addWatermark()
 
@@ -305,7 +319,7 @@ export function generateDuerpPDF({ project, units, risks, actions, categories })
       doc.text(`${i + 1}`, ml + 5, y + 3, { align: 'center' })
       doc.setFontSize(10); doc.text((r.danger || '').substring(0, 70), ml + 12, y + 3)
       doc.setFont(undefined, 'normal'); doc.setFontSize(8.5); doc.setTextColor(...C.gray)
-      doc.text(`${unit?.name || 'Non rattache'} -- Score ${r._score} (${lvl.label}) -- F${r.frequence}xG${r.gravite}xM${r.maitrise}`, ml + 12, y + 8)
+      doc.text(`${unit?.name || 'Non rattache'} -- Score ${r._score} (${lvl.label}) -- F${r.frequence || '?'}xG${r.gravite || '?'}xM${r.maitrise || '?'}`, ml + 12, y + 8)
       if (r.situation) {
         doc.setTextColor(80, 80, 80); const sl = doc.splitTextToSize(r.situation, cw - 18).slice(0, 2)
         sl.forEach((l, li) => { const ly = y + 12 + li * 3.5; if (ly < safeY) doc.text(l, ml + 12, ly) }); y += sl.length * 3.5
@@ -439,7 +453,7 @@ export function generateDuerpPDF({ project, units, risks, actions, categories })
     if (u.effectif) { doc.setFont(undefined, 'normal'); doc.setFontSize(8); doc.text(`${u.effectif} pers.`, pw - mr - 4, y + 2.5, { align: 'right' }) }
     y += 10
     if (ur.length === 0) { doc.setFontSize(8); doc.setFont(undefined, 'italic'); doc.setTextColor(...C.gray); doc.text('Aucun risque.', ml + 4, y); y += 8; return }
-    const tb = ur.map(r => { const cat = categories.find(c => c.code === r.category_code); const sc = riskScore(r); const lv = sc > 0 ? riskLevel(sc) : null; return [cat?.label || r.category_code || '--', r.danger || '--', r.situation || '--', r.frequence ? `F${r.frequence} G${r.gravite}` : '--', r.maitrise != null ? `x${r.maitrise}` : '--', sc > 0 ? `${sc}` : '--', sc > 0 ? lv.label : 'Non eval.', r.prevention_existante || '--'] })
+    const tb = ur.map(r => { const cat = categories.find(c => c.code === r.category_code); const sc = riskScore(r); const lv = sc > 0 ? riskLevel(sc) : null; return [cat?.label || r.category_code || '--', r.danger || '--', r.situation || '--', (r.frequence && r.gravite) ? `F${r.frequence} G${r.gravite}` : '--', r.maitrise != null ? `x${r.maitrise}` : '--', sc > 0 ? `${sc}` : '--', sc > 0 ? lv.label : 'Non eval.', r.prevention_existante || '--'] })
     doc.autoTable({ startY: y, head: [['Cat.', 'Danger', 'Situation', 'FxG', 'M.', 'Score', 'Niveau', 'Prevention']], body: tb, theme: 'grid', styles: { fontSize: 8, cellPadding: 2.5, overflow: 'linebreak', lineWidth: 0.1 }, headStyles: { fillColor: C.amber, textColor: C.black, fontStyle: 'bold', fontSize: 8 }, columnStyles: { 0: { cellWidth: 20 }, 1: { cellWidth: 26 }, 2: { cellWidth: 38 }, 3: { cellWidth: 13, halign: 'center' }, 4: { cellWidth: 9, halign: 'center' }, 5: { cellWidth: 10, halign: 'center', fontStyle: 'bold' }, 6: { cellWidth: 16, halign: 'center' }, 7: { cellWidth: 42 } }, margin: { left: ml, right: mr, bottom: 30 }, didParseCell: (d) => { if (d.section === 'body' && d.column.index === 6) { const k = { Critique: 'critique', Eleve: 'eleve', Moyen: 'moyen', Faible: 'faible' }[d.cell.raw]; if (k) { d.cell.styles.fillColor = LVL[k].bg; d.cell.styles.textColor = LVL[k].text; d.cell.styles.fontStyle = 'bold' } } }, didDrawPage: autoTablePageHook })
     y = doc.lastAutoTable.finalY + 10
   })
@@ -453,7 +467,7 @@ export function generateDuerpPDF({ project, units, risks, actions, categories })
     doc.setFont(undefined, 'normal'); doc.setFontSize(8)
     doc.text(`${orphanRisks.length} risque(s)`, pw - mr - 4, y + 2.5, { align: 'right' })
     y += 10
-    const tbOrphan = orphanRisks.map(r => { const cat = categories.find(c => c.code === r.category_code); const sc = r._score; const lv = sc > 0 ? riskLevel(sc) : null; return [cat?.label || r.category_code || '--', r.danger || '--', r.situation || '--', r.frequence ? `F${r.frequence} G${r.gravite}` : '--', r.maitrise != null ? `x${r.maitrise}` : '--', sc > 0 ? `${sc}` : '--', sc > 0 ? lv.label : 'Non eval.', r.prevention_existante || '--'] })
+    const tbOrphan = orphanRisks.map(r => { const cat = categories.find(c => c.code === r.category_code); const sc = r._score; const lv = sc > 0 ? riskLevel(sc) : null; return [cat?.label || r.category_code || '--', r.danger || '--', r.situation || '--', (r.frequence && r.gravite) ? `F${r.frequence} G${r.gravite}` : '--', r.maitrise != null ? `x${r.maitrise}` : '--', sc > 0 ? `${sc}` : '--', sc > 0 ? lv.label : 'Non eval.', r.prevention_existante || '--'] })
     doc.autoTable({ startY: y, head: [['Cat.', 'Danger', 'Situation', 'FxG', 'M.', 'Score', 'Niveau', 'Prevention']], body: tbOrphan, theme: 'grid', styles: { fontSize: 8, cellPadding: 2, overflow: 'linebreak', lineWidth: 0.1 }, headStyles: { fillColor: [161, 98, 7], textColor: C.white, fontStyle: 'bold', fontSize: 8 }, columnStyles: { 0: { cellWidth: 20 }, 1: { cellWidth: 26 }, 2: { cellWidth: 38 }, 3: { cellWidth: 13, halign: 'center' }, 4: { cellWidth: 9, halign: 'center' }, 5: { cellWidth: 10, halign: 'center', fontStyle: 'bold' }, 6: { cellWidth: 16, halign: 'center' }, 7: { cellWidth: 42 } }, margin: { left: ml, right: mr, bottom: 30 }, didParseCell: (d) => { if (d.section === 'body' && d.column.index === 6) { const k = { Critique: 'critique', Eleve: 'eleve', Moyen: 'moyen', Faible: 'faible' }[d.cell.raw]; if (k) { d.cell.styles.fillColor = LVL[k].bg; d.cell.styles.textColor = LVL[k].text; d.cell.styles.fontStyle = 'bold' } } }, didDrawPage: autoTablePageHook })
     y = doc.lastAutoTable.finalY + 10
   }
@@ -463,11 +477,22 @@ export function generateDuerpPDF({ project, units, risks, actions, categories })
   if (actions.length === 0) { y = para(y, 'Aucune action definie.', { italic: true, color: C.gray }) }
   else {
     // v5 : ajout colonne formation liée
+    const norm = (s) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
     const matchFormation = (action) => {
       if (action.type_action !== 'formation') return ''
-      const txt = (action.action || '').toLowerCase()
-      const found = ACCESS_FORMATIONS.find(f => f.matchKeys.some(k => k !== '*' && txt.includes(k)) || txt.includes(f.code.toLowerCase()))
-      return found ? found.ref : ''
+      const txt = norm(action.action || '')
+      // Explicit matching rules - order matters (most specific first)
+      if (txt.includes('gestes et postures') || txt.includes('geste et posture') || txt.includes('transfert')) return 'PROG-G&P'
+      if (txt.includes('extincteur') || txt.includes('incendie') || txt.includes('evacuation')) return 'PROG-EXT'
+      if (txt.includes('epi') && txt.includes('quipier')) return 'PROG-EPI'
+      if (txt.includes('habilitation') && txt.includes('lectr')) return 'PROG-FI B0H0V'
+      if (txt.includes('chariot') || txt.includes('cariste') || txt.includes('r489')) return 'PROG-R489'
+      if (txt.includes('gerbeur') || txt.includes('r485')) return 'PROG-R485'
+      if (txt.includes('sst') || txt.includes('secouris')) return 'PROG-FI SST'
+      if (txt.includes('premiers secours')) return 'PROG-IGPS'
+      if (txt.includes('ergonomie') || txt.includes('posture') || txt.includes('poste de travail')) return 'PROG-G&P'
+      if (txt.includes('electrique') || txt.includes('risque electrique')) return 'PROG-FI B0H0V'
+      return ''
     }
     const ab = sortedAct.map(a => { const r = risks.find(r => r.id === a.risk_id); return [PRIO[a.priorite] || '--', a.action || '--', TYPE_A[a.type_action] || a.type_action || '--', a.responsable || '--', fmtDate(a.echeance), STAT[a.statut] || '--', matchFormation(a), (r?.danger || '').substring(0, 30) || '--'] })
     doc.autoTable({ startY: y, head: [['Priorite', 'Action', 'Type', 'Responsable', 'Echeance', 'Statut', 'Formation AF', 'Risque lie']], body: ab, theme: 'grid', styles: { fontSize: 8, cellPadding: 2.5, overflow: 'linebreak', lineWidth: 0.1 }, headStyles: { fillColor: C.teal, textColor: C.white, fontStyle: 'bold', fontSize: 8 }, columnStyles: { 0: { cellWidth: 16, halign: 'center' }, 1: { cellWidth: 38 }, 2: { cellWidth: 16 }, 3: { cellWidth: 20 }, 4: { cellWidth: 16, halign: 'center' }, 5: { cellWidth: 14, halign: 'center' }, 6: { cellWidth: 22, halign: 'center' }, 7: { cellWidth: 30 } }, margin: { left: ml, right: mr, bottom: 30 }, didParseCell: (d) => { if (d.section === 'body' && d.column.index === 0) { if (d.cell.raw === 'CRITIQUE') { d.cell.styles.fillColor = LVL.critique.bg; d.cell.styles.textColor = LVL.critique.text; d.cell.styles.fontStyle = 'bold' } else if (d.cell.raw === 'Haute') { d.cell.styles.fillColor = LVL.eleve.bg; d.cell.styles.textColor = LVL.eleve.text } } if (d.section === 'body' && d.column.index === 5 && d.cell.raw === 'Fait') { d.cell.styles.fillColor = LVL.faible.bg; d.cell.styles.textColor = LVL.faible.text } if (d.section === 'body' && d.column.index === 6 && d.cell.raw) { d.cell.styles.textColor = C.teal; d.cell.styles.fontStyle = 'bold' } }, didDrawPage: autoTablePageHook })
