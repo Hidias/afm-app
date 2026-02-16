@@ -1432,8 +1432,9 @@ export default function MarinePhoning() {
               )}
 
               {/* ═══ ALERTE GROUPE SIREN CONTACTÉ ═══ */}
-              {duplicates.some(d => d.contacted && ['rdv_pris','a_rappeler'].includes(d.prospection_status)) && (() => {
-                const hot = duplicates.filter(d => d.contacted && ['rdv_pris','a_rappeler'].includes(d.prospection_status) && !d.gere_par_id)
+              {(() => {
+                const sirenOnly = duplicates.filter(d => d.reason?.includes('SIREN'))
+                const hot = sirenOnly.filter(d => d.contacted && ['rdv_pris','a_rappeler'].includes(d.prospection_status) && !d.gere_par_id)
                 if (hot.length === 0) return null
                 const statusIcons = { rdv_pris: '✅ RDV pris', a_rappeler: '🔄 À rappeler' }
                 return (
@@ -1449,8 +1450,11 @@ export default function MarinePhoning() {
                   </div>
                 )
               })()}
-              {duplicates.some(d => d.contacted && d.prospection_status === 'pas_interesse') && !duplicates.some(d => d.contacted && ['rdv_pris','a_rappeler'].includes(d.prospection_status)) && (() => {
-                const cold = duplicates.filter(d => d.contacted && d.prospection_status === 'pas_interesse')
+              {(() => {
+                const sirenOnly = duplicates.filter(d => d.reason?.includes('SIREN'))
+                const cold = sirenOnly.filter(d => d.contacted && d.prospection_status === 'pas_interesse')
+                const hot = sirenOnly.filter(d => d.contacted && ['rdv_pris','a_rappeler'].includes(d.prospection_status))
+                if (cold.length === 0 || hot.length > 0) return null
                 return (
                   <div className="bg-red-50 border border-red-300 rounded-lg px-3 py-2">
                     <p className="text-xs text-red-700">
