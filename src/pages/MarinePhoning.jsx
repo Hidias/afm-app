@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuthStore } from '../lib/store'
 import { 
@@ -186,6 +186,9 @@ export default function MarinePhoning() {
   const [departementFilter, setDepartementFilter] = useState('')
   const [viewMode, setViewMode] = useState('list')
   const [searchTerm, setSearchTerm] = useState('')
+  const [searchResults, setSearchResults] = useState(null) // null = pas de recherche serveur
+  const [isServerSearching, setIsServerSearching] = useState(false)
+  const searchTimerRef = useRef(null)
   const [totalCount, setTotalCount] = useState(0)
   const [contactName, setContactName] = useState('')
   const [contactFunction, setContactFunction] = useState('Dirigeant')
@@ -259,6 +262,27 @@ export default function MarinePhoning() {
   useEffect(() => {
     if (listRef.current) listRef.current.scrollTop = 0
   }, [statusFilter, departementFilter, effectifFilter, formeFilter, searchTerm])
+
+  // Recherche serveur débounced — affiche TOUS les établissements
+  useEffect(() => {
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
+    if (!searchTerm || searchTerm.trim().length < 2) {
+      setSearchResults(null)
+      setIsServerSearching(false)
+      return
+    }
+    setIsServerSearching(true)
+    searchTimerRef.current = setTimeout(async () => {
+      try {
+        const { data, error } = await supabase.rpc('get_unique_prospects', { p_search: searchTerm.trim() })
+        if (!error && data) {
+          setSearchResults(data)
+        }
+      } catch (e) { console.error('Recherche serveur:', e) }
+      setIsServerSearching(false)
+    }, 400)
+    return () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current) }
+  }, [searchTerm])
 
   async function loadProspects() {
     setLoading(true)
@@ -990,6 +1014,18 @@ export default function MarinePhoning() {
 
   const filtered = useMemo(() => {
     const base = BASES[mapBase]
+
+    // Si recherche serveur active → utiliser les résultats serveur (tous établissements)
+    if (searchResults !== null && searchTerm && searchTerm.trim().length >= 2) {
+      let list = searchResults.map(p => {
+        const dist = (p.latitude && p.longitude) ? distanceKm(base.lat, base.lng, p.latitude, p.longitude) : 9999
+        return { ...p, distance: dist }
+      })
+      if (mapRadius > 0) list = list.filter(p => p.distance <= mapRadius)
+      return list
+    }
+
+    // Sinon → filtrage client classique (liste dédupliquée)
     let list = prospects.filter(p => {
       if (statusFilter === 'a_appeler' && p.prospection_status && p.prospection_status !== 'a_appeler') return false
       if (statusFilter === 'rappels' && !(p.siren && todayCallbackSirens.has(p.siren))) return false
@@ -1035,7 +1071,7 @@ export default function MarinePhoning() {
       return a.distance - b.distance
     })
     return list
-  }, [prospects, statusFilter, departementFilter, effectifFilter, formeFilter, searchTerm, todayCallbackSirens, callbackDetails, mapBase, mapRadius])
+  }, [prospects, statusFilter, departementFilter, effectifFilter, formeFilter, searchTerm, searchResults, todayCallbackSirens, callbackDetails, mapBase, mapRadius])
 
   // En mode file, sélectionner le premier prospect du filtre actif
   useEffect(() => {
@@ -1127,7 +1163,7 @@ export default function MarinePhoning() {
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">📞 Phoning</h1>
-          <p className="text-gray-500 text-sm">{filtered.length} sur {prospects.length}</p>
+          <p className="text-gray-500 text-sm">{searchResults ? `${filtered.length} établissement(s) trouvé(s)` : `${filtered.length} sur ${prospects.length}`}</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           {/* Stats du jour */}
@@ -1169,7 +1205,9 @@ export default function MarinePhoning() {
       <div className="flex gap-2">
         <div className="relative flex-1">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input type="text" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Rechercher..." className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent text-sm" />
+          <input type="text" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Rechercher nom, ville, SIRET..." className="w-full pl-10 pr-10 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent text-sm" />
+          {isServerSearching && <Loader2 className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-primary-500 animate-spin" />}
+          {searchResults && !isServerSearching && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-purple-600 font-medium">tous étab.</span>}
         </div>
         <select value={mapBase} onChange={e => setMapBase(e.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm">
           {Object.entries(BASES).map(([k, v]) => <option key={k} value={k}>📍 {v.name}</option>)}
@@ -1223,6 +1261,14 @@ export default function MarinePhoning() {
                   <span>{p.city}</span>
                   {p.distance < 9999 && <span className="text-gray-400">{p.distance.toFixed(0)} km</span>}
                   {getEffectifLabel(p.effectif) && <span>{getEffectifLabel(p.effectif)}</span>}
+                  {searchResults && p.siren && (() => {
+                    const siblings = filtered.filter(s => s.siren === p.siren && s.id !== p.id)
+                    if (siblings.length === 0) return null
+                    const contacted = siblings.filter(s => s.contacted)
+                    return <span className={`text-[10px] px-1.5 py-0.5 rounded ${contacted.length > 0 ? 'bg-amber-100 text-amber-700' : 'bg-purple-50 text-purple-600'}`}>
+                      {siblings.length} autre(s) agence(s){contacted.length > 0 ? ` · ${contacted.length} contactée(s)` : ''}
+                    </span>
+                  })()}
                 </div>
               </div>
               <div className="flex items-center gap-3 ml-3">
