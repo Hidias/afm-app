@@ -12,6 +12,7 @@ import toast from 'react-hot-toast'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import { generateDuerpPDF, generateDuerpExcel } from '../lib/duerpExport'
+import DuerpConformiteTab from '../components/DuerpConformiteTab'
 
 // ═══════════════════════════════════════════════════════════
 // CONSTANTES — alignées sur le schéma SQL déployé
@@ -957,6 +958,7 @@ export default function DuerpDetail() {
             { id: 'units',    label: '🏢 Unités',     count: units.length },
             { id: 'risks',    label: '⚠️ Risques',    count: risks.length },
             { id: 'actions',  label: '🎯 Actions',    count: actions.length },
+            { id: 'conformite', label: '🛡️ Conformité' },
             { id: 'synthese', label: '📊 Synthèse' },
           ].map(tab => (
             <button key={tab.id} onClick={() => setActiveTab(tab.id)}
@@ -1892,6 +1894,15 @@ export default function DuerpDetail() {
       {/* ════════════════════════════════════════════════════════════════ */}
       {/* ONGLET 4 : SYNTHÈSE                                            */}
       {/* ════════════════════════════════════════════════════════════════ */}
+      {activeTab === 'conformite' && (
+        <DuerpConformiteTab
+          projectId={id}
+          project={project}
+          risks={risks}
+          units={units}
+        />
+      )}
+
       {activeTab === 'synthese' && (
         <div className="space-y-6">
           {/* KPIs */}
