@@ -286,7 +286,7 @@ export default function DuerpProjects() {
         const { data: templates } = await supabase
           .from('duerp_risk_templates')
           .select('*')
-          .in('category_code', riskCodes)
+          .in('category_code', allRiskCodes)
           .order('sort_order')
         
         if (templates?.length) {
