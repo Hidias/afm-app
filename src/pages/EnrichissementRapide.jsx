@@ -236,13 +236,7 @@ export default function EnrichissementRapide() {
       }
       const { data, error } = await query
       if (error) throw error
-      const seen = new Set()
-      const unique = (data || []).filter(p => {
-        if (seen.has(p.siren)) return false
-        seen.add(p.siren)
-        return true
-      })
-      setSearchResults(unique)
+      setSearchResults(data || [])
     } catch (err) {
       console.error('Erreur recherche:', err)
     } finally {
@@ -811,6 +805,10 @@ export default function EnrichissementRapide() {
                     <div className="flex items-center justify-between">
                       <span className="font-medium text-gray-900 text-sm">{p.name}</span>
                       <span className="flex items-center gap-2 text-xs">
+                        {(() => {
+                          const siblings = searchResults.filter(s => s.siren === p.siren && s.id !== p.id).length
+                          return siblings > 0 ? <span className="text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded">{siblings + 1} agences</span> : null
+                        })()}
                         {p.enrichment_status === 'done' && <span className="text-green-600 bg-green-50 px-1.5 py-0.5 rounded">✓ Enrichi</span>}
                         {p.enrichment_status === 'failed' && <span className="text-red-600 bg-red-50 px-1.5 py-0.5 rounded">✗ Exclu</span>}
                       </span>
