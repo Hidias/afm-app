@@ -214,6 +214,7 @@ export default function MarinePhoning() {
   const [callHistory, setCallHistory] = useState([])
   const [duplicates, setDuplicates] = useState([])
   const [showDuplicates, setShowDuplicates] = useState(false)
+  const [siblingSelections, setSiblingSelections] = useState(new Set()) // IDs cochés pour "géré par"
   const [showHistory, setShowHistory] = useState(false)
   const [editingPhone, setEditingPhone] = useState(false)
   const [editPhoneValue, setEditPhoneValue] = useState('')
@@ -381,11 +382,12 @@ export default function MarinePhoning() {
   async function loadDuplicates(prospect) {
     setDuplicates([])
     setShowDuplicates(false)
+    setSiblingSelections(new Set())
     try {
       const found = []
       const myId = prospect.id
       if (prospect.siren) {
-        const { data } = await supabase.from('prospection_massive').select('id, name, city, departement, phone, prospection_status, contacted, contacted_at, prospection_notes').eq('siren', prospect.siren).neq('id', myId).limit(20)
+        const { data } = await supabase.from('prospection_massive').select('id, name, city, departement, phone, prospection_status, contacted, contacted_at, prospection_notes, gere_par_id, gere_par_city').eq('siren', prospect.siren).neq('id', myId).limit(20)
         if (data) data.forEach(d => found.push({ ...d, reason: 'Même SIREN (groupe)' }))
       }
       if (prospect.phone) {
@@ -408,6 +410,59 @@ export default function MarinePhoning() {
       }
       setDuplicates(found)
     } catch (err) { console.error('Erreur doublons:', err) }
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // GESTION MULTI-ÉTABLISSEMENTS — "Géré par"
+  // ═══════════════════════════════════════════════════════════
+  async function markSiblingsAsGerePar(siblingIds, masterProspect) {
+    if (!siblingIds.length || !masterProspect) return
+    try {
+      await supabase.from('prospection_massive').update({
+        gere_par_id: masterProspect.id,
+        gere_par_city: masterProspect.city,
+        gere_par_at: new Date().toISOString(),
+        prospection_status: masterProspect.prospection_status || 'a_appeler',
+        prospection_notes: `Géré par ${masterProspect.city} — ${masterProspect.prospection_notes || ''}`.trim(),
+        contacted: true,
+        contacted_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }).in('id', siblingIds)
+      toast.success(`${siblingIds.length} agence(s) marquée(s) comme gérées par ${masterProspect.city}`)
+      setSiblingSelections(new Set())
+      loadDuplicates(masterProspect)
+      await loadProspects()
+    } catch (err) {
+      console.error('Erreur gere_par:', err)
+      toast.error('Erreur: ' + err.message)
+    }
+  }
+
+  async function unmarkGerePar(siblingId) {
+    try {
+      await supabase.from('prospection_massive').update({
+        gere_par_id: null, gere_par_city: null, gere_par_at: null,
+        prospection_status: 'a_appeler', contacted: false, contacted_at: null,
+        prospection_notes: null, updated_at: new Date().toISOString(),
+      }).eq('id', siblingId)
+      toast.success('Agence remise dans la file')
+      if (current) loadDuplicates(current)
+      await loadProspects()
+    } catch (err) { toast.error('Erreur: ' + err.message) }
+  }
+
+  function toggleSiblingSelection(id) {
+    setSiblingSelections(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function selectAllSiblings() {
+    const allIds = duplicates.filter(d => !d.gere_par_id && d.reason?.includes('SIREN')).map(d => d.id)
+    setSiblingSelections(new Set(allIds))
   }
 
   async function loadAiSummary(prospect) {
@@ -571,7 +626,7 @@ export default function MarinePhoning() {
       await supabase.from('prospection_massive').update({
         contacted: true, contacted_at: new Date().toISOString(), prospection_status: newStatus,
         prospection_notes: notes || null, updated_at: new Date().toISOString(),
-      }).eq('siren', current.siren)
+      }).eq('id', current.id)
 
       let message = '✅ Appel enregistré'
       if (createRdv) message += callerName === 'Marine' ? ' • 🔥 Alerte prospect chaud envoyée' : ' • RDV créé pour ' + rdvAssignedTo
@@ -632,7 +687,7 @@ export default function MarinePhoning() {
     try {
       await supabase.from('prospection_massive').update({
         prospection_status: 'a_appeler', contacted: false, contacted_at: null, updated_at: new Date().toISOString()
-      }).eq('siren', current.siren)
+      }).eq('id', current.id)
       toast.success('↩️ Remis dans la file')
       setCurrent(null)
       await loadProspects()
@@ -658,7 +713,7 @@ export default function MarinePhoning() {
       const newStatus = result === 'froid' ? 'pas_interesse' : result === 'wrong_number' ? 'numero_errone' : 'a_rappeler'
       await supabase.from('prospection_massive').update({
         contacted: true, contacted_at: new Date().toISOString(), prospection_status: newStatus, updated_at: new Date().toISOString()
-      }).eq('siren', current.siren)
+      }).eq('id', current.id)
       const labels = { no_answer: '📞 Injoignable', wrong_number: '❌ N° erroné', froid: '❄️ Pas intéressé' }
       toast.success(labels[result] + ' — suivant')
       loadDailyStats()
@@ -929,7 +984,7 @@ export default function MarinePhoning() {
       await supabase.from('prospection_massive').update({
         contacted: true, contacted_at: now.toISOString(), prospection_status: 'a_rappeler',
         prospection_notes: noteText, updated_at: now.toISOString(),
-      }).eq('siren', current.siren)
+      }).eq('id', current.id)
       toast.success(messageLaisse ? '\ud83d\udce8 Message laisse' : '\ud83d\udcf5 Pas de reponse')
       loadDailyStats(); loadTodayCallbacks()
       // Proposer email NRP si email dispo
@@ -956,7 +1011,7 @@ export default function MarinePhoning() {
       await supabase.from('prospection_massive').update({
         contacted: true, contacted_at: new Date().toISOString(), prospection_status: 'pas_interesse',
         prospection_notes: noteText, updated_at: new Date().toISOString(),
-      }).eq('siren', current.siren)
+      }).eq('id', current.id)
       toast.success('❄️ ' + tag + ' — suivant')
       loadDailyStats(); loadTodayCallbacks(); goNext(); await loadProspects()
     } catch (error) { toast.error('Erreur: ' + error.message) }
@@ -978,7 +1033,7 @@ export default function MarinePhoning() {
       await supabase.from('prospection_massive').update({
         contacted: true, contacted_at: new Date().toISOString(), prospection_status: 'a_rappeler',
         prospection_notes: noteText, updated_at: new Date().toISOString(),
-      }).eq('siren', current.siren)
+      }).eq('id', current.id)
       // Email simple à Hicham
       try {
         await fetch('/api/send-callback-reminder', {
@@ -1269,6 +1324,7 @@ export default function MarinePhoning() {
                       {siblings.length} autre(s) agence(s){contacted.length > 0 ? ` · ${contacted.length} contactée(s)` : ''}
                     </span>
                   })()}
+                  {p.gere_par_city && <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700">Géré par {p.gere_par_city}</span>}
                 </div>
               </div>
               <div className="flex items-center gap-3 ml-3">
@@ -1363,9 +1419,22 @@ export default function MarinePhoning() {
               </div>
 
 
+              {/* ═══ ALERTE SITE GÉRÉ PAR UN AUTRE ═══ */}
+              {current?.gere_par_city && (
+                <div className="bg-indigo-50 border-2 border-indigo-400 rounded-lg px-3 py-2">
+                  <p className="text-xs font-bold text-indigo-800">
+                    🏢 Ce site est géré par l'agence de {current.gere_par_city} — inutile d'appeler
+                  </p>
+                  <button onClick={() => unmarkGerePar(current.id)} className="text-[10px] text-indigo-600 hover:text-indigo-800 underline mt-1">
+                    Remettre dans la file d'appel
+                  </button>
+                </div>
+              )}
+
               {/* ═══ ALERTE GROUPE SIREN CONTACTÉ ═══ */}
               {duplicates.some(d => d.contacted && ['rdv_pris','a_rappeler'].includes(d.prospection_status)) && (() => {
-                const hot = duplicates.filter(d => d.contacted && ['rdv_pris','a_rappeler'].includes(d.prospection_status))
+                const hot = duplicates.filter(d => d.contacted && ['rdv_pris','a_rappeler'].includes(d.prospection_status) && !d.gere_par_id)
+                if (hot.length === 0) return null
                 const statusIcons = { rdv_pris: '✅ RDV pris', a_rappeler: '🔄 À rappeler' }
                 return (
                   <div className="bg-green-50 border-2 border-green-400 rounded-lg px-3 py-2 animate-pulse">
@@ -1521,25 +1590,85 @@ export default function MarinePhoning() {
                 </button>
               )}
 
-              {/* Doublons toggle */}
-              {duplicates.length > 0 && (
+              {/* Doublons toggle + Gestion multi-établissements */}
+              {duplicates.length > 0 && (() => {
+                const sirenSiblings = duplicates.filter(d => d.reason?.includes('SIREN'))
+                const otherDups = duplicates.filter(d => !d.reason?.includes('SIREN'))
+                const manageable = sirenSiblings.filter(d => !d.gere_par_id)
+                const managed = sirenSiblings.filter(d => d.gere_par_id)
+                return (
                 <div className="bg-amber-50 border border-amber-300 rounded-lg px-3 py-2">
                   <button type="button" onClick={() => setShowDuplicates(!showDuplicates)} className="flex items-center gap-2 text-amber-700 font-medium text-sm w-full">
-                    <AlertTriangle className="w-4 h-4" /><span>Similaires ({duplicates.length})</span><span className="ml-auto text-amber-500">{showDuplicates ? '▲' : '▼'}</span>
+                    <AlertTriangle className="w-4 h-4" />
+                    <span>Établissements du groupe ({sirenSiblings.length}){otherDups.length > 0 ? ` + ${otherDups.length} similaire(s)` : ''}</span>
+                    <span className="ml-auto text-amber-500">{showDuplicates ? '▲' : '▼'}</span>
                   </button>
-                  {showDuplicates && <div className="space-y-1.5 mt-2 pt-2 border-t border-amber-200">{duplicates.map((d, i) => {
-                    const sl = { rdv_pris: { icon: '✅ RDV pris', cls: 'bg-green-100 text-green-700' }, a_rappeler: { icon: '🔄 À rappeler', cls: 'bg-orange-100 text-orange-700' }, pas_interesse: { icon: '❌ Refus', cls: 'bg-red-100 text-red-700' }, numero_errone: { icon: '❌ N° erroné', cls: 'bg-purple-100 text-purple-700' } }
-                    const st = sl[d.prospection_status] || { icon: d.contacted ? '📞 Contacté' : '⬜ Non contacté', cls: 'bg-gray-100 text-gray-600' }
-                    return <div key={i} className="text-xs text-amber-800 flex items-center gap-1.5 flex-wrap">
-                      <span className="font-semibold">{d.name}</span>
-                      <span className="text-amber-600">({d.city})</span>
-                      <span className={'px-1.5 py-0.5 rounded text-[10px] font-medium ' + st.cls}>{st.icon}</span>
-                      {d.contacted_at && <span className="text-amber-500">{new Date(d.contacted_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}</span>}
-                      {d.prospection_notes && <span className="text-amber-500 italic truncate max-w-[200px]">{d.prospection_notes}</span>}
+                  {showDuplicates && (
+                    <div className="mt-2 pt-2 border-t border-amber-200 space-y-2">
+                      {/* Agences du même SIREN */}
+                      {sirenSiblings.length > 0 && (
+                        <div>
+                          {manageable.length > 1 && (
+                            <div className="flex items-center gap-2 mb-2">
+                              <button onClick={selectAllSiblings} className="text-[10px] text-purple-600 hover:text-purple-800 underline">
+                                Tout sélectionner
+                              </button>
+                              {siblingSelections.size > 0 && (
+                                <button onClick={() => markSiblingsAsGerePar([...siblingSelections], current)}
+                                  className="text-[10px] px-2 py-1 bg-indigo-600 text-white rounded-md hover:bg-indigo-700">
+                                  ✓ Marquer {siblingSelections.size} agence(s) comme gérées par {current?.city}
+                                </button>
+                              )}
+                            </div>
+                          )}
+                          <div className="space-y-1">
+                            {sirenSiblings.map((d, i) => {
+                              const sl = { rdv_pris: { icon: '✅ RDV', cls: 'bg-green-100 text-green-700' }, a_rappeler: { icon: '🔄 Rappeler', cls: 'bg-orange-100 text-orange-700' }, pas_interesse: { icon: '❌ Refus', cls: 'bg-red-100 text-red-700' }, numero_errone: { icon: '❌ Erroné', cls: 'bg-purple-100 text-purple-700' } }
+                              const st = sl[d.prospection_status] || { icon: d.contacted ? '📞' : '⬜', cls: 'bg-gray-100 text-gray-600' }
+                              const isManaged = !!d.gere_par_id
+                              return (
+                                <div key={i} className={`text-xs flex items-center gap-1.5 py-1 px-1.5 rounded ${isManaged ? 'bg-indigo-50' : 'hover:bg-amber-100'}`}>
+                                  {!isManaged && manageable.length > 1 && (
+                                    <input type="checkbox" checked={siblingSelections.has(d.id)}
+                                      onChange={() => toggleSiblingSelection(d.id)}
+                                      className="w-3.5 h-3.5 rounded text-indigo-600 cursor-pointer" />
+                                  )}
+                                  <span className="font-semibold text-gray-900">{d.city}</span>
+                                  <span className={'px-1 py-0.5 rounded text-[10px] font-medium ' + st.cls}>{st.icon}</span>
+                                  {isManaged ? (
+                                    <span className="flex items-center gap-1">
+                                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700">Géré par {d.gere_par_city}</span>
+                                      <button onClick={() => unmarkGerePar(d.id)} className="text-[10px] text-red-400 hover:text-red-600" title="Remettre dans la file">✕</button>
+                                    </span>
+                                  ) : (
+                                    <>
+                                      {d.contacted_at && <span className="text-amber-500">{new Date(d.contacted_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}</span>}
+                                      {d.prospection_notes && <span className="text-amber-500 italic truncate max-w-[150px]">{d.prospection_notes}</span>}
+                                    </>
+                                  )}
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )}
+                      {/* Autres similaires (même tel, email, site) */}
+                      {otherDups.length > 0 && (
+                        <div className="pt-1 border-t border-amber-200">
+                          <p className="text-[10px] text-amber-600 font-medium mb-1">Autres similaires :</p>
+                          {otherDups.map((d, i) => (
+                            <div key={`o${i}`} className="text-xs text-amber-800 flex items-center gap-1.5 py-0.5">
+                              <span className="font-semibold">{d.name}</span>
+                              <span className="text-amber-600">({d.city})</span>
+                              <span className="text-[10px] text-gray-400">{d.reason}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                  })}</div>}
+                  )}
                 </div>
-              )}
+              )})()}
 
 
               {/* Résumé IA */}
