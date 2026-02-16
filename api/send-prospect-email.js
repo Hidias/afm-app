@@ -90,7 +90,8 @@ export default async function handler(req, res) {
   try {
     const {
       to, subject, body, caller,
-      prospectSiren, clientId, prospectName, templateType
+      prospectSiren, clientId, prospectName, templateType,
+      attachments
     } = req.body
 
     if (!to || !subject || !body) {
@@ -143,6 +144,20 @@ export default async function handler(req, res) {
       bcc: 'entreprise@accessformation.pro',
       subject: subject,
       html: html,
+      attachments: [],
+    }
+
+    // Ajouter les pièces jointes si présentes
+    if (attachments && Array.isArray(attachments)) {
+      for (const att of attachments) {
+        if (att.base64 && att.filename) {
+          mailOptions.attachments.push({
+            filename: att.filename,
+            content: Buffer.from(att.base64, 'base64'),
+            contentType: att.contentType || 'application/pdf',
+          })
+        }
+      }
     }
 
     await transporter.sendMail(mailOptions)
