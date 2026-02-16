@@ -1,10 +1,16 @@
 // src/lib/duerpExport.js
 // Export DUERP — PDF & Excel Premium
-// Access Formation — v3 refonte complete
+// Access Formation — v5 : formations catalogue + texte agrandi + formation dans plan d'action
 //
-// IMPORTANT: Necessite xlsx-js-style au lieu de xlsx dans package.json
-// npm install xlsx-js-style (ou modifier package.json)
-// L'import est identique, seul le package change
+// CORRECTIFS v5 :
+// - Catalogue formations Access Formation dans synthèse (matching dynamique + complet)
+// - Texte général agrandi (~10pt au lieu de 8.5pt) pour lisibilité
+// - Colonne "Formation AF" dans le plan d'action (section 4)
+// - Filigrane diagonal + bandeau sur chaque page
+// - Risques orphelins (sans unit_id) affichés dans l'inventaire
+// - Dédoublonnage top 10 risques synthèse
+// - Harmonisation description Fréquence 4
+// - Disclaimer renforcé
 
 import jsPDF from 'jspdf'
 import 'jspdf-autotable'
@@ -43,30 +49,58 @@ const TYPE_A = { prevention: 'Prevention', protection: 'Protection', formation: 
 
 const fmtDate = (d) => { if (!d) return '--'; try { return new Date(d).toLocaleDateString('fr-FR') } catch { return String(d) } }
 
-const DISCLAIMER_SHORT = "Document elabore avec l'assistance d'Access Formation. L'employeur reste seul responsable de l'exhaustivite, de l'exactitude de l'evaluation des risques et de la mise en oeuvre des actions de prevention (Art. L.4121-1 et suivants du Code du travail)."
+// ── FILIGRANE ──
+const WATERMARK_TEXT = "DOCUMENT D'APPUI — SANS VALEUR JURIDIQUE"
+const BANNER_TEXT = "Document d'appui a la redaction — Sans valeur juridique — L'employeur reste seul responsable de son DUERP (Art. L.4121-1) — Access Formation decline toute responsabilite"
+
+const DISCLAIMER_SHORT = "Document d'appui a la redaction elabore avec l'assistance d'Access Formation. Ce document n'a PAS de valeur juridique et ne se substitue pas au DUERP officiel de l'employeur. L'employeur reste seul responsable de la redaction, de l'exhaustivite, de l'exactitude de l'evaluation des risques et de la mise en oeuvre des actions de prevention (Art. L.4121-1 et suivants du Code du travail). Access Formation decline toute responsabilite en cas d'oubli ou de risques non evalues."
 
 const DISCLAIMER_FULL = [
   'AVERTISSEMENT IMPORTANT -- LIMITES DE RESPONSABILITE', '',
-  "Le present Document Unique d'Evaluation des Risques Professionnels (DUERP) a ete elabore avec l'assistance d'Access Formation dans le cadre d'une prestation d'accompagnement et de conseil.", '',
+  "Le present document est un APPUI A LA REDACTION du Document Unique d'Evaluation des Risques Professionnels (DUERP). Il a ete elabore avec l'assistance d'Access Formation dans le cadre d'une prestation d'accompagnement et de conseil.", '',
+  "CE DOCUMENT N'A PAS DE VALEUR JURIDIQUE et ne constitue en aucun cas le DUERP officiel de l'entreprise. Il ne peut etre presente comme tel lors d'un controle de l'inspection du travail.", '',
   "Access Formation intervient en tant que prestataire d'aide a la redaction et a la structuration du DUERP. Cette prestation ne se substitue en aucun cas a l'obligation legale de l'employeur.", '',
   'Conformement aux articles L.4121-1 a L.4121-5 et R.4121-1 a R.4121-4 du Code du travail :',
   "  - L'employeur est seul responsable de la transcription et de la mise a jour du DUERP",
   "  - L'employeur est seul responsable de l'exhaustivite et de l'exactitude de l'evaluation des risques",
   "  - L'employeur est seul responsable de la mise en oeuvre des actions de prevention",
   "  - L'employeur est seul garant de la consultation des representants du personnel (CSE le cas echeant)", '',
-  "Access Formation ne saurait etre tenue responsable d'eventuelles omissions, inexactitudes ou insuffisances dans le present document.", '',
+  "Access Formation ne saurait etre tenue responsable d'eventuelles omissions, inexactitudes, insuffisances ou risques non evalues dans le present document.", '',
   "Ce document constitue un outil d'aide a la decision et ne remplace pas l'expertise d'un IPRP.",
 ]
 
+// ── CATALOGUE FORMATIONS ACCESS FORMATION ──
+const ACCESS_FORMATIONS = [
+  { code: 'SST-FI', label: 'Sauveteur Secouriste du Travail (SST Initial)', ref: 'PROG-FI SST', duree: '14h (2 jours)', validite: '2 ans', reglementation: 'Art. R4224-15', matchKeys: ['*'], description: 'Obligation : au moins 1 SST par atelier' },
+  { code: 'MAC-SST', label: 'MAC SST (Maintien & Actualisation)', ref: 'PROG-MAC SST', duree: '7h (1 jour)', validite: '2 ans', reglementation: 'Art. R4224-15', matchKeys: ['*'], description: 'Recyclage obligatoire tous les 2 ans' },
+  { code: 'IGPS', label: 'Initiation Gestes de Premiers Secours', ref: 'PROG-IGPS', duree: '4h', validite: '1 an', reglementation: 'Art. R4224-15', matchKeys: ['*'], description: 'Sensibilisation premiers secours' },
+  { code: 'G&P', label: 'Gestes et Postures', ref: 'PROG-G&P', duree: '4h', validite: '1 an', reglementation: 'Art. R4541-8', matchKeys: ['tms', 'manutention', 'physique', 'posture', 'ergonomie', 'chute', 'port_charge'], description: 'Reduction TMS, postures adaptees' },
+  { code: 'EXT', label: 'Manipulation d\'Extincteurs', ref: 'PROG-EXT', duree: '2h', validite: '1 an', reglementation: 'Art. R4227-39', matchKeys: ['incendie', 'feu', 'thermique'], description: 'Reagir face a un depart de feu' },
+  { code: 'EPI', label: 'Equipier de Premiere Intervention (EPI)', ref: 'PROG-EPI', duree: '4h', validite: '1 an', reglementation: 'Art. R4227-39', matchKeys: ['incendie', 'feu', 'thermique', 'evacuation'], description: 'Extinction + evacuation coordonnee' },
+  { code: 'R489', label: 'Formation Interne R489 Cat 1B/3/5 (Chariots)', ref: 'PROG-R489', duree: '7h / categorie', validite: '5 ans', reglementation: 'Art. R4323-55', matchKeys: ['conduite', 'engin', 'chariot', 'mecanique', 'collision', 'renversement'], description: 'Autorisation de conduite chariots' },
+  { code: 'R485', label: 'Formation Interne R485 Cat 1/2 (Gerbeurs)', ref: 'PROG-R485', duree: '7h', validite: '5 ans', reglementation: 'Art. R4323-55', matchKeys: ['conduite', 'engin', 'gerbeur', 'mecanique', 'collision', 'renversement'], description: 'Autorisation de conduite gerbeurs' },
+  { code: 'ELEC', label: 'Habilitation Electrique B0-H0-H0V', ref: 'PROG-FI B0H0V', duree: '7h (1 jour)', validite: '3 ans', reglementation: 'NF C18-510', matchKeys: ['electrique', 'electricite', 'electrocution', 'electrisation'], description: 'Operations non electriques en zone a risque' },
+]
+
+// Helper : determine si une formation est pertinente pour les risques detectes
+function isFormationRelevant(formation, risks, categories) {
+  if (formation.matchKeys.includes('*')) return true
+  const allCodes = risks.map(r => (r.category_code || '').toLowerCase())
+  const allDangers = risks.map(r => (r.danger || '').toLowerCase())
+  const allText = [...allCodes, ...allDangers].join(' ')
+  return formation.matchKeys.some(k => allText.includes(k))
+}
+
 // ═══════════════════════════════════════════════════════════
-// PDF GENERATION (identique v2 validee)
+// PDF GENERATION — v5 : filigrane + formations + texte agrandi
 // ═══════════════════════════════════════════════════════════
 export function generateDuerpPDF({ project, units, risks, actions, categories }) {
   const doc = new jsPDF()
   const pw = doc.internal.pageSize.getWidth()
   const ph = doc.internal.pageSize.getHeight()
   const ml = 14, mr = 14, cw = pw - ml - mr
-  const footerY = ph - 12, safeY = ph - 24
+  const bannerH = 7
+  const footerY = ph - 12, safeY = ph - 30 // ← agrandi pour laisser place au bandeau
   let pageNum = 0
   const evaluated = risks.filter(r => r.frequence && r.gravite).length
   const scored = risks.map(r => ({ ...r, _score: riskScore(r) }))
@@ -74,6 +108,29 @@ export function generateDuerpPDF({ project, units, risks, actions, categories })
   const eleveCount = scored.filter(r => r._score >= 9 && r._score < 13).length
   const doneActions = actions.filter(a => a.statut === 'fait').length
   const eff = parseInt(project.effectif) || 0
+  const nonEvaluated = risks.length - evaluated
+
+  // ── FILIGRANE : diagonal + bandeau ──
+  const addWatermark = () => {
+    // 1) Texte diagonal 15% opacité
+    doc.saveGraphicsState()
+    doc.setGState(new doc.GState({ opacity: 0.15 }))
+    doc.setFontSize(44)
+    doc.setTextColor(120, 120, 120)
+    doc.text(WATERMARK_TEXT, pw / 2, ph / 2, { angle: 45, align: 'center' })
+    doc.restoreGraphicsState()
+
+    // 2) Bandeau rouge en bas (au-dessus du footer)
+    const bannerY = footerY - bannerH - 2
+    doc.saveGraphicsState()
+    doc.setGState(new doc.GState({ opacity: 0.9 }))
+    doc.setFillColor(160, 30, 30)
+    doc.rect(0, bannerY, pw, bannerH, 'F')
+    doc.setFontSize(5.5)
+    doc.setTextColor(255, 255, 255)
+    doc.text(BANNER_TEXT, pw / 2, bannerY + 4.5, { align: 'center' })
+    doc.restoreGraphicsState()
+  }
 
   const addFooter = () => {
     pageNum++
@@ -90,7 +147,7 @@ export function generateDuerpPDF({ project, units, risks, actions, categories })
     doc.text(project.reference || '', ml + 22, 17)
     doc.setDrawColor(...C.teal); doc.setLineWidth(0.3); doc.line(ml, 24, pw - mr, 24)
   }
-  const newPage = () => { doc.addPage(); addHeader(); addFooter(); return 30 }
+  const newPage = () => { doc.addPage(); addHeader(); addFooter(); addWatermark(); return 30 }
   const checkY = (y, n = 20) => (y + n > safeY) ? newPage() : y
   const sectionTitle = (y, num, title) => {
     y = checkY(y, 20)
@@ -106,7 +163,7 @@ export function generateDuerpPDF({ project, units, risks, actions, categories })
     doc.text(title, ml + 2, y); doc.setFont(undefined, 'normal'); return y + 7
   }
   const para = (y, text, opts = {}) => {
-    const sz = opts.size || 8.5; doc.setFontSize(sz); doc.setTextColor(...(opts.color || C.black))
+    const sz = opts.size || 10; doc.setFontSize(sz); doc.setTextColor(...(opts.color || C.black))
     if (opts.bold) doc.setFont(undefined, 'bold')
     else if (opts.italic) doc.setFont(undefined, 'italic')
     else doc.setFont(undefined, 'normal')
@@ -115,7 +172,7 @@ export function generateDuerpPDF({ project, units, risks, actions, categories })
     lines.forEach(l => { if (y > safeY) y = newPage(); doc.text(l, opts.x || (ml + 2), y); y += lh })
     return y + 2
   }
-  const autoTablePageHook = () => { addHeader(); addFooter() }
+  const autoTablePageHook = () => { addHeader(); addFooter(); addWatermark() }
 
   // ── COUVERTURE ──
   doc.setFillColor(...C.teal); doc.rect(0, 0, pw, 55, 'F')
@@ -125,7 +182,12 @@ export function generateDuerpPDF({ project, units, risks, actions, categories })
   doc.setTextColor(...C.teal); doc.setFontSize(22); doc.setFont(undefined, 'bold')
   doc.text('DOCUMENT UNIQUE', pw / 2, y, { align: 'center' }); y += 9
   doc.setFontSize(12); doc.text("d'Evaluation des Risques Professionnels", pw / 2, y, { align: 'center' })
-  y += 5; doc.setDrawColor(...C.amber); doc.setLineWidth(1); doc.line(pw / 2 - 50, y, pw / 2 + 50, y)
+  y += 4
+  // Mention "document d'appui" visible
+  doc.setFontSize(9); doc.setTextColor(...C.red)
+  doc.text("DOCUMENT D'APPUI A LA REDACTION — SANS VALEUR JURIDIQUE", pw / 2, y + 4, { align: 'center' })
+  doc.setTextColor(...C.teal)
+  y += 9; doc.setDrawColor(...C.amber); doc.setLineWidth(1); doc.line(pw / 2 - 50, y, pw / 2 + 50, y)
   y += 14; doc.setTextColor(...C.black); doc.setFontSize(22)
   doc.text(project.company_name || '', pw / 2, y, { align: 'center' })
   y += 14; doc.setFontSize(9.5); doc.setFont(undefined, 'normal'); doc.setTextColor(...C.gray)
@@ -139,7 +201,12 @@ export function generateDuerpPDF({ project, units, risks, actions, categories })
   ].filter(Boolean)
   infoLines.forEach(l => { doc.text(l, pw / 2, y, { align: 'center' }); y += 6 })
   y += 8; doc.setFillColor(...C.grayBg); doc.roundedRect(25, y, pw - 50, 28, 3, 3, 'F')
-  const statsData = [[`${risks.length}`, 'risques identifies'], [`${evaluated}`, 'evalues'], [`${critiqueCount + eleveCount}`, 'critiques/eleves'], [`${actions.length}`, 'actions prevention']]
+  const statsData = [
+    [`${risks.length}`, 'risques identifies'],
+    [`${evaluated}`, 'evalues'],
+    [`${critiqueCount + eleveCount}`, 'critiques/eleves'],
+    [`${actions.length}`, 'actions prevention'],
+  ]
   const sw = (pw - 50) / 4
   statsData.forEach((s, i) => {
     doc.setFontSize(14); doc.setFont(undefined, 'bold'); doc.setTextColor(...C.teal)
@@ -147,9 +214,10 @@ export function generateDuerpPDF({ project, units, risks, actions, categories })
     doc.setFontSize(7); doc.setFont(undefined, 'normal'); doc.setTextColor(...C.gray)
     doc.text(s[1], 25 + sw * i + sw / 2, y + 18, { align: 'center' })
   })
-  y = ph - 40; doc.setFontSize(6); doc.setFont(undefined, 'italic'); doc.setTextColor(...C.grayLight)
+  y = ph - 40; doc.setFontSize(5.5); doc.setFont(undefined, 'italic'); doc.setTextColor(...C.red)
   doc.text(doc.splitTextToSize(DISCLAIMER_SHORT, pw - 40), 20, y)
   addFooter()
+  addWatermark()
 
   // ── SOMMAIRE ──
   y = newPage()
@@ -167,23 +235,23 @@ export function generateDuerpPDF({ project, units, risks, actions, categories })
     doc.setTextColor(...C.white); doc.setFontSize(11); doc.setFont(undefined, 'bold')
     doc.text(item.num, ml + 8, y + 4.5, { align: 'center' })
     doc.setTextColor(...C.black); doc.setFontSize(11); doc.text(item.title, ml + 18, y + 3)
-    doc.setFontSize(8); doc.setFont(undefined, 'normal'); doc.setTextColor(...C.gray)
+    doc.setFontSize(9); doc.setFont(undefined, 'normal'); doc.setTextColor(...C.gray)
     doc.text(item.desc, ml + 18, y + 9)
     if (i < tocItems.length - 1) { doc.setDrawColor(...C.grayBg); doc.setLineWidth(0.3); doc.line(ml + 18, y + 14, pw - mr, y + 14) }
     y += 22
   })
   y += 6; doc.setFillColor(240, 248, 255); doc.setDrawColor(...C.teal); doc.setLineWidth(0.5)
   doc.roundedRect(ml, y, cw, 28, 2, 2, 'FD')
-  doc.setFontSize(9); doc.setFont(undefined, 'bold'); doc.setTextColor(...C.teal)
+  doc.setFontSize(10); doc.setFont(undefined, 'bold'); doc.setTextColor(...C.teal)
   doc.text('Comment lire ce document ?', ml + 5, y + 7)
-  doc.setFont(undefined, 'normal'); doc.setFontSize(8); doc.setTextColor(60, 60, 60)
+  doc.setFont(undefined, 'normal'); doc.setFontSize(9); doc.setTextColor(60, 60, 60)
   doc.text('Dirigeant presse : lisez uniquement la section 1 (Synthese) pour une vision complete.', ml + 5, y + 14)
   doc.text('Pour le detail : les sections 2 a 4 contiennent l\'inventaire complet et le plan d\'action.', ml + 5, y + 20)
   doc.text('Reglementaire : la section 5 rappelle vos obligations et contient les zones de signatures.', ml + 5, y + 26)
 
   // ── SECTION 1 : SYNTHESE ──
   y = newPage(); y = sectionTitle(y, 1, 'SYNTHESE POUR LE DIRIGEANT')
-  y = para(y, "Ce document est votre DUERP. Il recense l'ensemble des risques auxquels vos salaries sont exposes et definit les actions a mettre en place. Cette synthese vous donne une vision claire et actionnable.")
+  y = para(y, "Ce document est un appui a la redaction de votre DUERP. Il recense les risques identifies lors de la visite et propose les actions a mettre en place. Cette synthese vous donne une vision claire et actionnable.")
   y += 2; y = subTitle(y, 'VOS POSTES ET UNITES DE TRAVAIL')
   y = para(y, `Votre entreprise a ete decoupee en ${units.length} unite(s) de travail :`)
   y += 2
@@ -193,26 +261,51 @@ export function generateDuerpPDF({ project, units, risks, actions, categories })
     const ms = Math.max(0, ...ur.map(r => r._score)), lvl = riskLevel(ms || 0)
     doc.setFillColor(...lvl.bg); doc.roundedRect(ml + 2, y - 3.5, cw - 4, 11, 1.5, 1.5, 'F')
     doc.setDrawColor(...lvl.text); doc.setLineWidth(1.5); doc.line(ml + 2, y - 3.5, ml + 2, y + 7.5)
-    doc.setFont(undefined, 'bold'); doc.setFontSize(9); doc.setTextColor(...lvl.text)
+    doc.setFont(undefined, 'bold'); doc.setFontSize(10); doc.setTextColor(...lvl.text)
     doc.text(u.name, ml + 7, y + 3)
-    doc.setFont(undefined, 'normal'); doc.setFontSize(7); doc.setTextColor(...C.gray)
+    doc.setFont(undefined, 'normal'); doc.setFontSize(8.5); doc.setTextColor(...C.gray)
     const info = [u.effectif ? `${u.effectif} pers.` : null, `${ur.length} risque(s)`, hc > 0 ? `dont ${hc} eleve(s)/critique(s)` : null].filter(Boolean).join(' -- ')
     doc.text(info, pw - mr - 2, y + 3, { align: 'right' }); y += 14
   })
+
+  // FIX v4 : signaler les risques orphelins (sans unité)
+  const orphanRisks = scored.filter(r => !r.unit_id)
+  if (orphanRisks.length > 0) {
+    y = checkY(y, 14)
+    doc.setFillColor(254, 249, 195); doc.roundedRect(ml + 2, y - 3.5, cw - 4, 11, 1.5, 1.5, 'F')
+    doc.setDrawColor(161, 98, 7); doc.setLineWidth(1.5); doc.line(ml + 2, y - 3.5, ml + 2, y + 7.5)
+    doc.setFont(undefined, 'bold'); doc.setFontSize(10); doc.setTextColor(161, 98, 7)
+    doc.text('Risques non rattaches a une unite', ml + 7, y + 3)
+    doc.setFont(undefined, 'normal'); doc.setFontSize(8.5); doc.setTextColor(...C.gray)
+    doc.text(`${orphanRisks.length} risque(s) -- a rattacher`, pw - mr - 2, y + 3, { align: 'right' })
+    y += 14
+  }
+
   y += 2; y = subTitle(y, 'PRINCIPAUX RISQUES IDENTIFIES')
-  const topRisks = scored.filter(r => r._score > 0).sort((a, b) => b._score - a._score).slice(0, 10)
+
+  // FIX v4 : dédoublonnage par danger+unit_id avant top 10
+  const seen = new Set()
+  const uniqueScored = scored.filter(r => {
+    if (!r._score || r._score <= 0) return false
+    const key = `${r.danger}__${r.unit_id || ''}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+  const topRisks = uniqueScored.sort((a, b) => b._score - a._score).slice(0, 10)
+
   if (topRisks.length === 0) { y = para(y, 'Aucun risque evalue.', { italic: true, color: C.gray }) }
   else {
-    y = para(y, `Sur les ${risks.length} risques, voici les ${topRisks.length} plus importants :`)
+    y = para(y, `Sur les ${risks.length} risques (dont ${nonEvaluated} non evalues), voici les ${topRisks.length} plus importants :`)
     y += 2
     topRisks.forEach((r, i) => {
       y = checkY(y, 20); const unit = units.find(u => u.id === r.unit_id), lvl = riskLevel(r._score)
       doc.setFillColor(...lvl.bg); doc.circle(ml + 5, y + 1.5, 3.5, 'F')
-      doc.setFontSize(8); doc.setFont(undefined, 'bold'); doc.setTextColor(...lvl.text)
+      doc.setFontSize(9); doc.setFont(undefined, 'bold'); doc.setTextColor(...lvl.text)
       doc.text(`${i + 1}`, ml + 5, y + 3, { align: 'center' })
-      doc.setFontSize(8.5); doc.text((r.danger || '').substring(0, 70), ml + 12, y + 3)
-      doc.setFont(undefined, 'normal'); doc.setFontSize(7); doc.setTextColor(...C.gray)
-      doc.text(`${unit?.name || '--'} -- Score ${r._score} (${lvl.label}) -- F${r.frequence}xG${r.gravite}xM${r.maitrise}`, ml + 12, y + 8)
+      doc.setFontSize(10); doc.text((r.danger || '').substring(0, 70), ml + 12, y + 3)
+      doc.setFont(undefined, 'normal'); doc.setFontSize(8.5); doc.setTextColor(...C.gray)
+      doc.text(`${unit?.name || 'Non rattache'} -- Score ${r._score} (${lvl.label}) -- F${r.frequence}xG${r.gravite}xM${r.maitrise}`, ml + 12, y + 8)
       if (r.situation) {
         doc.setTextColor(80, 80, 80); const sl = doc.splitTextToSize(r.situation, cw - 18).slice(0, 2)
         sl.forEach((l, li) => { const ly = y + 12 + li * 3.5; if (ly < safeY) doc.text(l, ml + 12, ly) }); y += sl.length * 3.5
@@ -230,16 +323,74 @@ export function generateDuerpPDF({ project, units, risks, actions, categories })
       y = checkY(y, 14)
       const pc = { critique: LVL.critique, haute: LVL.eleve, moyenne: LVL.moyen, basse: LVL.faible }[a.priorite] || LVL.moyen
       doc.setFillColor(...pc.bg); doc.roundedRect(ml + 2, y - 2.5, 18, 7, 1, 1, 'F')
-      doc.setFontSize(5.5); doc.setFont(undefined, 'bold'); doc.setTextColor(...pc.text)
+      doc.setFontSize(7); doc.setFont(undefined, 'bold'); doc.setTextColor(...pc.text)
       doc.text((PRIO[a.priorite] || '').substring(0, 8), ml + 11, y + 2, { align: 'center' })
-      doc.setFontSize(8); doc.setFont(undefined, 'normal'); doc.setTextColor(...C.black)
+      doc.setFontSize(9.5); doc.setFont(undefined, 'normal'); doc.setTextColor(...C.black)
       const al = doc.splitTextToSize(a.action || '', cw - 28).slice(0, 2); doc.text(al, ml + 23, y + 2)
-      doc.setFontSize(6.5); doc.setTextColor(...C.gray)
+      doc.setFontSize(8); doc.setTextColor(...C.gray)
       const det = [a.responsable ? `Resp: ${a.responsable}` : null, a.echeance ? `Ech: ${fmtDate(a.echeance)}` : null, STAT[a.statut] ? `[${STAT[a.statut]}]` : null].filter(Boolean).join(' -- ')
       const dy = y + 2 + Math.min(al.length, 2) * 3.5; if (dy < safeY) doc.text(det, ml + 23, dy)
       y += Math.min(al.length, 2) * 3.5 + 10
     })
   } else { y = para(y, 'Aucune action definie.', { italic: true }) }
+
+  // ── v5 : CATALOGUE FORMATIONS ACCESS FORMATION ──
+  y = checkY(y, 40); y = subTitle(y, 'FORMATIONS RECOMMANDEES — Access Formation')
+  y = para(y, "En lien avec les risques identifies dans votre entreprise, Access Formation vous propose les formations suivantes. Les formations cochees correspondent directement aux risques detectes dans ce document.")
+  y += 2
+
+  const formBody = ACCESS_FORMATIONS.map(f => {
+    const relevant = isFormationRelevant(f, risks, categories)
+    return [relevant ? 'V' : '', f.label, f.duree, f.validite, f.reglementation, f.description]
+  })
+
+  doc.autoTable({
+    startY: y,
+    head: [['', 'Formation', 'Duree', 'Validite', 'Reglementation', 'Details']],
+    body: formBody,
+    theme: 'grid',
+    styles: { fontSize: 8, cellPadding: 2.5, overflow: 'linebreak', lineWidth: 0.1 },
+    headStyles: { fillColor: C.teal, textColor: C.white, fontStyle: 'bold', fontSize: 8 },
+    columnStyles: {
+      0: { cellWidth: 8, halign: 'center', fontStyle: 'bold' },
+      1: { cellWidth: 46, fontStyle: 'bold' },
+      2: { cellWidth: 22, halign: 'center' },
+      3: { cellWidth: 16, halign: 'center' },
+      4: { cellWidth: 28 },
+      5: { cellWidth: 46, fontStyle: 'normal' }
+    },
+    margin: { left: ml, right: mr, bottom: 30 },
+    didParseCell: (d) => {
+      if (d.section === 'body' && d.column.index === 0 && d.cell.raw === 'V') {
+        d.cell.styles.fillColor = LVL.faible.bg
+        d.cell.styles.textColor = LVL.faible.text
+        d.cell.styles.fontStyle = 'bold'
+      }
+      if (d.section === 'body' && d.column.index === 0 && d.cell.raw === '') {
+        d.cell.styles.textColor = [200, 200, 200]
+      }
+      // Highlight relevant rows
+      if (d.section === 'body' && d.row.index !== undefined) {
+        const relevant = formBody[d.row.index]?.[0] === 'V'
+        if (relevant && d.column.index === 1) {
+          d.cell.styles.textColor = C.teal
+        }
+      }
+    },
+    didDrawPage: autoTablePageHook
+  })
+  y = doc.lastAutoTable.finalY + 4
+
+  // Contact commercial
+  y = checkY(y, 18)
+  doc.setFillColor(240, 248, 255); doc.setDrawColor(...C.teal); doc.setLineWidth(0.4)
+  doc.roundedRect(ml, y, cw, 14, 2, 2, 'FD')
+  doc.setFontSize(9); doc.setFont(undefined, 'bold'); doc.setTextColor(...C.teal)
+  doc.text('Contactez-nous pour un devis personnalise', ml + 5, y + 6)
+  doc.setFont(undefined, 'normal'); doc.setFontSize(8.5); doc.setTextColor(60, 60, 60)
+  doc.text('02 46 56 57 54  |  contact@accessformation.pro  |  www.accessformation.pro', ml + 5, y + 11)
+  y += 18
+
   y = checkY(y, 40); y = subTitle(y, 'VOS OBLIGATIONS')
   const oblis = [
     { t: 'Mise a jour', d: eff >= 11 ? 'Entreprise >= 11 sal. : MAJ annuelle obligatoire + changement significatif.' : 'Entreprise < 11 sal. : MAJ lors de changement significatif. Annuelle recommandee.' },
@@ -249,35 +400,37 @@ export function generateDuerpPDF({ project, units, risks, actions, categories })
     { t: 'Evaluation H/F', d: 'Loi du 2 aout 2021 : evaluation differenciee selon le sexe.' },
   ]
   oblis.forEach(o => {
-    y = checkY(y, 18); doc.setFont(undefined, 'bold'); doc.setFontSize(8.5); doc.setTextColor(...C.teal)
-    doc.text(`> ${o.t}`, ml + 2, y); y += 4.5
-    doc.setFont(undefined, 'normal'); doc.setTextColor(60, 60, 60); doc.setFontSize(7.5)
-    doc.splitTextToSize(o.d, cw - 8).forEach(l => { if (y > safeY) y = newPage(); doc.text(l, ml + 4, y); y += 3.5 }); y += 4
+    y = checkY(y, 18); doc.setFont(undefined, 'bold'); doc.setFontSize(10); doc.setTextColor(...C.teal)
+    doc.text(`> ${o.t}`, ml + 2, y); y += 5
+    doc.setFont(undefined, 'normal'); doc.setTextColor(60, 60, 60); doc.setFontSize(9)
+    doc.splitTextToSize(o.d, cw - 8).forEach(l => { if (y > safeY) y = newPage(); doc.text(l, ml + 4, y); y += 4 }); y += 4
   })
   y = checkY(y, 50)
   const nds = fmtDate(project.date_prochaine_maj) !== '--' ? fmtDate(project.date_prochaine_maj) : (eff >= 11 ? `avant le ${fmtDate(new Date(new Date().setFullYear(new Date().getFullYear() + 1)))}` : 'lors du prochain changement significatif')
   const steps = ['1. Prenez connaissance de cette synthese.', '2. Verifiez que tous les risques correspondent a la realite.', '3. Completez si necessaire.', '4. Mettez en oeuvre les actions prioritaires en premier.', '5. Planifiez les autres actions sur les prochains mois.', `6. Prochaine MAJ recommandee : ${nds}.`]
-  const bH = steps.length * 5 + 14
+  const bH = steps.length * 5.5 + 16
   doc.setFillColor(240, 248, 255); doc.setDrawColor(...C.teal); doc.setLineWidth(0.5); doc.roundedRect(ml, y, cw, bH, 2, 2, 'FD')
-  doc.setFontSize(9); doc.setFont(undefined, 'bold'); doc.setTextColor(...C.teal); doc.text('PROCHAINES ETAPES', ml + 5, y + 8)
-  doc.setFont(undefined, 'normal'); doc.setFontSize(7.5); doc.setTextColor(50, 50, 50)
-  steps.forEach((s, i) => doc.text(s, ml + 5, y + 15 + i * 5))
+  doc.setFontSize(10); doc.setFont(undefined, 'bold'); doc.setTextColor(...C.teal); doc.text('PROCHAINES ETAPES', ml + 5, y + 8)
+  doc.setFont(undefined, 'normal'); doc.setFontSize(9); doc.setTextColor(50, 50, 50)
+  steps.forEach((s, i) => doc.text(s, ml + 5, y + 15 + i * 5.5))
 
   // ── SECTION 2 : METHODOLOGIE ──
   y = newPage(); y = sectionTitle(y, 2, 'METHODOLOGIE DE COTATION')
   y = para(y, 'La cotation repose sur 3 criteres :')
   y = para(y, 'Risque residuel = Frequence x Gravite x Maitrise', { bold: true, size: 10, color: C.teal }); y += 4
-  const tblOpts = { theme: 'grid', styles: { fontSize: 7.5, cellPadding: 2 }, headStyles: { fillColor: C.teal, textColor: C.white, fontSize: 8 }, columnStyles: { 0: { cellWidth: 15, halign: 'center', fontStyle: 'bold' } }, margin: { left: ml, right: mr, bottom: 24 } }
+  const tblOpts = { theme: 'grid', styles: { fontSize: 9, cellPadding: 2.5 }, headStyles: { fillColor: C.teal, textColor: C.white, fontSize: 9.5 }, columnStyles: { 0: { cellWidth: 15, halign: 'center', fontStyle: 'bold' } }, margin: { left: ml, right: mr, bottom: 30 } }
   doc.autoTable({ startY: y, head: [['Niv.', 'Frequence', 'Description']], body: [['1', 'Occasionnel', 'Quelques fois par mois'], ['2', 'Frequent', 'Plusieurs fois par jour'], ['3', 'Tres frequent', 'Plusieurs fois par heure'], ['4', 'Permanent', 'Exposition continue']], ...tblOpts }); y = doc.lastAutoTable.finalY + 6
   doc.autoTable({ startY: y, head: [['Niv.', 'Gravite', 'Description']], body: [['1', 'Minime', 'Premiers soins'], ['2', 'Significatif', 'Sans arret'], ['3', 'Grave', 'Avec arret, maladie pro.'], ['4', 'Tres grave', 'IPP, deces']], ...tblOpts }); y = doc.lastAutoTable.finalY + 6
   doc.autoTable({ startY: y, head: [['Coef.', 'Maitrise', 'Description']], body: [['x0.5', 'Bonne', 'Mesures 100% en place'], ['x0.75', 'Partielle', 'Mesures partielles'], ['x1', 'Insuffisante', 'Aucune mesure']], ...tblOpts }); y = doc.lastAutoTable.finalY + 10
   y = checkY(y, 40); doc.setFontSize(11); doc.setFont(undefined, 'bold'); doc.setTextColor(...C.teal)
   doc.text('Matrice Frequence x Gravite', ml, y); y += 4
   const mBody = []; for (let f = 4; f >= 1; f--) { const row = [`${f} -- ${FREQ[f]}`]; for (let g = 1; g <= 4; g++) { const cnt = risks.filter(r => r.frequence === f && r.gravite === g).length; row.push(cnt > 0 ? `${f * g} (${cnt})` : `${f * g}`) } mBody.push(row) }
-  doc.autoTable({ startY: y, head: [['F \\ G', '1 Minime', '2 Significatif', '3 Grave', '4 Tres grave']], body: mBody, theme: 'grid', styles: { fontSize: 8, cellPadding: 3, halign: 'center' }, headStyles: { fillColor: C.teal, textColor: C.white }, columnStyles: { 0: { halign: 'left', fontStyle: 'bold', cellWidth: 35 } }, margin: { left: ml, right: mr, bottom: 24 }, didParseCell: (d) => { if (d.section === 'body' && d.column.index > 0) { const lvl = riskLevel((4 - d.row.index) * d.column.index); d.cell.styles.fillColor = lvl.bg; d.cell.styles.textColor = lvl.text } } })
+  doc.autoTable({ startY: y, head: [['F \\ G', '1 Minime', '2 Significatif', '3 Grave', '4 Tres grave']], body: mBody, theme: 'grid', styles: { fontSize: 9, cellPadding: 3, halign: 'center' }, headStyles: { fillColor: C.teal, textColor: C.white }, columnStyles: { 0: { halign: 'left', fontStyle: 'bold', cellWidth: 35 } }, margin: { left: ml, right: mr, bottom: 30 }, didParseCell: (d) => { if (d.section === 'body' && d.column.index > 0) { const lvl = riskLevel((4 - d.row.index) * d.column.index); d.cell.styles.fillColor = lvl.bg; d.cell.styles.textColor = lvl.text } } })
 
   // ── SECTION 3 : INVENTAIRE ──
   y = newPage(); y = sectionTitle(y, 3, 'INVENTAIRE DES RISQUES PAR UNITE')
+
+  // Risques par unité
   units.forEach(u => {
     const ur = risks.filter(r => r.unit_id === u.id); y = checkY(y, 30)
     doc.setFillColor(...C.teal); doc.roundedRect(ml, y - 4, cw, 10, 1.5, 1.5, 'F')
@@ -287,27 +440,48 @@ export function generateDuerpPDF({ project, units, risks, actions, categories })
     y += 10
     if (ur.length === 0) { doc.setFontSize(8); doc.setFont(undefined, 'italic'); doc.setTextColor(...C.gray); doc.text('Aucun risque.', ml + 4, y); y += 8; return }
     const tb = ur.map(r => { const cat = categories.find(c => c.code === r.category_code); const sc = riskScore(r); const lv = sc > 0 ? riskLevel(sc) : null; return [cat?.label || r.category_code || '--', r.danger || '--', r.situation || '--', r.frequence ? `F${r.frequence} G${r.gravite}` : '--', r.maitrise != null ? `x${r.maitrise}` : '--', sc > 0 ? `${sc}` : '--', sc > 0 ? lv.label : 'Non eval.', r.prevention_existante || '--'] })
-    doc.autoTable({ startY: y, head: [['Cat.', 'Danger', 'Situation', 'FxG', 'M.', 'Score', 'Niveau', 'Prevention']], body: tb, theme: 'grid', styles: { fontSize: 6.5, cellPadding: 2, overflow: 'linebreak', lineWidth: 0.1 }, headStyles: { fillColor: C.amber, textColor: C.black, fontStyle: 'bold', fontSize: 6.5 }, columnStyles: { 0: { cellWidth: 20 }, 1: { cellWidth: 26 }, 2: { cellWidth: 38 }, 3: { cellWidth: 13, halign: 'center' }, 4: { cellWidth: 9, halign: 'center' }, 5: { cellWidth: 10, halign: 'center', fontStyle: 'bold' }, 6: { cellWidth: 16, halign: 'center' }, 7: { cellWidth: 42 } }, margin: { left: ml, right: mr, bottom: 24 }, didParseCell: (d) => { if (d.section === 'body' && d.column.index === 6) { const k = { Critique: 'critique', Eleve: 'eleve', Moyen: 'moyen', Faible: 'faible' }[d.cell.raw]; if (k) { d.cell.styles.fillColor = LVL[k].bg; d.cell.styles.textColor = LVL[k].text; d.cell.styles.fontStyle = 'bold' } } }, didDrawPage: autoTablePageHook })
+    doc.autoTable({ startY: y, head: [['Cat.', 'Danger', 'Situation', 'FxG', 'M.', 'Score', 'Niveau', 'Prevention']], body: tb, theme: 'grid', styles: { fontSize: 8, cellPadding: 2.5, overflow: 'linebreak', lineWidth: 0.1 }, headStyles: { fillColor: C.amber, textColor: C.black, fontStyle: 'bold', fontSize: 8 }, columnStyles: { 0: { cellWidth: 20 }, 1: { cellWidth: 26 }, 2: { cellWidth: 38 }, 3: { cellWidth: 13, halign: 'center' }, 4: { cellWidth: 9, halign: 'center' }, 5: { cellWidth: 10, halign: 'center', fontStyle: 'bold' }, 6: { cellWidth: 16, halign: 'center' }, 7: { cellWidth: 42 } }, margin: { left: ml, right: mr, bottom: 30 }, didParseCell: (d) => { if (d.section === 'body' && d.column.index === 6) { const k = { Critique: 'critique', Eleve: 'eleve', Moyen: 'moyen', Faible: 'faible' }[d.cell.raw]; if (k) { d.cell.styles.fillColor = LVL[k].bg; d.cell.styles.textColor = LVL[k].text; d.cell.styles.fontStyle = 'bold' } } }, didDrawPage: autoTablePageHook })
     y = doc.lastAutoTable.finalY + 10
   })
+
+  // FIX v4 : Afficher les risques orphelins (unit_id = null)
+  if (orphanRisks.length > 0) {
+    y = checkY(y, 30)
+    doc.setFillColor(161, 98, 7); doc.roundedRect(ml, y - 4, cw, 10, 1.5, 1.5, 'F')
+    doc.setTextColor(...C.white); doc.setFontSize(9); doc.setFont(undefined, 'bold')
+    doc.text('RISQUES NON RATTACHES A UNE UNITE', ml + 4, y + 2.5)
+    doc.setFont(undefined, 'normal'); doc.setFontSize(8)
+    doc.text(`${orphanRisks.length} risque(s)`, pw - mr - 4, y + 2.5, { align: 'right' })
+    y += 10
+    const tbOrphan = orphanRisks.map(r => { const cat = categories.find(c => c.code === r.category_code); const sc = r._score; const lv = sc > 0 ? riskLevel(sc) : null; return [cat?.label || r.category_code || '--', r.danger || '--', r.situation || '--', r.frequence ? `F${r.frequence} G${r.gravite}` : '--', r.maitrise != null ? `x${r.maitrise}` : '--', sc > 0 ? `${sc}` : '--', sc > 0 ? lv.label : 'Non eval.', r.prevention_existante || '--'] })
+    doc.autoTable({ startY: y, head: [['Cat.', 'Danger', 'Situation', 'FxG', 'M.', 'Score', 'Niveau', 'Prevention']], body: tbOrphan, theme: 'grid', styles: { fontSize: 8, cellPadding: 2, overflow: 'linebreak', lineWidth: 0.1 }, headStyles: { fillColor: [161, 98, 7], textColor: C.white, fontStyle: 'bold', fontSize: 8 }, columnStyles: { 0: { cellWidth: 20 }, 1: { cellWidth: 26 }, 2: { cellWidth: 38 }, 3: { cellWidth: 13, halign: 'center' }, 4: { cellWidth: 9, halign: 'center' }, 5: { cellWidth: 10, halign: 'center', fontStyle: 'bold' }, 6: { cellWidth: 16, halign: 'center' }, 7: { cellWidth: 42 } }, margin: { left: ml, right: mr, bottom: 30 }, didParseCell: (d) => { if (d.section === 'body' && d.column.index === 6) { const k = { Critique: 'critique', Eleve: 'eleve', Moyen: 'moyen', Faible: 'faible' }[d.cell.raw]; if (k) { d.cell.styles.fillColor = LVL[k].bg; d.cell.styles.textColor = LVL[k].text; d.cell.styles.fontStyle = 'bold' } } }, didDrawPage: autoTablePageHook })
+    y = doc.lastAutoTable.finalY + 10
+  }
 
   // ── SECTION 4 : PLAN D'ACTION ──
   y = newPage(); y = sectionTitle(y, 4, "PLAN D'ACTION DE PREVENTION")
   if (actions.length === 0) { y = para(y, 'Aucune action definie.', { italic: true, color: C.gray }) }
   else {
-    const ab = sortedAct.map(a => { const r = risks.find(r => r.id === a.risk_id); return [PRIO[a.priorite] || '--', a.action || '--', TYPE_A[a.type_action] || a.type_action || '--', a.responsable || '--', fmtDate(a.echeance), a.cout_estime || '--', STAT[a.statut] || '--', (r?.danger || '').substring(0, 35) || '--'] })
-    doc.autoTable({ startY: y, head: [['Priorite', 'Action', 'Type', 'Responsable', 'Echeance', 'Cout', 'Statut', 'Risque lie']], body: ab, theme: 'grid', styles: { fontSize: 6.5, cellPadding: 2, overflow: 'linebreak', lineWidth: 0.1 }, headStyles: { fillColor: C.teal, textColor: C.white, fontStyle: 'bold', fontSize: 6.5 }, columnStyles: { 0: { cellWidth: 17, halign: 'center' }, 1: { cellWidth: 42 }, 2: { cellWidth: 17 }, 3: { cellWidth: 22 }, 4: { cellWidth: 17, halign: 'center' }, 5: { cellWidth: 15 }, 6: { cellWidth: 14, halign: 'center' }, 7: { cellWidth: 30 } }, margin: { left: ml, right: mr, bottom: 24 }, didParseCell: (d) => { if (d.section === 'body' && d.column.index === 0) { if (d.cell.raw === 'CRITIQUE') { d.cell.styles.fillColor = LVL.critique.bg; d.cell.styles.textColor = LVL.critique.text; d.cell.styles.fontStyle = 'bold' } else if (d.cell.raw === 'Haute') { d.cell.styles.fillColor = LVL.eleve.bg; d.cell.styles.textColor = LVL.eleve.text } } if (d.section === 'body' && d.column.index === 6 && d.cell.raw === 'Fait') { d.cell.styles.fillColor = LVL.faible.bg; d.cell.styles.textColor = LVL.faible.text } }, didDrawPage: autoTablePageHook })
+    // v5 : ajout colonne formation liée
+    const matchFormation = (action) => {
+      if (action.type_action !== 'formation') return ''
+      const txt = (action.action || '').toLowerCase()
+      const found = ACCESS_FORMATIONS.find(f => f.matchKeys.some(k => k !== '*' && txt.includes(k)) || txt.includes(f.code.toLowerCase()))
+      return found ? found.ref : ''
+    }
+    const ab = sortedAct.map(a => { const r = risks.find(r => r.id === a.risk_id); return [PRIO[a.priorite] || '--', a.action || '--', TYPE_A[a.type_action] || a.type_action || '--', a.responsable || '--', fmtDate(a.echeance), STAT[a.statut] || '--', matchFormation(a), (r?.danger || '').substring(0, 30) || '--'] })
+    doc.autoTable({ startY: y, head: [['Priorite', 'Action', 'Type', 'Responsable', 'Echeance', 'Statut', 'Formation AF', 'Risque lie']], body: ab, theme: 'grid', styles: { fontSize: 8, cellPadding: 2.5, overflow: 'linebreak', lineWidth: 0.1 }, headStyles: { fillColor: C.teal, textColor: C.white, fontStyle: 'bold', fontSize: 8 }, columnStyles: { 0: { cellWidth: 16, halign: 'center' }, 1: { cellWidth: 38 }, 2: { cellWidth: 16 }, 3: { cellWidth: 20 }, 4: { cellWidth: 16, halign: 'center' }, 5: { cellWidth: 14, halign: 'center' }, 6: { cellWidth: 22, halign: 'center' }, 7: { cellWidth: 30 } }, margin: { left: ml, right: mr, bottom: 30 }, didParseCell: (d) => { if (d.section === 'body' && d.column.index === 0) { if (d.cell.raw === 'CRITIQUE') { d.cell.styles.fillColor = LVL.critique.bg; d.cell.styles.textColor = LVL.critique.text; d.cell.styles.fontStyle = 'bold' } else if (d.cell.raw === 'Haute') { d.cell.styles.fillColor = LVL.eleve.bg; d.cell.styles.textColor = LVL.eleve.text } } if (d.section === 'body' && d.column.index === 5 && d.cell.raw === 'Fait') { d.cell.styles.fillColor = LVL.faible.bg; d.cell.styles.textColor = LVL.faible.text } if (d.section === 'body' && d.column.index === 6 && d.cell.raw) { d.cell.styles.textColor = C.teal; d.cell.styles.fontStyle = 'bold' } }, didDrawPage: autoTablePageHook })
   }
 
   // ── SECTION 5 : MENTIONS LEGALES ──
   y = newPage(); y = sectionTitle(y, 5, 'RAPPELS REGLEMENTAIRES ET MENTIONS LEGALES')
-  ;['Conservation 40 ans (Art. L.4121-3-1 V)', `MAJ : ${eff >= 11 ? 'annuelle obligatoire' : 'changement significatif'} + amenagement important`, 'Consultation CSE (si applicable)', 'Evaluation H/F (Art. L.4121-3)', eff >= 50 ? 'PAPRIPACT obligatoire' : 'Liste actions integree au DUERP', 'Transmission medecine du travail a chaque MAJ', 'Mise a disposition salaries, anciens salaries, inspecteurs, CARSAT'].forEach(item => { y = checkY(y, 8); doc.setFontSize(8); doc.setTextColor(...C.black); doc.text(`  - ${item}`, ml + 2, y); y += 5.5 })
+  ;['Conservation 40 ans (Art. L.4121-3-1 V)', `MAJ : ${eff >= 11 ? 'annuelle obligatoire' : 'changement significatif'} + amenagement important`, 'Consultation CSE (si applicable)', 'Evaluation H/F (Art. L.4121-3)', eff >= 50 ? 'PAPRIPACT obligatoire' : 'Liste actions integree au DUERP', 'Transmission medecine du travail a chaque MAJ', 'Mise a disposition salaries, anciens salaries, inspecteurs, CARSAT'].forEach(item => { y = checkY(y, 8); doc.setFontSize(9.5); doc.setTextColor(...C.black); doc.text(`  - ${item}`, ml + 2, y); y += 6 })
   y += 6; y = checkY(y, 65)
   const dlL = doc.splitTextToSize(DISCLAIMER_FULL.join('\n'), cw - 12), dlH = dlL.length * 3 + 16
-  doc.setFillColor(255, 250, 240); doc.setDrawColor(...C.amber); doc.setLineWidth(0.8)
+  doc.setFillColor(255, 250, 240); doc.setDrawColor(...C.red); doc.setLineWidth(1.2)
   doc.roundedRect(ml, y, cw, dlH, 2, 2, 'FD')
-  doc.setFontSize(9); doc.setFont(undefined, 'bold'); doc.setTextColor(...C.amber); doc.text('/!\\ AVERTISSEMENT', ml + 5, y + 8)
-  doc.setFontSize(6.5); doc.setFont(undefined, 'normal'); doc.setTextColor(80, 80, 80); doc.text(dlL, ml + 6, y + 14)
+  doc.setFontSize(10); doc.setFont(undefined, 'bold'); doc.setTextColor(...C.red); doc.text('/!\\ AVERTISSEMENT', ml + 5, y + 8)
+  doc.setFontSize(7.5); doc.setFont(undefined, 'normal'); doc.setTextColor(80, 80, 80); doc.text(dlL, ml + 6, y + 14)
   y += dlH + 10; y = checkY(y, 55)
   doc.setFontSize(10); doc.setFont(undefined, 'bold'); doc.setTextColor(...C.teal); doc.text('Signatures', ml, y); y += 8
   const sgW = (cw - 14) / 2
@@ -361,7 +535,6 @@ function setCell(ws, r, c, val, style) {
   const ref = XLSX.utils.encode_cell({ r, c })
   ws[ref] = { v: val, t: typeof val === 'number' ? 'n' : 's' }
   if (style) ws[ref].s = style
-  // Update range
   if (!ws['!ref']) ws['!ref'] = `A1:${ref}`
   else {
     const range = XLSX.utils.decode_range(ws['!ref'])
@@ -378,7 +551,6 @@ export function generateDuerpExcel({ project, units, risks, actions, categories 
   const doneAct = actions.filter(a => a.statut === 'fait').length
   const sortedActX = [...actions].sort((a, b) => { const p = { critique: 0, haute: 1, moyenne: 2, basse: 3 }; return (p[a.priorite] ?? 9) - (p[b.priorite] ?? 9) })
 
-  // Detect sector from project data
   const sectorKey = project.sector_template || project.secteur || ''
 
   // ═══ 1. PRESENTATION ═══
@@ -407,7 +579,6 @@ export function generateDuerpExcel({ project, units, risks, actions, categories 
     })
   })
 
-  // Stats
   const stats = [
     [risks.length, 'Risques identifies'],
     [scored.filter(r => r._score > 0).length, 'Evalues'],
@@ -435,14 +606,11 @@ export function generateDuerpExcel({ project, units, risks, actions, categories 
   ws2['!merges'] = []
   ws2['!views'] = [{ state: 'frozen', ySplit: 1, xSplit: 0 }]
 
-  // Style headers
   for (let c = 0; c < 5; c++) { const ref = XLSX.utils.encode_cell({ r: 0, c }); if (ws2[ref]) ws2[ref].s = sHdr() }
-  // Style data
   for (let r = 1; r <= units.length; r++) {
     const refA = XLSX.utils.encode_cell({ r, c: 0 }); if (ws2[refA]) ws2[refA].s = sBold
     for (let c = 1; c < 5; c++) { const ref = XLSX.utils.encode_cell({ r, c }); if (ws2[ref]) ws2[ref].s = c === 2 ? sNorm : sCenter }
   }
-  // Total row
   const tR = units.length + 2
   const refTA = XLSX.utils.encode_cell({ r: tR, c: 0 }); if (ws2[refTA]) ws2[refTA].s = { font: { bold: true, sz: 11, color: { rgb: HEX.teal } }, border: { bottom: { style: 'medium', color: { rgb: HEX.teal } } } }
   const refTB = XLSX.utils.encode_cell({ r: tR, c: 1 }); if (ws2[refTB]) ws2[refTB].s = { font: { bold: true, sz: 11, color: { rgb: HEX.teal } }, alignment: { horizontal: 'center' }, border: { bottom: { style: 'medium', color: { rgb: HEX.teal } } } }
@@ -486,17 +654,14 @@ export function generateDuerpExcel({ project, units, risks, actions, categories 
   ]
   ws4['!rows'] = [{}, {}, { hpt: 40 }, { hpt: 50 }]
   ws4['A1'].s = { font: { bold: true, sz: 18, color: { rgb: HEX.teal } } }
-  // Group headers row 1
   ;[0].forEach(c => { const ref = XLSX.utils.encode_cell({ r: 1, c }); if (ws4[ref]) ws4[ref].s = sHdr() })
   ;[1, 2, 3].forEach(c => { const ref = XLSX.utils.encode_cell({ r: 1, c }); if (ws4[ref]) ws4[ref].s = sHdr() })
   ;[4, 5, 6, 7, 8].forEach(c => { const ref = XLSX.utils.encode_cell({ r: 1, c }); if (ws4[ref]) ws4[ref].s = sHdr(HEX.darkBlue) })
   ;[9, 10, 11, 12, 13, 14].forEach(c => { const ref = XLSX.utils.encode_cell({ r: 1, c }); if (ws4[ref]) ws4[ref].s = sHdr(HEX.amber) })
-  // Sub-headers row 2
   for (let c = 0; c < 15; c++) {
     const ref = XLSX.utils.encode_cell({ r: 2, c })
     if (ws4[ref]) ws4[ref].s = c < 4 ? sHdr() : c < 9 ? sHdr(HEX.darkBlue) : sHdr(HEX.amber)
   }
-  // Explanation row
   for (let c = 0; c < 15; c++) {
     const ref = XLSX.utils.encode_cell({ r: 3, c })
     if (ws4[ref]) ws4[ref].s = { font: { sz: 9, color: { rgb: HEX.darkBlue }, italic: true }, alignment: { wrapText: true, vertical: 'top' }, border: BDR }
@@ -550,40 +715,29 @@ export function generateDuerpExcel({ project, units, risks, actions, categories 
   const lastDataRow = 2 + risks.length
   ws5['!autofilter'] = { ref: `A3:O${lastDataRow + 1}` }
 
-  // Style title
   styleRange(ws5, 0, 0, 0, 14, { font: { bold: true, sz: 18, color: { rgb: HEX.white } }, fill: { fgColor: { rgb: HEX.teal } }, alignment: { horizontal: 'center', vertical: 'center' } })
-  // Group headers
   ;[0].forEach(c => { const ref = XLSX.utils.encode_cell({ r: 1, c }); if (ws5[ref]) ws5[ref].s = sHdr() })
   ;[1, 2, 3].forEach(c => { const ref = XLSX.utils.encode_cell({ r: 1, c }); if (ws5[ref]) ws5[ref].s = sHdr() })
   ;[4, 5, 6, 7, 8].forEach(c => { const ref = XLSX.utils.encode_cell({ r: 1, c }); if (ws5[ref]) ws5[ref].s = sHdr(HEX.darkBlue) })
   ;[9, 10, 11, 12, 13, 14].forEach(c => { const ref = XLSX.utils.encode_cell({ r: 1, c }); if (ws5[ref]) ws5[ref].s = sHdr(HEX.amber) })
-  // Sub-headers
   for (let c = 0; c < 15; c++) {
     const ref = XLSX.utils.encode_cell({ r: 2, c })
     if (ws5[ref]) ws5[ref].s = c < 4 ? sHdr() : c < 9 ? sHdr(HEX.darkBlue) : sHdr(HEX.amber)
   }
-  // Data rows
   risks.forEach((r, i) => {
     const row = 3 + i
     const score = riskScore(r)
     const act = actions.find(a => a.risk_id === r.id)
-    // Unit name bold
     const refA = XLSX.utils.encode_cell({ r: row, c: 0 })
     if (ws5[refA] && ws5[refA].v) ws5[refA].s = sBold
     else if (ws5[refA]) ws5[refA].s = sNorm
-    // Normal fields
     ;[1, 2, 6].forEach(c => { const ref = XLSX.utils.encode_cell({ r: row, c }); if (ws5[ref]) ws5[ref].s = sNorm })
-    // Danger bold
     const refD = XLSX.utils.encode_cell({ r: row, c: 3 }); if (ws5[refD]) ws5[refD].s = sBold
-    // Center fields
     ;[4, 5, 7].forEach(c => { const ref = XLSX.utils.encode_cell({ r: row, c }); if (ws5[ref]) ws5[ref].s = sCenter })
-    // Score colored
     if (score > 0) {
       const refS = XLSX.utils.encode_cell({ r: row, c: 8 }); if (ws5[refS]) ws5[refS].s = sRisk(score)
     }
-    // Action
     const refAc = XLSX.utils.encode_cell({ r: row, c: 9 }); if (ws5[refAc]) ws5[refAc].s = sNorm
-    // Priority colored
     if (act?.priorite) {
       const refP = XLSX.utils.encode_cell({ r: row, c: 10 }); if (ws5[refP]) ws5[refP].s = sPrio(act.priorite)
     }
@@ -609,21 +763,15 @@ export function generateDuerpExcel({ project, units, risks, actions, categories 
     { s: { r: 0, c: 0 }, e: { r: 0, c: 3 } },
     { s: { r: actTitleRow, c: 0 }, e: { r: actTitleRow, c: 5 } },
   ]
-  // Style formations title
   styleRange(ws6, 0, 0, 0, 3, { font: { bold: true, sz: 16, color: { rgb: HEX.white } }, fill: { fgColor: { rgb: HEX.teal } }, alignment: { horizontal: 'left', vertical: 'center' } })
-  // Formations headers
   for (let c = 0; c < 4; c++) { const ref = XLSX.utils.encode_cell({ r: 1, c }); if (ws6[ref]) ws6[ref].s = sHdr(HEX.amber) }
-  // Formations data
   FORMATIONS_SECURITE.forEach((f, i) => {
     const r = 2 + i
     const refA = XLSX.utils.encode_cell({ r, c: 0 }); if (ws6[refA]) ws6[refA].s = { font: { bold: true, sz: 10, color: { rgb: HEX.teal } }, alignment: { vertical: 'center', wrapText: true }, border: BDR }
     for (let c = 1; c < 4; c++) { const ref = XLSX.utils.encode_cell({ r, c }); if (ws6[ref]) ws6[ref].s = sNorm }
   })
-  // Plan d'action title
   styleRange(ws6, actTitleRow, 0, actTitleRow, 5, { font: { bold: true, sz: 16, color: { rgb: HEX.white } }, fill: { fgColor: { rgb: HEX.teal } }, alignment: { horizontal: 'left', vertical: 'center' } })
-  // Action headers
   for (let c = 0; c < 6; c++) { const ref = XLSX.utils.encode_cell({ r: actTitleRow + 1, c }); if (ws6[ref]) ws6[ref].s = sHdr(HEX.amber) }
-  // Action data
   sortedActX.forEach((a, i) => {
     const r = actTitleRow + 2 + i
     const refA = XLSX.utils.encode_cell({ r, c: 0 }); if (ws6[refA]) ws6[refA].s = sNorm
@@ -668,11 +816,8 @@ export function generateDuerpExcel({ project, units, risks, actions, categories 
     { s: { r: 13, c: 0 }, e: { r: 13, c: 2 } },
     { s: { r: 18, c: 0 }, e: { r: 18, c: 2 } },
   ]
-  // Title
   styleRange(ws7, 0, 0, 0, 2, { font: { bold: true, sz: 18, color: { rgb: HEX.white } }, fill: { fgColor: { rgb: HEX.teal } } })
-  // Section headers
   ;[1, 7, 13, 18].forEach(r => styleRange(ws7, r, 0, r, 2, { font: { bold: true, sz: 10, color: { rgb: HEX.white } }, fill: { fgColor: { rgb: HEX.tealLight } } }))
-  // Colored rows
   const colorMap = { 0: LVL.faible, 1: LVL.moyen, 2: LVL.eleve, 3: LVL.critique }
   ;[2, 3, 4, 5].forEach((r, i) => {
     const l = colorMap[i]
