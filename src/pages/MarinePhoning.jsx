@@ -387,7 +387,7 @@ export default function MarinePhoning() {
       const found = []
       const myId = prospect.id
       if (prospect.siren) {
-        const { data } = await supabase.from('prospection_massive').select('id, name, city, departement, phone, prospection_status, contacted, contacted_at, prospection_notes, gere_par_id, gere_par_city').eq('siren', prospect.siren).neq('id', myId).limit(20)
+        const { data } = await supabase.from('prospection_massive').select('id, name, city, departement, phone, siret, prospection_status, contacted, contacted_at, prospection_notes, gere_par_id, gere_par_city').eq('siren', prospect.siren).neq('id', myId).limit(20)
         if (data) data.forEach(d => found.push({ ...d, reason: 'Même SIREN (groupe)' }))
       }
       if (prospect.phone) {
@@ -852,8 +852,8 @@ export default function MarinePhoning() {
     setEmailSending(true)
     try {
       // Sauvegarder l'email sur le prospect si nouveau
-      if (emailTo && current?.siren && emailTo !== current.email) {
-        await supabase.from('prospection_massive').update({ email: emailTo, updated_at: new Date().toISOString() }).eq('siren', current.siren)
+      if (emailTo && current?.id && emailTo !== current.email) {
+        await supabase.from('prospection_massive').update({ email: emailTo, updated_at: new Date().toISOString() }).eq('id', current.id)
       }
       const res = await fetch('/api/send-prospect-email', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1553,10 +1553,10 @@ export default function MarinePhoning() {
                   <input type="email" value={contactEmail} onChange={e => setContactEmail(e.target.value)}
                     onBlur={async (e) => {
                       const val = e.target.value.trim()
-                      if (val && val !== current.email && current.siren) {
-                        await supabase.from('prospection_massive').update({ email: val, updated_at: new Date().toISOString() }).eq('siren', current.siren)
+                      if (val && val !== current.email && current.id) {
+                        await supabase.from('prospection_massive').update({ email: val, updated_at: new Date().toISOString() }).eq('id', current.id)
                         current.email = val
-                        setProspects(prev => prev.map(p => p.siren === current.siren ? { ...p, email: val } : p))
+                        setProspects(prev => prev.map(p => p.id === current.id ? { ...p, email: val } : p))
                       }
                     }}
                     placeholder="email@entreprise.fr"
@@ -1637,7 +1637,9 @@ export default function MarinePhoning() {
                                       onChange={() => toggleSiblingSelection(d.id)}
                                       className="w-3.5 h-3.5 rounded text-indigo-600 cursor-pointer" />
                                   )}
-                                  <span className="font-semibold text-gray-900">{d.city}</span>
+                                  <span className="font-semibold text-gray-900 truncate max-w-[180px]">{d.name}</span>
+                                  <span className="text-gray-500">({d.city})</span>
+                                  {d.siret && <span className="text-[10px] text-gray-400 font-mono">{d.siret.slice(-5)}</span>}
                                   <span className={'px-1 py-0.5 rounded text-[10px] font-medium ' + st.cls}>{st.icon}</span>
                                   {isManaged ? (
                                     <span className="flex items-center gap-1">
