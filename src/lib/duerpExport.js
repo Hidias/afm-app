@@ -95,11 +95,22 @@ function isFormationRelevant(formation, risks, categories) {
   return formation.matchKeys.some(k => allText.includes(k))
 }
 
+// ── Accompagnateurs Access Formation (remplace "Evaluateur") ──
+const ACCOMPAGNATEURS = {
+  'hicham.saidi@accessformation.pro': 'Hicham SAIDI',
+  'maxime.langlais@accessformation.pro': 'Maxime LANGLAIS',
+}
+function getAccompagnateurName(userEmail) {
+  if (!userEmail) return 'Access Formation'
+  return ACCOMPAGNATEURS[userEmail.toLowerCase()] || 'Access Formation'
+}
+
 // ═══════════════════════════════════════════════════════════
-// PDF GENERATION — v5 : filigrane + formations + texte agrandi
+// PDF GENERATION — v5.1 : filigrane + formations + texte agrandi
 // ═══════════════════════════════════════════════════════════
-export function generateDuerpPDF({ project, units, risks, actions, categories }) {
+export function generateDuerpPDF({ project, units, risks, actions, categories, userEmail }) {
   const doc = new jsPDF()
+  const accompName = getAccompagnateurName(userEmail)
   const pw = doc.internal.pageSize.getWidth()
   const ph = doc.internal.pageSize.getHeight()
   const ml = 14, mr = 14, cw = pw - ml - mr
@@ -211,7 +222,7 @@ export function generateDuerpPDF({ project, units, risks, actions, categories })
     project.naf_code ? `Code NAF : ${project.naf_code} -- ${project.naf_label || ''}` : null,
     project.address ? `Adresse : ${project.address}, ${project.postal_code || ''} ${project.city || ''}` : null,
     project.effectif ? `Effectif : ${project.effectif} salarie(s)` : null,
-    project.evaluateur ? `Evaluateur : ${project.evaluateur}` : null,
+    `Accompagnateur a la redaction : ${accompName}`,
     `Date d'elaboration : ${fmtDate(project.date_elaboration)}`,
   ].filter(Boolean)
   infoLines.forEach(l => { doc.text(l, pw / 2, y, { align: 'center' }); y += 6 })
@@ -518,8 +529,8 @@ export function generateDuerpPDF({ project, units, risks, actions, categories })
   doc.setFont(undefined, 'normal'); doc.setFontSize(8); doc.setTextColor(...C.black); doc.text(project.contact_name || '(Nom)', ml + sgW / 2, y + 15, { align: 'center' })
   doc.setFontSize(7); doc.setTextColor(...C.grayLight); doc.text('Date et signature', ml + sgW / 2, y + 35, { align: 'center' })
   const s2X = ml + sgW + 14; doc.roundedRect(s2X, y, sgW, 40, 2, 2, 'D')
-  doc.setFontSize(9); doc.setFont(undefined, 'bold'); doc.setTextColor(...C.teal); doc.text("L'evaluateur", s2X + sgW / 2, y + 8, { align: 'center' })
-  doc.setFont(undefined, 'normal'); doc.setFontSize(8); doc.setTextColor(...C.black); doc.text(project.evaluateur || '(Nom)', s2X + sgW / 2, y + 15, { align: 'center' })
+  doc.setFontSize(9); doc.setFont(undefined, 'bold'); doc.setTextColor(...C.teal); doc.text("L'accompagnateur", s2X + sgW / 2, y + 8, { align: 'center' })
+  doc.setFont(undefined, 'normal'); doc.setFontSize(8); doc.setTextColor(...C.black); doc.text(accompName, s2X + sgW / 2, y + 15, { align: 'center' })
   doc.setFontSize(7); doc.setTextColor(...C.grayLight); doc.text('Date et signature', s2X + sgW / 2, y + 35, { align: 'center' })
 
   const fname = `DUERP_${(project.company_name || 'export').replace(/[^a-zA-Z0-9]/g, '_')}_${project.reference || ''}.pdf`
@@ -571,7 +582,8 @@ function setCell(ws, r, c, val, style) {
   }
 }
 
-export function generateDuerpExcel({ project, units, risks, actions, categories }) {
+export function generateDuerpExcel({ project, units, risks, actions, categories, userEmail }) {
+  const accompName = getAccompagnateurName(userEmail)
   const wb = XLSX.utils.book_new()
   const eff = parseInt(project.effectif) || 0
   const scored = risks.map(r => ({ ...r, _score: riskScore(r) }))
@@ -598,7 +610,7 @@ export function generateDuerpExcel({ project, units, risks, actions, categories 
     ['SIRET :', project.siret || '', '', 'Code NAF :', `${project.naf_code || ''} ${project.naf_label || ''}`],
     ['Adresse :', `${project.address || ''}, ${project.postal_code || ''} ${project.city || ''}`, '', '', ''],
     ['Effectif :', `${project.effectif || ''} salarie(s)`, '', 'Contact :', project.contact_name || ''],
-    ['Evaluateur :', project.evaluateur || '', '', 'Date :', fmtDate(project.date_elaboration)],
+    ['Accompagnateur :', accompName, '', 'Date :', fmtDate(project.date_elaboration)],
   ]
   info.forEach((row, i) => {
     row.forEach((val, j) => {
@@ -651,7 +663,7 @@ export function generateDuerpExcel({ project, units, risks, actions, categories 
     ['Reglementation : MAJ annuelle >= 11 sal. + changement significatif'],
     [], [],
     ['Date de mise a jour', 'Noms participants', 'Postes', 'Changements'],
-    [fmtDate(project.date_elaboration), `${project.contact_name || ''}, ${project.evaluateur || ''}`, 'Gerant, Evaluateur', 'Elaboration initiale'],
+    [fmtDate(project.date_elaboration), `${project.contact_name || ''}, ${accompName}`, 'Gerant, Accompagnateur', 'Elaboration initiale'],
   ]
   for (let i = 0; i < 10; i++) actRows.push(['', '', '', ''])
   const ws3 = XLSX.utils.aoa_to_sheet(actRows)
@@ -909,7 +921,7 @@ export function generateDuerpExcel({ project, units, risks, actions, categories 
     '  - Evaluation differenciee H/F (Art. L.4121-3)',
     '  - Transmission medecine du travail a chaque MAJ', '', '',
     'SIGNATURES', '',
-    `L'employeur : ${project.contact_name || ''}                    L'evaluateur : ${project.evaluateur || ''}`, '',
+    `L'employeur : ${project.contact_name || ''}                    L'accompagnateur : ${accompName}`, '',
     'Date et signature :                                  Date et signature :', '', '',
     `Document genere -- Access Campus -- Access Formation, Concarneau -- ${new Date().toLocaleDateString('fr-FR')}`,
   ]
