@@ -116,17 +116,19 @@ export function generateDuerpPDF({ project, units, risks, actions, categories })
 
   // ── FILIGRANE : diagonal + bandeau ──
   const addWatermark = () => {
-    // 1) Texte diagonal centré - opacité renforcée
+    // 1) Texte diagonal centré visuellement
+    // Sans align:'center' (buggé avec angle dans jsPDF), on décale manuellement le point d'ancrage
+    // Pour un texte à 45°, le centre visuel doit être au milieu de la page
     doc.saveGraphicsState()
     doc.setGState(new doc.GState({ opacity: 0.18 }))
     doc.setTextColor(100, 100, 100)
     doc.setFont(undefined, 'bold')
-    // Ligne 1 : DOCUMENT D'APPUI — positionnement manuel car align+angle buggé dans jsPDF
-    doc.setFontSize(52)
-    doc.text("DOCUMENT D'APPUI", pw / 2, ph / 2 - 6, { angle: 45 })
-    // Ligne 2 : SANS VALEUR JURIDIQUE
-    doc.setFontSize(38)
-    doc.text("SANS VALEUR JURIDIQUE", pw / 2 - 2, ph / 2 + 14, { angle: 45 })
+    // Ligne 1 : DOCUMENT D'APPUI (44pt)
+    doc.setFontSize(44)
+    doc.text("DOCUMENT D'APPUI", pw * 0.18, ph * 0.58, { angle: 45 })
+    // Ligne 2 : SANS VALEUR JURIDIQUE (32pt)
+    doc.setFontSize(32)
+    doc.text("SANS VALEUR JURIDIQUE", pw * 0.18, ph * 0.65, { angle: 45 })
     doc.setFont(undefined, 'normal')
     doc.restoreGraphicsState()
 
