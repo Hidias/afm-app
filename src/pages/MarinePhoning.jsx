@@ -873,11 +873,18 @@ export default function MarinePhoning() {
         } catch (e) { console.warn('Erreur téléchargement PJ:', pj.path, e) }
       }
 
+      // ═══ Résoudre le client_id depuis le SIREN ═══
+      let resolvedClientId = null
+      if (current?.siren && !current.siren.startsWith('MANUAL_')) {
+        const { data: cl } = await supabase.from('clients').select('id').eq('siren', current.siren.slice(0, 9)).maybeSingle()
+        if (cl) resolvedClientId = cl.id
+      }
+
       const res = await fetch('/api/send-prospect-email', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           to: emailTo, subject: emailSubject, body: emailBody, caller: callerName,
-          prospectSiren: current?.siren, clientId: null, prospectName: current?.name, templateType: emailTemplate,
+          prospectSiren: current?.siren, clientId: resolvedClientId, prospectName: current?.name, templateType: emailTemplate,
           attachments: allAttachments.length > 0 ? allAttachments : undefined,
         })
       })
