@@ -4,7 +4,7 @@ import { useAuthStore } from '../lib/store'
 import { 
   Phone, CheckCircle, RefreshCw, SkipForward,
   Building2, MapPin, Mail, List, Search, Sparkles, Loader2, Map as MapIcon, Navigation, AlertTriangle,
-  Clock, PhoneOff, XCircle, Snowflake, Bell, Plus, Edit2, Briefcase, Send, ArrowLeft, MessageSquare, BarChart3, ChevronRight, X
+  Clock, PhoneOff, XCircle, Snowflake, Bell, Plus, Edit2, Briefcase, Send, ArrowLeft, MessageSquare, BarChart3, ChevronRight, X, Paperclip, Upload, FileText, Trash2
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { MapContainer, TileLayer, CircleMarker, Circle, Popup, useMap } from 'react-leaflet'
@@ -249,6 +249,8 @@ export default function MarinePhoning() {
   const [emailTemplate, setEmailTemplate] = useState('suite_echange')
   const [emailSending, setEmailSending] = useState(false)
   const [emailAdaptLoading, setEmailAdaptLoading] = useState(false)
+  const [emailAttachments, setEmailAttachments] = useState([]) // { id?, name, base64, contentType, size, preconfig: bool }
+  const [selectedPreconfigs, setSelectedPreconfigs] = useState(new Set())
   const [pendingGoNext, setPendingGoNext] = useState(false)
   const [emailSentMap, setEmailSentMap] = useState({}) // siren -> { date, template }
   const [relanceSuggestions, setRelanceSuggestions] = useState(0)
@@ -768,6 +770,17 @@ export default function MarinePhoning() {
       toast.error('Erreur: ' + error.message)
     } finally { setSaving(false) }
   }
+  // ═══ PIÈCES JOINTES PRÉ-CONFIGURÉES ═══
+  // Les fichiers doivent être uploadés dans Supabase Storage bucket "email-attachments"
+  const PRECONFIGURED_ATTACHMENTS = [
+    { id: 'catalogue', label: 'Catalogue formations', filename: 'Catalogue_Access_Formation.pdf', icon: '📚', path: 'catalogue/Catalogue_Access_Formation.pdf' },
+    { id: 'plaquette_sst', label: 'Plaquette SST', filename: 'Plaquette_SST.pdf', icon: '🩺', path: 'plaquettes/Plaquette_SST.pdf' },
+    { id: 'plaquette_incendie', label: 'Plaquette Incendie', filename: 'Plaquette_Incendie.pdf', icon: '🧯', path: 'plaquettes/Plaquette_Incendie.pdf' },
+    { id: 'plaquette_caces', label: 'Plaquette CACES', filename: 'Plaquette_CACES.pdf', icon: '🏗️', path: 'plaquettes/Plaquette_CACES.pdf' },
+    { id: 'plaquette_elec', label: 'Plaquette Habilitation élec.', filename: 'Plaquette_Habilitation_Electrique.pdf', icon: '⚡', path: 'plaquettes/Plaquette_Habilitation_Electrique.pdf' },
+    { id: 'plaquette_duerp', label: 'Plaquette DUERP', filename: 'Plaquette_DUERP.pdf', icon: '🛡️', path: 'plaquettes/Plaquette_DUERP.pdf' },
+  ]
+
   const EMAIL_TEMPLATES = {
     suite_echange: {
       subject: (name) => 'Suite \u00e0 notre \u00e9change \u2013 formations sant\u00e9 & s\u00e9curit\u00e9',
@@ -826,6 +839,8 @@ export default function MarinePhoning() {
     setEmailBody(t.body(prospect?.name, name))
     setEmailTemplate(tpl)
     setPendingGoNext(goNextAfter)
+    setEmailAttachments([])
+    setSelectedPreconfigs(new Set())
     setShowEmailModal(true)
   }
 
@@ -855,16 +870,48 @@ export default function MarinePhoning() {
       if (emailTo && current?.id && emailTo !== current.email) {
         await supabase.from('prospection_massive').update({ email: emailTo, updated_at: new Date().toISOString() }).eq('id', current.id)
       }
+
+      // ═══ Préparer les pièces jointes ═══
+      const allAttachments = []
+
+      // 1. PJ pré-configurées → télécharger depuis Supabase Storage
+      for (const pcId of selectedPreconfigs) {
+        const pc = PRECONFIGURED_ATTACHMENTS.find(p => p.id === pcId)
+        if (!pc) continue
+        try {
+          const { data: fileData, error } = await supabase.storage.from('email-attachments').download(pc.path)
+          if (error || !fileData) { console.warn('PJ introuvable:', pc.path, error); continue }
+          const arrayBuf = await fileData.arrayBuffer()
+          const base64 = btoa(new Uint8Array(arrayBuf).reduce((s, b) => s + String.fromCharCode(b), ''))
+          allAttachments.push({ filename: pc.filename, base64, contentType: 'application/pdf' })
+        } catch (e) { console.warn('Erreur téléchargement PJ:', pc.path, e) }
+      }
+
+      // 2. PJ uploadées manuellement
+      for (const att of emailAttachments) {
+        allAttachments.push({ filename: att.name, base64: att.base64, contentType: att.contentType })
+      }
+
+      // Vérifier la taille totale (limite Vercel ~4.5 Mo)
+      const totalSize = allAttachments.reduce((s, a) => s + (a.base64?.length || 0), 0)
+      if (totalSize > 3.5 * 1024 * 1024) {
+        toast.error('Pièces jointes trop volumineuses (max ~3.5 Mo au total). Réduisez le nombre de PJ.')
+        setEmailSending(false)
+        return
+      }
+
       const res = await fetch('/api/send-prospect-email', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           to: emailTo, subject: emailSubject, body: emailBody, caller: callerName,
           prospectSiren: current?.siren, clientId: null, prospectName: current?.name, templateType: emailTemplate,
+          attachments: allAttachments.length > 0 ? allAttachments : undefined,
         })
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Erreur envoi')
-      toast.success('\u2709\ufe0f Email envoye a ' + emailTo)
+      const nbPJ = allAttachments.length
+      toast.success(`✉️ Email envoyé à ${emailTo}${nbPJ ? ` (${nbPJ} PJ)` : ''}`)
       setEmailSentMap(prev => ({ ...prev, [current?.siren]: { date: new Date(), template: emailTemplate } }))
       setShowEmailModal(false)
       if (pendingGoNext) { goNext(); loadProspects() }
@@ -2189,6 +2236,71 @@ export default function MarinePhoning() {
                   dangerouslySetInnerHTML={{ __html: emailBody }}
                   className="w-full border rounded-lg px-3 py-2 text-sm min-h-[200px] max-h-[350px] overflow-y-auto focus:ring-2 focus:ring-blue-500 focus:outline-none prose prose-sm"
                 />
+              </div>
+              {/* ═══ PIÈCES JOINTES ═══ */}
+              <div className="border rounded-lg p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-1.5">
+                    <Paperclip className="w-4 h-4 text-gray-500" />
+                    <span className="text-xs font-medium text-gray-600">Pièces jointes</span>
+                    {(selectedPreconfigs.size + emailAttachments.length) > 0 && (
+                      <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full font-medium">
+                        {selectedPreconfigs.size + emailAttachments.length}
+                      </span>
+                    )}
+                  </div>
+                  <label className="flex items-center gap-1 px-2 py-1 text-xs bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 cursor-pointer">
+                    <Upload className="w-3 h-3" /> Fichier...
+                    <input type="file" className="hidden" accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0]
+                        if (!file) return
+                        if (file.size > 10 * 1024 * 1024) { toast.error('Fichier trop volumineux (max 10 Mo)'); return }
+                        const reader = new FileReader()
+                        reader.onload = () => {
+                          const base64 = reader.result.split(',')[1]
+                          setEmailAttachments(prev => [...prev, { name: file.name, base64, contentType: file.type, size: file.size }])
+                        }
+                        reader.readAsDataURL(file)
+                        e.target.value = ''
+                      }} />
+                  </label>
+                </div>
+                {/* Pré-configurées */}
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {PRECONFIGURED_ATTACHMENTS.map(pc => {
+                    const selected = selectedPreconfigs.has(pc.id)
+                    return (
+                      <button key={pc.id} type="button"
+                        onClick={() => setSelectedPreconfigs(prev => {
+                          const next = new Set(prev)
+                          if (next.has(pc.id)) next.delete(pc.id); else next.add(pc.id)
+                          return next
+                        })}
+                        className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs border transition ${
+                          selected ? 'bg-blue-50 border-blue-400 text-blue-700 font-medium' : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300'
+                        }`}>
+                        <span>{pc.icon}</span>
+                        <span>{pc.label}</span>
+                        {selected && <span className="text-blue-500 ml-0.5">✓</span>}
+                      </button>
+                    )
+                  })}
+                </div>
+                {/* Fichiers uploadés */}
+                {emailAttachments.length > 0 && (
+                  <div className="space-y-1">
+                    {emailAttachments.map((att, i) => (
+                      <div key={i} className="flex items-center gap-2 bg-gray-50 rounded px-2 py-1 text-xs">
+                        <FileText className="w-3 h-3 text-gray-400" />
+                        <span className="flex-1 truncate text-gray-700">{att.name}</span>
+                        <span className="text-gray-400">{(att.size / 1024).toFixed(0)} Ko</span>
+                        <button onClick={() => setEmailAttachments(prev => prev.filter((_, j) => j !== i))}
+                          className="text-red-400 hover:text-red-600"><Trash2 className="w-3 h-3" /></button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
               {/* Signature preview */}
               <div className="bg-gray-50 rounded-lg p-3 border">
