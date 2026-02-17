@@ -1934,7 +1934,11 @@ export default function SessionDetail() {
 
       // 3. Convocations — tous stagiaires dans un seul PDF
       const convocations = await generateAllPDF('convocation', session, traineesWithResult, { trainer })
-      if (convocations) zip.file(`Convocations_${ref}.pdf`, convocations.base64, { base64: true })
+      if (convocations) {
+        zip.file(`Convocations_${ref}.pdf`, convocations.base64, { base64: true })
+        await supabase.from('session_trainees').update({ convocation_sent_at: new Date().toISOString() })
+          .eq('session_id', session.id).is('convocation_sent_at', null)
+      }
 
       // 4. Fiches de renseignements — titre rempli, juste nom/prénom, reste vierge
       const mergedFiches = await mergeMultiplePDFs(
@@ -2064,7 +2068,11 @@ export default function SessionDetail() {
 
       // 3. Convocations
       const convocations = await generateAllPDF('convocation', session, traineesWithResult, { trainer })
-      if (convocations) zip.file(`Convocations_${ref}.pdf`, convocations.base64, { base64: true })
+      if (convocations) {
+        zip.file(`Convocations_${ref}.pdf`, convocations.base64, { base64: true })
+        await supabase.from('session_trainees').update({ convocation_sent_at: new Date().toISOString() })
+          .eq('session_id', session.id).is('convocation_sent_at', null)
+      }
 
       // 4. Fiches de renseignements — remplies avec infoSheet
       const fichesParts = []
@@ -2294,6 +2302,12 @@ export default function SessionDetail() {
 
     downloadDocument(docType, session, options)
     toast.success('Document généré')
+
+    // Marquer convocation_sent_at si c'est une convocation
+    if (docType === 'convocation' && trainee) {
+      await supabase.from('session_trainees').update({ convocation_sent_at: new Date().toISOString() })
+        .eq('session_id', session.id).eq('trainee_id', trainee.id).is('convocation_sent_at', null)
+    }
   }
   
   const handleDownloadAll = async (docType) => {
@@ -2305,6 +2319,12 @@ export default function SessionDetail() {
     })) || []
     await downloadAllDocuments(docType, session, traineesWithResult, { trainer, questions })
     toast.success('Documents générés')
+
+    // Marquer convocation_sent_at pour tous les stagiaires
+    if (docType === 'convocation') {
+      await supabase.from('session_trainees').update({ convocation_sent_at: new Date().toISOString() })
+        .eq('session_id', session.id).is('convocation_sent_at', null)
+    }
   }
   
   // Télécharger le programme uploadé depuis course_documents
