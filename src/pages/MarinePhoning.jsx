@@ -4,7 +4,7 @@ import { useAuthStore } from '../lib/store'
 import { 
   Phone, CheckCircle, RefreshCw, SkipForward,
   Building2, MapPin, Mail, List, Search, Sparkles, Loader2, Map as MapIcon, Navigation, AlertTriangle,
-  Clock, PhoneOff, XCircle, Snowflake, Bell, Plus, Edit2, Briefcase, Send, ArrowLeft, MessageSquare, BarChart3, ChevronRight, X, Paperclip
+  Clock, PhoneOff, XCircle, Snowflake, Bell, Plus, Edit2, Briefcase, Send, ArrowLeft, MessageSquare, BarChart3, ChevronRight, X, Paperclip, Trash2
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { MapContainer, TileLayer, CircleMarker, Circle, Popup, useMap } from 'react-leaflet'
@@ -227,7 +227,8 @@ export default function MarinePhoning() {
   const [mapSelected, setMapSelected] = useState(null)
   const [dailyStats, setDailyStats] = useState({ total: 0, chaud: 0, tiede: 0, froid: 0, no_answer: 0, blocked: 0, wrong_number: 0 })
   const [todayCallbackSirens, setTodayCallbackSirens] = useState(new Set())
-  const [callbackDetails, setCallbackDetails] = useState(new Map()) // siren → {date, time, reason, contact_name}
+  const [callbackDetails, setCallbackDetails] = useState(new Map()) // siren → {date, time, reason, contact_name, called_by}
+  const [rappelCallerMap, setRappelCallerMap] = useState(new Map()) // siren → last called_by
   const [showAddModal, setShowAddModal] = useState(false)
   const [newProspect, setNewProspect] = useState({ name: '', phone: '', city: '', postal_code: '', departement: '', siret: '', siren: '', email: '', notes: '' })
   const [detectingOpco, setDetectingOpco] = useState(false)
@@ -237,9 +238,22 @@ export default function MarinePhoning() {
   const [transferReason, setTransferReason] = useState('')
   const [transferNote, setTransferNote] = useState('')
   const [notInterestedTag, setNotInterestedTag] = useState('')
+  const [notInterestedCustom, setNotInterestedCustom] = useState('')
   const [wrongNumberNew, setWrongNumberNew] = useState('')
   const [showTodayCalls, setShowTodayCalls] = useState(false)
   const [todayCalls, setTodayCalls] = useState([])
+  // NRP callback sub-step
+  const [nrpMessageLaisse, setNrpMessageLaisse] = useState(false)
+  const [nrpCallbackDate, setNrpCallbackDate] = useState('')
+  const [nrpCallbackTime, setNrpCallbackTime] = useState('09:00')
+  // Edit/delete calls
+  const [editingCallId, setEditingCallId] = useState(null)
+  const [editingCallNotes, setEditingCallNotes] = useState('')
+  const [editingCallResult, setEditingCallResult] = useState('')
+  const [showStatusChangeDialog, setShowStatusChangeDialog] = useState(false)
+  // Filters for "À rappeler" tab
+  const [rappelFilterBy, setRappelFilterBy] = useState('')
+  const [rappelFilterDate, setRappelFilterDate] = useState('all')
 
   // Email prospect modal
   const [showEmailModal, setShowEmailModal] = useState(false)
@@ -323,7 +337,7 @@ export default function MarinePhoning() {
     try {
       const today = new Date().toISOString().split('T')[0]
       const { data } = await supabase.from('prospect_calls')
-        .select('client_id, callback_date, callback_time, callback_reason, contact_name, clients!inner(siren)')
+        .select('client_id, callback_date, callback_time, callback_reason, contact_name, called_by, clients!inner(siren)')
         .eq('needs_callback', true).lte('callback_date', today)
         .order('callback_date', { ascending: true })
       if (data) {
@@ -335,11 +349,24 @@ export default function MarinePhoning() {
           sirens.add(siren)
           // Keep earliest callback per siren
           if (!details.has(siren)) {
-            details.set(siren, { date: d.callback_date, time: d.callback_time, reason: d.callback_reason, contact_name: d.contact_name })
+            details.set(siren, { date: d.callback_date, time: d.callback_time, reason: d.callback_reason, contact_name: d.contact_name, called_by: d.called_by })
           }
         })
         setTodayCallbackSirens(sirens)
         setCallbackDetails(details)
+      }
+      // Load last caller per siren for "À rappeler" filter
+      const { data: lastCalls } = await supabase.from('prospect_calls')
+        .select('called_by, clients!inner(siren)')
+        .order('called_at', { ascending: false })
+        .limit(300)
+      if (lastCalls) {
+        const callerMap = new Map()
+        lastCalls.forEach(d => {
+          const siren = d.clients?.siren
+          if (siren && !callerMap.has(siren)) callerMap.set(siren, d.called_by)
+        })
+        setRappelCallerMap(callerMap)
       }
     } catch (err) { console.error('Erreur callbacks:', err) }
   }
@@ -375,6 +402,7 @@ export default function MarinePhoning() {
     setTransferReason('')
     setTransferNote('')
     setNotInterestedTag('')
+    setNotInterestedCustom('')
     // Pré-remplir résultat selon statut précédent
     if (prospect.prospection_status === 'a_rappeler') setCallResult('tiede')
     else if (prospect.prospection_status === 'rdv_pris') setCallResult('chaud')
@@ -565,8 +593,8 @@ export default function MarinePhoning() {
         call_result: callResult,
         formations_mentioned: formationsSelected.length > 0 ? formationsSelected : null,
         notes: notes || null, rdv_created: createRdv, needs_callback: needsCallback,
-        callback_date: needsCallback ? callbackDate : null, callback_time: needsCallback ? callbackTime : null,
-        callback_reason: needsCallback ? callbackReason : null, duration_seconds: getElapsedSeconds(),
+        callback_date: needsCallback && callbackDate ? callbackDate : null, callback_time: needsCallback && callbackTime ? callbackTime : null,
+        callback_reason: needsCallback && callbackReason ? callbackReason : null, duration_seconds: getElapsedSeconds(),
       }).select().single()
       if (callError) throw callError
 
@@ -996,17 +1024,18 @@ export default function MarinePhoning() {
   }
 
   // === Stepped flow handlers ===
-  async function handleNoResponse(messageLaisse) {
+  async function handleNoResponse(messageLaisse, cbDate, cbTime) {
     if (!current) return
     setSaving(true)
     try {
       const clientId = await findOrCreateClient(current)
       await clearOldCallbacks(clientId)
       const now = new Date()
-      const noteText = `${callerName} — ${now.toLocaleDateString('fr-FR')} ${now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })} — ${messageLaisse ? 'Message laissé' : 'Pas de réponse'}`
+      const noteText = `${callerName} — ${now.toLocaleDateString('fr-FR')} ${now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })} — ${messageLaisse ? 'Message laissé' : 'Pas de réponse'}` + (cbDate ? ` — Rappel ${new Date(cbDate).toLocaleDateString('fr-FR')}${cbTime ? ' à ' + cbTime : ''}` : '')
       await supabase.from('prospect_calls').insert({
         client_id: clientId, called_by: callerName, call_result: 'no_answer',
         notes: noteText, duration_seconds: getElapsedSeconds(),
+        needs_callback: !!cbDate, callback_date: cbDate || null, callback_time: cbTime || null,
       })
       await supabase.from('prospection_massive').update({
         contacted: true, contacted_at: now.toISOString(), prospection_status: 'a_rappeler',
@@ -1081,6 +1110,45 @@ export default function MarinePhoning() {
     finally { setSaving(false) }
   }
 
+  // === EDIT / DELETE CALL ===
+  async function handleEditCall(callId) {
+    if (!editingCallNotes && !editingCallResult) return
+    try {
+      const updates = {}
+      if (editingCallNotes !== undefined) updates.notes = editingCallNotes
+      if (editingCallResult) updates.call_result = editingCallResult
+      await supabase.from('prospect_calls').update(updates).eq('id', callId)
+      toast.success('Appel modifié')
+      setEditingCallId(null)
+      if (current) loadCallHistory(current)
+      setShowStatusChangeDialog(true)
+    } catch (error) { toast.error('Erreur: ' + error.message) }
+  }
+
+  async function handleDeleteCall(callId) {
+    if (!window.confirm('Supprimer cet appel ?')) return
+    try {
+      await supabase.from('prospect_calls').delete().eq('id', callId)
+      toast.success('Appel supprimé')
+      setEditingCallId(null)
+      if (current) loadCallHistory(current)
+      setShowStatusChangeDialog(true)
+    } catch (error) { toast.error('Erreur: ' + error.message) }
+  }
+
+  async function handleUpdateProspectStatus(newStatus) {
+    if (!current) return
+    try {
+      await supabase.from('prospection_massive').update({
+        prospection_status: newStatus, updated_at: new Date().toISOString(),
+      }).eq('id', current.id)
+      setProspects(prev => prev.map(p => p.id === current.id ? { ...p, prospection_status: newStatus } : p))
+      current.prospection_status = newStatus
+      toast.success('Statut mis à jour')
+      loadTodayCallbacks()
+    } catch (error) { toast.error('Erreur: ' + error.message) }
+  }
+
   // === FILTRES & TRI ===
   const rappelsCount = prospects.filter(p => p.siren && todayCallbackSirens.has(p.siren)).length
 
@@ -1112,6 +1180,23 @@ export default function MarinePhoning() {
       if (statusFilter === 'a_appeler' && p.prospection_status && p.prospection_status !== 'a_appeler') return false
       if (statusFilter === 'rappels' && !(p.siren && todayCallbackSirens.has(p.siren))) return false
       if (statusFilter === 'a_rappeler' && p.prospection_status !== 'a_rappeler') return false
+      // Sub-filters for "À rappeler" tab
+      if (statusFilter === 'a_rappeler' && rappelFilterBy) {
+        const lastCaller = rappelCallerMap.get(p.siren) || callbackDetails.get(p.siren)?.called_by
+        if (lastCaller !== rappelFilterBy) return false
+      }
+      if (statusFilter === 'a_rappeler' && rappelFilterDate !== 'all') {
+        const cbDetail = callbackDetails.get(p.siren)
+        const cbDate = cbDetail?.date
+        if (rappelFilterDate === 'today') {
+          const today = new Date().toISOString().split('T')[0]
+          if (cbDate !== today) return false
+        } else if (rappelFilterDate === 'week') {
+          const now = new Date(); const startOfWeek = new Date(now); startOfWeek.setDate(now.getDate() - now.getDay() + 1); startOfWeek.setHours(0,0,0,0)
+          const endOfWeek = new Date(startOfWeek); endOfWeek.setDate(startOfWeek.getDate() + 6)
+          if (!cbDate || cbDate < startOfWeek.toISOString().split('T')[0] || cbDate > endOfWeek.toISOString().split('T')[0]) return false
+        }
+      }
       if (statusFilter === 'rdv_pris' && p.prospection_status !== 'rdv_pris') return false
       if (statusFilter === 'pas_interesse' && p.prospection_status !== 'pas_interesse') return false
       if (statusFilter === 'numero_errone' && p.prospection_status !== 'numero_errone') return false
@@ -1140,11 +1225,23 @@ export default function MarinePhoning() {
       const aCb = a.siren && todayCallbackSirens.has(a.siren) ? 1 : 0
       const bCb = b.siren && todayCallbackSirens.has(b.siren) ? 1 : 0
       if (aCb !== bCb) return bCb - aCb
-      // Si les deux sont des rappels, trier par date de callback (plus ancien d'abord)
+      // Si les deux sont des rappels, trier par date de callback puis heure (plus ancien d'abord)
       if (aCb && bCb) {
         const aDate = callbackDetails.get(a.siren)?.date || '9999'
         const bDate = callbackDetails.get(b.siren)?.date || '9999'
         if (aDate !== bDate) return aDate.localeCompare(bDate)
+        const aTime = callbackDetails.get(a.siren)?.time || '99:99'
+        const bTime = callbackDetails.get(b.siren)?.time || '99:99'
+        if (aTime !== bTime) return aTime.localeCompare(bTime)
+      }
+      // Dans l'onglet "À rappeler", trier par date+heure de callback aussi
+      if (statusFilter === 'a_rappeler') {
+        const aD = callbackDetails.get(a.siren)?.date || '9999'
+        const bD = callbackDetails.get(b.siren)?.date || '9999'
+        if (aD !== bD) return aD.localeCompare(bD)
+        const aT = callbackDetails.get(a.siren)?.time || '99:99'
+        const bT = callbackDetails.get(b.siren)?.time || '99:99'
+        if (aT !== bT) return aT.localeCompare(bT)
       }
       const order = { 'a_rappeler': 1, 'a_appeler': 2, '': 2, null: 2 }
       const aO = order[a.prospection_status] || 3
@@ -1153,7 +1250,7 @@ export default function MarinePhoning() {
       return a.distance - b.distance
     })
     return list
-  }, [prospects, statusFilter, departementFilter, effectifFilter, formeFilter, searchTerm, searchResults, todayCallbackSirens, callbackDetails, mapBase, mapRadius])
+  }, [prospects, statusFilter, departementFilter, effectifFilter, formeFilter, searchTerm, searchResults, todayCallbackSirens, callbackDetails, rappelCallerMap, rappelFilterBy, rappelFilterDate, mapBase, mapRadius])
 
   // En mode file, sélectionner le premier prospect du filtre actif
   useEffect(() => {
@@ -1282,6 +1379,32 @@ export default function MarinePhoning() {
           </button>
         ))}
       </div>
+
+      {/* Sous-filtres pour "À rappeler" */}
+      {statusFilter === 'a_rappeler' && (
+        <div className="flex gap-2 flex-wrap items-center bg-amber-50 rounded-lg px-3 py-2 border border-amber-200">
+          <span className="text-xs font-medium text-amber-700">Filtrer :</span>
+          <select value={rappelFilterBy} onChange={e => setRappelFilterBy(e.target.value)}
+            className="px-2 py-1 border border-amber-300 rounded text-xs bg-white">
+            <option value="">👤 Tous</option>
+            <option value="Hicham">Hicham</option>
+            <option value="Marine">Marine</option>
+            <option value="Maxime">Maxime</option>
+          </select>
+          <div className="flex gap-1">
+            {[
+              { value: 'all', label: "📋 Tout" },
+              { value: 'today', label: "📅 Aujourd'hui" },
+              { value: 'week', label: '📆 Cette semaine' },
+            ].map(f => (
+              <button key={f.value} onClick={() => setRappelFilterDate(f.value)}
+                className={'px-2 py-1 rounded text-xs font-medium border transition-colors ' + (rappelFilterDate === f.value ? 'bg-amber-500 text-white border-amber-500' : 'bg-white text-amber-700 border-amber-300 hover:bg-amber-100')}>
+                {f.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Barre de recherche + filtres */}
       <div className="flex gap-2">
@@ -1546,17 +1669,59 @@ export default function MarinePhoning() {
                     {showHistory && (
                       <div className="mt-2 pt-2 border-t border-current/10 space-y-2">
                         {callHistory.map((call, i) => (
-                          <div key={i} className="text-xs bg-white/60 rounded p-2">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="font-medium">{call.called_by}</span>
-                              <span className="opacity-60">{new Date(call.called_at).toLocaleDateString('fr-FR')} {call.called_at ? new Date(call.called_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : ''}</span>
-                              <span className={'px-1.5 py-0.5 rounded text-xs ' + (resultColors[call.call_result] || 'bg-gray-100')}>{resultLabels[call.call_result] || call.call_result}</span>
-                            </div>
-                            {call.contact_name && <div className="mt-0.5 opacity-80">👤 {call.contact_name}{call.contact_function ? ' — ' + call.contact_function : ''}{call.contact_email ? ' • ' + call.contact_email : ''}</div>}
-                            {call.notes && <div className="mt-0.5 opacity-90">{call.notes}</div>}
-                            {call.formations_mentioned && call.formations_mentioned.length > 0 && <div className="mt-0.5 opacity-70">🎓 {call.formations_mentioned.join(', ')}</div>}
+                          <div key={call.id || i} className="text-xs bg-white/60 rounded p-2">
+                            {editingCallId === call.id ? (
+                              <div className="space-y-2">
+                                <select value={editingCallResult} onChange={e => setEditingCallResult(e.target.value)}
+                                  className="w-full px-2 py-1.5 border rounded text-xs">
+                                  <option value="chaud">🔥 Intéressé</option><option value="tiede">🟡 Tiède</option><option value="froid">❄️ Refus</option>
+                                  <option value="no_answer">📞 Injoignable</option><option value="blocked">⚠️ Barrage</option><option value="wrong_number">❌ N° erroné</option>
+                                </select>
+                                <textarea value={editingCallNotes} onChange={e => setEditingCallNotes(e.target.value)} rows="2"
+                                  className="w-full px-2 py-1.5 border rounded text-xs" />
+                                <div className="flex gap-1">
+                                  <button onClick={() => handleEditCall(call.id)} className="flex-1 px-2 py-1 bg-green-600 text-white rounded text-xs font-medium">✓ Sauvegarder</button>
+                                  <button onClick={() => setEditingCallId(null)} className="px-2 py-1 bg-gray-200 text-gray-700 rounded text-xs">Annuler</button>
+                                  <button onClick={() => handleDeleteCall(call.id)} className="px-2 py-1 bg-red-100 text-red-600 rounded text-xs hover:bg-red-200"><Trash2 className="w-3 h-3" /></button>
+                                </div>
+                              </div>
+                            ) : (
+                              <>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="font-medium">{call.called_by}</span>
+                                  <span className="opacity-60">{new Date(call.called_at).toLocaleDateString('fr-FR')} {call.called_at ? new Date(call.called_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : ''}</span>
+                                  <span className={'px-1.5 py-0.5 rounded text-xs ' + (resultColors[call.call_result] || 'bg-gray-100')}>{resultLabels[call.call_result] || call.call_result}</span>
+                                  <button onClick={() => { setEditingCallId(call.id); setEditingCallNotes(call.notes || ''); setEditingCallResult(call.call_result || '') }}
+                                    className="ml-auto p-0.5 text-gray-400 hover:text-blue-600 rounded" title="Modifier"><Edit2 className="w-3 h-3" /></button>
+                                </div>
+                                {call.contact_name && <div className="mt-0.5 opacity-80">👤 {call.contact_name}{call.contact_function ? ' — ' + call.contact_function : ''}{call.contact_email ? ' • ' + call.contact_email : ''}</div>}
+                                {call.notes && <div className="mt-0.5 opacity-90">{call.notes}</div>}
+                                {call.formations_mentioned && call.formations_mentioned.length > 0 && <div className="mt-0.5 opacity-70">🎓 {call.formations_mentioned.join(', ')}</div>}
+                              </>
+                            )}
                           </div>
                         ))}
+                      </div>
+                    )}
+
+                    {/* Dialog changement de statut après edit/delete */}
+                    {showStatusChangeDialog && (
+                      <div className="mt-2 pt-2 border-t border-current/10">
+                        <p className="text-xs font-medium text-gray-700 mb-2">📋 Mettre à jour le statut du prospect ?</p>
+                        <div className="flex flex-wrap gap-1">
+                          {[
+                            { value: 'a_appeler', label: '📞 À appeler' },
+                            { value: 'a_rappeler', label: '🟡 À rappeler' },
+                            { value: 'rdv_pris', label: '🔥 RDV pris' },
+                            { value: 'pas_interesse', label: '❄️ Refus' },
+                          ].map(s => (
+                            <button key={s.value} onClick={() => { handleUpdateProspectStatus(s.value); setShowStatusChangeDialog(false) }}
+                              className={'px-2 py-1 rounded text-xs font-medium border transition-colors ' + (current?.prospection_status === s.value ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50')}>
+                              {s.label}
+                            </button>
+                          ))}
+                          <button onClick={() => setShowStatusChangeDialog(false)} className="px-2 py-1 text-xs text-gray-400 hover:text-gray-600">Garder tel quel</button>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -1769,20 +1934,58 @@ export default function MarinePhoning() {
                     <h3 className="font-semibold text-gray-700 text-sm">📵 Pas de réponse</h3>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
-                    <button onClick={() => handleNoResponse(false)} disabled={saving}
+                    <button onClick={() => { setNrpMessageLaisse(false); const d = new Date(); d.setDate(d.getDate() + 1); setNrpCallbackDate(d.toISOString().split('T')[0]); setNrpCallbackTime('09:00'); setPhoningStep('nrp_callback') }} disabled={saving}
                       className="flex flex-col items-center gap-2 px-4 py-5 bg-gray-50 hover:bg-gray-100 border-2 border-gray-300 rounded-xl text-gray-700 font-semibold transition-all disabled:opacity-50">
                       <PhoneOff className="w-6 h-6" />
                       <span className="text-sm">Pas de réponse</span>
                       <span className="text-xs text-gray-400 font-normal">Sonnerie / occupé</span>
                     </button>
-                    <button onClick={() => handleNoResponse(true)} disabled={saving}
+                    <button onClick={() => { setNrpMessageLaisse(true); const d = new Date(); d.setDate(d.getDate() + 2); setNrpCallbackDate(d.toISOString().split('T')[0]); setNrpCallbackTime('14:00'); setPhoningStep('nrp_callback') }} disabled={saving}
                       className="flex flex-col items-center gap-2 px-4 py-5 bg-blue-50 hover:bg-blue-100 border-2 border-blue-300 rounded-xl text-blue-700 font-semibold transition-all disabled:opacity-50">
                       <MessageSquare className="w-6 h-6" />
                       <span className="text-sm">Message laissé</span>
                       <span className="text-xs text-blue-400 font-normal">Répondeur</span>
                     </button>
                   </div>
-                  {saving && <div className="flex items-center justify-center gap-2 text-gray-500 text-sm"><Loader2 className="w-4 h-4 animate-spin" />Enregistrement...</div>}
+                </div>
+              )}
+
+              {/* ═══ ÉTAPE : NRP — Programmer rappel ═══ */}
+              {phoningStep === 'nrp_callback' && (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => setPhoningStep('no_response')} className="p-1 hover:bg-gray-100 rounded"><ArrowLeft className="w-4 h-4 text-gray-400" /></button>
+                    <h3 className="font-semibold text-gray-700 text-sm">{nrpMessageLaisse ? '📨 Message laissé' : '📵 Pas de réponse'} — Rappel</h3>
+                  </div>
+
+                  <div className="bg-orange-50 rounded-lg p-3 space-y-3">
+                    <h4 className="font-semibold text-gray-900 text-sm">🔔 Quand rappeler ?</h4>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        { label: '☀️ Demain 9h', days: 1, time: '09:00' },
+                        { label: '📅 Dans 2j 14h', days: 2, time: '14:00' },
+                        { label: '📆 Lundi 9h', days: 0, time: '09:00', getDate: () => { const d = new Date(); d.setDate(d.getDate() + (8 - d.getDay()) % 7 || 7); return d.toISOString().split('T')[0] } },
+                      ].map(opt => {
+                        const val = opt.getDate ? opt.getDate() : (() => { const d = new Date(); d.setDate(d.getDate() + opt.days); return d.toISOString().split('T')[0] })()
+                        const isSelected = nrpCallbackDate === val && nrpCallbackTime === opt.time
+                        return (
+                          <button key={opt.label} type="button" onClick={() => { setNrpCallbackDate(val); setNrpCallbackTime(opt.time) }}
+                            className={'px-2 py-2.5 rounded-lg border text-xs font-medium transition-colors ' + (isSelected ? 'bg-orange-500 text-white border-orange-500' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50')}>
+                            {opt.label}
+                          </button>
+                        )
+                      })}
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <input type="date" value={nrpCallbackDate} onChange={e => setNrpCallbackDate(e.target.value)} min={new Date().toISOString().split('T')[0]} className="w-full px-3 py-2 border rounded-lg text-sm bg-white" />
+                      <input type="time" value={nrpCallbackTime} onChange={e => setNrpCallbackTime(e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm bg-white" />
+                    </div>
+                  </div>
+
+                  <button onClick={() => handleNoResponse(nrpMessageLaisse, nrpCallbackDate, nrpCallbackTime)} disabled={saving || !nrpCallbackDate}
+                    className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-orange-500 text-white rounded-xl hover:bg-orange-600 disabled:opacity-50 font-semibold text-sm">
+                    {saving ? <><Loader2 className="w-5 h-5 animate-spin" /> Enregistrement...</> : <><Bell className="w-5 h-5" /> Programmer rappel & Suivant</>}
+                  </button>
                 </div>
               )}
 
@@ -1806,6 +2009,10 @@ export default function MarinePhoning() {
                       </select>
                     </div>
                   </div>
+
+                  {/* Notes de l'appel */}
+                  <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes de l'échange (optionnel)..." rows="2"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent" />
 
                   {/* 4 résultats */}
                   <div className="grid grid-cols-2 gap-3">
@@ -2023,19 +2230,24 @@ export default function MarinePhoning() {
                         { tag: 'Pas de budget', icon: '💰' },
                         { tag: 'Ne veut pas de formation', icon: '✋' },
                         { tag: 'Fait en interne', icon: '🔧' },
+                        { tag: 'Autre', icon: '📝' },
                       ].map(({ tag, icon }) => (
-                        <button key={tag} onClick={() => setNotInterestedTag(tag)}
+                        <button key={tag} onClick={() => { setNotInterestedTag(tag); if (tag !== 'Autre') setNotInterestedCustom('') }}
                           className={'w-full flex items-center gap-3 px-4 py-2.5 rounded-lg border text-sm font-medium transition-colors text-left ' + (notInterestedTag === tag ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50')}>
                           <span>{icon}</span><span>{tag}</span>
                         </button>
                       ))}
+                      {notInterestedTag === 'Autre' && (
+                        <input type="text" value={notInterestedCustom} onChange={e => setNotInterestedCustom(e.target.value)} placeholder="Précisez le motif (obligatoire)..."
+                          autoFocus className="w-full px-3 py-2 border border-orange-300 rounded-lg text-sm focus:ring-2 focus:ring-orange-500 focus:border-transparent bg-orange-50" />
+                      )}
                     </div>
                   </div>
 
                   <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes complémentaires (optionnel)" rows="2"
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
 
-                  <button onClick={() => handleNotInterested(notInterestedTag)} disabled={saving || !notInterestedTag}
+                  <button onClick={() => handleNotInterested(notInterestedTag === 'Autre' ? notInterestedCustom : notInterestedTag)} disabled={saving || !notInterestedTag || (notInterestedTag === 'Autre' && !notInterestedCustom.trim())}
                     className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-50 font-semibold text-sm">
                     {saving ? <><Loader2 className="w-5 h-5 animate-spin" /> Enregistrement...</> : <><Snowflake className="w-5 h-5" /> Archiver & Suivant</>}
                   </button>
