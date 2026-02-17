@@ -141,14 +141,37 @@ export default async function handler(req, res) {
       host: emailConfig.smtp_host,
       port: emailConfig.smtp_port,
       secure: emailConfig.smtp_secure,
+      pool: false,
       auth: { user: emailConfig.email, pass: smtpPassword },
       tls: { rejectUnauthorized: false },
-      connectionTimeout: 10000,
-      greetingTimeout: 10000,
+      connectionTimeout: 15000,
+      greetingTimeout: 15000,
       socketTimeout: 30000,
     })
 
-    await transporter.verify()
+    // Retry logic — 3 tentatives avec délai croissant
+    async function sendWithRetry(mailOpts, retries = 3) {
+      for (let attempt = 1; attempt <= retries; attempt++) {
+        try {
+          await transporter.verify()
+          await transporter.sendMail(mailOpts)
+          return
+        } catch (err) {
+          if (attempt < retries && (err.message.includes('421') || err.message.includes('concurrent') || err.message.includes('greeting'))) {
+            console.log(`Tentative ${attempt}/${retries} échouée, retry dans ${attempt * 3}s...`)
+            if (transporter) try { transporter.close() } catch (e) {}
+            await new Promise(r => setTimeout(r, attempt * 3000))
+            transporter = nodemailer.createTransport({
+              host: emailConfig.smtp_host, port: emailConfig.smtp_port, secure: emailConfig.smtp_secure,
+              pool: false, auth: { user: emailConfig.email, pass: smtpPassword },
+              tls: { rejectUnauthorized: false }, connectionTimeout: 15000, greetingTimeout: 15000, socketTimeout: 30000,
+            })
+          } else {
+            throw err
+          }
+        }
+      }
+    }
 
     // BCC : toujours l'adresse d'envoi + contact@ (dédupliqué)
     const bccSet = new Set([senderEmail, 'contact@accessformation.pro'])
@@ -179,8 +202,8 @@ export default async function handler(req, res) {
       }
     }
 
-    await transporter.sendMail(mailOptions)
-    if (transporter) transporter.close()
+    await sendWithRetry(mailOptions)
+    if (transporter) try { transporter.close() } catch (e) {}
 
     // Log dans prospect_email_logs
     try {
