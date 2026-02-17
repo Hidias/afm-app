@@ -560,10 +560,12 @@ export default function MarinePhoning() {
   async function findOrCreateClient(prospect) {
     const cleanSiren = prospect.siren && !prospect.siren.startsWith('MANUAL_') ? prospect.siren.slice(0, 9) : null
     const cleanSiret = prospect.siret && !prospect.siret.startsWith('MANUAL_') ? prospect.siret.slice(0, 14) : null
-    if (cleanSiren) {
-      const { data: existing } = await supabase.from('clients').select('id').eq('siren', cleanSiren).maybeSingle()
+    // 1. Chercher par SIRET (unique par établissement)
+    if (cleanSiret) {
+      const { data: existing } = await supabase.from('clients').select('id').eq('siret', cleanSiret).maybeSingle()
       if (existing) return existing.id
     }
+    // 2. Pas de match SIRET → créer un nouveau client (même si le SIREN existe pour un autre établissement)
     const { data: newClient, error } = await supabase.from('clients').insert({
       name: prospect.name, address: prospect.city ? prospect.postal_code + ' ' + prospect.city : null,
       postal_code: prospect.postal_code, city: prospect.city, siret: cleanSiret, siren: cleanSiren,
@@ -985,9 +987,13 @@ export default function MarinePhoning() {
 
   function goNext() {
     if (!current || viewMode === 'list') { setCurrent(null); return }
+    const prevName = current.name
     const list = viewMode === 'carte' ? mapProspects : filtered
     const idx = list.findIndex(p => p.id === current.id)
-    if (idx < list.length - 1) selectProspect(list[idx + 1])
+    if (idx < list.length - 1) {
+      selectProspect(list[idx + 1])
+      toast(`✅ ${prevName} → ${list[idx + 1].name}`, { duration: 2000 })
+    }
     else { setCurrent(null); loadProspects() }
   }
 
@@ -1893,6 +1899,14 @@ export default function MarinePhoning() {
           {/* DROITE : Formulaire stepped */}
           <div className="col-span-3 bg-white rounded-xl border overflow-y-auto">
             {current && <div className="p-4 space-y-4">
+
+              {/* Bandeau fiche active — toujours visible */}
+              <div className="bg-primary-50 border border-primary-200 rounded-lg px-3 py-2 flex items-center gap-2 sticky top-0 z-10">
+                <Phone className="w-4 h-4 text-primary-600" />
+                <span className="font-bold text-primary-900 text-sm truncate">{current.name}</span>
+                {current.city && <span className="text-xs text-primary-600">— {current.city}</span>}
+                <span className="ml-auto text-xs text-primary-400">{filtered.findIndex(p => p.id === current.id) + 1}/{filtered.length}</span>
+              </div>
 
               {/* Status reset pour prospects déjà marqués */}
               {current.prospection_status && !['a_appeler', null].includes(current.prospection_status) && (
