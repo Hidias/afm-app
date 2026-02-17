@@ -1,5 +1,7 @@
-// api/send-callback-reminder.js
-// Envoie un email de rappel phoning avec fichier .ics OU une alerte prospect chaud
+// api/send-prospect-email.js
+// Envoie un email de prospection au prospect (suite echange / NRP / relance)
+// Signature HTML selon l'expediteur (Hicham / Maxime / Marine)
+// Log dans prospect_email_logs + BCC sender + contact@
 
 import nodemailer from 'nodemailer'
 import { createClient } from '@supabase/supabase-js'
@@ -21,112 +23,87 @@ function decrypt(encryptedText) {
   return decrypted
 }
 
-function generateICS({ prospectName, prospectPhone, contactName, callbackDate, callbackTime, callbackReason, callerName, notes }) {
-  const [year, month, day] = callbackDate.split('-')
-  const [hour, minute] = callbackTime.split(':')
-  const dtStart = `${year}${month}${day}T${hour}${minute}00`
-  
-  const endMinute = parseInt(minute) + 15
-  const endHour = parseInt(hour) + Math.floor(endMinute / 60)
-  const dtEnd = `${year}${month}${day}T${String(endHour).padStart(2, '0')}${String(endMinute % 60).padStart(2, '0')}00`
-  
-  const uid = `rappel-${Date.now()}@accessformation.pro`
-  const now = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')
-
-  const description = [
-    `Rappel phoning : ${prospectName}`,
-    contactName ? `Contact : ${contactName}` : '',
-    `Tel : ${prospectPhone}`,
-    callbackReason ? `Raison : ${callbackReason}` : '',
-    notes ? `Notes : ${notes}` : '',
-    `Appel initial par : ${callerName}`,
-  ].filter(Boolean).join('\\n')
-
-  return [
-    'BEGIN:VCALENDAR',
-    'VERSION:2.0',
-    'PRODID:-//Access Formation//Phoning//FR',
-    'CALSCALE:GREGORIAN',
-    'METHOD:REQUEST',
-    'BEGIN:VEVENT',
-    `UID:${uid}`,
-    `DTSTAMP:${now}`,
-    `DTSTART;TZID=Europe/Paris:${dtStart}`,
-    `DTEND;TZID=Europe/Paris:${dtEnd}`,
-    `SUMMARY:📞 Rappel ${prospectName}`,
-    `DESCRIPTION:${description}`,
-    'STATUS:CONFIRMED',
-    'BEGIN:VALARM',
-    'TRIGGER:-PT10M',
-    'ACTION:DISPLAY',
-    `DESCRIPTION:Rappel : appeler ${prospectName}`,
-    'END:VALARM',
-    'END:VEVENT',
-    'END:VCALENDAR'
-  ].join('\r\n')
+// Signatures HTML par expediteur
+// senderEmail = adresse FROM réelle pour l'envoi SMTP
+const SIGNATURES = {
+  Hicham: {
+    name: 'Hicham',
+    title: 'Dirigeant associé',
+    phone: '06.35.20.04.28',
+    email: 'hicham.saidi@accessformation.pro',
+    senderEmail: 'hicham.saidi@accessformation.pro',
+  },
+  Maxime: {
+    name: 'Maxime',
+    title: 'Dirigeant associé',
+    phone: '07.83.51.17.95',
+    email: 'maxime.langlais@accessformation.pro',
+    senderEmail: 'maxime.langlais@accessformation.pro',
+  },
+  Marine: {
+    name: 'Marine',
+    title: '',
+    phone: '02 46 56 57 54',
+    email: 'entreprise@accessformation.pro',
+    senderEmail: 'entreprise@accessformation.pro',
+  },
 }
 
-function buildCallbackEmail({ prospectName, prospectPhone, contactName, contactFunction, callbackDate, callbackTime, callbackReason, callerName, notes }) {
-  const dateFormatted = new Date(callbackDate).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })
-
-  const subject = `📞 Rappel : appeler ${prospectName} le ${dateFormatted} à ${callbackTime}`
-
-  const html = `
-    <div style="font-family: Arial, sans-serif; max-width: 600px;">
-      <h2 style="color: #e67e22;">📞 Rappel phoning programmé</h2>
-      <table style="border-collapse: collapse; width: 100%; margin: 15px 0;">
-        <tr><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold; width: 140px;">Entreprise</td><td style="padding: 8px; border-bottom: 1px solid #eee;">${prospectName}</td></tr>
-        <tr><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">Téléphone</td><td style="padding: 8px; border-bottom: 1px solid #eee;"><a href="tel:${prospectPhone}">${prospectPhone}</a></td></tr>
-        ${contactName ? `<tr><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">Contact</td><td style="padding: 8px; border-bottom: 1px solid #eee;">${contactName}${contactFunction ? ' — ' + contactFunction : ''}</td></tr>` : ''}
-        <tr><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">Date rappel</td><td style="padding: 8px; border-bottom: 1px solid #eee;">${dateFormatted} à ${callbackTime}</td></tr>
-        ${callbackReason ? `<tr><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">Raison</td><td style="padding: 8px; border-bottom: 1px solid #eee;">${callbackReason}</td></tr>` : ''}
-        <tr><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">Appelé par</td><td style="padding: 8px; border-bottom: 1px solid #eee;">${callerName}</td></tr>
-      </table>
-      ${notes ? `<p style="background: #f9f9f9; padding: 12px; border-radius: 6px; color: #555;"><strong>Notes :</strong> ${notes}</p>` : ''}
-      <p style="color: #888; font-size: 12px;">📎 Fichier .ics joint — ouvrez-le pour ajouter le rappel à votre agenda.</p>
-    </div>
+function buildSignatureHTML(caller) {
+  const sig = SIGNATURES[caller] || SIGNATURES.Marine
+  return `
+    <table cellpadding="0" cellspacing="0" style="font-family: Arial, sans-serif; margin-top: 20px; border-collapse: collapse;">
+      <tr>
+        <td style="padding-right: 15px; border-right: 3px solid #d4a84b; vertical-align: top;">
+          <div style="background: linear-gradient(135deg, #1a3a4a 0%, #2d5a6b 100%); padding: 16px 20px; border-radius: 8px; min-width: 160px;">
+            <p style="margin: 0; font-family: 'Georgia', serif; font-size: 16px; color: #d4a84b; font-style: italic; letter-spacing: 1px;">${sig.name}</p>
+            ${sig.title ? `<p style="margin: 4px 0 0 0; font-size: 11px; color: rgba(255,255,255,0.8);">${sig.title}</p>` : ''}
+          </div>
+        </td>
+        <td style="padding-left: 15px; vertical-align: top;">
+          <p style="margin: 0 0 3px 0; font-weight: bold; font-size: 13px; color: #1a3a4a;">ACCESS FORMATION</p>
+          <p style="margin: 0 0 2px 0; font-size: 12px; color: #555;">&#9742; ${sig.phone}</p>
+          <p style="margin: 0 0 2px 0; font-size: 12px; color: #555;">&#9993; <a href="mailto:${sig.email}" style="color: #2563eb; text-decoration: none;">${sig.email}</a></p>
+          <p style="margin: 0; font-size: 12px; color: #555;">&#127760; <a href="https://www.accessformation.pro" style="color: #2563eb; text-decoration: none;">www.accessformation.pro</a></p>
+        </td>
+      </tr>
+    </table>
   `
-
-  const icsContent = generateICS({ prospectName, prospectPhone, contactName, callbackDate, callbackTime, callbackReason, callerName, notes })
-
-  const attachments = [{
-    filename: `rappel-${prospectName.replace(/[^a-zA-Z0-9]/g, '_')}.ics`,
-    content: icsContent,
-    contentType: 'text/calendar; method=REQUEST'
-  }]
-
-  return { subject, html, attachments }
 }
 
-function buildHotProspectEmail({ prospectName, prospectPhone, contactName, contactFunction, callbackReason, callerName, notes }) {
-  const now = new Date().toLocaleString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })
-
-  const subject = `🔥 PROSPECT CHAUD — ${prospectName}`
-
-  const html = `
-    <div style="font-family: Arial, sans-serif; max-width: 600px;">
-      <div style="background: linear-gradient(135deg, #ff6b35, #f7c948); padding: 20px; border-radius: 12px 12px 0 0;">
-        <h2 style="color: white; margin: 0;">🔥 Prospect chaud à rappeler !</h2>
-        <p style="color: rgba(255,255,255,0.9); margin: 5px 0 0 0;">${callerName} a identifié un prospect intéressé</p>
-      </div>
-      <div style="border: 1px solid #eee; border-top: none; border-radius: 0 0 12px 12px; padding: 20px;">
-        <table style="border-collapse: collapse; width: 100%; margin: 0 0 15px 0;">
-          <tr><td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold; width: 140px;">🏢 Entreprise</td><td style="padding: 10px; border-bottom: 1px solid #eee; font-size: 16px; font-weight: bold;">${prospectName}</td></tr>
-          <tr><td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold;">📞 Téléphone</td><td style="padding: 10px; border-bottom: 1px solid #eee;"><a href="tel:${prospectPhone}" style="color: #2563eb; font-size: 16px; font-weight: bold; text-decoration: none;">${prospectPhone}</a></td></tr>
-          ${contactName ? `<tr><td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold;">👤 Contact</td><td style="padding: 10px; border-bottom: 1px solid #eee;">${contactName}${contactFunction ? ' — ' + contactFunction : ''}</td></tr>` : ''}
-          ${callbackReason ? `<tr><td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold;">📋 Disponibilités</td><td style="padding: 10px; border-bottom: 1px solid #eee; color: #c2410c; font-weight: 500;">${callbackReason}</td></tr>` : ''}
-          <tr><td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold;">📅 Signalé le</td><td style="padding: 10px; border-bottom: 1px solid #eee;">${now}</td></tr>
-          <tr><td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold;">📞 Appelé par</td><td style="padding: 10px; border-bottom: 1px solid #eee;">${callerName}</td></tr>
-        </table>
-        ${notes ? `<div style="background: #fef3c7; padding: 12px; border-radius: 8px; border-left: 4px solid #f59e0b; margin-bottom: 15px;"><strong>📝 Notes :</strong><br/>${notes.replace(/\n/g, '<br/>')}</div>` : ''}
-        <div style="background: #fee2e2; padding: 12px; border-radius: 8px; text-align: center;">
-          <strong style="color: #dc2626;">⏰ Rappeler rapidement ce prospect !</strong>
-        </div>
-      </div>
+function wrapEmailHTML(body, caller) {
+  const signature = buildSignatureHTML(caller)
+  return `
+    <div style="font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #333; max-width: 650px;">
+      ${body}
+      ${signature}
     </div>
   `
+}
 
-  return { subject, html, attachments: [] }
+// Trouver la config SMTP pour un email donné, avec fallback intelligent
+async function findSmtpConfig(senderEmail) {
+  const { data: configs } = await supabase
+    .from('user_email_configs')
+    .select('*')
+    .eq('is_active', true)
+
+  if (!configs || configs.length === 0) return null
+
+  // 1. Config exacte pour le senderEmail
+  let config = configs.find(c => c.email === senderEmail)
+  if (config) return config
+
+  // 2. Fallback : entreprise@ (compte générique)
+  config = configs.find(c => c.email === 'entreprise@accessformation.pro')
+  if (config) return config
+
+  // 3. Fallback : contact@
+  config = configs.find(c => c.email === 'contact@accessformation.pro')
+  if (config) return config
+
+  // 4. Dernier recours : n'importe quelle config active
+  return configs[0]
 }
 
 export default async function handler(req, res) {
@@ -137,28 +114,25 @@ export default async function handler(req, res) {
   let transporter = null
 
   try {
-    const { prospectName, prospectPhone, contactName, contactFunction, callbackDate, callbackTime, callbackReason, callerName, notes, to } = req.body
+    const {
+      to, subject, body, caller,
+      prospectSiren, clientId, prospectName, templateType,
+      attachments
+    } = req.body
 
-    if (!prospectName) {
-      return res.status(400).json({ error: 'Paramètres manquants: prospectName requis' })
+    if (!to || !subject || !body) {
+      return res.status(400).json({ error: 'Parametres manquants: to, subject, body requis' })
     }
 
-    // Déterminer le type d'email : rappel classique (avec date+heure) ou prospect chaud
-    const isCallback = callbackDate && callbackTime
-    const emailData = isCallback
-      ? buildCallbackEmail({ prospectName, prospectPhone, contactName, contactFunction, callbackDate, callbackTime, callbackReason, callerName, notes })
-      : buildHotProspectEmail({ prospectName, prospectPhone, contactName, contactFunction, callbackReason, callerName, notes })
+    const callerInfo = SIGNATURES[caller] || SIGNATURES.Marine
+    const senderEmail = callerInfo.senderEmail
+    const html = wrapEmailHTML(body, caller)
 
-    // Récupérer la config SMTP
-    const { data: emailConfig, error: configError } = await supabase
-      .from('user_email_configs')
-      .select('*')
-      .eq('is_active', true)
-      .limit(1)
-      .single()
+    // Chercher la config SMTP correspondant au sender
+    const emailConfig = await findSmtpConfig(senderEmail)
 
-    if (configError || !emailConfig) {
-      return res.status(400).json({ error: 'Configuration email non trouvée' })
+    if (!emailConfig) {
+      return res.status(400).json({ error: 'Aucune configuration email active trouvee' })
     }
 
     const smtpPassword = decrypt(emailConfig.smtp_password_encrypted)
@@ -167,10 +141,7 @@ export default async function handler(req, res) {
       host: emailConfig.smtp_host,
       port: emailConfig.smtp_port,
       secure: emailConfig.smtp_secure,
-      auth: {
-        user: emailConfig.email,
-        pass: smtpPassword
-      },
+      auth: { user: emailConfig.email, pass: smtpPassword },
       tls: { rejectUnauthorized: false },
       connectionTimeout: 10000,
       greetingTimeout: 10000,
@@ -179,21 +150,77 @@ export default async function handler(req, res) {
 
     await transporter.verify()
 
-    await transporter.sendMail({
-      from: `"Access Formation" <${emailConfig.email}>`,
-      to: to || 'contact@accessformation.pro',
-      subject: emailData.subject,
-      html: emailData.html,
-      attachments: emailData.attachments,
-    })
+    // BCC : toujours l'adresse d'envoi + contact@ (dédupliqué)
+    const bccSet = new Set([senderEmail, 'contact@accessformation.pro'])
+    // Ne pas se mettre en BCC si on envoie déjà à cette adresse
+    bccSet.delete(to)
 
+    const mailOptions = {
+      from: `"Access Formation - ${callerInfo.name}" <${senderEmail}>`,
+      sender: emailConfig.email,
+      replyTo: `"Access Formation" <${senderEmail}>`,
+      to: to,
+      bcc: [...bccSet].join(', '),
+      subject: subject,
+      html: html,
+      attachments: [],
+    }
+
+    // Ajouter les pièces jointes si présentes
+    if (attachments && Array.isArray(attachments)) {
+      for (const att of attachments) {
+        if (att.base64 && att.filename) {
+          mailOptions.attachments.push({
+            filename: att.filename,
+            content: Buffer.from(att.base64, 'base64'),
+            contentType: att.contentType || 'application/pdf',
+          })
+        }
+      }
+    }
+
+    await transporter.sendMail(mailOptions)
     if (transporter) transporter.close()
 
-    return res.status(200).json({ success: true, type: isCallback ? 'callback' : 'hot_prospect' })
+    // Log dans prospect_email_logs
+    try {
+      await supabase.from('prospect_email_logs').insert({
+        prospect_siren: prospectSiren || null,
+        client_id: clientId || null,
+        prospect_name: prospectName || null,
+        to_email: to,
+        from_email: senderEmail,
+        subject: subject,
+        template_type: templateType || 'custom',
+        body_preview: body.replace(/<[^>]*>/g, '').substring(0, 500),
+        sent_by: caller || 'Marine',
+        status: 'sent',
+      })
+    } catch (logErr) {
+      console.error('Erreur log email (non bloquant):', logErr)
+    }
+
+    return res.status(200).json({ success: true })
 
   } catch (error) {
-    console.error('Erreur envoi email:', error)
+    console.error('Erreur envoi email prospect:', error)
     if (transporter) try { transporter.close() } catch (e) {}
+
+    // Log erreur
+    try {
+      await supabase.from('prospect_email_logs').insert({
+        prospect_siren: req.body?.prospectSiren || null,
+        prospect_name: req.body?.prospectName || null,
+        to_email: req.body?.to || '',
+        from_email: '',
+        subject: req.body?.subject || '',
+        template_type: req.body?.templateType || 'custom',
+        sent_by: req.body?.caller || 'Marine',
+        status: 'error',
+        error_message: error.message,
+      })
+    } catch (logErr) {}
+
     return res.status(500).json({ error: error.message })
   }
 }
