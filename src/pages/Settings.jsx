@@ -135,28 +135,52 @@ export default function Settings() {
       
       // Liste complète des tables à exporter (ordre : parents d'abord)
       const tableNames = [
-        'organization_settings',
-        'courses', 'course_documents', 'course_equipment', 'course_questions',
+        // Paramètres organisme
+        'organization_settings', 'org_settings', 'document_templates', 'app_versions',
+        // Formations & catalogue
+        'courses', 'course_documents', 'course_document_downloads', 'course_equipment', 'course_questions',
         'equipment_catalog',
+        // Clients
         'clients', 'client_contacts', 'client_interactions',
+        // Stagiaires
         'trainees', 'trainee_info_sheets', 'trainee_documents',
+        // Formateurs
         'trainers', 'trainer_certificates', 'trainer_qualifications', 'trainer_interviews', 'trainer_trainings',
+        // Sessions
         'sessions', 'session_trainees', 'session_equipment', 'session_costs', 'session_checklists',
         'session_needs_analysis', 'session_qualiopi', 'session_documents', 'session_document_access',
+        'session_fundings',
+        // Présences & évaluations
         'attendances', 'attendance_halfdays',
-        'trainee_objectives', 'trainee_evaluations', 'trainer_evaluations', 'evaluations_cold',
+        'trainee_objectives', 'trainee_evaluations', 'trainer_evaluations', 'evaluations', 'evaluations_cold',
         'sst_certifications',
+        // Devis & factures
         'quotes', 'quote_items',
+        'invoices', 'invoice_items', 'invoice_payments',
+        // Qualité & conformité
         'non_conformites', 'reclamations',
         'quality_documents', 'quality_alerts', 'qualiopi_documents',
-        'veille_qualiopi', 'veille_sources',
+        'veille_qualiopi', 'veille_sources', 'audits_internes',
+        // Processus
         'processes', 'process_steps', 'process_connections', 'process_responsibles', 'process_versions',
+        // Thèmes & tests
         'themes', 'theme_questions', 'training_themes',
-        'positioning_tests', 'positioning_answers',
+        'positioning_tests', 'positioning_answers', 'positioning_questions_ref',
+        // PSH
         'psh_requests',
-        'prospect_rdv', 'prospect_calls', 'prospect_needs_analysis',
-        'notifications', 'audit_logs',
-        'user_email_configs',
+        // Prospection
+        'prospect_rdv', 'prospect_calls', 'prospect_needs_analysis', 'prospect_email_logs',
+        'prospection_massive', 'prospection_groupes_siren',
+        // DUERP
+        'duerp_projects', 'duerp_units', 'duerp_risks', 'duerp_actions',
+        'duerp_risk_categories', 'duerp_risk_templates', 'duerp_sector_templates',
+        'duerp_equipements', 'duerp_habilitations', 'duerp_formations_reglementaires',
+        'duerp_verifications',
+        // Documents & signatures
+        'documents', 'document_signatures', 'uploaded_documents',
+        // Divers
+        'notifications', 'audit_logs', 'user_email_configs',
+        'dashboard_widget_configs', 'bpf_declarations', 'call_logs',
       ]
       
       // Charger toutes les tables en parallèle
