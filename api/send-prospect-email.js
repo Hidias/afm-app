@@ -1,7 +1,7 @@
 // api/send-prospect-email.js
 // Envoie un email de prospection au prospect (suite echange / NRP / relance)
 // Signature HTML selon l'expediteur (Hicham / Maxime / Marine)
-// Log dans prospect_email_logs + BCC entreprise@
+// Log dans prospect_email_logs + BCC sender + contact@
 
 import nodemailer from 'nodemailer'
 import { createClient } from '@supabase/supabase-js'
@@ -24,17 +24,18 @@ function decrypt(encryptedText) {
 }
 
 // Signatures HTML par expediteur
+// senderEmail = adresse FROM réelle pour l'envoi SMTP
 const SIGNATURES = {
   Hicham: {
     name: 'Hicham',
-    title: 'Dirigeant associe',
+    title: 'Dirigeant associé',
     phone: '06.35.20.04.28',
     email: 'hicham.saidi@accessformation.pro',
     senderEmail: 'hicham.saidi@accessformation.pro',
   },
   Maxime: {
     name: 'Maxime',
-    title: 'Dirigeant associe',
+    title: 'Dirigeant associé',
     phone: '07.83.51.17.95',
     email: 'maxime.langlais@accessformation.pro',
     senderEmail: 'maxime.langlais@accessformation.pro',
@@ -43,8 +44,8 @@ const SIGNATURES = {
     name: 'Marine',
     title: '',
     phone: '02 46 56 57 54',
-    email: 'contact@accessformation.pro',
-    senderEmail: 'contact@accessformation.pro',
+    email: 'entreprise@accessformation.pro',
+    senderEmail: 'entreprise@accessformation.pro',
   },
 }
 
@@ -80,6 +81,31 @@ function wrapEmailHTML(body, caller) {
   `
 }
 
+// Trouver la config SMTP pour un email donné, avec fallback intelligent
+async function findSmtpConfig(senderEmail) {
+  const { data: configs } = await supabase
+    .from('user_email_configs')
+    .select('*')
+    .eq('is_active', true)
+
+  if (!configs || configs.length === 0) return null
+
+  // 1. Config exacte pour le senderEmail
+  let config = configs.find(c => c.email === senderEmail)
+  if (config) return config
+
+  // 2. Fallback : entreprise@ (compte générique)
+  config = configs.find(c => c.email === 'entreprise@accessformation.pro')
+  if (config) return config
+
+  // 3. Fallback : contact@
+  config = configs.find(c => c.email === 'contact@accessformation.pro')
+  if (config) return config
+
+  // 4. Dernier recours : n'importe quelle config active
+  return configs[0]
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' })
@@ -103,20 +129,7 @@ export default async function handler(req, res) {
     const html = wrapEmailHTML(body, caller)
 
     // Chercher la config SMTP correspondant au sender
-    let emailConfig = null
-    const { data: configs } = await supabase
-      .from('user_email_configs')
-      .select('*')
-      .eq('is_active', true)
-
-    if (configs && configs.length > 0) {
-      // Chercher config pour l'email du caller
-      emailConfig = configs.find(c => c.email === senderEmail)
-      // Fallback sur contact@
-      if (!emailConfig) emailConfig = configs.find(c => c.email === 'contact@accessformation.pro')
-      // Fallback sur n'importe quelle config active
-      if (!emailConfig) emailConfig = configs[0]
-    }
+    const emailConfig = await findSmtpConfig(senderEmail)
 
     if (!emailConfig) {
       return res.status(400).json({ error: 'Aucune configuration email active trouvee' })
@@ -137,11 +150,17 @@ export default async function handler(req, res) {
 
     await transporter.verify()
 
+    // BCC : toujours l'adresse d'envoi + contact@ (dédupliqué)
+    const bccSet = new Set([senderEmail, 'contact@accessformation.pro'])
+    // Ne pas se mettre en BCC si on envoie déjà à cette adresse
+    bccSet.delete(to)
+
     const mailOptions = {
-      from: `"Access Formation - ${callerInfo.name}" <${emailConfig.email}>`,
-      replyTo: `"Access Formation" <contact@accessformation.pro>`,
+      from: `"Access Formation - ${callerInfo.name}" <${senderEmail}>`,
+      sender: emailConfig.email,
+      replyTo: `"Access Formation" <${senderEmail}>`,
       to: to,
-      bcc: 'entreprise@accessformation.pro',
+      bcc: [...bccSet].join(', '),
       subject: subject,
       html: html,
       attachments: [],
@@ -170,7 +189,7 @@ export default async function handler(req, res) {
         client_id: clientId || null,
         prospect_name: prospectName || null,
         to_email: to,
-        from_email: emailConfig.email,
+        from_email: senderEmail,
         subject: subject,
         template_type: templateType || 'custom',
         body_preview: body.replace(/<[^>]*>/g, '').substring(0, 500),
