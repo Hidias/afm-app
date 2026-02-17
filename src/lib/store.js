@@ -432,7 +432,7 @@ export const useDataStore = create((set, get) => ({
         supabase.from('clients').select('*'),
         supabase.from('trainers').select('*'),
         supabase.from('trainees').select('*'),
-        supabase.from('session_trainees').select('id, session_id, trainee_id, registration_date, result, admin_observation, expectations_notification_sent, presence_complete, early_departure, access_code, positioning_test_completed, positioning_test_completed_at, forprev_card_url, departure_date, departure_reason'),
+        supabase.from('session_trainees').select('id, session_id, trainee_id, registration_date, result, admin_observation, expectations_notification_sent, presence_complete, early_departure, access_code, positioning_test_completed, positioning_test_completed_at, forprev_card_url, departure_date, departure_reason, convocation_sent_at'),
         supabase.from('client_contacts').select('*')
       ])
       
@@ -570,7 +570,7 @@ export const useDataStore = create((set, get) => ({
       // Charger les stagiaires avec presence_complete et early_departure
       const { data: sessionTrainees, error: stError } = await supabase
         .from('session_trainees')
-        .select('id, trainee_id, registration_date, result, remediation_proposal, result_forced_reason, result_forced_at, presence_complete, early_departure, access_code')
+        .select('id, trainee_id, registration_date, result, remediation_proposal, result_forced_reason, result_forced_at, presence_complete, early_departure, access_code, convocation_sent_at')
         .eq('session_id', id)
       
       if (stError) console.error('Error loading session_trainees:', stError)
