@@ -2392,7 +2392,7 @@ export const useDataStore = create((set, get) => ({
         .eq('trainee_id', traineeId)
       
       const { data: evaluations } = await supabase
-        .from('evaluations')
+        .from('trainee_evaluations')
         .select('*')
         .eq('trainee_id', traineeId)
       
