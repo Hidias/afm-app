@@ -26,7 +26,7 @@ const ML = {
   '01/2026':'Jan 26','02/2026':'Fév 26','03/2026':'Mar 26',
 }
 
-const fmt = (n) => n ? Math.abs(n).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €' : '-'
+const fmt = (n) => n ? (n < 0 ? '-' : '') + Math.abs(n).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €' : '-'
 const fmtS = (n) => { if (!n) return '-'; const a = Math.abs(n); return a >= 1000 ? (a/1000).toFixed(1)+'k€' : Math.round(a)+'€' }
 
 export default function BudgetModule() {
@@ -818,10 +818,10 @@ function CategorisationIATab({ transactions, categories, rules, loadAll }) {
     setIgnored(new Set())
 
     // Préparer les données pour l'IA - par lots de 40
-    const catList = categories.map(c => `${c.icon} ${c.name}`).join(', ')
+    const catList = categories.map(c => c.name).join(', ')
     const rulesList = rules.map(r => `${r.keyword} → ${r.budget_categories?.name || '?'}`).join(', ')
     const allSuggestions = []
-    const batchSize = 40
+    const batchSize = 50
     const batches = []
 
     for (let i = 0; i < candidates.length; i += batchSize) {
@@ -831,6 +831,8 @@ function CategorisationIATab({ transactions, categories, rules, loadAll }) {
     setProgress({ done: 0, total: batches.length })
 
     for (let b = 0; b < batches.length; b++) {
+      // Throttle : 2s entre chaque appel pour éviter 429
+      if (b > 0) await new Promise(r => setTimeout(r, 2000))
       const batch = batches[b]
       const txList = batch.map((tx, i) => `${i}|${tx.id}|${tx.description}|${tx.debit > 0 ? 'DEBIT ' + tx.debit : 'CREDIT ' + tx.credit}|${tx.category_name}`).join('\n')
 
@@ -863,7 +865,7 @@ Contexte métier important :
 - GOCARDLESS = probablement paiement Qualiopi
 - Tout VIR de client (OPCO, AFPI, SOCOTEC, EIFFAGE, etc.) = CA Formations ou CA Sous-traitance
 
-Format JSON strict (pas de markdown) :
+Format JSON strict (pas de markdown, pas d'icônes dans les noms de catégorie) :
 [{"id":"uuid","description":"...","current":"catégorie actuelle","suggested":"catégorie suggérée","confidence":0.95,"reason":"explication courte","keyword":"MOT_CLE pour future règle"}]
 
 Si toutes les transactions sont bien classées, réponds : []
@@ -890,8 +892,13 @@ ${txList}` }]
   }
 
   async function applySuggestion(s) {
-    const cat = categories.find(c => c.name === s.suggested)
-    if (!cat) { toast.error('Catégorie non trouvée: ' + s.suggested); return }
+    // Matching flexible : exact d'abord, puis includes, puis strip icônes/espaces
+    const suggested = (s.suggested || '').trim()
+    const cat = categories.find(c => c.name === suggested)
+      || categories.find(c => suggested.includes(c.name))
+      || categories.find(c => c.name.includes(suggested))
+      || categories.find(c => suggested.replace(/^[\p{Emoji}\p{Emoji_Presentation}\s]+/u, '').trim() === c.name)
+    if (!cat) { toast.error('Catégorie non trouvée: ' + suggested); return }
 
     // Update transaction
     await supabase.from('budget_transactions').update({ category_id: cat.id, category_name: cat.name }).eq('id', s.id)
@@ -1045,9 +1052,13 @@ function PrevisionnelTab({ transactions, categories }) {
     scenario: 'realiste'
   })
 
-  // ── Calcul des charges fixes moyennes ──
+  // ── Calcul des charges fixes moyennes depuis les données réelles ──
   const analysis = useMemo(() => {
     const co = transactions.filter(tx => !tx.is_personal)
+
+    // Map catégorie name → type/direction
+    const catMap = {}
+    categories.forEach(c => { catMap[c.name] = { type: c.type, direction: c.direction } })
 
     // Grouper par mois
     const byMonth = {}
@@ -1064,41 +1075,33 @@ function PrevisionnelTab({ transactions, categories }) {
     const months = Object.keys(byMonth).sort()
     const nbMonths = months.length || 1
 
-    // Charges fixes mensuelles (catégories "fixe")
-    const fixedCats = ['Prêts (remboursement)', 'Véhicules (leasing)', 'Assurances (véhicules)', 'Assurances (santé/prévoyance)',
-      'Comptabilité', 'Logiciels & SaaS', 'Télécommunications', 'Frais bancaires', 'Loyer & Charges']
-    
+    // Calculer depuis type/direction des catégories
     let totalFixed = 0, totalVariable = 0, totalRevenue = 0
     const fixedBreakdown = {}
 
     months.forEach(m => {
       const mc = byMonth[m].cats
       Object.entries(mc).forEach(([cat, vals]) => {
-        if (fixedCats.some(fc => cat.includes(fc.split(' ')[0])) || cat === 'Loyer & Charges') {
+        const info = catMap[cat] || { type: 'variable', direction: 'depense' }
+
+        // Exclure exceptionnel et neutre
+        if (info.type === 'exceptionnel' || info.direction === 'neutre') return
+
+        if (info.direction === 'recette' && vals.credit > 0) {
+          totalRevenue += vals.credit
+        } else if (info.type === 'fixe' && vals.debit > 0) {
           totalFixed += vals.debit
           if (!fixedBreakdown[cat]) fixedBreakdown[cat] = 0
           fixedBreakdown[cat] += vals.debit
-        } else if (vals.debit > 0) {
+        } else if (info.type === 'variable' && vals.debit > 0) {
           totalVariable += vals.debit
-        }
-        if (vals.credit > 0) totalRevenue += vals.credit
-      })
-    })
-
-    // Exclure trésorerie interne et mouvements non-CA des revenus
-    const internalCats = ['Trésorerie interne', 'Apports associés', 'Prêts (réception)']
-    let realRevenue = 0
-    months.forEach(m => {
-      Object.entries(byMonth[m].cats).forEach(([cat, vals]) => {
-        if (!internalCats.some(ic => cat.includes(ic.split(' ')[0])) && vals.credit > 0) {
-          realRevenue += vals.credit
         }
       })
     })
 
     const avgMonthlyFixed = totalFixed / nbMonths
     const avgMonthlyVariable = totalVariable / nbMonths
-    const avgMonthlyRevenue = realRevenue / nbMonths
+    const avgMonthlyRevenue = totalRevenue / nbMonths
     const avgMonthlyNet = avgMonthlyRevenue - (totalFixed + totalVariable) / nbMonths
 
     // Saisonnalité : ratio par rapport à la moyenne
@@ -1107,12 +1110,13 @@ function PrevisionnelTab({ transactions, categories }) {
     months.forEach(m => {
       let rev = 0
       Object.entries(byMonth[m].cats).forEach(([cat, vals]) => {
-        if (!internalCats.some(ic => cat.includes(ic.split(' ')[0])) && vals.credit > 0) {
+        const info = catMap[cat] || {}
+        if (info.direction === 'recette' && info.type !== 'exceptionnel' && vals.credit > 0) {
           rev += vals.credit
         }
       })
       revenueByMonth[m] = rev
-      const mm = m.split('/')[0] // "05" from "05/2025"
+      const mm = m.split('/')[0]
       if (!seasonality[mm]) seasonality[mm] = { total: 0, count: 0 }
       seasonality[mm].total += rev
       seasonality[mm].count++
@@ -1122,13 +1126,18 @@ function PrevisionnelTab({ transactions, categories }) {
       seasonality[mm].ratio = avgMonthlyRevenue > 0 ? seasonality[mm].avg / avgMonthlyRevenue : 1
     })
 
+    // Détail charges fixes pour affichage (top catégories)
+    const fixedDetail = Object.entries(fixedBreakdown)
+      .map(([name, total]) => ({ name, icon: categories.find(c => c.name === name)?.icon || '📦', monthly: total / nbMonths }))
+      .sort((a, b) => b.monthly - a.monthly)
+
     return {
       months, byMonth, nbMonths,
       avgMonthlyFixed, avgMonthlyVariable, avgMonthlyRevenue, avgMonthlyNet,
-      fixedBreakdown, seasonality, revenueByMonth,
-      totalFixed, totalVariable, realRevenue
+      fixedBreakdown, fixedDetail, seasonality, revenueByMonth,
+      totalFixed, totalVariable, totalRevenue
     }
-  }, [transactions])
+  }, [transactions, categories])
 
   // ── Projections mois par mois jusqu'à décembre 2026 ──
   const projections = useMemo(() => {
@@ -1144,21 +1153,18 @@ function PrevisionnelTab({ transactions, categories }) {
     // Mois faibles (août=8, décembre=12, janvier=1)
     const weakMonths = [1, 8, 12]
 
-    // Charges fixes mensuelles estimées
-    const monthlyPrets = 1802  // ECH PRET total mensuel
-    const monthlyLeasing = 256  // DIAC
-    const monthlyDKV = 350  // carburant moyen
-    const monthlyAssurances = 320  // AXA + SwissLife + CEGEMA
-    const monthlyCompta = 410  // CEGEFI
-    const monthlyLogiciels = 300  // Claude, Supabase, Microsoft, Apple, Vercel, etc.
-    const monthlyTelecom = 255  // Orange
-    const monthlyBanque = 50  // Eurocompte + commissions
-    const monthlyDivers = 200  // Suravenir, divers
+    // Charges fixes = moyenne historique HORS salaires et URSSAF (éditables séparément)
+    const salaryNames = ['Salaire Hicham', 'Salaire Maxime']
+    const urssafNames = ['Charges sociales (URSSAF)']
+    const excludeFromFixed = [...salaryNames, ...urssafNames]
 
-    const fixedCharges = monthlyPrets + monthlyLeasing + monthlyDKV + monthlyAssurances + monthlyCompta + monthlyLogiciels + monthlyTelecom + monthlyBanque + monthlyDivers
+    const computedFixed = analysis.fixedDetail
+      .filter(d => !excludeFromFixed.includes(d.name))
+      .reduce((sum, d) => sum + d.monthly, 0)
+
     const salaires = config.salaires
     const urssaf = config.urssaf
-    const totalFixedMonth = fixedCharges + salaires + urssaf
+    const totalFixedMonth = computedFixed + salaires + urssaf
 
     // Scénarios de CA
     const scenarios = {
@@ -1179,7 +1185,7 @@ function PrevisionnelTab({ transactions, categories }) {
 
         // Budget variable = ce qu'on peut dépenser en plus des charges fixes
         const budgetVariable = Math.max(0, caEstim - totalFixedMonth)
-        // Variable réaliste = ~30% du budget variable (restaurants, déplacements, fournitures)
+        // Variable réaliste = ~60% du budget variable plafonné à la moyenne historique
         const depVariable = Math.min(budgetVariable * 0.6, analysis.avgMonthlyVariable)
 
         const totalDepenses = totalFixedMonth + depVariable
@@ -1203,7 +1209,7 @@ function PrevisionnelTab({ transactions, categories }) {
       results[key] = { ...sc, data: monthlyData, finalSolde: solde }
     }
 
-    return { results, totalFixedMonth, fixedCharges, scenarios }
+    return { results, totalFixedMonth, computedFixed, scenarios }
   }, [analysis, config])
 
   const sc = projections.results[config.scenario]
@@ -1348,24 +1354,25 @@ function PrevisionnelTab({ transactions, categories }) {
 
       {/* Détail charges fixes */}
       <div className="bg-white rounded-xl shadow-sm border p-4">
-        <h3 className="font-bold text-gray-700 mb-3">📊 Détail charges fixes mensuelles estimées</h3>
+        <h3 className="font-bold text-gray-700 mb-3">📊 Détail charges fixes mensuelles (calculé sur {analysis.nbMonths} mois)</h3>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-          {[
-            { label: 'Salaires (2 dirigeants)', amount: config.salaires, icon: '💰' },
-            { label: 'URSSAF', amount: config.urssaf, icon: '🏛️' },
-            { label: 'Prêts BPI', amount: 1802, icon: '🏦' },
-            { label: 'Comptabilité (CEGEFI)', amount: 410, icon: '📋' },
-            { label: 'Carburant DKV', amount: 350, icon: '⛽' },
-            { label: 'Assurances', amount: 320, icon: '🛡️' },
-            { label: 'Logiciels & SaaS', amount: 300, icon: '💻' },
-            { label: 'Leasing DIAC', amount: 256, icon: '🚗' },
-            { label: 'Télécom Orange', amount: 255, icon: '📱' },
-            { label: 'Divers (banque, etc.)', amount: 250, icon: '📦' },
-          ].map((c, i) => (
+          <div className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
+            <span>💰</span>
+            <div className="flex-1 text-xs text-gray-700">Salaires (paramètre)</div>
+            <div className="font-mono text-sm font-bold text-red-600">{fmt(config.salaires)}</div>
+          </div>
+          <div className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
+            <span>🏛️</span>
+            <div className="flex-1 text-xs text-gray-700">URSSAF (paramètre)</div>
+            <div className="font-mono text-sm font-bold text-red-600">{fmt(config.urssaf)}</div>
+          </div>
+          {analysis.fixedDetail
+            .filter(d => !['Salaire Hicham', 'Salaire Maxime', 'Charges sociales (URSSAF)'].includes(d.name))
+            .map((c, i) => (
             <div key={i} className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
               <span>{c.icon}</span>
-              <div className="flex-1 text-xs text-gray-700">{c.label}</div>
-              <div className="font-mono text-sm font-bold text-red-600">{fmt(c.amount)}</div>
+              <div className="flex-1 text-xs text-gray-700">{c.name}</div>
+              <div className="font-mono text-sm font-bold text-red-600">{fmt(c.monthly)}</div>
             </div>
           ))}
         </div>
@@ -1373,7 +1380,7 @@ function PrevisionnelTab({ transactions, categories }) {
           <span className="font-bold text-red-800">Total charges fixes mensuelles</span>
           <span className="font-mono text-xl font-bold text-red-700">{fmt(projections.totalFixedMonth)}</span>
         </div>
-        <p className="text-xs text-gray-500 mt-2">💡 Pour atteindre 50k€, votre CA mensuel doit couvrir {fmt(projections.totalFixedMonth)} de charges fixes + dégager {fmt(requiredMonthly)} de bénéfice net</p>
+        <p className="text-xs text-gray-500 mt-2">💡 Pour atteindre {fmt(config.objectif)}, votre CA mensuel doit couvrir {fmt(projections.totalFixedMonth)} de charges fixes + dégager {fmt(requiredMonthly)} de bénéfice net</p>
         <p className="text-xs text-gray-500">→ <b>CA minimum requis : {fmt(projections.totalFixedMonth + requiredMonthly)}/mois</b></p>
       </div>
     </div>
