@@ -602,22 +602,6 @@ export default function EnrichissementRapide() {
         .eq('siren', sirenChanged ? editSiren.trim() : current.siren)
     }
 
-    // Marquer les doublons (même nom)
-    if (!error && current.name) {
-      await supabase
-        .from('prospection_massive')
-        .update({
-          enrichment_status: 'done',
-          enrichment_last_attempt: new Date().toISOString(),
-          enrichment_attempts: 99,
-          ...(update.phone ? { phone: update.phone, phone_source: update.phone_source } : {}),
-          ...(update.site_web ? { site_web: update.site_web } : {}),
-          ...(update.email ? { email: update.email, email_source: update.email_source } : {}),
-        })
-        .ilike('name', current.name)
-        .neq('siren', current.siren)
-    }
-
     if (!error) {
       setSessionStats(prev => ({
         done: prev.done + 1,
