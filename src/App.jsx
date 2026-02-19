@@ -47,6 +47,8 @@ import EmailSettings from './pages/EmailSettings'
 // ========== NOUVEAU : Module DUERP ==========
 import DuerpProjects from './pages/DuerpProjects'
 import DuerpDetail from './pages/DuerpDetail'
+// ========== NOUVEAU : Module Budget ==========
+import BudgetModule from './pages/BudgetModule'
 
 // Pages publiques
 import PublicAttendance from './pages/public/Attendance'
@@ -162,6 +164,8 @@ export default function App() {
           {/* ========== NOUVEAU : Module DUERP ========== */}
           <Route path="duerp" element={<DuerpProjects />} />
           <Route path="duerp/:id" element={<DuerpDetail />} />
+          {/* ========== NOUVEAU : Module Budget ========== */}
+          <Route path="budget" element={<BudgetModule />} />
           {/* ================================================== */}
           <Route path="formations" element={<Courses />} />
           <Route path="formateurs" element={<Trainers />} />
