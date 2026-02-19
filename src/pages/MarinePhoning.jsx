@@ -270,7 +270,7 @@ export default function MarinePhoning() {
   ]
   const [pendingGoNext, setPendingGoNext] = useState(false)
   const [emailSentMap, setEmailSentMap] = useState({}) // siren -> { date, template }
-  const [relanceSuggestions, setRelanceSuggestions] = useState(0)
+  const [relanceSuggestions, setRelanceSuggestions] = useState({ total: 0, urgent: 0, normal: 0 })
   const [templateVersion, setTemplateVersion] = useState(0)
 
   const listRef = useRef(null)
@@ -1021,16 +1021,19 @@ export default function MarinePhoning() {
         .eq('status', 'sent')
       if (data) {
         const map = {}
-        let relCount = 0
+        let urgent = 0, normal = 0
         data.forEach(d => {
           if (d.prospect_siren) {
             map[d.prospect_siren] = { date: new Date(d.sent_at), template: d.template_type }
             const days = Math.floor((Date.now() - new Date(d.sent_at).getTime()) / 86400000)
-            if (days >= 7 && d.template_type !== 'relance') relCount++
+            if (d.template_type !== 'relance') {
+              if (days >= 15) urgent++
+              else if (days >= 7) normal++
+            }
           }
         })
         setEmailSentMap(map)
-        setRelanceSuggestions(relCount)
+        setRelanceSuggestions({ total: urgent + normal, urgent, normal })
       }
     }
     loadEmailSentMap()
@@ -1210,10 +1213,11 @@ export default function MarinePhoning() {
   const rappelsCount = prospects.filter(p => p.siren && todayCallbackSirens.has(p.siren)).length
 
   const STATUS_FILTERS = [
-    { id: 'a_appeler', label: '📞 À appeler', count: prospects.filter(p => !p.prospection_status || p.prospection_status === 'a_appeler').length },
+    { id: 'a_appeler', label: '📞 À appeler', count: prospects.filter(p => (!p.prospection_status || p.prospection_status === 'a_appeler') && !p.gere_par_id).length },
     { id: 'rappels', label: '🔔 Rappels', count: rappelsCount },
     { id: 'a_rappeler', label: '🟡 À rappeler', count: prospects.filter(p => p.prospection_status === 'a_rappeler').length },
     { id: 'rdv_pris', label: '🔥 RDV', count: prospects.filter(p => p.prospection_status === 'rdv_pris').length },
+    { id: 'redirige', label: '🏢 Redirigé', count: prospects.filter(p => p.prospection_status === 'redirige' || p.gere_par_id).length },
     { id: 'pas_interesse', label: '❄️ Refus', count: prospects.filter(p => p.prospection_status === 'pas_interesse').length },
     { id: 'numero_errone', label: '❌ Erroné', count: prospects.filter(p => p.prospection_status === 'numero_errone').length },
     { id: 'tous', label: '📋 Tous', count: prospects.length },
@@ -1235,6 +1239,7 @@ export default function MarinePhoning() {
     // Sinon → filtrage client classique (liste dédupliquée)
     let list = prospects.filter(p => {
       if (statusFilter === 'a_appeler' && p.prospection_status && p.prospection_status !== 'a_appeler') return false
+      if (statusFilter === 'a_appeler' && p.gere_par_id) return false
       if (statusFilter === 'rappels' && !(p.siren && todayCallbackSirens.has(p.siren))) return false
       if (statusFilter === 'a_rappeler' && p.prospection_status !== 'a_rappeler') return false
       // Sub-filters for "À rappeler" tab
@@ -1255,6 +1260,7 @@ export default function MarinePhoning() {
         }
       }
       if (statusFilter === 'rdv_pris' && p.prospection_status !== 'rdv_pris') return false
+      if (statusFilter === 'redirige' && p.prospection_status !== 'redirige' && !p.gere_par_id) return false
       if (statusFilter === 'pas_interesse' && p.prospection_status !== 'pas_interesse') return false
       if (statusFilter === 'numero_errone' && p.prospection_status !== 'numero_errone') return false
       if (departementFilter && p.departement !== departementFilter) return false
@@ -1410,7 +1416,13 @@ export default function MarinePhoning() {
             {dailyStats.tiede > 0 && <span className="text-orange-500 font-medium">🟡{dailyStats.tiede}</span>}
             {dailyStats.froid > 0 && <span className="text-blue-500 font-medium">❄️{dailyStats.froid}</span>}
             {dailyStats.no_answer > 0 && <span className="text-gray-400">📞{dailyStats.no_answer}</span>}
-            {relanceSuggestions > 0 && <span className="text-orange-500 font-medium">✉️{relanceSuggestions} relances</span>}
+            {relanceSuggestions.total > 0 && (
+              <span className="flex items-center gap-1">
+                {relanceSuggestions.urgent > 0 && <span className="text-red-500 font-medium">🔴{relanceSuggestions.urgent}</span>}
+                {relanceSuggestions.normal > 0 && <span className="text-orange-500 font-medium">✉️{relanceSuggestions.normal}</span>}
+                <span className="text-gray-400 text-[10px]">relances</span>
+              </span>
+            )}
           </div>
           <div className="flex bg-gray-100 rounded-lg p-1">
             {CALLERS.map(c => (
