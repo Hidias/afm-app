@@ -484,6 +484,57 @@ export default function MarinePhoning() {
     } catch (err) { toast.error('Erreur: ' + err.message) }
   }
 
+  // ═══ DÉSIGNER UNE AUTRE AGENCE COMME CENTRALISATRICE ═══
+  // Ex: tu es sur Derval → tu cliques "C'est eux" sur Redon
+  // → Derval + tous les autres = "géré par Redon"
+  // → Redon = prioritaire dans la file si pas encore contacté
+  // SÉCURITÉ: updates par IDs explicites uniquement
+  async function designateCentralOffice(centralSibling) {
+    if (!current || !centralSibling) return
+    try {
+      // 1. Récupérer TOUS les frères du même SIREN
+      const { data: allSiblings } = await supabase
+        .from('prospection_massive')
+        .select('id, city')
+        .eq('siren', current.siren)
+      if (!allSiblings || allSiblings.length === 0) return
+
+      // 2. Tous sauf le central → "géré par"
+      const idsToMark = allSiblings.filter(s => s.id !== centralSibling.id).map(s => s.id)
+      const now = new Date().toISOString()
+
+      if (idsToMark.length > 0) {
+        await supabase.from('prospection_massive').update({
+          gere_par_id: centralSibling.id,
+          gere_par_city: centralSibling.city,
+          gere_par_at: now,
+          contacted: true,
+          contacted_at: now,
+          prospection_status: 'redirige',
+          prospection_notes: `Redirigé vers ${centralSibling.city}`,
+          updated_at: now,
+        }).in('id', idsToMark)
+      }
+
+      // 3. L'agence centrale : si pas encore contactée, la remonter
+      if (!centralSibling.contacted) {
+        await supabase.from('prospection_massive').update({
+          prospection_status: 'a_appeler',
+          prospection_notes: `Agence centrale (redirigé depuis ${current.city})`,
+          updated_at: now,
+        }).eq('id', centralSibling.id)
+      }
+
+      toast.success(`✅ ${idsToMark.length} agence(s) redirigées vers ${centralSibling.city}`)
+      setSiblingSelections(new Set())
+      await loadProspects()
+      goNext()
+    } catch (err) {
+      console.error('Erreur centralisation:', err)
+      toast.error('Erreur: ' + err.message)
+    }
+  }
+
   function toggleSiblingSelection(id) {
     setSiblingSelections(prev => {
       const next = new Set(prev)
@@ -779,7 +830,7 @@ export default function MarinePhoning() {
       const clientId = await findOrCreateClient(current)
       await clearOldCallbacks(clientId)
       const hasNew = wrongNumberNew.trim().length >= 6
-      const noteText = hasNew ? 'Num\u00e9ro erron\u00e9. Nouveau num\u00e9ro : ' + wrongNumberNew.trim() : 'Num\u00e9ro erron\u00e9'
+      const noteText = hasNew ? 'Numéro erroné. Nouveau numéro : ' + wrongNumberNew.trim() : 'Numéro erroné'
       await supabase.from('prospect_calls').insert({
         client_id: clientId, called_by: callerName, call_result: 'wrong_number',
         notes: noteText, duration_seconds: getElapsedSeconds(),
@@ -790,13 +841,13 @@ export default function MarinePhoning() {
           prospection_status: 'a_appeler', prospection_notes: noteText, updated_at: new Date().toISOString(),
         }).eq('siren', current.siren)
         await supabase.from('clients').update({ contact_phone: wrongNumberNew.trim() }).eq('id', clientId)
-        toast.success('\u2705 Nouveau num\u00e9ro enregistr\u00e9 \u2014 remis dans la file')
+        toast.success('✅ Nouveau numéro enregistré — remis dans la file')
       } else {
         await supabase.from('prospection_massive').update({
           contacted: true, contacted_at: new Date().toISOString(),
           prospection_status: 'numero_errone', updated_at: new Date().toISOString(),
         }).eq('siren', current.siren)
-        toast.success('\u274c N\u00b0 erron\u00e9 \u2014 suivant')
+        toast.success('❌ N° erroné — suivant')
       }
       loadDailyStats(); loadTodayCallbacks(); goNext(); await loadProspects()
     } catch (error) {
@@ -805,49 +856,49 @@ export default function MarinePhoning() {
   }
   const EMAIL_TEMPLATES = {
     suite_echange: {
-      subject: (name) => 'Suite \u00e0 notre \u00e9change \u2013 formations sant\u00e9 & s\u00e9curit\u00e9',
+      subject: (name) => 'Suite à notre échange – formations santé & sécurité',
       body: (name, contact) => `<p>Bonjour${contact ? ' ' + contact : ''},</p>
-<p>Merci encore d'avoir pris le temps d'\u00e9changer avec moi aujourd'hui \ud83d\ude0a</p>
-<p>Comme \u00e9voqu\u00e9 au t\u00e9l\u00e9phone, Access Formation accompagne les entreprises de Bretagne et Pays de la Loire sur les sujets de sant\u00e9 et s\u00e9curit\u00e9 au travail, avec une approche tr\u00e8s terrain et sur mesure.</p>
+<p>Merci encore d'avoir pris le temps d'échanger avec moi aujourd'hui 😊</p>
+<p>Comme évoqué au téléphone, Access Formation accompagne les entreprises de Bretagne et Pays de la Loire sur les sujets de santé et sécurité au travail, avec une approche très terrain et sur mesure.</p>
 <p>Nous intervenons notamment sur :</p>
 <ul>
 <li>le secourisme (SST, MAC SST)</li>
-<li>la pr\u00e9vention incendie (EPI, extincteurs, \u00e9vacuation)</li>
+<li>la prévention incendie (EPI, extincteurs, évacuation)</li>
 <li>les gestes et postures / TMS</li>
-<li>les habilitations \u00e9lectriques (B0 / H0V)</li>
+<li>les habilitations électriques (B0 / H0V)</li>
 <li>la conduite de chariots et gerbeurs (R485 / R489)</li>
 </ul>
-<p>Notre particularit\u00e9 : des formations intra-entreprise, directement sur site, anim\u00e9es par l'un de nos deux formateurs, avec des contenus concrets, participatifs, et pens\u00e9s pour \u00eatre utiles au quotidien (pas de format descendant ou ennuyeux).</p>
-<p>Nous sommes \u00e9galement certifi\u00e9s <strong>Qualiopi</strong>, ce qui permet, selon les cas, un financement via les OPCO.</p>
+<p>Notre particularité : des formations intra-entreprise, directement sur site, animées par l'un de nos deux formateurs, avec des contenus concrets, participatifs, et pensés pour être utiles au quotidien (pas de format descendant ou ennuyeux).</p>
+<p>Nous sommes également certifiés <strong>Qualiopi</strong>, ce qui permet, selon les cas, un financement via les OPCO.</p>
 <p>Si vous le souhaitez, nous proposons un <strong>diagnostic gratuit de 20 minutes</strong>, afin de cadrer vos besoins, vos contraintes et voir ensemble si cela a du sens d'aller plus loin.</p>
-<p>Nous restons bien entendu \u00e0 votre disposition pour \u00e9changer, et vous souhaitons une tr\u00e8s bonne journ\u00e9e !</p>`,
+<p>Nous restons bien entendu à votre disposition pour échanger, et vous souhaitons une très bonne journée !</p>`,
     },
     nrp: {
-      subject: (name) => 'Vos formations s\u00e9curit\u00e9 sont-elles \u00e0 jour ?',
+      subject: (name) => 'Vos formations sécurité sont-elles à jour ?',
       body: (name, contact) => `<p>Bonjour${contact ? ' ' + contact : ''},</p>
-<p>Je me permets de vous contacter par mail, car j'ai tent\u00e9 de vous joindre ce jour, sans succ\u00e8s.</p>
-<p>Je souhaitais \u00e9changer avec vous pour vous pr\u00e9senter <strong>Access Formation</strong>, organisme de formation sp\u00e9cialis\u00e9 en sant\u00e9 et s\u00e9curit\u00e9 au travail, intervenant en Bretagne et Pays de la Loire.</p>
+<p>Je me permets de vous contacter par mail, car j'ai tenté de vous joindre ce jour, sans succès.</p>
+<p>Je souhaitais échanger avec vous pour vous présenter <strong>Access Formation</strong>, organisme de formation spécialisé en santé et sécurité au travail, intervenant en Bretagne et Pays de la Loire.</p>
 <p>Nous intervenons notamment sur :</p>
 <ul>
 <li>le secourisme (SST, MAC SST)</li>
-<li>la pr\u00e9vention incendie (EPI, extincteurs, \u00e9vacuation)</li>
+<li>la prévention incendie (EPI, extincteurs, évacuation)</li>
 <li>les gestes et postures / TMS</li>
-<li>les habilitations \u00e9lectriques (B0 / H0V)</li>
+<li>les habilitations électriques (B0 / H0V)</li>
 <li>la conduite de chariots et gerbeurs (R485 / R489)</li>
 </ul>
-<p>Notre particularit\u00e9 : des formations intra-entreprise, directement sur site, anim\u00e9es par l'un de nos deux formateurs, avec des contenus concrets, participatifs, et pens\u00e9s pour \u00eatre utiles au quotidien (pas de format descendant ou ennuyeux).</p>
-<p>Nous sommes \u00e9galement certifi\u00e9s <strong>Qualiopi</strong>, ce qui permet, selon les cas, un financement via les OPCO.</p>
+<p>Notre particularité : des formations intra-entreprise, directement sur site, animées par l'un de nos deux formateurs, avec des contenus concrets, participatifs, et pensés pour être utiles au quotidien (pas de format descendant ou ennuyeux).</p>
+<p>Nous sommes également certifiés <strong>Qualiopi</strong>, ce qui permet, selon les cas, un financement via les OPCO.</p>
 <p>Si vous le souhaitez, nous proposons un <strong>diagnostic gratuit de 20 minutes</strong>, afin de cadrer vos besoins, vos contraintes et voir ensemble si cela a du sens d'aller plus loin.</p>
-<p>Nous restons bien entendu \u00e0 votre disposition pour \u00e9changer, et vous souhaitons une tr\u00e8s bonne journ\u00e9e !</p>`,
+<p>Nous restons bien entendu à votre disposition pour échanger, et vous souhaitons une très bonne journée !</p>`,
     },
     relance: {
-      subject: (name) => 'Relance \u2013 formations sant\u00e9 & s\u00e9curit\u00e9',
+      subject: (name) => 'Relance – formations santé & sécurité',
       body: (name, contact) => `<p>Bonjour${contact ? ' ' + contact : ''},</p>
-<p>Je me permets de revenir vers vous suite \u00e0 mon pr\u00e9c\u00e9dent message.</p>
-<p>Nous accompagnons les entreprises de Bretagne et Pays de la Loire en formations sant\u00e9 et s\u00e9curit\u00e9 : SST, incendie, gestes et postures, habilitations \u00e9lectriques, CACES.</p>
-<p>Nos formations sont <strong>100% intra-entreprise</strong>, directement chez vous, avec des contenus concrets et participatifs. Nous sommes certifi\u00e9s <strong>Qualiopi</strong> (financement OPCO possible).</p>
-<p>Seriez-vous disponible pour un \u00e9change rapide de 10 minutes cette semaine ?</p>
-<p>Belle journ\u00e9e !</p>`,
+<p>Je me permets de revenir vers vous suite à mon précédent message.</p>
+<p>Nous accompagnons les entreprises de Bretagne et Pays de la Loire en formations santé et sécurité : SST, incendie, gestes et postures, habilitations électriques, CACES.</p>
+<p>Nos formations sont <strong>100% intra-entreprise</strong>, directement chez vous, avec des contenus concrets et participatifs. Nous sommes certifiés <strong>Qualiopi</strong> (financement OPCO possible).</p>
+<p>Seriez-vous disponible pour un échange rapide de 10 minutes cette semaine ?</p>
+<p>Belle journée !</p>`,
     },
   }
 
@@ -954,8 +1005,8 @@ export default function MarinePhoning() {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Erreur IA')
-      if (data.adapted) { setEmailBody(data.adapted); setTemplateVersion(v => v + 1); toast.success('\u2728 Mail adapt\u00e9') }
-      else toast.error('Pas de r\u00e9ponse IA')
+      if (data.adapted) { setEmailBody(data.adapted); setTemplateVersion(v => v + 1); toast.success('✨ Mail adapté') }
+      else toast.error('Pas de réponse IA')
     } catch (err) { toast.error('Erreur IA: ' + err.message) }
     finally { setEmailAdaptLoading(false) }
   }
@@ -1047,7 +1098,7 @@ export default function MarinePhoning() {
         contacted: true, contacted_at: now.toISOString(), prospection_status: 'a_rappeler',
         prospection_notes: noteText, updated_at: now.toISOString(),
       }).eq('id', current.id)
-      toast.success(messageLaisse ? '\ud83d\udce8 Message laisse' : '\ud83d\udcf5 Pas de reponse')
+      toast.success(messageLaisse ? '📨 Message laisse' : '📵 Pas de reponse')
       loadDailyStats(); loadTodayCallbacks()
       // Proposer email NRP si email dispo
       const pe = current.email
@@ -1316,7 +1367,7 @@ export default function MarinePhoning() {
       return [p.name||'', p.siren||'', 'P', getFormeLabel(p.forme_juridique), p.naf||'', p.city||'', p.postal_code||'', '','', p.email||'', tel, '','','', '', suivi, status === 'rdv_pris' ? 'Oui' : '']
     })
     const csvContent = [headers, ...rows].map(row => row.map(cell => { const s = String(cell).replace(/"/g, '""'); return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s}"` : s }).join(',')).join('\n')
-    const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' })
+    const blob = new Blob(['﻿' + csvContent], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a'); a.href = url; a.download = `phoning_export_${new Date().toISOString().slice(0,10)}.csv`; a.click(); URL.revokeObjectURL(url)
   }
@@ -1358,8 +1409,8 @@ export default function MarinePhoning() {
             {dailyStats.chaud > 0 && <span className="text-green-600 font-medium">🔥{dailyStats.chaud}</span>}
             {dailyStats.tiede > 0 && <span className="text-orange-500 font-medium">🟡{dailyStats.tiede}</span>}
             {dailyStats.froid > 0 && <span className="text-blue-500 font-medium">❄️{dailyStats.froid}</span>}
-            {dailyStats.no_answer > 0 && <span className="text-gray-400">\ud83d\udcde{dailyStats.no_answer}</span>}
-            {relanceSuggestions > 0 && <span className="text-orange-500 font-medium">\u2709\ufe0f{relanceSuggestions} relances</span>}
+            {dailyStats.no_answer > 0 && <span className="text-gray-400">📞{dailyStats.no_answer}</span>}
+            {relanceSuggestions > 0 && <span className="text-orange-500 font-medium">✉️{relanceSuggestions} relances</span>}
           </div>
           <div className="flex bg-gray-100 rounded-lg p-1">
             {CALLERS.map(c => (
@@ -1488,14 +1539,14 @@ export default function MarinePhoning() {
                 {emailSentMap[p.siren] && (() => {
                   const days = Math.floor((Date.now() - new Date(emailSentMap[p.siren].date).getTime()) / 86400000)
                   const isRelance = days >= 7 && emailSentMap[p.siren].template !== 'relance'
-                  return <span title={days + 'j depuis email'} className={'text-xs ' + (isRelance ? 'text-orange-500' : 'text-green-500')}>{isRelance ? '\u2709\ufe0f' : '\u2705\u2709'}</span>
+                  return <span title={days + 'j depuis email'} className={'text-xs ' + (isRelance ? 'text-orange-500' : 'text-green-500')}>{isRelance ? '✉️' : '✅✉'}</span>
                 })()}
                 <span className={'px-2 py-0.5 rounded text-xs font-medium ' + (
                   p.prospection_status === 'rdv_pris' ? 'bg-green-100 text-green-700' :
                   p.prospection_status === 'a_rappeler' ? 'bg-amber-100 text-amber-700' :
                   p.prospection_status === 'pas_interesse' ? 'bg-gray-100 text-gray-500' :
                   p.prospection_status === 'numero_errone' ? 'bg-red-100 text-red-700' : 'bg-blue-50 text-blue-700'
-                )}>{p.prospection_status === 'rdv_pris' ? '\ud83d\udd25 RDV' : p.prospection_status === 'a_rappeler' ? '\ud83d\udfe1' : p.prospection_status === 'pas_interesse' ? '\u2744\ufe0f' : p.prospection_status === 'numero_errone' ? '\u274c' : '\ud83d\udcde'}</span>
+                )}>{p.prospection_status === 'rdv_pris' ? '🔥 RDV' : p.prospection_status === 'a_rappeler' ? '🟡' : p.prospection_status === 'pas_interesse' ? '❄️' : p.prospection_status === 'numero_errone' ? '❌' : '📞'}</span>
               </div>
             </div>
           ))}
@@ -1770,11 +1821,11 @@ export default function MarinePhoning() {
               {current.siren && emailSentMap[current.siren] && (() => {
                 const em = emailSentMap[current.siren]
                 const days = Math.floor((Date.now() - new Date(em.date).getTime()) / 86400000)
-                const tplLabels = { suite_echange: 'Suite \u00e9change', nrp: 'NRP', relance: 'Relance' }
+                const tplLabels = { suite_echange: 'Suite échange', nrp: 'NRP', relance: 'Relance' }
                 return (
                   <div className="flex items-center gap-2 text-xs px-2">
                     <span className={days >= 7 && em.template !== 'relance' ? 'text-orange-500' : 'text-green-600'}>
-                      {days >= 7 && em.template !== 'relance' ? '\u2709\ufe0f' : '\u2705'} Email "{tplLabels[em.template] || em.template}" envoy\u00e9 il y a {days === 0 ? "aujourd'hui" : days === 1 ? 'hier' : days + 'j'}
+                      {days >= 7 && em.template !== 'relance' ? '✉️' : '✅'} Email "{tplLabels[em.template] || em.template}" envoyé il y a {days === 0 ? "aujourd'hui" : days === 1 ? 'hier' : days + 'j'}
                     </span>
                     {days >= 7 && em.template !== 'relance' && (
                       <button onClick={() => openEmailModal(current, 'relance', false)} className="text-orange-600 hover:text-orange-800 font-medium underline">Relancer</button>
@@ -1847,7 +1898,12 @@ export default function MarinePhoning() {
                                   ) : (
                                     <>
                                       {d.contacted_at && <span className="text-amber-500">{new Date(d.contacted_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}</span>}
-                                      {d.prospection_notes && <span className="text-amber-500 italic truncate max-w-[150px]">{d.prospection_notes}</span>}
+                                      {d.prospection_notes && <span className="text-amber-500 italic truncate max-w-[100px]">{d.prospection_notes}</span>}
+                                      <button onClick={() => { if (window.confirm(`Désigner ${d.city || d.name} comme agence centrale ?\n\nToutes les autres agences seront marquées "géré par ${d.city || d.name}".`)) designateCentralOffice(d) }}
+                                        className="ml-auto text-[10px] px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 whitespace-nowrap flex-shrink-0"
+                                        title={`Désigner ${d.city || d.name} comme agence qui centralise`}>
+                                        🏢 C'est eux
+                                      </button>
                                     </>
                                   )}
                                 </div>
@@ -2398,9 +2454,9 @@ export default function MarinePhoning() {
               {/* Template selector */}
               <div className="flex gap-2">
                 {[
-                  { id: 'suite_echange', label: '\ud83d\ude0a Suite echange' },
-                  { id: 'nrp', label: '\ud83d\udce8 NRP' },
-                  { id: 'relance', label: '\ud83d\udd04 Relance' },
+                  { id: 'suite_echange', label: '😊 Suite echange' },
+                  { id: 'nrp', label: '📨 NRP' },
+                  { id: 'relance', label: '🔄 Relance' },
                 ].map(t => (
                   <button key={t.id} onClick={() => {
                     setEmailTemplate(t.id)
