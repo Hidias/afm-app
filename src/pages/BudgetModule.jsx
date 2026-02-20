@@ -1268,15 +1268,40 @@ function ImportTab({ loadAll, categories, rules, invoices, clients }) {
     // Extraire le nom du client (pour matching factures)
     let detectedClient = null
     if (rawDirection === 'credit') {
-      // Chercher dans les clients connus
+      // Stratégie 1 : mots du nom client dans le libellé bancaire
       for (const cli of (clients || [])) {
         const cliUp = cli.name.toUpperCase()
-        // Chercher des mots du nom client dans la description
         const words = cliUp.split(/[\s\-_]+/).filter(w => w.length > 3)
         for (const w of words) {
           if (descUp.includes(w)) { detectedClient = cli; break }
         }
         if (detectedClient) break
+      }
+
+      // Stratégie 2 : mots du libellé bancaire dans le nom client (ex: OPCO → OPERATEUR DE COMPETENCES)
+      if (!detectedClient) {
+        const descWords = descUp.replace(/VIR|CHQ|PRLV|REM|\d+[,\.]\d+/g, '').split(/[\s\-_]+/).filter(w => w.length > 3)
+        for (const cli of (clients || [])) {
+          const cliUp = cli.name.toUpperCase()
+          for (const w of descWords) {
+            if (cliUp.includes(w)) { detectedClient = cli; break }
+          }
+          if (detectedClient) break
+        }
+      }
+
+      // Stratégie 3 : chercher dans les références factures (client_reference, reference)
+      if (!detectedClient) {
+        const invs = (invoices || [])
+        for (const inv of invs) {
+          const ref = (inv.reference || '').toUpperCase()
+          const cliRef = (inv.client_reference || '').toUpperCase()
+          const obj = (inv.object || '').toUpperCase()
+          if ((ref && descUp.includes(ref)) || (cliRef && cliRef.length > 2 && descUp.includes(cliRef))) {
+            detectedClient = (clients || []).find(c => c.id === inv.client_id)
+            break
+          }
+        }
       }
     }
 
@@ -1607,21 +1632,38 @@ function ImportTab({ loadAll, categories, rules, invoices, clients }) {
                   <p className="text-sm text-gray-700 mb-2">Client non identifié automatiquement. Sélectionnez le client :</p>
                   <input type="text" value={matchClientSearch} onChange={e => setMatchClientSearch(e.target.value)}
                     placeholder="🔍 Rechercher un client..." className="w-full border rounded-lg px-3 py-2 text-sm mb-2" autoFocus />
-                  <div className="max-h-48 overflow-y-auto space-y-1">
+                  <div className="max-h-60 overflow-y-auto space-y-1">
                     {(clients || [])
                       .filter(c => {
-                        if (!matchClientSearch) return unpaidInvoices.some(inv => inv.client_id === c.id)
-                        return c.name.toUpperCase().includes(matchClientSearch.toUpperCase())
+                        const s = (matchClientSearch || '').toUpperCase()
+                        // Sans recherche : tous les clients qui ont des factures (payées ou non)
+                        if (!s) return (invoices || []).some(inv => inv.client_id === c.id)
+                        // Avec recherche : chercher dans nom, siret, et aussi dans les ref factures
+                        const nameMatch = c.name?.toUpperCase().includes(s)
+                        const siretMatch = c.siret?.includes(s)
+                        // Cherche aussi les mots séparément (OPCO 2I → OPCO et 2I)
+                        const words = s.split(/\s+/).filter(w => w.length >= 2)
+                        const wordMatch = words.length > 0 && words.every(w => c.name?.toUpperCase().includes(w))
+                        return nameMatch || siretMatch || wordMatch
                       })
-                      .slice(0, 20)
+                      .sort((a, b) => {
+                        // Trier : clients avec factures impayées en premier
+                        const aUnpaid = unpaidInvoices.filter(inv => inv.client_id === a.id).length
+                        const bUnpaid = unpaidInvoices.filter(inv => inv.client_id === b.id).length
+                        if (bUnpaid !== aUnpaid) return bUnpaid - aUnpaid
+                        return (a.name || '').localeCompare(b.name || '')
+                      })
+                      .slice(0, 25)
                       .map(c => {
                         const invCount = unpaidInvoices.filter(inv => inv.client_id === c.id).length
+                        const allInvCount = (invoices || []).filter(inv => inv.client_id === c.id).length
                         return (
                           <button key={c.id} onClick={() => handleSelectClient(c.id)}
                             className="w-full text-left p-2 border rounded-lg hover:bg-blue-50 hover:border-blue-300 transition-colors text-sm">
                             <span className="font-medium">{c.name}</span>
-                            {invCount > 0 && <span className="ml-2 text-xs text-green-600 bg-green-50 px-1.5 py-0.5 rounded">{invCount} facture(s) en attente</span>}
-                            {invCount === 0 && <span className="ml-2 text-xs text-gray-400">Aucune facture en attente</span>}
+                            {invCount > 0 && <span className="ml-2 text-xs text-green-600 bg-green-50 px-1.5 py-0.5 rounded">{invCount} en attente</span>}
+                            {invCount === 0 && allInvCount > 0 && <span className="ml-2 text-xs text-gray-400">{allInvCount} facture(s) — toutes réglées</span>}
+                            {allInvCount === 0 && <span className="ml-2 text-xs text-gray-300">Aucune facture</span>}
                           </button>
                         )
                       })}
