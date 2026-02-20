@@ -263,6 +263,7 @@ export default function MarinePhoning() {
   const [emailTemplate, setEmailTemplate] = useState('suite_echange')
   const [emailSending, setEmailSending] = useState(false)
   const [emailAdaptLoading, setEmailAdaptLoading] = useState(false)
+  const emailProspectRef = useRef(null) // Prospect capturé à l'ouverture du modal email
   // PJ fixes : toujours envoyées avec chaque email
   const FIXED_ATTACHMENTS = [
     { filename: 'Pres_Access_Formation.pdf', path: 'Pres_Access_Formation.pdf', label: 'Présentation' },
@@ -907,6 +908,7 @@ export default function MarinePhoning() {
     const email = contactEmail || prospect?.email || ''
     const name = contactName || ''
     const t = EMAIL_TEMPLATES[tpl]
+    emailProspectRef.current = prospect // ← Capturer le prospect AVANT tout changement
     setEmailTo(email)
     setEmailSubject(t.subject(prospect?.name))
     setEmailBody(t.body(prospect?.name, name))
@@ -929,8 +931,9 @@ export default function MarinePhoning() {
 
   async function handleSendEmail() {
     if (!emailTo) { toast.error('Adresse email requise'); return }
+    const ep = emailProspectRef.current || current // Utiliser le prospect capturé
     // Anti-doublon
-    const dup = await checkEmailDuplicate(current?.siren)
+    const dup = await checkEmailDuplicate(ep?.siren)
     if (dup) {
       const days = Math.floor((Date.now() - new Date(dup.sent_at).getTime()) / 86400000)
       if (!confirm('Un email (' + dup.template_type + ') a deja ete envoye il y a ' + days + ' jours. Envoyer quand meme ?')) return
@@ -938,8 +941,8 @@ export default function MarinePhoning() {
     setEmailSending(true)
     try {
       // Sauvegarder l'email sur le prospect si nouveau
-      if (emailTo && current?.id && emailTo !== current.email) {
-        await supabase.from('prospection_massive').update({ email: emailTo, updated_at: new Date().toISOString() }).eq('id', current.id)
+      if (emailTo && ep?.id && emailTo !== ep.email) {
+        await supabase.from('prospection_massive').update({ email: emailTo, updated_at: new Date().toISOString() }).eq('id', ep.id)
       }
 
       // ═══ Préparer les 2 PJ fixes ═══
@@ -956,8 +959,8 @@ export default function MarinePhoning() {
 
       // ═══ Résoudre le client_id depuis le SIREN ═══
       let resolvedClientId = null
-      if (current?.siren && !current.siren.startsWith('MANUAL_')) {
-        const { data: cl } = await supabase.from('clients').select('id').eq('siren', current.siren.slice(0, 9)).maybeSingle()
+      if (ep?.siren && !ep.siren.startsWith('MANUAL_')) {
+        const { data: cl } = await supabase.from('clients').select('id').eq('siren', ep.siren.slice(0, 9)).maybeSingle()
         if (cl) resolvedClientId = cl.id
       }
 
@@ -965,7 +968,7 @@ export default function MarinePhoning() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           to: emailTo, subject: emailSubject, body: emailBody, caller: callerName,
-          prospectSiren: current?.siren, clientId: resolvedClientId, prospectName: current?.name, templateType: emailTemplate,
+          prospectSiren: ep?.siren, clientId: resolvedClientId, prospectName: ep?.name, templateType: emailTemplate,
           attachments: allAttachments.length > 0 ? allAttachments : undefined,
         })
       })
@@ -973,8 +976,9 @@ export default function MarinePhoning() {
       if (!res.ok) throw new Error(data.error || 'Erreur envoi')
       const nbPJ = allAttachments.length
       toast.success(`✉️ Email envoyé à ${emailTo}${nbPJ ? ` (${nbPJ} PJ)` : ''}`)
-      setEmailSentMap(prev => ({ ...prev, [current?.siren]: { date: new Date(), template: emailTemplate } }))
+      setEmailSentMap(prev => ({ ...prev, [ep?.siren]: { date: new Date(), template: emailTemplate } }))
       setShowEmailModal(false)
+      emailProspectRef.current = null // Nettoyer la ref
       if (pendingGoNext) { goNext(); loadProspects() }
     } catch (err) {
       toast.error('Erreur: ' + err.message)
@@ -983,6 +987,7 @@ export default function MarinePhoning() {
 
   function handleSkipEmail() {
     setShowEmailModal(false)
+    emailProspectRef.current = null // Nettoyer la ref
     if (pendingGoNext) { goNext(); loadProspects() }
   }
 
@@ -990,12 +995,13 @@ export default function MarinePhoning() {
 
   async function handleAdaptWithAI() {
     setEmailAdaptLoading(true)
+    const ep = emailProspectRef.current || current // Utiliser le prospect capturé
     try {
       const res = await fetch('/api/adapt-prospect-email', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          prospectName: current?.name,
-          sector: current?.naf_label || '',
+          prospectName: ep?.name,
+          sector: ep?.naf_label || '',
           formations: formationsSelected.length > 0 ? formationsSelected.join(', ') : '',
           contactName: contactName || '',
           contactFunction: contactFunction || '',
@@ -1316,7 +1322,9 @@ export default function MarinePhoning() {
   }, [prospects, statusFilter, departementFilter, effectifFilter, formeFilter, searchTerm, searchResults, todayCallbackSirens, callbackDetails, rappelCallerMap, rappelFilterBy, rappelFilterDate, mapBase, mapRadius])
 
   // En mode file, sélectionner le premier prospect du filtre actif
+  // MAIS PAS si le modal email est ouvert (le prospect a été capturé dans emailProspectRef)
   useEffect(() => {
+    if (showEmailModal) return // Ne pas changer de prospect pendant l'envoi d'email
     if (viewMode === 'file' && filtered.length > 0) {
       if (!current || !filtered.some(p => p.id === current.id)) {
         selectProspect(filtered[0])
@@ -1324,7 +1332,7 @@ export default function MarinePhoning() {
     } else if (viewMode === 'file' && filtered.length === 0) {
       setCurrent(null)
     }
-  }, [filtered, viewMode])
+  }, [filtered, viewMode, showEmailModal])
 
   const basePoint = BASES[mapBase]
   const mapProspects = useMemo(() => {
