@@ -719,35 +719,261 @@ function CategoriesTab({ categories, loadAll }) {
 }
 
 // ════════════════════════════════════════
-// RULES
+// RULES — avec édition inline, recherche, filtres
 // ════════════════════════════════════════
 function RulesTab({ rules, categories, loadAll }) {
   const [nw, setNw] = useState({ keyword:'', category_id:'', direction:'both' })
-  async function add() { if(!nw.keyword||!nw.category_id){toast.error('Requis');return}; const{error}=await supabase.from('budget_rules').insert({keyword:nw.keyword.toUpperCase(),category_id:nw.category_id,direction:nw.direction}); if(error){toast.error(error.code==='23505'?'Existe':'Erreur');return}; toast.success('✅ Ajoutée'); setNw({keyword:'',category_id:'',direction:'both'}); loadAll() }
-  async function del(id) { await supabase.from('budget_rules').delete().eq('id',id); toast.success('Supprimé'); loadAll() }
+  const [search, setSearch] = useState('')
+  const [filterCat, setFilterCat] = useState('')
+  const [filterDir, setFilterDir] = useState('')
+  const [editId, setEditId] = useState(null)
+  const [editData, setEditData] = useState({})
+  const [saving, setSaving] = useState(false)
+
+  async function add() {
+    if (!nw.keyword || !nw.category_id) { toast.error('Mot-clé et catégorie requis'); return }
+    setSaving(true)
+    const { error } = await supabase.from('budget_rules').insert({ keyword: nw.keyword.toUpperCase().trim(), category_id: nw.category_id, direction: nw.direction })
+    setSaving(false)
+    if (error) { toast.error(error.code === '23505' ? 'Ce mot-clé existe déjà' : 'Erreur: ' + error.message); return }
+    toast.success('✅ Règle ajoutée')
+    setNw({ keyword: '', category_id: '', direction: 'both' })
+    loadAll()
+  }
+
+  async function del(id, keyword) {
+    if (!confirm(`Supprimer la règle "${keyword}" ?`)) return
+    await supabase.from('budget_rules').delete().eq('id', id)
+    toast.success('Règle supprimée')
+    loadAll()
+  }
+
+  function startEdit(r) {
+    setEditId(r.id)
+    setEditData({ keyword: r.keyword, category_id: r.category_id, direction: r.direction })
+  }
+
+  async function saveEdit() {
+    if (!editData.keyword || !editData.category_id) { toast.error('Mot-clé et catégorie requis'); return }
+    setSaving(true)
+    const { error } = await supabase.from('budget_rules').update({
+      keyword: editData.keyword.toUpperCase().trim(),
+      category_id: editData.category_id,
+      direction: editData.direction,
+    }).eq('id', editId)
+    setSaving(false)
+    if (error) { toast.error(error.code === '23505' ? 'Ce mot-clé existe déjà' : 'Erreur: ' + error.message); return }
+    toast.success('✅ Règle modifiée')
+    setEditId(null)
+    setEditData({})
+    loadAll()
+  }
+
+  function cancelEdit() { setEditId(null); setEditData({}) }
+
+  // Filtrage
+  const filtered = useMemo(() => {
+    let f = [...rules]
+    if (search) {
+      const s = search.toUpperCase()
+      f = f.filter(r => r.keyword?.toUpperCase().includes(s) || r.budget_categories?.name?.toUpperCase().includes(s))
+    }
+    if (filterCat) f = f.filter(r => r.category_id === filterCat)
+    if (filterDir) f = f.filter(r => r.direction === filterDir)
+    return f
+  }, [rules, search, filterCat, filterDir])
+
+  // Stats par catégorie
+  const catStats = useMemo(() => {
+    const map = {}
+    rules.forEach(r => {
+      const name = r.budget_categories?.name || 'Sans catégorie'
+      if (!map[name]) map[name] = 0
+      map[name]++
+    })
+    return Object.entries(map).sort((a, b) => b[1] - a[1])
+  }, [rules])
+
+  const dirLabel = { both: '⚪ Tous', debit: '🔴 Débit', credit: '🟢 Crédit' }
 
   return (
     <div className="space-y-4">
+      {/* Stats rapides */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="bg-white rounded-xl shadow-sm border p-3">
+          <div className="text-xs text-gray-500">Total règles</div>
+          <div className="text-2xl font-bold text-gray-800">{rules.length}</div>
+        </div>
+        <div className="bg-white rounded-xl shadow-sm border p-3">
+          <div className="text-xs text-gray-500">Catégories utilisées</div>
+          <div className="text-2xl font-bold text-blue-600">{catStats.length}</div>
+        </div>
+        <div className="bg-white rounded-xl shadow-sm border p-3">
+          <div className="text-xs text-gray-500">Débit uniquement</div>
+          <div className="text-2xl font-bold text-red-600">{rules.filter(r => r.direction === 'debit').length}</div>
+        </div>
+        <div className="bg-white rounded-xl shadow-sm border p-3">
+          <div className="text-xs text-gray-500">Crédit uniquement</div>
+          <div className="text-2xl font-bold text-emerald-600">{rules.filter(r => r.direction === 'credit').length}</div>
+        </div>
+      </div>
+
+      {/* Formulaire ajout */}
       <div className="bg-white rounded-xl shadow-sm border p-4">
         <h3 className="font-bold text-gray-700 mb-3">➕ Nouvelle règle</h3>
         <div className="flex gap-2 flex-wrap">
-          <input type="text" value={nw.keyword} onChange={e=>setNw(r=>({...r,keyword:e.target.value.toUpperCase()}))} placeholder="Mot-clé" className="border rounded-lg px-3 py-2 text-sm flex-1 min-w-40 font-mono"/>
-          <select value={nw.category_id} onChange={e=>setNw(r=>({...r,category_id:e.target.value}))} className="border rounded-lg px-3 py-2 text-sm flex-1 min-w-48"><option value="">Catégorie...</option>{categories.map(c=><option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}</select>
-          <select value={nw.direction} onChange={e=>setNw(r=>({...r,direction:e.target.value}))} className="border rounded-lg px-3 py-2 text-sm"><option value="both">Les deux</option><option value="debit">Débit</option><option value="credit">Crédit</option></select>
-          <button onClick={add} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700">Ajouter</button>
+          <input
+            type="text"
+            value={nw.keyword}
+            onChange={e => setNw(r => ({ ...r, keyword: e.target.value.toUpperCase() }))}
+            placeholder="Mot-clé (ex: RESTAURANT)"
+            className="border rounded-lg px-3 py-2 text-sm flex-1 min-w-40 font-mono"
+            onKeyDown={e => e.key === 'Enter' && add()}
+          />
+          <select value={nw.category_id} onChange={e => setNw(r => ({ ...r, category_id: e.target.value }))} className="border rounded-lg px-3 py-2 text-sm flex-1 min-w-48">
+            <option value="">Catégorie...</option>
+            {categories.sort((a, b) => a.name.localeCompare(b.name)).map(c => <option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}
+          </select>
+          <select value={nw.direction} onChange={e => setNw(r => ({ ...r, direction: e.target.value }))} className="border rounded-lg px-3 py-2 text-sm">
+            <option value="both">⚪ Les deux</option>
+            <option value="debit">🔴 Débit</option>
+            <option value="credit">🟢 Crédit</option>
+          </select>
+          <button onClick={add} disabled={saving} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
+            {saving ? '...' : 'Ajouter'}
+          </button>
         </div>
       </div>
+
+      {/* Recherche et filtres */}
+      <div className="bg-white rounded-xl shadow-sm border p-4">
+        <div className="flex gap-2 flex-wrap items-center">
+          <div className="relative flex-1 min-w-48">
+            <input
+              type="text"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="🔍 Rechercher mot-clé ou catégorie..."
+              className="w-full border rounded-lg px-3 py-2 text-sm pr-8"
+            />
+            {search && (
+              <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">✕</button>
+            )}
+          </div>
+          <select value={filterCat} onChange={e => setFilterCat(e.target.value)} className="border rounded-lg px-3 py-2 text-sm min-w-48">
+            <option value="">Toutes les catégories</option>
+            {catStats.map(([name, count]) => {
+              const cat = categories.find(c => c.name === name)
+              return <option key={name} value={cat?.id || ''}>{cat?.icon || '📁'} {name} ({count})</option>
+            })}
+          </select>
+          <select value={filterDir} onChange={e => setFilterDir(e.target.value)} className="border rounded-lg px-3 py-2 text-sm">
+            <option value="">Toutes directions</option>
+            <option value="both">⚪ Les deux</option>
+            <option value="debit">🔴 Débit</option>
+            <option value="credit">🟢 Crédit</option>
+          </select>
+          {(search || filterCat || filterDir) && (
+            <button onClick={() => { setSearch(''); setFilterCat(''); setFilterDir('') }} className="text-sm text-blue-600 hover:text-blue-800">
+              Réinitialiser
+            </button>
+          )}
+          <span className="text-xs text-gray-400">{filtered.length}/{rules.length} règles</span>
+        </div>
+      </div>
+
+      {/* Tableau des règles */}
       <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
         <div className="max-h-[60vh] overflow-y-auto">
-          <table className="w-full text-sm"><thead className="bg-gray-50 sticky top-0"><tr><th className="text-left px-3 py-2 text-xs text-gray-500">Mot-clé</th><th className="text-left px-3 py-2 text-xs text-gray-500">→ Catégorie</th><th className="text-left px-3 py-2 text-xs text-gray-500">Dir.</th><th className="px-2 py-2"></th></tr></thead>
-            <tbody>{rules.map(r=><tr key={r.id} className="border-t hover:bg-gray-50">
-              <td className="px-3 py-1.5 font-mono text-xs">{r.keyword}</td>
-              <td className="px-3 py-1.5"><span className="text-xs px-2 py-0.5 bg-blue-50 text-blue-700 rounded-full">{r.budget_categories?.icon} {r.budget_categories?.name}</span></td>
-              <td className="px-3 py-1.5 text-xs">{r.direction==='debit'?'🔴':r.direction==='credit'?'🟢':'⚪'}</td>
-              <td className="px-2 py-1.5"><button onClick={()=>del(r.id)} className="text-red-300 hover:text-red-600 text-xs">✕</button></td>
-            </tr>)}</tbody>
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 sticky top-0 z-10">
+              <tr>
+                <th className="text-left px-3 py-2.5 text-xs text-gray-500 uppercase tracking-wider">Mot-clé</th>
+                <th className="text-left px-3 py-2.5 text-xs text-gray-500 uppercase tracking-wider">→ Catégorie</th>
+                <th className="text-left px-3 py-2.5 text-xs text-gray-500 uppercase tracking-wider w-24">Dir.</th>
+                <th className="px-3 py-2.5 text-xs text-gray-500 uppercase tracking-wider w-24 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map(r => (
+                <tr key={r.id} className={`border-t hover:bg-gray-50 transition ${editId === r.id ? 'bg-blue-50' : ''}`}>
+                  {editId === r.id ? (
+                    <>
+                      <td className="px-3 py-1.5">
+                        <input
+                          type="text"
+                          value={editData.keyword}
+                          onChange={e => setEditData(d => ({ ...d, keyword: e.target.value.toUpperCase() }))}
+                          className="w-full border rounded px-2 py-1 text-xs font-mono bg-white"
+                          autoFocus
+                          onKeyDown={e => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') cancelEdit() }}
+                        />
+                      </td>
+                      <td className="px-3 py-1.5">
+                        <select
+                          value={editData.category_id}
+                          onChange={e => setEditData(d => ({ ...d, category_id: e.target.value }))}
+                          className="w-full border rounded px-2 py-1 text-xs bg-white"
+                        >
+                          {categories.sort((a, b) => a.name.localeCompare(b.name)).map(c => (
+                            <option key={c.id} value={c.id}>{c.icon} {c.name}</option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="px-3 py-1.5">
+                        <select
+                          value={editData.direction}
+                          onChange={e => setEditData(d => ({ ...d, direction: e.target.value }))}
+                          className="w-full border rounded px-2 py-1 text-xs bg-white"
+                        >
+                          <option value="both">⚪ Tous</option>
+                          <option value="debit">🔴 Débit</option>
+                          <option value="credit">🟢 Crédit</option>
+                        </select>
+                      </td>
+                      <td className="px-3 py-1.5 text-right">
+                        <div className="flex gap-1 justify-end">
+                          <button onClick={saveEdit} disabled={saving} className="px-2 py-1 bg-emerald-500 text-white rounded text-xs hover:bg-emerald-600 disabled:opacity-50">
+                            {saving ? '...' : '✓'}
+                          </button>
+                          <button onClick={cancelEdit} className="px-2 py-1 bg-gray-200 text-gray-600 rounded text-xs hover:bg-gray-300">
+                            ✕
+                          </button>
+                        </div>
+                      </td>
+                    </>
+                  ) : (
+                    <>
+                      <td className="px-3 py-1.5 font-mono text-xs">{r.keyword}</td>
+                      <td className="px-3 py-1.5">
+                        <span className="text-xs px-2 py-0.5 bg-blue-50 text-blue-700 rounded-full">
+                          {r.budget_categories?.icon} {r.budget_categories?.name}
+                        </span>
+                      </td>
+                      <td className="px-3 py-1.5 text-xs">
+                        {r.direction === 'debit' ? '🔴 Débit' : r.direction === 'credit' ? '🟢 Crédit' : '⚪ Tous'}
+                      </td>
+                      <td className="px-3 py-1.5 text-right">
+                        <div className="flex gap-1 justify-end opacity-0 group-hover:opacity-100" style={{ opacity: 1 }}>
+                          <button onClick={() => startEdit(r)} className="px-2 py-1 text-blue-400 hover:text-blue-600 hover:bg-blue-50 rounded text-xs transition" title="Modifier">
+                            ✏️
+                          </button>
+                          <button onClick={() => del(r.id, r.keyword)} className="px-2 py-1 text-red-300 hover:text-red-600 hover:bg-red-50 rounded text-xs transition" title="Supprimer">
+                            🗑️
+                          </button>
+                        </div>
+                      </td>
+                    </>
+                  )}
+                </tr>
+              ))}
+            </tbody>
           </table>
-          {rules.length===0&&<div className="text-center py-8 text-gray-400">Aucune règle</div>}
+          {filtered.length === 0 && (
+            <div className="text-center py-8 text-gray-400">
+              {rules.length === 0 ? 'Aucune règle configurée' : 'Aucune règle ne correspond aux filtres'}
+            </div>
+          )}
         </div>
       </div>
     </div>
