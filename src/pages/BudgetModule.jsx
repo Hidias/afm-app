@@ -3330,8 +3330,41 @@ function RecommandationsTab({ transactions, categories }) {
 // ════════════════════════════════════════════════════════════
 // CLIENT SEARCH — Recherche intelligente pour rapprochement
 // ════════════════════════════════════════════════════════════
-function ClientSearchForMatch({ clients, invoices, unpaidInvoices, bankDescription, onSelect }) {
+function ClientSearchForMatch({ clients: clientsProp, invoices: invoicesProp, unpaidInvoices, bankDescription, onSelect }) {
   const [search, setSearch] = useState('')
+  const [localClients, setLocalClients] = useState([])
+  const [localInvoices, setLocalInvoices] = useState([])
+  const [loaded, setLoaded] = useState(false)
+
+  // Fallback : charger les données directement si les props sont vides
+  useEffect(() => {
+    async function loadDirect() {
+      if (clientsProp?.length > 0 && invoicesProp?.length > 0) {
+        setLocalClients(clientsProp)
+        setLocalInvoices(invoicesProp)
+        setLoaded(true)
+        return
+      }
+      console.log('[ClientSearch] Props vides, chargement direct...', { clientsProp: clientsProp?.length, invoicesProp: invoicesProp?.length })
+      const [cR, iR] = await Promise.all([
+        supabase.from('clients').select('id,name,siret,status,city,phone,contact_email').order('name'),
+        supabase.from('invoices').select('id,reference,client_id,total_ttc,amount_due,amount_paid,status,invoice_date,object').order('invoice_date', { ascending: false }),
+      ])
+      if (cR.data) setLocalClients(cR.data)
+      if (iR.data) setLocalInvoices(iR.data)
+      setLoaded(true)
+      console.log('[ClientSearch] Chargé:', cR.data?.length, 'clients,', iR.data?.length, 'factures')
+    }
+    loadDirect()
+  }, [clientsProp, invoicesProp])
+
+  const clients = localClients.length > 0 ? localClients : (clientsProp || [])
+  const invoices = localInvoices.length > 0 ? localInvoices : (invoicesProp || [])
+
+  const localUnpaid = useMemo(() =>
+    invoices.filter(inv => inv.type !== 'credit_note' && ['sent', 'due', 'overdue', 'partial'].includes(inv.status) && parseFloat(inv.amount_due) > 0),
+    [invoices]
+  )
 
   // Normalise accents + majuscules : "opé" → "OPE", "OPÉRATEUR" → "OPERATEUR"
   const norm = (s) => (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase()
@@ -3373,7 +3406,7 @@ function ClientSearchForMatch({ clients, invoices, unpaidInvoices, bankDescripti
       }
 
       // Bonus si factures
-      const unpaidCount = unpaidInvoices.filter(inv => inv.client_id === c.id).length
+      const unpaidCount = localUnpaid.filter(inv => inv.client_id === c.id).length
       const allInvCount = invoices.filter(inv => inv.client_id === c.id).length
       if (unpaidCount > 0) score += 15
       if (allInvCount > 0) score += 5
@@ -3386,11 +3419,13 @@ function ClientSearchForMatch({ clients, invoices, unpaidInvoices, bankDescripti
     })
     .sort((a, b) => b.score - a.score)
     .slice(0, 30)
-  }, [clients, search, bankWords, invoices, unpaidInvoices])
+  }, [clients, search, bankWords, invoices, localUnpaid])
 
   return (
     <div>
-      <p className="text-sm text-gray-700 mb-2">Sélectionnez le client :</p>
+      <p className="text-sm text-gray-700 mb-2">Sélectionnez le client : <span className="text-xs text-gray-400">({clients.length} clients chargés)</span></p>
+
+      {!loaded && <div className="text-center py-4 text-gray-400 text-sm">⏳ Chargement des clients...</div>}
 
       {bankWords.length > 0 && (
         <div className="flex flex-wrap gap-1 mb-2">
