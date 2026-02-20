@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import toast from 'react-hot-toast'
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, AreaChart, Area } from 'recharts'
 
 // ════════════════════════════════════════════════════════════
 //  BUDGET MODULE v4 — Access Campus
@@ -13,7 +14,6 @@ const TABS = [
   { key: 'dashboard', label: '📊 Dashboard' },
   { key: 'categorisation', label: '🤖 Catégorisation' },
   { key: 'previsionnel', label: '📈 Prévisionnel' },
-  { key: 'recommandations', label: '🎯 Recommandations' },
   { key: 'comptable', label: '📮 Comptable' },
   { key: 'categories', label: '🏷️ Catégories' },
   { key: 'rules', label: '⚙️ Règles' },
@@ -163,7 +163,6 @@ export default function BudgetModule() {
       {tab === 'dashboard' && <DashboardTab stats={stats} months={months} categories={categories} />}
       {tab === 'categorisation' && <CategorisationIATab transactions={transactions} categories={categories} rules={rules} loadAll={loadAll} />}
       {tab === 'previsionnel' && <PrevisionnelTab transactions={transactions} categories={categories} invoices={invoicesList} clients={clientsList} />}
-      {tab === 'recommandations' && <RecommandationsTab transactions={transactions} categories={categories} />}
       {tab === 'comptable' && <ComptableTab transactions={transactions} receipts={receipts} loadAll={loadAll} />}
       {tab === 'categories' && <CategoriesTab categories={categories} loadAll={loadAll} />}
       {tab === 'rules' && <RulesTab rules={rules} categories={categories} loadAll={loadAll} />}
@@ -2602,17 +2601,136 @@ ${txList}` }]
 // ════════════════════════════════════════════════════════════
 // PRÉVISIONNEL & OBJECTIF 50K€
 // ════════════════════════════════════════════════════════════
+
 function PrevisionnelTab({ transactions, categories, invoices, clients }) {
-  const [config, setConfig] = useState({
-    solde_actuel: 3267,
-    objectif: 10000,
-    marge_securite: 2000,
-  })
+  // ══ CHART COLORS ══
+  const COLORS = ['#3b82f6', '#ef4444', '#f59e0b', '#10b981', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16', '#f97316', '#6366f1']
+  const ML = { '01':'Jan','02':'Fév','03':'Mar','04':'Avr','05':'Mai','06':'Jun','07':'Jul','08':'Aoû','09':'Sep','10':'Oct','11':'Nov','12':'Déc' }
 
   const now = new Date()
   const currentMonthKey = `${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`
   const currentYearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-  const ML = { '01':'Jan','02':'Fév','03':'Mar','04':'Avr','05':'Mai','06':'Jun','07':'Jul','08':'Aoû','09':'Sep','10':'Oct','11':'Nov','12':'Déc' }
+
+  // ══ STATE ══
+  const [config, setConfig] = useState({ objectif: 10000, marge_securite: 2000, solde_override: '' })
+  const [configLoaded, setConfigLoaded] = useState(false)
+  const [actions, setActions] = useState([])
+  const [actionsLoaded, setActionsLoaded] = useState(false)
+  const [pipeline, setPipeline] = useState([])
+  const [pipeLoaded, setPipeLoaded] = useState(false)
+  const [showPipeForm, setShowPipeForm] = useState(false)
+  const [newPipe, setNewPipe] = useState({ client: '', amount_ttc: '', expected_month: '', type: 'previsionnel', trainer: 'Hicham', description: '' })
+  const [showActionForm, setShowActionForm] = useState(false)
+  const [newAction, setNewAction] = useState({ title: '', detail: '', category: 'general', impact_monthly: '', due_date: '' })
+  const [actionFilter, setActionFilter] = useState('active') // all, active, done
+  const [chartPeriod, setChartPeriod] = useState('6') // 6 or 12 months
+
+  // ══ LOAD SETTINGS ══
+  useEffect(() => {
+    loadSettings()
+    loadActions()
+    loadPipeline()
+  }, [])
+
+  async function loadSettings() {
+    const { data } = await supabase.from('budget_settings').select('*')
+    if (data) {
+      const map = {}
+      data.forEach(r => { map[r.key] = r.value })
+      setConfig({
+        objectif: parseFloat(map.objectif || '10000'),
+        marge_securite: parseFloat(map.marge_securite || '2000'),
+        solde_override: map.solde_override || '',
+      })
+    }
+    setConfigLoaded(true)
+  }
+
+  async function saveConfig(key, value) {
+    await supabase.from('budget_settings').upsert({ key, value: String(value), updated_at: new Date().toISOString() }, { onConflict: 'key' })
+  }
+
+  function updateConfig(key, value) {
+    setConfig(c => ({ ...c, [key]: value }))
+    saveConfig(key, value)
+  }
+
+  // ══ LOAD ACTIONS ══
+  async function loadActions() {
+    const { data } = await supabase.from('budget_actions').select('*').order('created_at', { ascending: false })
+    if (data) setActions(data)
+    setActionsLoaded(true)
+  }
+
+  async function addAction() {
+    if (!newAction.title) { toast.error('Titre requis'); return }
+    const { error } = await supabase.from('budget_actions').insert({
+      title: newAction.title, detail: newAction.detail, type: 'manual',
+      category: newAction.category,
+      impact_monthly: newAction.impact_monthly ? parseFloat(newAction.impact_monthly) : null,
+      due_date: newAction.due_date || null,
+      status: 'todo', created_by: 'Hicham'
+    })
+    if (error) { toast.error(error.message); return }
+    toast.success('Action ajoutée')
+    setNewAction({ title: '', detail: '', category: 'general', impact_monthly: '', due_date: '' })
+    setShowActionForm(false)
+    loadActions()
+  }
+
+  async function updateActionStatus(id, status) {
+    await supabase.from('budget_actions').update({ status, updated_at: new Date().toISOString() }).eq('id', id)
+    setActions(prev => prev.map(a => a.id === id ? { ...a, status } : a))
+  }
+
+  async function updateActionNote(id, note) {
+    await supabase.from('budget_actions').update({ note, updated_at: new Date().toISOString() }).eq('id', id)
+    setActions(prev => prev.map(a => a.id === id ? { ...a, note } : a))
+  }
+
+  async function deleteAction(id) {
+    if (!confirm('Supprimer cette action ?')) return
+    await supabase.from('budget_actions').delete().eq('id', id)
+    setActions(prev => prev.filter(a => a.id !== id))
+    toast.success('Supprimée')
+  }
+
+  // ══ LOAD PIPELINE ══
+  async function loadPipeline() {
+    const { data } = await supabase.from('budget_pipeline').select('*').not('status', 'eq', 'annule').order('expected_month')
+    if (data) setPipeline(data)
+    setPipeLoaded(true)
+  }
+
+  async function addPipeEntry() {
+    if (!newPipe.client || !newPipe.amount_ttc || !newPipe.expected_month) { toast.error('Client, montant et mois requis'); return }
+    const ht = parseFloat(newPipe.amount_ttc) / 1.2
+    const { error } = await supabase.from('budget_pipeline').insert({
+      client: newPipe.client.toUpperCase(), description: newPipe.description,
+      amount_ht: Math.round(ht * 100) / 100, amount_ttc: parseFloat(newPipe.amount_ttc),
+      expected_month: newPipe.expected_month, type: newPipe.type, status: 'prevu', trainer: newPipe.trainer,
+    })
+    if (error) { toast.error(error.message); return }
+    toast.success('Ajouté au pipeline')
+    setNewPipe({ client: '', amount_ttc: '', expected_month: '', type: 'previsionnel', trainer: 'Hicham', description: '' })
+    setShowPipeForm(false)
+    loadPipeline()
+  }
+
+  async function updatePipeStatus(id, status) {
+    await supabase.from('budget_pipeline').update({ status, updated_at: new Date().toISOString() }).eq('id', id)
+    loadPipeline()
+  }
+
+  async function deletePipe(id) {
+    if (!confirm('Supprimer ?')) return
+    await supabase.from('budget_pipeline').delete().eq('id', id)
+    loadPipeline()
+  }
+
+  // ══ HELPERS ══
+  function normalizeDesc(s) { return (s || '').toUpperCase().replace(/[^A-Z0-9]/g, '').substring(0, 20) }
+  function monthLabel(m) { const parts = m.split('/'); return `${ML[parts[0]] || parts[0]} ${(parts[1] || '').slice(-2)}` }
 
   // ══ Factures impayées ══
   const unpaidInvoices = useMemo(() =>
@@ -2622,153 +2740,245 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
 
   // ══ ANALYSE PRINCIPALE ══
   const analysis = useMemo(() => {
-    const co = transactions.filter(tx => !tx.is_personal)
-    const catMap = {}
-    categories.forEach(c => { catMap[c.name] = { type: c.type, direction: c.direction, icon: c.icon } })
+    try {
+      const co = transactions.filter(tx => !tx.is_personal)
+      const catMap = {}
+      categories.forEach(c => { catMap[c.name] = { type: c.type, direction: c.direction, icon: c.icon } })
 
-    // Grouper par mois
-    const byMonth = {}
-    co.forEach(tx => {
-      if (!tx.month) return
-      if (!byMonth[tx.month]) byMonth[tx.month] = { debit: 0, credit: 0, cats: {} }
-      byMonth[tx.month].debit += tx.debit || 0
-      byMonth[tx.month].credit += tx.credit || 0
-      const c = tx.category_name || 'Non classé'
-      if (!byMonth[tx.month].cats[c]) byMonth[tx.month].cats[c] = { debit: 0, credit: 0 }
-      byMonth[tx.month].cats[c].debit += tx.debit || 0
-      byMonth[tx.month].cats[c].credit += tx.credit || 0
-    })
-    const months = Object.keys(byMonth).sort()
-    const nbMonths = months.length || 1
+      // Solde auto = somme des crédits - débits (toutes transactions)
+      const totalCredits = transactions.reduce((s, tx) => s + (tx.credit || 0), 0)
+      const totalDebits = transactions.reduce((s, tx) => s + (tx.debit || 0), 0)
+      const soldeAuto = Math.round((totalCredits - totalDebits) * 100) / 100
+      const solde = config.solde_override !== '' ? parseFloat(config.solde_override) : soldeAuto
 
-    // ── Mois en cours ──
-    const curTxs = co.filter(tx => tx.month === currentMonthKey)
-    const curEntrees = curTxs.filter(tx => (tx.credit || 0) > 0 && catMap[tx.category_name]?.direction === 'recette')
-    const curSorties = curTxs.filter(tx => (tx.debit || 0) > 0)
-    const totalEntreesRealisees = curEntrees.reduce((s, tx) => s + tx.credit, 0)
-    const totalSortiesRealisees = curSorties.reduce((s, tx) => s + tx.debit, 0)
-
-    // Entrées à venir : factures impayées avec échéance ce mois ou avant
-    const entreesAVenir = unpaidInvoices.filter(inv => {
-      const due = inv.due_date || inv.invoice_date
-      return due && due.substring(0, 7) <= currentYearMonth
-    })
-    const totalEntreesAVenir = entreesAVenir.reduce((s, inv) => s + parseFloat(inv.amount_due), 0)
-
-    // Sorties à venir : charges récurrentes pas encore débitées ce mois
-    const recurrentes = detectRecurringCharges(co, months, currentMonthKey, catMap)
-    const sortiesDejaFaites = new Set(curSorties.map(tx => normalizeDesc(tx.description)))
-    const sortiesAVenir = recurrentes.filter(r => !sortiesDejaFaites.has(normalizeDesc(r.description)))
-    const totalSortiesAVenir = sortiesAVenir.reduce((s, r) => s + r.montant, 0)
-
-    const netMois = (totalEntreesRealisees + totalEntreesAVenir) - (totalSortiesRealisees + totalSortiesAVenir)
-    const soldeProjeteFin = config.solde_actuel + netMois
-    const budgetLibre = soldeProjeteFin - config.marge_securite
-
-    // ── CA par catégorie et mois ──
-    let totalCAFormations = 0, totalCASousTrait = 0
-    const caByMonth = {}
-    months.forEach(m => {
-      let caF = 0, caS = 0
-      Object.entries(byMonth[m].cats).forEach(([cat, vals]) => {
-        if (cat === 'CA Formations') caF += vals.credit
-        if (cat === 'CA Sous-traitance') caS += vals.credit
+      // Grouper par mois
+      const byMonth = {}
+      co.forEach(tx => {
+        if (!tx.month) return
+        if (!byMonth[tx.month]) byMonth[tx.month] = { debit: 0, credit: 0, cats: {} }
+        byMonth[tx.month].debit += tx.debit || 0
+        byMonth[tx.month].credit += tx.credit || 0
+        const c = tx.category_name || 'Non classé'
+        if (!byMonth[tx.month].cats[c]) byMonth[tx.month].cats[c] = { debit: 0, credit: 0 }
+        byMonth[tx.month].cats[c].debit += tx.debit || 0
+        byMonth[tx.month].cats[c].credit += tx.credit || 0
       })
-      caByMonth[m] = { formations: caF, soustraitance: caS, total: caF + caS }
-      totalCAFormations += caF
-      totalCASousTrait += caS
-    })
+      const months = Object.keys(byMonth).sort()
+      const nbMonths = months.length || 1
 
-    // Mois actifs (avec du CA)
-    const activeMonths = months.filter(m => (caByMonth[m]?.total || 0) > 100)
-    const nbActive = activeMonths.length || 1
+      // ── Mois en cours ──
+      const curTxs = co.filter(tx => tx.month === currentMonthKey)
+      const curEntrees = curTxs.filter(tx => (tx.credit || 0) > 0 && catMap[tx.category_name]?.direction === 'recette')
+      const curSorties = curTxs.filter(tx => (tx.debit || 0) > 0)
+      const totalEntreesRealisees = curEntrees.reduce((s, tx) => s + tx.credit, 0)
+      const totalSortiesRealisees = curSorties.reduce((s, tx) => s + tx.debit, 0)
 
-    // ── Tendances 3 derniers mois ──
-    const last3 = activeMonths.slice(-3)
-    const prev3 = activeMonths.slice(-6, -3)
-    const caLast3 = last3.reduce((s, m) => s + (caByMonth[m]?.total || 0), 0) / (last3.length || 1)
-    const caPrev3 = prev3.reduce((s, m) => s + (caByMonth[m]?.total || 0), 0) / (prev3.length || 1)
-    const caTrend = caPrev3 > 0 ? ((caLast3 - caPrev3) / caPrev3) * 100 : 0
+      // Entrées à venir : factures impayées échéance ce mois ou avant
+      const entreesAVenir = unpaidInvoices.filter(inv => {
+        const due = inv.due_date || inv.invoice_date
+        return due && due.substring(0, 7) <= currentYearMonth
+      })
+      const totalEntreesAVenir = entreesAVenir.reduce((s, inv) => s + parseFloat(inv.amount_due), 0)
 
-    const depLast3 = last3.reduce((s, m) => s + (byMonth[m]?.debit || 0), 0) / (last3.length || 1)
-    const depPrev3 = prev3.reduce((s, m) => s + (byMonth[m]?.debit || 0), 0) / (prev3.length || 1)
-    const depTrend = depPrev3 > 0 ? ((depLast3 - depPrev3) / depPrev3) * 100 : 0
+      // Pipeline du mois en cours
+      const pipeThisMonth = pipeline.filter(p => p.expected_month === currentYearMonth && p.status !== 'annule')
+      const totalPipeMois = pipeThisMonth.reduce((s, p) => s + (p.amount_ht || 0), 0)
 
-    const margeLast3 = caLast3 - depLast3
+      // Sorties à venir : charges récurrentes pas encore débitées
+      const recurrentes = detectRecurringCharges(co, months, currentMonthKey)
+      const sortiesDejaFaites = new Set(curSorties.map(tx => normalizeDesc(tx.description)))
+      const sortiesAVenir = recurrentes.filter(r => !sortiesDejaFaites.has(normalizeDesc(r.description)))
+      const totalSortiesAVenir = sortiesAVenir.reduce((s, r) => s + r.montant, 0)
 
-    // ── Charges fixes moyennes ──
-    let totalFixed = 0
-    const fixedBreakdown = {}
-    months.forEach(m => {
-      Object.entries(byMonth[m].cats).forEach(([cat, vals]) => {
-        const info = catMap[cat] || {}
-        if (info.type === 'fixe' && vals.debit > 0) {
-          totalFixed += vals.debit
-          if (!fixedBreakdown[cat]) fixedBreakdown[cat] = 0
-          fixedBreakdown[cat] += vals.debit
+      const totalEntreesMois = totalEntreesRealisees + totalEntreesAVenir + totalPipeMois
+      const totalSortiesMois = totalSortiesRealisees + totalSortiesAVenir
+      const netMois = totalEntreesMois - totalSortiesMois
+      const soldeProjeteFin = solde + netMois
+      const budgetLibre = soldeProjeteFin - config.marge_securite
+
+      // ── CA par catégorie et mois ──
+      let totalCAFormations = 0, totalCASousTrait = 0
+      const caByMonth = {}
+      months.forEach(m => {
+        let caF = 0, caS = 0
+        Object.entries(byMonth[m].cats).forEach(([cat, vals]) => {
+          if (cat === 'CA Formations') caF += vals.credit
+          if (cat === 'CA Sous-traitance') caS += vals.credit
+        })
+        caByMonth[m] = { formations: caF, soustraitance: caS, total: caF + caS }
+        totalCAFormations += caF
+        totalCASousTrait += caS
+      })
+
+      const activeMonths = months.filter(m => (caByMonth[m]?.total || 0) > 100)
+      const nbActive = activeMonths.length || 1
+
+      // ── Tendances 3 derniers mois ──
+      const last3 = activeMonths.slice(-3)
+      const prev3 = activeMonths.slice(-6, -3)
+      const caLast3 = last3.reduce((s, m) => s + (caByMonth[m]?.total || 0), 0) / (last3.length || 1)
+      const caPrev3 = prev3.reduce((s, m) => s + (caByMonth[m]?.total || 0), 0) / (prev3.length || 1)
+      const caTrend = caPrev3 > 0 ? ((caLast3 - caPrev3) / caPrev3) * 100 : 0
+
+      const depLast3 = last3.reduce((s, m) => s + (byMonth[m]?.debit || 0), 0) / (last3.length || 1)
+      const depPrev3 = prev3.reduce((s, m) => s + (byMonth[m]?.debit || 0), 0) / (prev3.length || 1)
+      const depTrend = depPrev3 > 0 ? ((depLast3 - depPrev3) / depPrev3) * 100 : 0
+      const margeLast3 = caLast3 - depLast3
+
+      // ── Charges fixes moyennes ──
+      let totalFixed = 0
+      const fixedBreakdown = {}
+      months.forEach(m => {
+        Object.entries(byMonth[m].cats).forEach(([cat, vals]) => {
+          const info = catMap[cat] || {}
+          if (info.type === 'fixe' && vals.debit > 0) {
+            totalFixed += vals.debit
+            if (!fixedBreakdown[cat]) fixedBreakdown[cat] = 0
+            fixedBreakdown[cat] += vals.debit
+          }
+        })
+      })
+      const avgFixed = totalFixed / nbMonths
+      const fixedDetail = Object.entries(fixedBreakdown)
+        .map(([name, total]) => ({ name, icon: categories.find(c => c.name === name)?.icon || '📦', monthly: total / nbMonths }))
+        .sort((a, b) => b.monthly - a.monthly)
+
+      // ── Dépenses par catégorie (pour camembert + optimisation) ──
+      const depByCat = {}
+      months.forEach(m => {
+        Object.entries(byMonth[m].cats).forEach(([cat, vals]) => {
+          if (vals.debit > 0) {
+            if (!depByCat[cat]) depByCat[cat] = { total: 0, months: [], icon: catMap[cat]?.icon || '📦' }
+            depByCat[cat].total += vals.debit
+            depByCat[cat].months.push({ m, amount: vals.debit })
+          }
+        })
+      })
+      Object.values(depByCat).forEach(d => {
+        d.monthly = d.total / nbMonths
+        d.last3 = d.months.filter(x => last3.includes(x.m)).reduce((s, x) => s + x.amount, 0) / (last3.length || 1)
+      })
+
+      // ── Budget par catégorie pour le mois en cours ──
+      const budgetByCat = Object.entries(depByCat)
+        .filter(([, d]) => d.monthly >= 50)
+        .map(([name, d]) => {
+          const spent = curSorties.filter(tx => tx.category_name === name).reduce((s, tx) => s + tx.debit, 0)
+          return { name, icon: d.icon, budget: Math.round(d.monthly), spent: Math.round(spent), remaining: Math.round(d.monthly - spent) }
+        })
+        .sort((a, b) => b.budget - a.budget)
+
+      // ── Données graphiques ══
+      // Barres entrées/sorties par mois
+      const nbChartMonths = parseInt(chartPeriod) || 6
+      const chartMonths = months.slice(-nbChartMonths)
+      const barData = chartMonths.map(m => ({
+        name: monthLabel(m),
+        month: m,
+        entrees: Math.round(byMonth[m].credit),
+        sorties: Math.round(byMonth[m].debit),
+        net: Math.round(byMonth[m].credit - byMonth[m].debit),
+        isCurrent: m === currentMonthKey,
+      }))
+
+      // Camembert sorties
+      const pieData = Object.entries(depByCat)
+        .map(([name, d]) => ({ name, value: Math.round(d.total), icon: d.icon }))
+        .sort((a, b) => b.value - a.value)
+      // Regrouper les petits (<3%)
+      const totalDep = pieData.reduce((s, p) => s + p.value, 0)
+      const pieMain = []
+      let autresVal = 0
+      pieData.forEach(p => {
+        if (p.value / totalDep >= 0.03) pieMain.push(p)
+        else autresVal += p.value
+      })
+      if (autresVal > 0) pieMain.push({ name: 'Autres', value: autresVal, icon: '📦' })
+
+      // Donut CA
+      const caDonut = [
+        { name: 'Formations directes', value: Math.round(totalCAFormations) },
+        { name: 'Sous-traitance', value: Math.round(totalCASousTrait) },
+      ]
+
+      // Sparklines (6 derniers mois)
+      const sparkCA = activeMonths.slice(-6).map(m => ({ m, v: caByMonth[m]?.total || 0 }))
+      const sparkDep = months.slice(-6).map(m => ({ m, v: byMonth[m]?.debit || 0 }))
+      const sparkNet = months.slice(-6).map(m => ({ m, v: (byMonth[m]?.credit || 0) - (byMonth[m]?.debit || 0) }))
+
+      // ── Projection trimestre ──
+      const trimProjection = []
+      let soldeCumul = solde
+      for (let i = 0; i < 3; i++) {
+        const futureDate = new Date(now.getFullYear(), now.getMonth() + i, 1)
+        const mLabel = `${ML[String(futureDate.getMonth() + 1).padStart(2, '0')]} ${futureDate.getFullYear()}`
+        const mYM = `${futureDate.getFullYear()}-${String(futureDate.getMonth() + 1).padStart(2, '0')}`
+
+        // Pipeline prévu pour ce mois
+        const pipeMois = pipeline.filter(p => p.expected_month === mYM && p.status !== 'annule')
+        const caPipe = pipeMois.reduce((s, p) => s + (p.amount_ht || 0), 0)
+
+        const caProj = i === 0 ? totalEntreesMois : caLast3 + caPipe
+        const depProj = i === 0 ? totalSortiesMois : depLast3
+        const net = caProj - depProj
+        soldeCumul += (i === 0 ? netMois : net)
+
+        // Mois le plus tendu
+        trimProjection.push({ label: mLabel, ca: caProj, dep: depProj, net: i === 0 ? netMois : net, solde: soldeCumul, isCurrent: i === 0, caPipe })
+      }
+      const moisTendu = trimProjection.reduce((min, m) => m.solde < min.solde ? m : min, trimProjection[0])
+
+      // ── Recommandations auto ──
+      const recos = generateRecommendations({
+        unpaidInvoices, clients, depByCat, totalCAFormations, totalCASousTrait,
+        budgetLibre, config, last3, caLast3, depLast3, catMap, moisTendu, solde,
+        nbActive, pipeline
+      })
+
+      // ── Bilan mois précédent ──
+      const prevMonth = months.length >= 2 ? months[months.length - 2] : null
+      let bilanPrev = null
+      if (prevMonth && prevMonth !== currentMonthKey) {
+        const pm = byMonth[prevMonth]
+        bilanPrev = {
+          month: monthLabel(prevMonth),
+          entrees: pm.credit,
+          sorties: pm.debit,
+          net: pm.credit - pm.debit,
+          ca: caByMonth[prevMonth]?.total || 0,
         }
-      })
-    })
-    const avgFixed = totalFixed / nbMonths
-    const fixedDetail = Object.entries(fixedBreakdown)
-      .map(([name, total]) => ({ name, icon: categories.find(c => c.name === name)?.icon || '📦', monthly: total / nbMonths }))
-      .sort((a, b) => b.monthly - a.monthly)
+      }
 
-    // ── Dépenses par catégorie (pour optimisation) ──
-    const depByCat = {}
-    months.forEach(m => {
-      Object.entries(byMonth[m].cats).forEach(([cat, vals]) => {
-        if (vals.debit > 0) {
-          if (!depByCat[cat]) depByCat[cat] = { total: 0, months: [], icon: catMap[cat]?.icon || '📦' }
-          depByCat[cat].total += vals.debit
-          depByCat[cat].months.push({ m, amount: vals.debit })
-        }
-      })
-    })
-    Object.values(depByCat).forEach(d => { d.monthly = d.total / nbMonths; d.last3 = d.months.filter(x => last3.includes(x.m)).reduce((s, x) => s + x.amount, 0) / (last3.length || 1) })
-
-    // ── Projection trimestre ──
-    const avgCA = (totalCAFormations + totalCASousTrait) / nbActive
-    const trimProjection = []
-    let soldeCumul = config.solde_actuel
-    for (let i = 0; i < 3; i++) {
-      const futureDate = new Date(now.getFullYear(), now.getMonth() + i, 1)
-      const mKey = `${String(futureDate.getMonth() + 1).padStart(2, '0')}/${futureDate.getFullYear()}`
-      const mLabel = ML[String(futureDate.getMonth() + 1).padStart(2, '0')] + ' ' + futureDate.getFullYear()
-
-      // CA projeté : utiliser la moyenne glissante
-      const caProj = i === 0 ? totalEntreesRealisees + totalEntreesAVenir : caLast3
-      const depProj = i === 0 ? totalSortiesRealisees + totalSortiesAVenir : depLast3
-      const net = caProj - depProj
-      soldeCumul += (i === 0 ? netMois : net)
-
-      trimProjection.push({ mKey, label: mLabel, ca: caProj, dep: depProj, net: i === 0 ? netMois : net, solde: soldeCumul, isCurrent: i === 0 })
+      return {
+        solde, soldeAuto, byMonth, months, nbMonths,
+        totalEntreesRealisees, totalSortiesRealisees, totalEntreesAVenir, totalSortiesAVenir,
+        totalPipeMois, totalEntreesMois, totalSortiesMois,
+        entreesAVenir, sortiesAVenir,
+        netMois, soldeProjeteFin, budgetLibre,
+        caByMonth, totalCAFormations, totalCASousTrait,
+        caLast3, caPrev3, caTrend, depLast3, depPrev3, depTrend, margeLast3,
+        fixedDetail, avgFixed, depByCat, budgetByCat,
+        barData, pieMain, caDonut, sparkCA, sparkDep, sparkNet,
+        trimProjection, moisTendu, recos, bilanPrev, last3, nbActive
+      }
+    } catch (err) {
+      console.error('PrevisionnelTab analysis error:', err)
+      return {
+        solde: 0, soldeAuto: 0, byMonth: {}, months: [], nbMonths: 0,
+        totalEntreesRealisees: 0, totalSortiesRealisees: 0, totalEntreesAVenir: 0, totalSortiesAVenir: 0,
+        totalPipeMois: 0, totalEntreesMois: 0, totalSortiesMois: 0,
+        entreesAVenir: [], sortiesAVenir: [],
+        netMois: 0, soldeProjeteFin: 0, budgetLibre: 0,
+        caByMonth: {}, totalCAFormations: 0, totalCASousTrait: 0,
+        caLast3: 0, caPrev3: 0, caTrend: 0, depLast3: 0, depPrev3: 0, depTrend: 0, margeLast3: 0,
+        fixedDetail: [], avgFixed: 0, depByCat: {}, budgetByCat: [],
+        barData: [], pieMain: [], caDonut: [], sparkCA: [], sparkDep: [], sparkNet: [],
+        trimProjection: [], moisTendu: null, recos: [], bilanPrev: null, last3: [], nbActive: 0
+      }
     }
+  }, [transactions, categories, unpaidInvoices, config, currentMonthKey, pipeline, chartPeriod])
 
-    // ── Recommandations ──
-    const recos = generateRecommendations({
-      unpaidInvoices, clients, caByMonth, depByCat, avgCA, avgFixed,
-      totalCAFormations, totalCASousTrait, nbActive, budgetLibre, config,
-      last3, caLast3, depLast3, categories, catMap
-    })
-
-    return {
-      byMonth, months, nbMonths, currentMonthKey,
-      totalEntreesRealisees, totalSortiesRealisees, totalEntreesAVenir, totalSortiesAVenir,
-      entreesAVenir, sortiesAVenir, recurrentes,
-      netMois, soldeProjeteFin, budgetLibre,
-      caByMonth, totalCAFormations, totalCASousTrait, avgCA,
-      caLast3, caPrev3, caTrend, depLast3, depPrev3, depTrend, margeLast3,
-      fixedDetail, avgFixed, depByCat,
-      trimProjection, recos, last3, nbActive
-    }
-  }, [transactions, categories, unpaidInvoices, config, currentMonthKey])
-
-  // ── Helpers ──
-  function normalizeDesc(s) { return (s || '').toUpperCase().replace(/[^A-Z0-9]/g, '').substring(0, 20) }
-
-  function detectRecurringCharges(txs, months, curMonth, catMap) {
-    // Trouver les descriptions qui apparaissent dans >= 3 mois différents
+  function detectRecurringCharges(txs, months, curMonth) {
     const descMap = {}
     txs.forEach(tx => {
       if ((tx.debit || 0) <= 0) return
@@ -2779,105 +2989,112 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
     })
     return Object.values(descMap)
       .filter(d => d.months.size >= 3)
-      .map(d => ({
-        description: d.description,
-        montant: d.amounts.reduce((s, a) => s + a, 0) / d.amounts.length,
-        catName: d.catName,
-        frequence: d.months.size
-      }))
+      .map(d => ({ description: d.description, montant: d.amounts.reduce((s, a) => s + a, 0) / d.amounts.length, catName: d.catName, frequence: d.months.size }))
       .sort((a, b) => b.montant - a.montant)
   }
 
-  function generateRecommendations({ unpaidInvoices, clients, caByMonth, depByCat, avgCA, avgFixed, totalCAFormations, totalCASousTrait, nbActive, budgetLibre, config, last3, caLast3, depLast3, categories, catMap }) {
+  function generateRecommendations({ unpaidInvoices, clients, depByCat, totalCAFormations, totalCASousTrait, budgetLibre, config, last3, caLast3, depLast3, catMap, moisTendu, solde, nbActive, pipeline }) {
     const recos = []
 
     // Factures en retard
     const overdue = unpaidInvoices.filter(inv => inv.status === 'overdue' || (inv.due_date && inv.due_date < new Date().toISOString().substring(0, 10)))
     if (overdue.length > 0) {
-      const totalOverdue = overdue.reduce((s, inv) => s + parseFloat(inv.amount_due), 0)
-      const clientNames = [...new Set(overdue.map(inv => (clients || []).find(c => c.id === inv.client_id)?.name || '?'))]
-      recos.push({
-        type: 'alert', icon: '🔴', priority: 100,
-        title: `${overdue.length} facture(s) en retard — ${fmt(totalOverdue)}`,
-        detail: `Clients : ${clientNames.join(', ')}. Relancer rapidement pour préserver la trésorerie.`,
-        action: 'Relancer'
-      })
+      const totalO = overdue.reduce((s, inv) => s + parseFloat(inv.amount_due), 0)
+      const names = [...new Set(overdue.map(inv => (clients || []).find(c => c.id === inv.client_id)?.name || '?'))]
+      recos.push({ type: 'alert', icon: '🔴', priority: 100, title: `${overdue.length} facture(s) en retard — ${fmt(totalO)}`, detail: `Clients : ${names.join(', ')}` })
     }
 
-    // Factures à venir (pas en retard)
+    // Factures en attente
     const pending = unpaidInvoices.filter(inv => !overdue.includes(inv))
     if (pending.length > 0) {
-      const totalPending = pending.reduce((s, inv) => s + parseFloat(inv.amount_due), 0)
-      recos.push({
-        type: 'info', icon: '📬', priority: 60,
-        title: `${pending.length} facture(s) en attente — ${fmt(totalPending)}`,
-        detail: 'Virements attendus — surveiller les échéances.'
-      })
+      const totalP = pending.reduce((s, inv) => s + parseFloat(inv.amount_due), 0)
+      recos.push({ type: 'info', icon: '📬', priority: 60, title: `${pending.length} facture(s) en attente — ${fmt(totalP)}`, detail: 'Virements attendus' })
     }
 
-    // Ratio sous-traitance vs formations directes
+    // Ratio sous-traitance
     const totalCA = totalCAFormations + totalCASousTrait
     if (totalCA > 0 && totalCASousTrait > 0) {
-      const ratioST = (totalCASousTrait / totalCA) * 100
-      if (ratioST > 60) {
-        recos.push({
-          type: 'levier', icon: '📊', priority: 80,
-          title: `Sous-traitance = ${ratioST.toFixed(0)}% du CA`,
-          detail: `Les formations directes ont une marge plus élevée (~80% vs ~40% sous-traitance). 1 session SST directe (1 175€) rapporte autant net que 2-3 sessions sous-traitées. Développer le CA direct via la prospection.`
-        })
+      const ratio = (totalCASousTrait / totalCA) * 100
+      if (ratio > 50) {
+        recos.push({ type: 'levier', icon: '📊', priority: 80, title: `Sous-traitance = ${ratio.toFixed(0)}% du CA`,
+          detail: `Formations directes : marge ~80% vs ~40% sous-traitance. 1 SST directe (1 175€) = 2-3 sessions sous-traitées en net.` })
       }
     }
 
-    // Catégories de dépenses en hausse
+    // Catégories en hausse
     Object.entries(depByCat).forEach(([cat, data]) => {
-      if (data.monthly < 50 || !last3.length) return
+      if (data.monthly < 80 || !last3.length) return
       const info = catMap[cat] || {}
       if (info.direction === 'recette' || info.direction === 'neutre') return
-      const last3Avg = data.last3
-      const prevAvg = data.monthly // Moyenne globale
-      if (last3Avg > prevAvg * 1.3 && last3Avg > 100) {
-        recos.push({
-          type: 'optimisation', icon: '💸', priority: 70,
-          title: `${data.icon} ${cat} en hausse`,
-          detail: `${fmt(last3Avg)}/mois ces 3 derniers mois vs ${fmt(prevAvg)}/mois en moyenne (+${((last3Avg/prevAvg - 1) * 100).toFixed(0)}%). Évaluer si c'est un investissement ou une dérive.`
-        })
+      if (data.last3 > data.monthly * 1.3 && data.last3 > 150) {
+        recos.push({ type: 'optimisation', icon: '💸', priority: 70, title: `${data.icon} ${cat} en hausse`,
+          detail: `${fmt(data.last3)}/mois récent vs ${fmt(data.monthly)} en moyenne (+${((data.last3 / data.monthly - 1) * 100).toFixed(0)}%)` })
       }
     })
 
-    // Sessions à vendre pour atteindre l'objectif
-    if (config.objectif > 0 && caLast3 > 0) {
-      const gap = config.objectif - config.solde_actuel
-      const netMensuel = caLast3 - depLast3
-      if (netMensuel > 0) {
-        const moisNecessaires = Math.ceil(gap / netMensuel)
-        recos.push({
-          type: 'info', icon: '🎯', priority: 50,
-          title: `Objectif ${fmt(config.objectif)} atteignable en ~${moisNecessaires} mois`,
-          detail: `Au rythme actuel (net ${fmt(netMensuel)}/mois). Chaque session SST directe supplémentaire (1 175€) accélère de ~1 mois.`
-        })
-      }
+    // Budget libre
+    if (budgetLibre < 0) {
+      recos.push({ type: 'alert', icon: '⚠️', priority: 95, title: 'Trésorerie tendue', detail: `Le solde projeté passe sous la marge de sécurité de ${fmt(config.marge_securite)}` })
     }
 
-    // Budget libre alert
-    if (budgetLibre < 0) {
-      recos.push({
-        type: 'alert', icon: '⚠️', priority: 95,
-        title: 'Trésorerie tendue ce mois',
-        detail: `Le solde projeté fin de mois (${fmt(config.solde_actuel + (caLast3 - depLast3))}) passe sous ta marge de sécurité de ${fmt(config.marge_securite)}. Prioriser les encaissements.`
-      })
+    // Mois le plus tendu
+    if (moisTendu && moisTendu.solde < config.marge_securite && !moisTendu.isCurrent) {
+      recos.push({ type: 'alert', icon: '📅', priority: 85, title: `${moisTendu.label} sera serré`,
+        detail: `Solde projeté : ${fmt(moisTendu.solde)}. Anticiper les encaissements.` })
+    }
+
+    // Objectif
+    if (config.objectif > 0 && caLast3 > 0) {
+      const gap = config.objectif - solde
+      const netMens = caLast3 - depLast3
+      if (gap > 0 && netMens > 0) {
+        recos.push({ type: 'info', icon: '🎯', priority: 50, title: `Objectif ${fmt(config.objectif)} en ~${Math.ceil(gap / netMens)} mois`,
+          detail: `Au rythme actuel (net ${fmt(netMens)}/mois)` })
+      }
     }
 
     return recos.sort((a, b) => b.priority - a.priority)
   }
 
-  // ── Rendu ──
+  // ── Chart helpers ──
   const trendArrow = (pct) => pct > 5 ? '↗️' : pct < -5 ? '↘️' : '→'
   const trendColor = (pct, inverse = false) => {
     const good = inverse ? pct < -5 : pct > 5
-    const bad = inverse ? pct > 5 : pct < -5
-    return good ? 'text-green-600' : bad ? 'text-red-600' : 'text-gray-600'
+    return good ? 'text-green-600' : (inverse ? pct > 5 : pct < -5) ? 'text-red-600' : 'text-gray-600'
   }
 
+  const CustomTooltip = ({ active, payload, label }) => {
+    if (!active || !payload) return null
+    return (
+      <div className="bg-white p-2 rounded shadow border text-xs">
+        <div className="font-bold">{label}</div>
+        {payload.map((p, i) => (
+          <div key={i} style={{ color: p.color }}>{p.name}: {fmt(p.value)}</div>
+        ))}
+      </div>
+    )
+  }
+
+  const MiniSparkline = ({ data, color }) => (
+    <ResponsiveContainer width={80} height={24}>
+      <AreaChart data={data} margin={{ top: 2, right: 2, bottom: 2, left: 2 }}>
+        <Area type="monotone" dataKey="v" stroke={color} fill={color} fillOpacity={0.15} strokeWidth={1.5} dot={false} />
+      </AreaChart>
+    </ResponsiveContainer>
+  )
+
+  const statusIcons = { todo: '🔘', in_progress: '🟡', done: '✅', partial: '🟠', not_applicable: '❌' }
+  const statusLabels = { todo: 'À faire', in_progress: 'En cours', done: 'Fait', partial: 'Partiel', not_applicable: 'N/A' }
+  const statusCycle = ['todo', 'in_progress', 'partial', 'done', 'not_applicable']
+
+  const filteredActions = actions.filter(a => {
+    if (actionFilter === 'active') return !['done', 'not_applicable'].includes(a.status)
+    if (actionFilter === 'done') return ['done', 'not_applicable'].includes(a.status)
+    return true
+  })
+  const doneCount = actions.filter(a => a.status === 'done').length
+
+  // ══ RENDU ══
   return (
     <div className="space-y-4">
 
@@ -2895,8 +3112,9 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
         </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <div className="bg-white/10 rounded-lg p-3">
-            <div className="text-xs opacity-70">Solde actuel</div>
-            <div className="font-bold text-xl">{fmt(config.solde_actuel)}</div>
+            <div className="text-xs opacity-70">Solde {config.solde_override !== '' ? '(manuel)' : '(calculé)'}</div>
+            <div className="font-bold text-xl">{fmt(analysis.solde)}</div>
+            {config.solde_override !== '' && <div className="text-xs opacity-50">Auto : {fmt(analysis.soldeAuto)}</div>}
           </div>
           <div className="bg-white/10 rounded-lg p-3">
             <div className="text-xs opacity-70">Solde projeté fin de mois</div>
@@ -2905,45 +3123,48 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
           <div className={`rounded-lg p-3 ${analysis.budgetLibre > 1000 ? 'bg-green-500/30' : analysis.budgetLibre > 0 ? 'bg-amber-500/30' : 'bg-red-500/30'}`}>
             <div className="text-xs opacity-70">💰 Budget libre</div>
             <div className="font-bold text-xl">{fmt(analysis.budgetLibre)}</div>
-            <div className="text-xs opacity-60 mt-0.5">Dépensable sans risque</div>
+            <div className="text-xs opacity-60">Dépensable sans risque</div>
           </div>
           <div className="bg-white/10 rounded-lg p-3">
             <div className="text-xs opacity-70">🎯 Objectif</div>
             <div className="font-bold text-xl">{fmt(config.objectif)}</div>
           </div>
         </div>
-        {/* Barre de progression */}
         {config.objectif > 0 && (
           <div className="mt-3">
             <div className="flex justify-between text-xs mb-1 opacity-70">
-              <span>{fmt(config.solde_actuel)}</span>
-              <span>Gap : {fmt(Math.max(0, config.objectif - config.solde_actuel))}</span>
+              <span>{fmt(analysis.solde)}</span>
+              <span>Gap : {fmt(Math.max(0, config.objectif - analysis.solde))}</span>
               <span>{fmt(config.objectif)}</span>
             </div>
             <div className="bg-white/20 rounded-full h-2.5">
               <div className="rounded-full h-2.5 bg-green-400 transition-all"
-                style={{ width: `${Math.min(100, Math.max(2, (config.solde_actuel / config.objectif) * 100))}%` }} />
+                style={{ width: `${Math.min(100, Math.max(2, (analysis.solde / config.objectif) * 100))}%` }} />
             </div>
           </div>
         )}
       </div>
 
-      {/* Paramètres éditables */}
+      {/* Paramètres */}
       <div className="bg-white rounded-xl shadow-sm border p-4">
         <details>
           <summary className="font-bold text-gray-700 cursor-pointer hover:text-blue-600">⚙️ Paramètres</summary>
-          <div className="grid grid-cols-3 gap-3 mt-3">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
             <div>
-              <label className="text-xs text-gray-500">Solde actuel (€)</label>
-              <input type="number" value={config.solde_actuel} onChange={e => setConfig(c => ({ ...c, solde_actuel: +e.target.value }))} className="w-full border rounded-lg px-3 py-2 text-sm mt-1 font-mono" />
+              <label className="text-xs text-gray-500">Solde réel (€) <span className="text-gray-300">vide = auto</span></label>
+              <input type="number" value={config.solde_override} placeholder={`Auto: ${analysis.soldeAuto}`}
+                onChange={e => updateConfig('solde_override', e.target.value)}
+                className="w-full border rounded-lg px-3 py-2 text-sm mt-1 font-mono" />
             </div>
             <div>
               <label className="text-xs text-gray-500">Objectif fin d'année (€)</label>
-              <input type="number" value={config.objectif} onChange={e => setConfig(c => ({ ...c, objectif: +e.target.value }))} className="w-full border rounded-lg px-3 py-2 text-sm mt-1 font-mono" />
+              <input type="number" value={config.objectif} onChange={e => updateConfig('objectif', +e.target.value)}
+                className="w-full border rounded-lg px-3 py-2 text-sm mt-1 font-mono" />
             </div>
             <div>
               <label className="text-xs text-gray-500">Marge de sécurité (€)</label>
-              <input type="number" value={config.marge_securite} onChange={e => setConfig(c => ({ ...c, marge_securite: +e.target.value }))} className="w-full border rounded-lg px-3 py-2 text-sm mt-1 font-mono" />
+              <input type="number" value={config.marge_securite} onChange={e => updateConfig('marge_securite', +e.target.value)}
+                className="w-full border rounded-lg px-3 py-2 text-sm mt-1 font-mono" />
             </div>
           </div>
         </details>
@@ -2963,37 +3184,37 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
 
             <div className="text-left font-medium text-green-700">🟢 Entrées</div>
             <div className="font-mono text-green-600">{fmt(analysis.totalEntreesRealisees)}</div>
-            <div className="font-mono text-green-500">{fmt(analysis.totalEntreesAVenir)}</div>
-            <div className="font-mono font-bold text-green-700">{fmt(analysis.totalEntreesRealisees + analysis.totalEntreesAVenir)}</div>
+            <div className="font-mono text-green-500">{fmt(analysis.totalEntreesAVenir + analysis.totalPipeMois)}</div>
+            <div className="font-mono font-bold text-green-700">{fmt(analysis.totalEntreesMois)}</div>
 
             <div className="text-left font-medium text-red-700">🔴 Sorties</div>
             <div className="font-mono text-red-600">{fmt(analysis.totalSortiesRealisees)}</div>
             <div className="font-mono text-red-500">{fmt(analysis.totalSortiesAVenir)}</div>
-            <div className="font-mono font-bold text-red-700">{fmt(analysis.totalSortiesRealisees + analysis.totalSortiesAVenir)}</div>
+            <div className="font-mono font-bold text-red-700">{fmt(analysis.totalSortiesMois)}</div>
 
             <div className="text-left font-bold text-gray-700 border-t pt-2">Net</div>
             <div className={`font-mono font-bold border-t pt-2 ${(analysis.totalEntreesRealisees - analysis.totalSortiesRealisees) >= 0 ? 'text-green-700' : 'text-red-700'}`}>
               {fmt(analysis.totalEntreesRealisees - analysis.totalSortiesRealisees)}
             </div>
             <div className="font-mono border-t pt-2 text-gray-500">
-              {fmt(analysis.totalEntreesAVenir - analysis.totalSortiesAVenir)}
+              {fmt((analysis.totalEntreesAVenir + analysis.totalPipeMois) - analysis.totalSortiesAVenir)}
             </div>
             <div className={`font-mono font-bold text-lg border-t pt-2 ${analysis.netMois >= 0 ? 'text-green-700' : 'text-red-700'}`}>
               {analysis.netMois >= 0 ? '+' : ''}{fmt(analysis.netMois)}
             </div>
           </div>
 
-          {/* Détail factures attendues */}
+          {/* Détails dépliables */}
           {analysis.entreesAVenir.length > 0 && (
             <details className="mt-4">
-              <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-600">📬 {analysis.entreesAVenir.length} facture(s) en attente de paiement</summary>
+              <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-600">📬 {analysis.entreesAVenir.length} facture(s) en attente</summary>
               <div className="mt-2 space-y-1">
                 {analysis.entreesAVenir.map(inv => {
                   const cli = (clients || []).find(c => c.id === inv.client_id)
-                  const isOverdue = inv.due_date && inv.due_date < new Date().toISOString().substring(0, 10)
+                  const isOD = inv.due_date && inv.due_date < new Date().toISOString().substring(0, 10)
                   return (
-                    <div key={inv.id} className={`flex justify-between items-center text-xs px-2 py-1 rounded ${isOverdue ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>
-                      <span>{inv.reference} — {cli?.name || '?'} {isOverdue && <span className="font-bold">⚠️ RETARD</span>}</span>
+                    <div key={inv.id} className={`flex justify-between text-xs px-2 py-1 rounded ${isOD ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>
+                      <span>{inv.reference} — {cli?.name || '?'} {isOD && <b>⚠️ RETARD</b>}</span>
                       <span className="font-mono font-bold">{fmt(parseFloat(inv.amount_due))}</span>
                     </div>
                   )
@@ -3002,15 +3223,37 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
             </details>
           )}
 
-          {/* Détail charges récurrentes à venir */}
           {analysis.sortiesAVenir.length > 0 && (
             <details className="mt-2">
               <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-600">📋 {analysis.sortiesAVenir.length} charge(s) récurrente(s) attendue(s)</summary>
               <div className="mt-2 space-y-1">
                 {analysis.sortiesAVenir.slice(0, 10).map((r, i) => (
-                  <div key={i} className="flex justify-between items-center text-xs px-2 py-1 rounded bg-red-50 text-red-700">
+                  <div key={i} className="flex justify-between text-xs px-2 py-1 rounded bg-red-50 text-red-700">
                     <span>{r.description} <span className="text-gray-400">({r.catName})</span></span>
                     <span className="font-mono">~{fmt(r.montant)}</span>
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
+
+          {/* Budget par catégorie */}
+          {analysis.budgetByCat.length > 0 && (
+            <details className="mt-3">
+              <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-600">📊 Budget par catégorie ce mois</summary>
+              <div className="mt-2 space-y-1.5">
+                {analysis.budgetByCat.slice(0, 8).map((b, i) => (
+                  <div key={i} className="text-xs">
+                    <div className="flex justify-between mb-0.5">
+                      <span>{b.icon} {b.name}</span>
+                      <span className={`font-mono ${b.remaining < 0 ? 'text-red-600 font-bold' : 'text-gray-600'}`}>
+                        {fmt(b.spent)} / ~{fmt(b.budget)} {b.remaining < 0 && '⚠️'}
+                      </span>
+                    </div>
+                    <div className="bg-gray-100 rounded-full h-1.5">
+                      <div className={`rounded-full h-1.5 ${b.remaining < 0 ? 'bg-red-500' : b.spent / b.budget > 0.8 ? 'bg-amber-400' : 'bg-green-400'}`}
+                        style={{ width: `${Math.min(100, (b.spent / b.budget) * 100)}%` }} />
+                    </div>
                   </div>
                 ))}
               </div>
@@ -3019,49 +3262,128 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
         </div>
       </div>
 
-      {/* ══ BLOC 3 — Tendances & Trajectoire ══ */}
+      {/* Bilan mois précédent */}
+      {analysis.bilanPrev && (
+        <div className="bg-white rounded-xl shadow-sm border p-4">
+          <div className="flex items-center justify-between">
+            <h4 className="text-sm font-bold text-gray-700">📋 Bilan {analysis.bilanPrev.month}</h4>
+            <span className={`text-sm font-bold ${analysis.bilanPrev.net >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+              Net : {analysis.bilanPrev.net >= 0 ? '+' : ''}{fmt(analysis.bilanPrev.net)}
+            </span>
+          </div>
+          <div className="flex gap-4 mt-2 text-xs text-gray-500">
+            <span>CA : {fmt(analysis.bilanPrev.ca)}</span>
+            <span>Entrées : {fmt(analysis.bilanPrev.entrees)}</span>
+            <span>Sorties : {fmt(analysis.bilanPrev.sorties)}</span>
+          </div>
+        </div>
+      )}
+
+      {/* ══ BLOC 3 — Tendances & Graphiques ══ */}
       <div className="bg-white rounded-xl shadow-sm border p-4">
-        <h3 className="font-bold text-gray-700 mb-3">📈 Tendances (3 derniers mois vs précédents)</h3>
-        <div className="grid grid-cols-3 gap-4">
-          <div className="p-3 bg-green-50 rounded-lg text-center">
-            <div className="text-xs text-gray-500 mb-1">CA mensuel moyen</div>
-            <div className="font-bold text-lg text-green-700">{fmt(analysis.caLast3)}</div>
-            <div className={`text-sm font-medium ${trendColor(analysis.caTrend)}`}>
-              {trendArrow(analysis.caTrend)} {analysis.caTrend > 0 ? '+' : ''}{analysis.caTrend.toFixed(0)}%
-            </div>
-          </div>
-          <div className="p-3 bg-red-50 rounded-lg text-center">
-            <div className="text-xs text-gray-500 mb-1">Dépenses mensuelles</div>
-            <div className="font-bold text-lg text-red-700">{fmt(analysis.depLast3)}</div>
-            <div className={`text-sm font-medium ${trendColor(analysis.depTrend, true)}`}>
-              {trendArrow(analysis.depTrend)} {analysis.depTrend > 0 ? '+' : ''}{analysis.depTrend.toFixed(0)}%
-            </div>
-          </div>
-          <div className={`p-3 rounded-lg text-center ${analysis.margeLast3 >= 0 ? 'bg-blue-50' : 'bg-amber-50'}`}>
-            <div className="text-xs text-gray-500 mb-1">Marge nette</div>
-            <div className={`font-bold text-lg ${analysis.margeLast3 >= 0 ? 'text-blue-700' : 'text-red-700'}`}>{fmt(analysis.margeLast3)}</div>
-            <div className="text-xs text-gray-400">/mois</div>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-bold text-gray-700">📈 Tendances</h3>
+          <div className="flex gap-1">
+            {['6', '12'].map(p => (
+              <button key={p} onClick={() => setChartPeriod(p)}
+                className={`text-xs px-2 py-1 rounded ${chartPeriod === p ? 'bg-blue-100 text-blue-700 font-medium' : 'text-gray-400 hover:bg-gray-100'}`}>
+                {p} mois
+              </button>
+            ))}
           </div>
         </div>
 
-        {/* Historique CA par mois */}
-        <div className="mt-4">
-          <div className="text-xs text-gray-500 mb-2 font-medium">CA mensuel — Formations directes 🟢 vs Sous-traitance 🔵</div>
-          <div className="space-y-1">
-            {Object.entries(analysis.caByMonth).slice(-6).map(([m, data]) => {
-              const maxCA = Math.max(...Object.values(analysis.caByMonth).map(d => d.total), 1)
-              return (
-                <div key={m} className="flex items-center gap-2 text-xs">
-                  <span className="w-16 text-gray-500">{ML[m.split('/')[0]]} {m.split('/')[1].slice(2)}</span>
-                  <div className="flex-1 flex h-4 rounded overflow-hidden bg-gray-100">
-                    <div className="bg-green-400 h-full" style={{ width: `${(data.formations / maxCA) * 100}%` }} title={`Formations: ${fmt(data.formations)}`} />
-                    <div className="bg-blue-400 h-full" style={{ width: `${(data.soustraitance / maxCA) * 100}%` }} title={`Sous-traitance: ${fmt(data.soustraitance)}`} />
-                  </div>
-                  <span className="w-20 text-right font-mono font-medium">{fmt(data.total)}</span>
+        {/* KPIs avec sparklines */}
+        <div className="grid grid-cols-3 gap-4 mb-4">
+          <div className="p-3 bg-green-50 rounded-lg">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-xs text-gray-500">CA moyen</div>
+                <div className="font-bold text-lg text-green-700">{fmt(analysis.caLast3)}</div>
+                <div className={`text-xs font-medium ${trendColor(analysis.caTrend)}`}>
+                  {trendArrow(analysis.caTrend)} {analysis.caTrend > 0 ? '+' : ''}{analysis.caTrend.toFixed(0)}%
                 </div>
-              )
-            })}
+              </div>
+              <MiniSparkline data={analysis.sparkCA} color="#16a34a" />
+            </div>
           </div>
+          <div className="p-3 bg-red-50 rounded-lg">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-xs text-gray-500">Dépenses</div>
+                <div className="font-bold text-lg text-red-700">{fmt(analysis.depLast3)}</div>
+                <div className={`text-xs font-medium ${trendColor(analysis.depTrend, true)}`}>
+                  {trendArrow(analysis.depTrend)} {analysis.depTrend > 0 ? '+' : ''}{analysis.depTrend.toFixed(0)}%
+                </div>
+              </div>
+              <MiniSparkline data={analysis.sparkDep} color="#dc2626" />
+            </div>
+          </div>
+          <div className={`p-3 rounded-lg ${analysis.margeLast3 >= 0 ? 'bg-blue-50' : 'bg-amber-50'}`}>
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-xs text-gray-500">Marge nette</div>
+                <div className={`font-bold text-lg ${analysis.margeLast3 >= 0 ? 'text-blue-700' : 'text-red-700'}`}>{fmt(analysis.margeLast3)}</div>
+                <div className="text-xs text-gray-400">/mois</div>
+              </div>
+              <MiniSparkline data={analysis.sparkNet} color={analysis.margeLast3 >= 0 ? '#2563eb' : '#dc2626'} />
+            </div>
+          </div>
+        </div>
+
+        {/* Graphique barres */}
+        {analysis.barData.length > 0 && (
+          <div className="mb-4">
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={analysis.barData} barCategoryGap="20%">
+                <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                <YAxis tick={{ fontSize: 10 }} tickFormatter={v => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v} />
+                <Tooltip content={<CustomTooltip />} />
+                <Bar dataKey="entrees" name="Entrées" fill="#22c55e" radius={[3, 3, 0, 0]} />
+                <Bar dataKey="sorties" name="Sorties" fill="#ef4444" radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+
+        {/* Donut charts côte à côte */}
+        <div className="grid grid-cols-2 gap-4">
+          {/* Camembert dépenses */}
+          {analysis.pieMain.length > 0 && (
+            <div>
+              <div className="text-xs font-medium text-gray-500 mb-1 text-center">Répartition sorties</div>
+              <ResponsiveContainer width="100%" height={200}>
+                <PieChart>
+                  <Pie data={analysis.pieMain} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={45} outerRadius={75} paddingAngle={2}>
+                    {analysis.pieMain.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                  </Pie>
+                  <Tooltip formatter={(v) => fmt(v)} />
+                  <Legend wrapperStyle={{ fontSize: '10px' }} />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+          {/* Donut CA */}
+          {(analysis.caDonut[0]?.value > 0 || analysis.caDonut[1]?.value > 0) && (
+            <div>
+              <div className="text-xs font-medium text-gray-500 mb-1 text-center">Répartition CA</div>
+              <ResponsiveContainer width="100%" height={200}>
+                <PieChart>
+                  <Pie data={analysis.caDonut} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={45} outerRadius={75} paddingAngle={2}>
+                    <Cell fill="#22c55e" />
+                    <Cell fill="#3b82f6" />
+                  </Pie>
+                  <Tooltip formatter={(v) => fmt(v)} />
+                  <Legend wrapperStyle={{ fontSize: '10px' }} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="text-center text-xs mt-1">
+                <span className="text-green-600 font-medium">Direct {analysis.totalCAFormations + analysis.totalCASousTrait > 0 ? ((analysis.totalCAFormations / (analysis.totalCAFormations + analysis.totalCASousTrait)) * 100).toFixed(0) : 0}%</span>
+                {' '}/{' '}
+                <span className="text-blue-600 font-medium">Sous-traitance {analysis.totalCAFormations + analysis.totalCASousTrait > 0 ? ((analysis.totalCASousTrait / (analysis.totalCAFormations + analysis.totalCASousTrait)) * 100).toFixed(0) : 0}%</span>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Projection trimestre */}
@@ -3069,12 +3391,13 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
           <h4 className="text-sm font-bold text-gray-700 mb-2">🗓️ Projection trimestre</h4>
           <div className="grid grid-cols-3 gap-2">
             {analysis.trimProjection.map((m, i) => (
-              <div key={i} className={`p-3 rounded-lg border ${m.isCurrent ? 'border-blue-400 bg-blue-50' : 'border-gray-200'}`}>
+              <div key={i} className={`p-3 rounded-lg border ${m.isCurrent ? 'border-blue-400 bg-blue-50' : 'border-gray-200'} ${m === analysis.moisTendu && m.solde < config.marge_securite ? 'ring-2 ring-red-300' : ''}`}>
                 <div className="text-xs font-medium text-gray-500">{m.label} {m.isCurrent && <span className="text-blue-600">← en cours</span>}</div>
                 <div className="flex justify-between mt-1">
                   <span className="text-xs text-green-600">CA: {fmt(m.ca)}</span>
                   <span className="text-xs text-red-600">Dép: {fmt(m.dep)}</span>
                 </div>
+                {m.caPipe > 0 && <div className="text-xs text-purple-500">dont pipeline: {fmt(m.caPipe)}</div>}
                 <div className={`font-bold text-sm mt-1 ${m.net >= 0 ? 'text-green-700' : 'text-red-700'}`}>
                   Net: {m.net >= 0 ? '+' : ''}{fmt(m.net)}
                 </div>
@@ -3087,7 +3410,69 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
         </div>
       </div>
 
-      {/* ══ BLOC 4 — Recommandations ══ */}
+      {/* ══ BLOC 4 — Pipeline ══ */}
+      <div className="bg-white rounded-xl shadow-sm border p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-bold text-gray-700">📋 Pipeline — CA prévu</h3>
+          <button onClick={() => setShowPipeForm(f => !f)} className="text-xs bg-blue-100 text-blue-700 px-3 py-1 rounded-lg hover:bg-blue-200">
+            {showPipeForm ? '✕ Fermer' : '+ Ajouter'}
+          </button>
+        </div>
+
+        {showPipeForm && (
+          <div className="mb-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+              <input type="text" placeholder="Client" value={newPipe.client} onChange={e => setNewPipe(p => ({ ...p, client: e.target.value }))}
+                className="border rounded px-2 py-1.5 text-xs" />
+              <input type="number" placeholder="Montant TTC" value={newPipe.amount_ttc} onChange={e => setNewPipe(p => ({ ...p, amount_ttc: e.target.value }))}
+                className="border rounded px-2 py-1.5 text-xs" />
+              <input type="month" value={newPipe.expected_month} onChange={e => setNewPipe(p => ({ ...p, expected_month: e.target.value }))}
+                className="border rounded px-2 py-1.5 text-xs" />
+              <select value={newPipe.trainer} onChange={e => setNewPipe(p => ({ ...p, trainer: e.target.value }))}
+                className="border rounded px-2 py-1.5 text-xs">
+                <option>Hicham</option><option>Maxime</option>
+              </select>
+              <button onClick={addPipeEntry} className="bg-blue-600 text-white rounded px-3 py-1.5 text-xs hover:bg-blue-700">Ajouter</button>
+            </div>
+            <input type="text" placeholder="Description (optionnel)" value={newPipe.description} onChange={e => setNewPipe(p => ({ ...p, description: e.target.value }))}
+              className="border rounded px-2 py-1.5 text-xs w-full mt-2" />
+          </div>
+        )}
+
+        {pipeline.length === 0 ? (
+          <div className="text-center py-4 text-gray-400 text-xs">Ajoutez vos devis validés et formations prévues</div>
+        ) : (
+          <div className="space-y-1">
+            {pipeline.map(p => (
+              <div key={p.id} className="flex items-center justify-between p-2 rounded-lg bg-gray-50 text-xs">
+                <div className="flex items-center gap-2 flex-1">
+                  <span className={`w-2 h-2 rounded-full ${p.status === 'facture' ? 'bg-green-500' : p.status === 'confirme' ? 'bg-blue-500' : 'bg-amber-500'}`} />
+                  <span className="font-medium">{p.client}</span>
+                  {p.description && <span className="text-gray-400">— {p.description}</span>}
+                  <span className="text-gray-400">{p.expected_month}</span>
+                  <span className="text-gray-400">{p.trainer}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono font-bold">{fmt(p.amount_ht)} HT</span>
+                  <select value={p.status} onChange={e => updatePipeStatus(p.id, e.target.value)}
+                    className="border rounded px-1 py-0.5 text-xs bg-white">
+                    <option value="prevu">Prévu</option>
+                    <option value="confirme">Confirmé</option>
+                    <option value="facture">Facturé</option>
+                    <option value="annule">Annulé</option>
+                  </select>
+                  <button onClick={() => deletePipe(p.id)} className="text-red-400 hover:text-red-600">✕</button>
+                </div>
+              </div>
+            ))}
+            <div className="text-right text-xs text-gray-500 pt-1">
+              Total pipeline : <b>{fmt(pipeline.reduce((s, p) => s + (p.amount_ht || 0), 0))} HT</b>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ══ BLOC 5 — Recommandations auto ══ */}
       {analysis.recos.length > 0 && (
         <div className="bg-white rounded-xl shadow-sm border p-4">
           <h3 className="font-bold text-gray-700 mb-3">🧠 Recommandations</h3>
@@ -3101,7 +3486,7 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
               }`}>
                 <div className="flex items-start gap-2">
                   <span className="text-lg">{reco.icon}</span>
-                  <div className="flex-1">
+                  <div>
                     <div className="font-medium text-sm text-gray-800">{reco.title}</div>
                     <div className="text-xs text-gray-600 mt-0.5">{reco.detail}</div>
                   </div>
@@ -3112,11 +3497,113 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
         </div>
       )}
 
+      {/* ══ BLOC 6 — Plan d'action ══ */}
+      <div className="bg-white rounded-xl shadow-sm border p-4">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-3">
+            <h3 className="font-bold text-gray-700">📝 Plan d'action</h3>
+            <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">{doneCount}/{actions.length} fait{doneCount > 1 ? 's' : ''}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="flex gap-1">
+              {[{ k: 'active', l: 'En cours' }, { k: 'done', l: 'Faits' }, { k: 'all', l: 'Tous' }].map(f => (
+                <button key={f.k} onClick={() => setActionFilter(f.k)}
+                  className={`text-xs px-2 py-1 rounded ${actionFilter === f.k ? 'bg-blue-100 text-blue-700' : 'text-gray-400 hover:bg-gray-100'}`}>{f.l}</button>
+              ))}
+            </div>
+            <button onClick={() => setShowActionForm(f => !f)}
+              className="text-xs bg-blue-100 text-blue-700 px-3 py-1 rounded-lg hover:bg-blue-200">
+              {showActionForm ? '✕' : '+ Ajouter'}
+            </button>
+          </div>
+        </div>
+
+        {showActionForm && (
+          <div className="mb-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+              <input type="text" placeholder="Titre de l'action" value={newAction.title} onChange={e => setNewAction(a => ({ ...a, title: e.target.value }))}
+                className="border rounded px-2 py-1.5 text-xs col-span-2" />
+              <select value={newAction.category} onChange={e => setNewAction(a => ({ ...a, category: e.target.value }))}
+                className="border rounded px-2 py-1.5 text-xs">
+                <option value="general">Général</option>
+                <option value="tresorerie">Trésorerie</option>
+                <option value="charges">Charges</option>
+                <option value="ca">CA / Ventes</option>
+              </select>
+              <input type="number" placeholder="Impact €/mois" value={newAction.impact_monthly} onChange={e => setNewAction(a => ({ ...a, impact_monthly: e.target.value }))}
+                className="border rounded px-2 py-1.5 text-xs" />
+            </div>
+            <div className="flex gap-2 mt-2">
+              <input type="text" placeholder="Détail (optionnel)" value={newAction.detail} onChange={e => setNewAction(a => ({ ...a, detail: e.target.value }))}
+                className="border rounded px-2 py-1.5 text-xs flex-1" />
+              <input type="date" value={newAction.due_date} onChange={e => setNewAction(a => ({ ...a, due_date: e.target.value }))}
+                className="border rounded px-2 py-1.5 text-xs" />
+              <button onClick={addAction} className="bg-blue-600 text-white rounded px-4 py-1.5 text-xs hover:bg-blue-700">Ajouter</button>
+            </div>
+          </div>
+        )}
+
+        {filteredActions.length === 0 ? (
+          <div className="text-center py-4 text-gray-400 text-xs">
+            {actionFilter === 'done' ? 'Aucune action terminée' : 'Aucune action en cours — ajoutez-en !'}
+          </div>
+        ) : (
+          <div className="space-y-1.5">
+            {filteredActions.map(action => (
+              <div key={action.id} className={`p-3 rounded-lg border transition-all ${
+                action.status === 'done' ? 'bg-green-50/50 border-green-200 opacity-60' :
+                action.status === 'in_progress' ? 'bg-blue-50 border-blue-200' :
+                action.status === 'not_applicable' ? 'bg-gray-50 border-gray-200 opacity-40' :
+                'bg-white border-gray-200'
+              }`}>
+                <div className="flex items-start gap-2">
+                  <button onClick={() => {
+                    const idx = statusCycle.indexOf(action.status)
+                    const next = statusCycle[(idx + 1) % statusCycle.length]
+                    updateActionStatus(action.id, next)
+                  }} className="text-lg mt-0.5 hover:scale-110 transition-transform" title="Cliquer pour changer le statut">
+                    {statusIcons[action.status]}
+                  </button>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className={`text-sm font-medium ${action.status === 'done' ? 'line-through text-gray-400' : 'text-gray-800'}`}>{action.title}</span>
+                      <span className="text-xs text-gray-300">{statusLabels[action.status]}</span>
+                      {action.impact_monthly > 0 && <span className="text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded">{fmt(action.impact_monthly)}/mois</span>}
+                      {action.due_date && <span className="text-xs text-gray-400">{action.due_date}</span>}
+                      <span className={`text-xs px-1.5 py-0.5 rounded ${
+                        action.category === 'tresorerie' ? 'bg-purple-100 text-purple-600' :
+                        action.category === 'charges' ? 'bg-red-100 text-red-600' :
+                        action.category === 'ca' ? 'bg-green-100 text-green-600' :
+                        'bg-gray-100 text-gray-500'
+                      }`}>{action.category}</span>
+                    </div>
+                    {action.detail && <div className="text-xs text-gray-500 mt-0.5">{action.detail}</div>}
+                    {/* Mini note éditable */}
+                    <input type="text" placeholder="Ajouter un commentaire..." value={action.note || ''}
+                      onChange={e => updateActionNote(action.id, e.target.value)}
+                      className="text-xs border-0 border-b border-transparent hover:border-gray-200 focus:border-blue-300 w-full mt-1 px-0 py-0.5 bg-transparent focus:outline-none focus:ring-0" />
+                  </div>
+                  <button onClick={() => deleteAction(action.id)} className="text-gray-300 hover:text-red-500 text-xs">✕</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Résumé impact */}
+        {actions.filter(a => a.status === 'done' && a.impact_monthly > 0).length > 0 && (
+          <div className="mt-3 p-2 bg-green-50 rounded-lg border border-green-200 text-xs text-green-700 flex justify-between">
+            <span>💰 Impact des actions réalisées</span>
+            <span className="font-bold">{fmt(actions.filter(a => a.status === 'done' && a.impact_monthly > 0).reduce((s, a) => s + a.impact_monthly, 0))}/mois</span>
+          </div>
+        )}
+      </div>
+
       {/* ══ Détail charges fixes ══ */}
       <div className="bg-white rounded-xl shadow-sm border p-4">
         <details>
           <summary className="font-bold text-gray-700 cursor-pointer hover:text-blue-600">
-            📋 Détail charges fixes — {fmt(analysis.avgFixed)}/mois (sur {analysis.nbMonths} mois)
+            📋 Détail charges fixes — {fmt(analysis.avgFixed)}/mois
           </summary>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mt-3">
             {analysis.fixedDetail.map((c, i) => (
@@ -3133,979 +3620,6 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
   )
 }
 
-// ════════════════════════════════════════════════════════════
-//  RECOMMANDATIONS TAB — Analyse, prévisionnel & optimisation
-// ════════════════════════════════════════════════════════════
-function RecommandationsTab({ transactions, categories }) {
-
-  const [simCA, setSimCA] = useState(20)
-  const [simCharges, setSimCharges] = useState(10)
-  const [objectif, setObjectif] = useState(50000)
-  const [soldeActuel, setSoldeActuel] = useState(3267)
-
-  // ── Pipeline / Prévisionnel ──
-  const [pipeline, setPipeline] = useState([])
-  const [loadingPipe, setLoadingPipe] = useState(true)
-  const [newPipe, setNewPipe] = useState({ client: '', amount_ttc: '', expected_month: '', type: 'previsionnel', trainer: 'Hicham', description: '' })
-  const [showPipeForm, setShowPipeForm] = useState(false)
-
-  // Charger le pipeline
-  useEffect(() => {
-    loadPipeline()
-  }, [])
-
-  async function loadPipeline() {
-    setLoadingPipe(true)
-    const { data, error } = await supabase
-      .from('budget_pipeline')
-      .select('*')
-      .not('status', 'eq', 'annule')
-      .order('expected_month', { ascending: true })
-    if (!error && data) setPipeline(data)
-    setLoadingPipe(false)
-  }
-
-  async function addPipeEntry() {
-    if (!newPipe.client || !newPipe.amount_ttc || !newPipe.expected_month) {
-      toast.error('Client, montant et mois requis')
-      return
-    }
-    const ht = parseFloat(newPipe.amount_ttc) / 1.2
-    const { error } = await supabase.from('budget_pipeline').insert({
-      client: newPipe.client.toUpperCase(),
-      description: newPipe.description,
-      amount_ht: Math.round(ht * 100) / 100,
-      amount_ttc: parseFloat(newPipe.amount_ttc),
-      expected_month: newPipe.expected_month,
-      type: newPipe.type,
-      status: 'prevu',
-      trainer: newPipe.trainer,
-    })
-    if (error) { toast.error('Erreur: ' + error.message); return }
-    toast.success('✅ Ajouté au prévisionnel')
-    setNewPipe({ client: '', amount_ttc: '', expected_month: '', type: 'previsionnel', trainer: 'Hicham', description: '' })
-    setShowPipeForm(false)
-    loadPipeline()
-  }
-
-  async function updatePipeStatus(id, newStatus) {
-    await supabase.from('budget_pipeline').update({ status: newStatus, updated_at: new Date().toISOString() }).eq('id', id)
-    toast.success('Statut mis à jour')
-    loadPipeline()
-  }
-
-  async function deletePipe(id) {
-    if (!confirm('Supprimer cette entrée ?')) return
-    await supabase.from('budget_pipeline').delete().eq('id', id)
-    toast.success('Supprimé')
-    loadPipeline()
-  }
-
-  // ── Données calculées ──
-  const data = useMemo(() => {
-    const co = transactions.filter(tx => !tx.is_personal)
-    const catMap = {}
-    categories.forEach(c => { catMap[c.name] = { type: c.type, direction: c.direction, icon: c.icon } })
-
-    const byMonth = {}
-    co.forEach(tx => {
-      const m = tx.month
-      if (!m) return
-      if (!byMonth[m]) byMonth[m] = { debit: 0, credit: 0, caFormation: 0, caSousTrait: 0, cats: {} }
-      byMonth[m].debit += tx.debit || 0
-      byMonth[m].credit += tx.credit || 0
-      if (tx.category_name === 'CA Formations') byMonth[m].caFormation += tx.credit || 0
-      if (tx.category_name === 'CA Sous-traitance') byMonth[m].caSousTrait += tx.credit || 0
-      const c = tx.category_name || 'Non classé'
-      if (!byMonth[m].cats[c]) byMonth[m].cats[c] = { debit: 0, credit: 0 }
-      byMonth[m].cats[c].debit += tx.debit || 0
-      byMonth[m].cats[c].credit += tx.credit || 0
-    })
-
-    const months = Object.keys(byMonth).sort()
-    const nbMonths = months.length || 1
-
-    let totalCA = 0
-    const caByMonth = {}
-    months.forEach(m => {
-      let ca = 0
-      Object.entries(byMonth[m].cats).forEach(([cat, vals]) => {
-        const info = catMap[cat] || {}
-        if (info.direction === 'recette' && info.type !== 'exceptionnel') {
-          ca += vals.credit
-        }
-      })
-      caByMonth[m] = ca
-      totalCA += ca
-    })
-
-    const activeMonths = months.filter(m => caByMonth[m] > 100)
-    const nbActive = activeMonths.length || 1
-    const avgCA = totalCA / nbActive
-
-    const last4 = activeMonths.slice(-4)
-    const avgCALast4 = last4.reduce((s, m) => s + caByMonth[m], 0) / (last4.length || 1)
-
-    const chargesByCat = {}
-    let totalFixed = 0, totalVariable = 0
-    months.forEach(m => {
-      Object.entries(byMonth[m].cats).forEach(([cat, vals]) => {
-        const info = catMap[cat] || { type: 'variable', direction: 'depense' }
-        if (info.direction !== 'depense' || info.type === 'exceptionnel') return
-        if (!chargesByCat[cat]) chargesByCat[cat] = { total: 0, count: 0, type: info.type, icon: info.icon || '📦' }
-        chargesByCat[cat].total += vals.debit
-        chargesByCat[cat].count++
-        if (info.type === 'fixe') totalFixed += vals.debit
-        else totalVariable += vals.debit
-      })
-    })
-
-    const avgFixed = totalFixed / nbMonths
-    const avgVariable = totalVariable / nbMonths
-    const avgTotal = avgFixed + avgVariable
-    const netMensuel = avgCA - avgTotal
-
-    const caByClient = {}
-    co.forEach(tx => {
-      if (tx.credit > 0) {
-        const info = catMap[tx.category_name] || {}
-        if (info.direction === 'recette' && info.type !== 'exceptionnel') {
-          const desc = tx.description || 'Inconnu'
-          let client = desc.replace(/^VIR (INST |SEPA )?/i, '').replace(/^\d+\s*/, '').substring(0, 40).trim()
-          if (client.toUpperCase().includes('PILOCAP')) client = 'PIL O CAP AQUITAINE'
-          else if (client.toUpperCase().includes('AFPI') || client.toUpperCase().includes('UIMM')) client = 'AFPI / UIMM'
-          else if (client.toUpperCase().includes('EIFFAGE')) client = 'EIFFAGE'
-          else if (client.toUpperCase().includes('SOFIS')) client = 'SOFIS'
-          else if (client.toUpperCase().includes('KFORMATION') || client.toUpperCase().includes('K FORMATION')) client = 'KFORMATION'
-          else if (client.toUpperCase().includes('OPCO')) client = 'OPCO2i'
-          else if (client.toUpperCase().includes('SOCOTEC')) client = 'SOCOTEC'
-          else if (client.toUpperCase().includes('CAPIC')) client = 'CAPIC'
-          else if (client.toUpperCase().includes('ARMONIS')) client = 'ARMONIS'
-          else if (client.toUpperCase().includes('SMV')) client = 'SMV FORMATION'
-          else if (client.toUpperCase().includes('TRIANGLE')) client = 'TRIANGLE 210'
-          else if (client.toUpperCase().includes('VOLEFI')) client = 'VOLEFI'
-          else if (client.toUpperCase().includes('FORMASECO')) client = 'FORMASECO'
-          else if (client.toUpperCase().includes('FORMALYON')) client = 'FORMALYON'
-          else if (client.toUpperCase().includes('ISRPP')) client = 'ISRPP'
-          else if (client.toUpperCase().includes('COURTAGE')) return
-          else if (client.toUpperCase().includes('TRESOVIV')) return
-          else if (client.toUpperCase().includes('SIE QUIMPERLE')) return
-          else if (client.toUpperCase().includes('AXA FRANCE')) return
-          else if (client.toUpperCase().includes('SWISSLIFE')) return
-          else if (client.toUpperCase().includes('GOOGLE')) return
-          else if (client.toUpperCase().includes('BOUYGUES')) return
-          if (!caByClient[client]) caByClient[client] = { total: 0, count: 0 }
-          caByClient[client].total += tx.credit
-          caByClient[client].count++
-        }
-      }
-    })
-
-    const clients = Object.entries(caByClient)
-      .map(([name, v]) => {
-        const sousTraitKw = ['PILOCAP', 'PIL O CAP', 'ISRPP', 'SOFIS', 'FORMALYON', 'KFORMATION', 'SMV', 'SOCOTEC', 'FORMASECO']
-        const isSousTrait = sousTraitKw.some(k => name.toUpperCase().includes(k))
-        return { name, total: v.total, count: v.count, pct: totalCA > 0 ? (v.total / totalCA * 100) : 0, isSousTrait }
-      })
-      .sort((a, b) => b.total - a.total)
-
-    const topClientPct = clients[0]?.pct || 0
-    const caSousTraitance = clients.filter(c => c.isSousTrait).reduce((s, c) => s + c.total, 0)
-    const caDirect = totalCA - caSousTraitance
-
-    // Optimisations
-    const chargesList = Object.entries(chargesByCat)
-      .map(([n, v]) => ({ name: n, avg: v.total / nbMonths, total: v.total, type: v.type, icon: v.icon }))
-      .sort((a, b) => b.avg - a.avg)
-
-    const targets = {
-      'Matériel bureau/formation': { target: 200, reason: 'Investissements démarrage terminés, régime de croisière' },
-      'Restauration pro': { target: 150, reason: 'Plafond 25€/repas, max 6 repas/mois' },
-      'Télécoms': { target: 60, reason: 'Vérifier forfait Orange, comparer alternatives pro' },
-      'Logiciels & SaaS': { target: 200, reason: 'Audit abonnements : supprimer inutilisés, downgrader' },
-      'Frais bancaires': { target: 20, reason: 'Négocier CMB ou migrer Qonto/Shine' },
-    }
-    const optimisations = chargesList
-      .filter(c => targets[c.name] && c.avg > targets[c.name].target)
-      .map(c => ({ ...c, target: targets[c.name].target, saving: c.avg - targets[c.name].target, reason: targets[c.name].reason }))
-    const totalSavings = optimisations.reduce((s, o) => s + o.saving, 0)
-
-    // Score de santé
-    const runwayMonths = avgTotal > 0 ? soldeActuel / avgTotal : 12
-    const scoreTreso = Math.min(25, runwayMonths * 6)
-    const trendPct = avgCA > 0 ? ((avgCALast4 - avgCA) / avgCA * 100) : 0
-    const scoreTrend = Math.min(25, Math.max(0, 12.5 + trendPct * 0.5))
-    const scoreRatio = avgTotal > 0 ? Math.min(25, (avgCA / avgTotal) * 25) : 0
-    const scoreDiversif = Math.min(25, 25 - topClientPct * 0.5)
-    const score = Math.round(scoreTreso + scoreTrend + scoreRatio + scoreDiversif)
-
-    let scoreLabel, scoreColor, scoreBg
-    if (score >= 75) { scoreLabel = 'Solide'; scoreColor = 'text-emerald-700'; scoreBg = 'bg-emerald-500' }
-    else if (score >= 55) { scoreLabel = 'Correct — axes d\'amélioration'; scoreColor = 'text-amber-700'; scoreBg = 'bg-amber-500' }
-    else if (score >= 35) { scoreLabel = 'Attention — actions requises'; scoreColor = 'text-orange-700'; scoreBg = 'bg-orange-500' }
-    else { scoreLabel = 'Critique — agir vite'; scoreColor = 'text-red-700'; scoreBg = 'bg-red-500' }
-
-    const caEvolution = months.map(m => ({
-      month: m,
-      formation: byMonth[m].caFormation,
-      sousTrait: byMonth[m].caSousTrait,
-      total: caByMonth[m]
-    }))
-
-    return {
-      months, nbMonths, nbActive, activeMonths,
-      avgCA, avgCALast4, totalCA, caByMonth, caEvolution,
-      chargesByCat, chargesList, avgFixed, avgVariable, avgTotal, netMensuel,
-      totalFixed, totalVariable,
-      clients, topClientPct, caSousTraitance, caDirect,
-      optimisations, totalSavings,
-      score, scoreLabel, scoreColor, scoreBg,
-      runwayMonths, trendPct,
-    }
-  }, [transactions, categories, soldeActuel])
-
-  // ── Prévisionnel mois en cours ──
-  const currentMonth = useMemo(() => {
-    const now = new Date()
-    const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-    const monthNames = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre']
-    const monthLabel = `${monthNames[now.getMonth()]} ${now.getFullYear()}`
-
-    // CA réalisé ce mois (from transactions)
-    const caRealise = data.caByMonth[monthKey] || 0
-
-    // CA prévu (from pipeline entries for this month, not yet encaissé)
-    const pipeThisMonth = pipeline.filter(p => p.expected_month === monthKey && p.status !== 'encaisse' && p.status !== 'annule')
-    const caPrevu = pipeThisMonth.reduce((s, p) => s + (p.amount_ttc || 0), 0)
-
-    // CA projeté = réalisé + prévu
-    const caProjecte = caRealise + caPrevu
-
-    // Objectif mensuel pour atteindre 50k fin 2026
-    const remainingMonths = Math.max(1, 12 - now.getMonth())
-    const netNeeded = (objectif - soldeActuel) / remainingMonths
-    const caCibleMois = netNeeded + data.avgTotal // besoin net + charges moyennes
-    const progressPct = caCibleMois > 0 ? Math.min(100, (caProjecte / caCibleMois) * 100) : 0
-
-    // Charges réalisées ce mois
-    const chargesRealise = data.months.includes(monthKey)
-      ? Object.values(data.chargesByCat).reduce((s, c) => s, 0)
-      : 0
-
-    return {
-      monthKey, monthLabel, caRealise, caPrevu, caProjecte, pipeThisMonth,
-      caCibleMois, progressPct, remainingMonths, netNeeded,
-    }
-  }, [data, pipeline, objectif, soldeActuel])
-
-  // ── Alertes trésorerie ──
-  const alerts = useMemo(() => {
-    const list = []
-    // Alerte runway
-    if (data.runwayMonths < 1.5) {
-      list.push({ level: 'critical', icon: '🚨', title: 'Trésorerie critique', text: `Runway : ${data.runwayMonths.toFixed(1)} mois. Risque de cessation de paiement.`, color: 'bg-red-50 border-red-300 text-red-800' })
-    } else if (data.runwayMonths < 3) {
-      list.push({ level: 'warning', icon: '⚠️', title: 'Trésorerie tendue', text: `Runway : ${data.runwayMonths.toFixed(1)} mois de charges. Objectif : > 3 mois.`, color: 'bg-amber-50 border-amber-300 text-amber-800' })
-    }
-    // Alerte tendance baissière
-    if (data.trendPct < -15) {
-      list.push({ level: 'warning', icon: '📉', title: 'CA en baisse', text: `Tendance -${Math.abs(data.trendPct).toFixed(0)}% sur les 4 derniers mois vs moyenne.`, color: 'bg-orange-50 border-orange-300 text-orange-800' })
-    }
-    // Alerte concentration
-    if (data.topClientPct > 30) {
-      list.push({ level: 'warning', icon: '🎯', title: 'Dépendance client', text: `${data.clients[0]?.name} = ${data.topClientPct.toFixed(0)}% du CA. Cible : < 25%.`, color: 'bg-purple-50 border-purple-300 text-purple-800' })
-    }
-    // Alerte factures prévues non encaissées
-    const overdueCount = pipeline.filter(p => p.status === 'prevu' && p.expected_month < currentMonth.monthKey).length
-    if (overdueCount > 0) {
-      list.push({ level: 'warning', icon: '📋', title: `${overdueCount} facture(s) prévue(s) en retard`, text: 'Des entrées du pipeline sont passées sans encaissement.', color: 'bg-blue-50 border-blue-300 text-blue-800' })
-    }
-    return list
-  }, [data, pipeline, currentMonth])
-
-  // ── Simulateur ──
-  const sim = useMemo(() => {
-    const caBoost = data.avgCA * (1 + simCA / 100)
-    const chargesReduced = data.avgTotal * (1 - simCharges / 100)
-    const netSim = caBoost - chargesReduced
-    const remainingMonths = currentMonth.remainingMonths
-    const projFin = soldeActuel + netSim * remainingMonths
-    const atteint = projFin >= objectif
-    return { caBoost, chargesReduced, netSim, remainingMonths, projFin, atteint }
-  }, [data, simCA, simCharges, objectif, soldeActuel, currentMonth])
-
-  // ── Trajectoire mois par mois ──
-  const trajectory = useMemo(() => {
-    const months = []
-    const now = new Date()
-    let cumul = soldeActuel
-    for (let i = now.getMonth(); i < 12; i++) {
-      const mKey = `2026-${String(i + 1).padStart(2, '0')}`
-      const monthNames = ['Jan','Fév','Mar','Avr','Mai','Jun','Jul','Aoû','Sep','Oct','Nov','Déc']
-      const pipeMois = pipeline.filter(p => p.expected_month === mKey && p.status !== 'annule')
-      const caPipe = pipeMois.reduce((s, p) => s + (p.amount_ttc || 0), 0)
-      const caEstime = Math.max(caPipe, sim.caBoost) // prend le max entre pipeline et estimation
-      cumul += caEstime - sim.chargesReduced
-      months.push({ month: mKey, label: monthNames[i], cumul, caPipe, caEstime })
-    }
-    return months
-  }, [sim, pipeline, soldeActuel])
-
-  const barMax = Math.max(...data.clients.map(c => c.total), 1)
-
-  // ── Mois disponibles pour le formulaire pipeline ──
-  const availableMonths = useMemo(() => {
-    const now = new Date()
-    const result = []
-    for (let i = 0; i < 12; i++) {
-      const d = new Date(now.getFullYear(), now.getMonth() + i, 1)
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-      const monthNames = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre']
-      result.push({ key, label: `${monthNames[d.getMonth()]} ${d.getFullYear()}` })
-    }
-    return result
-  }, [])
-
-  // ── Pipeline regroupé par mois (pour section pipeline) ──
-  const pipelineByMonth = useMemo(() => {
-    const grouped = {}
-    pipeline.filter(p => p.status !== 'annule').forEach(p => {
-      if (!grouped[p.expected_month]) grouped[p.expected_month] = []
-      grouped[p.expected_month].push(p)
-    })
-    return grouped
-  }, [pipeline])
-
-  const statusStyles = {
-    prevu: { label: '📋 Prévu', bg: 'bg-blue-100 text-blue-700' },
-    facture: { label: '📄 Facturé', bg: 'bg-amber-100 text-amber-700' },
-    encaisse: { label: '✅ Encaissé', bg: 'bg-emerald-100 text-emerald-700' },
-    annule: { label: '❌ Annulé', bg: 'bg-red-100 text-red-700' },
-  }
-
-  return (
-    <div className="space-y-4">
-
-      {/* ═══════ ALERTES TRÉSORERIE ═══════ */}
-      {alerts.length > 0 && (
-        <div className="space-y-2">
-          {alerts.map((a, i) => (
-            <div key={i} className={`flex items-center gap-3 p-3 rounded-lg border ${a.color}`}>
-              <span className="text-xl">{a.icon}</span>
-              <div>
-                <span className="font-semibold">{a.title}</span>
-                <span className="ml-2 text-sm opacity-80">{a.text}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* ═══════ SECTION 0 : PRÉVISIONNEL MOIS EN COURS ═══════ */}
-      <div className="bg-gradient-to-r from-blue-900 to-indigo-900 rounded-xl p-5 text-white">
-        <div className="flex justify-between items-center mb-4">
-          <h3 className="text-lg font-bold">📅 {currentMonth.monthLabel} — Prévisionnel</h3>
-          <button
-            onClick={() => setShowPipeForm(!showPipeForm)}
-            className="px-3 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg text-sm font-medium transition"
-          >
-            {showPipeForm ? '✕ Fermer' : '+ Ajouter'}
-          </button>
-        </div>
-
-        {/* KPIs du mois */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-          <div className="bg-white/10 rounded-lg p-3">
-            <div className="text-xs text-blue-200">CA réalisé</div>
-            <div className="text-lg font-bold text-blue-100">{fmt(currentMonth.caRealise)}</div>
-            <div className="text-xs text-blue-300">encaissé</div>
-          </div>
-          <div className="bg-white/10 rounded-lg p-3">
-            <div className="text-xs text-amber-200">CA prévu</div>
-            <div className="text-lg font-bold text-amber-100">{fmt(currentMonth.caPrevu)}</div>
-            <div className="text-xs text-amber-300">{currentMonth.pipeThisMonth.length} entrée(s)</div>
-          </div>
-          <div className="bg-white/10 rounded-lg p-3 border border-white/20">
-            <div className="text-xs text-emerald-200">CA projeté</div>
-            <div className="text-xl font-bold text-emerald-100">{fmt(currentMonth.caProjecte)}</div>
-            <div className="text-xs text-emerald-300">réalisé + prévu</div>
-          </div>
-          <div className="bg-white/10 rounded-lg p-3">
-            <div className="text-xs text-gray-300">Objectif mensuel</div>
-            <div className="text-lg font-bold">{fmt(currentMonth.caCibleMois)}</div>
-            <div className="text-xs text-gray-400">pour atteindre {fmt(objectif)}</div>
-          </div>
-        </div>
-
-        {/* Barre de progression vers objectif mensuel */}
-        <div className="mb-2">
-          <div className="flex justify-between text-xs text-blue-200 mb-1">
-            <span>Progression vers objectif mensuel</span>
-            <span>{currentMonth.progressPct.toFixed(0)}%</span>
-          </div>
-          <div className="w-full bg-white/10 rounded-full h-3">
-            <div
-              className={`h-3 rounded-full transition-all ${currentMonth.progressPct >= 100 ? 'bg-emerald-400' : currentMonth.progressPct >= 60 ? 'bg-blue-400' : 'bg-amber-400'}`}
-              style={{ width: `${Math.min(100, currentMonth.progressPct)}%` }}
-            />
-          </div>
-        </div>
-
-        {/* Liste des entrées pipeline du mois */}
-        {currentMonth.pipeThisMonth.length > 0 && (
-          <div className="mt-3 space-y-1.5">
-            {currentMonth.pipeThisMonth.map(p => (
-              <div key={p.id} className="flex items-center justify-between bg-white/10 rounded-lg px-3 py-2 text-sm">
-                <div className="flex items-center gap-2">
-                  <select
-                    value={p.status}
-                    onChange={e => updatePipeStatus(p.id, e.target.value)}
-                    className="bg-white/10 border border-white/20 rounded px-1.5 py-0.5 text-xs"
-                  >
-                    <option value="prevu">📋 Prévu</option>
-                    <option value="facture">📄 Facturé</option>
-                    <option value="encaisse">✅ Encaissé</option>
-                    <option value="annule">❌ Annulé</option>
-                  </select>
-                  <span className="font-medium">{p.client}</span>
-                  {p.trainer && <span className="text-xs text-blue-300">({p.trainer})</span>}
-                  {p.description && <span className="text-xs text-gray-400">— {p.description}</span>}
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="font-bold">{fmt(p.amount_ttc)}</span>
-                  <button onClick={() => deletePipe(p.id)} className="text-red-300 hover:text-red-100 text-xs">✕</button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Formulaire ajout rapide */}
-        {showPipeForm && (
-          <div className="mt-3 bg-white/10 rounded-lg p-3 space-y-2">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-              <input
-                value={newPipe.client}
-                onChange={e => setNewPipe({ ...newPipe, client: e.target.value })}
-                placeholder="Client"
-                className="bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-sm placeholder-gray-400"
-              />
-              <input
-                type="number"
-                value={newPipe.amount_ttc}
-                onChange={e => setNewPipe({ ...newPipe, amount_ttc: e.target.value })}
-                placeholder="Montant TTC"
-                className="bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-sm placeholder-gray-400"
-              />
-              <select
-                value={newPipe.expected_month}
-                onChange={e => setNewPipe({ ...newPipe, expected_month: e.target.value })}
-                className="bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-sm"
-              >
-                <option value="">Mois</option>
-                {availableMonths.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
-              </select>
-              <select
-                value={newPipe.trainer}
-                onChange={e => setNewPipe({ ...newPipe, trainer: e.target.value })}
-                className="bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-sm"
-              >
-                <option value="Hicham">Hicham</option>
-                <option value="Maxime">Maxime</option>
-              </select>
-            </div>
-            <div className="flex gap-2">
-              <input
-                value={newPipe.description}
-                onChange={e => setNewPipe({ ...newPipe, description: e.target.value })}
-                placeholder="Description (optionnel)"
-                className="flex-1 bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-sm placeholder-gray-400"
-              />
-              <select
-                value={newPipe.type}
-                onChange={e => setNewPipe({ ...newPipe, type: e.target.value })}
-                className="bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-sm"
-              >
-                <option value="previsionnel">Prévisionnel</option>
-                <option value="devis_signe">Devis signé</option>
-                <option value="facture_emise">Facture émise</option>
-              </select>
-              <button onClick={addPipeEntry} className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 rounded-lg text-sm font-medium transition">
-                Ajouter
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* ═══════ SECTION 1 : SCORE DE SANTÉ ═══════ */}
-      <div className="bg-gradient-to-r from-gray-900 to-gray-800 rounded-xl p-5 text-white">
-        <div className="flex justify-between items-center mb-3">
-          <h3 className="text-lg font-bold">🎯 Score de santé financière</h3>
-          <span className={`px-3 py-1 rounded-full text-sm font-medium ${data.scoreBg} text-white`}>{data.scoreLabel}</span>
-        </div>
-
-        <div className="flex items-center gap-6">
-          <div className="relative w-28 h-28 flex-shrink-0">
-            <svg viewBox="0 0 120 120" className="w-full h-full -rotate-90">
-              <circle cx="60" cy="60" r="52" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="10" />
-              <circle cx="60" cy="60" r="52" fill="none" stroke={data.score >= 70 ? '#34d399' : data.score >= 45 ? '#fbbf24' : '#ef4444'} strokeWidth="10" strokeDasharray={`${data.score * 3.27} 327`} strokeLinecap="round" />
-            </svg>
-            <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <span className="text-3xl font-bold">{data.score}</span>
-              <span className="text-xs text-gray-400">/100</span>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3 flex-1">
-            <div className="bg-white/10 rounded-lg p-2.5">
-              <div className="text-xs text-gray-400">CA moyen/mois</div>
-              <div className="text-sm font-bold text-emerald-300">{fmt(data.avgCA)}</div>
-              <div className="text-xs text-gray-500">{data.nbActive} mois actifs</div>
-            </div>
-            <div className="bg-white/10 rounded-lg p-2.5">
-              <div className="text-xs text-gray-400">Tendance (4 derniers)</div>
-              <div className="text-sm font-bold text-amber-300">{fmt(data.avgCALast4)}</div>
-              <div className="text-xs">{data.trendPct >= 0 ? '📈' : '📉'} {data.trendPct.toFixed(0)}% vs moyenne</div>
-            </div>
-            <div className="bg-white/10 rounded-lg p-2.5">
-              <div className="text-xs text-gray-400">Charges/mois</div>
-              <div className="text-sm font-bold text-red-300">{fmt(data.avgTotal)}</div>
-              <div className="text-xs text-gray-500">{fmt(data.avgFixed)} fixes + {fmt(data.avgVariable)} var.</div>
-            </div>
-            <div className="bg-white/10 rounded-lg p-2.5">
-              <div className="text-xs text-gray-400">Net mensuel</div>
-              <div className={`text-sm font-bold ${data.netMensuel >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>{fmt(data.netMensuel)}</div>
-              <div className="text-xs">{data.netMensuel >= 0 ? '✅ Rentable' : '❌ Déficitaire'}</div>
-            </div>
-            <div className="bg-white/10 rounded-lg p-2.5">
-              <div className="text-xs text-gray-400">Runway</div>
-              <div className={`text-sm font-bold ${data.runwayMonths >= 3 ? 'text-emerald-300' : data.runwayMonths >= 1.5 ? 'text-amber-300' : 'text-red-300'}`}>{data.runwayMonths.toFixed(1)} mois</div>
-              <div className="text-xs text-gray-500">de charges couvertes</div>
-            </div>
-          </div>
-        </div>
-
-        {/* Barre objectif 50k */}
-        <div className="mt-3 flex justify-between text-xs text-gray-400">
-          <span>Solde actuel : {fmt(soldeActuel)}</span>
-          <span>Objectif : {fmt(objectif)}</span>
-        </div>
-        <div className="w-full bg-white/10 rounded-full h-2.5 mt-1">
-          <div className="h-2.5 rounded-full bg-gradient-to-r from-emerald-500 to-teal-400" style={{ width: `${Math.min(100, soldeActuel / objectif * 100)}%` }} />
-        </div>
-        <div className="text-right text-xs text-gray-500 mt-1">Gap : {fmt(objectif - soldeActuel)}</div>
-      </div>
-
-      {/* ═══════ SECTION 2 : TRAJECTOIRE 50K ═══════ */}
-      <div className="bg-white border rounded-xl p-5">
-        <div className="flex justify-between items-center mb-3">
-          <h3 className="text-lg font-bold text-gray-800">📈 Trajectoire fin 2026</h3>
-          <span className={`px-3 py-1 rounded-full text-xs font-medium ${sim.atteint ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
-            Projection : {fmt(sim.projFin)} {sim.atteint ? '✅' : '❌'}
-          </span>
-        </div>
-        <div className="space-y-1.5">
-          {trajectory.map((m, i) => {
-            const pct = Math.min(100, Math.max(0, (m.cumul / objectif) * 100))
-            const isCurrentMonth = m.month === currentMonth.monthKey
-            return (
-              <div key={m.month} className={`flex items-center gap-2 text-sm ${isCurrentMonth ? 'font-bold' : ''}`}>
-                <span className="w-10 text-gray-500">{m.label}</span>
-                <div className="flex-1 bg-gray-100 rounded-full h-4 relative">
-                  <div
-                    className={`h-4 rounded-full transition-all ${m.cumul >= objectif ? 'bg-emerald-400' : m.cumul >= 0 ? 'bg-blue-400' : 'bg-red-400'}`}
-                    style={{ width: `${Math.max(2, pct)}%` }}
-                  />
-                  {isCurrentMonth && <div className="absolute inset-y-0 left-0 w-full flex items-center justify-center text-[10px] text-gray-600 font-medium">← vous êtes ici</div>}
-                </div>
-                <span className={`w-24 text-right tabular-nums text-xs ${m.cumul >= 0 ? 'text-gray-600' : 'text-red-600'}`}>{fmt(m.cumul)}</span>
-                {m.caPipe > 0 && <span className="text-[10px] text-blue-500">+{fmt(m.caPipe)} pipe</span>}
-              </div>
-            )
-          })}
-          <div className="flex items-center gap-2 text-sm border-t pt-1 mt-1">
-            <span className="w-10 text-gray-400">🎯</span>
-            <div className="flex-1 bg-gray-100 rounded-full h-4 relative">
-              <div className="h-4 rounded-full bg-emerald-200" style={{ width: '100%' }} />
-            </div>
-            <span className="w-24 text-right text-xs font-bold text-emerald-600">{fmt(objectif)}</span>
-          </div>
-        </div>
-      </div>
-
-      {/* ═══════ SECTION 3 : OPTIMISATION DES CHARGES ═══════ */}
-      <div className="bg-white border rounded-xl p-5">
-        <div className="flex justify-between items-center mb-3">
-          <h3 className="text-lg font-bold text-gray-800">📉 Optimisation des charges</h3>
-          <span className="bg-red-50 text-red-700 px-3 py-1 rounded-full text-sm font-medium">Économie potentielle : {fmt(data.totalSavings)}/mois</span>
-        </div>
-        <div className="space-y-3">
-          {data.optimisations.map((o, i) => (
-            <div key={i} className="border rounded-lg p-3">
-              <div className="flex justify-between items-start mb-1">
-                <div>
-                  <span className="text-lg mr-2">{o.icon}</span>
-                  <span className="font-semibold text-gray-800">{o.name}</span>
-                  <div className="text-xs text-gray-500 ml-7">{o.reason}</div>
-                </div>
-                <div className="text-right">
-                  <div className="text-red-600 font-bold">-{fmt(o.saving)}/mois</div>
-                  <div className="text-xs text-gray-500">-{((o.saving / o.avg) * 100).toFixed(0)}%</div>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 mt-2">
-                <span className="text-xs text-gray-600 w-16">{fmt(o.avg)}</span>
-                <div className="flex-1 bg-gray-100 rounded-full h-3 relative">
-                  <div className="h-3 rounded-full bg-emerald-400" style={{ width: `${(o.target / o.avg) * 100}%` }} />
-                  <div className="h-3 rounded-full bg-red-200 absolute top-0 right-0" style={{ width: `${((o.avg - o.target) / o.avg) * 100}%` }} />
-                </div>
-                <span className="text-xs text-emerald-600 w-16 text-right">{fmt(o.target)}</span>
-              </div>
-              <div className="flex justify-between text-[10px] text-gray-400 mt-0.5 px-16">
-                <span>Actuel</span>
-                <span>→ Cible</span>
-              </div>
-            </div>
-          ))}
-        </div>
-        {data.totalSavings > 0 && (
-          <div className="mt-3 bg-emerald-50 border border-emerald-200 rounded-lg p-3 flex justify-between items-center">
-            <div>
-              <span className="font-semibold text-emerald-800">💰 Impact total des optimisations</span>
-              <div className="text-sm text-emerald-600">{fmt(data.totalSavings)}/mois = {fmt(data.totalSavings * 12)}/an</div>
-            </div>
-            <div className="text-right">
-              <div className="text-xs text-gray-500">Net après optimisation</div>
-              <div className="text-lg font-bold text-emerald-700">{fmt(data.netMensuel + data.totalSavings)}/mois</div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* ═══════ SECTION 4 : CONCENTRATION CLIENT ═══════ */}
-      <div className="bg-white border rounded-xl p-5">
-        <div className="flex justify-between items-center mb-3">
-          <h3 className="text-lg font-bold text-gray-800">🏢 Répartition clients</h3>
-          <div className="flex gap-2">
-            <span className="bg-blue-100 text-blue-700 px-2.5 py-1 rounded-full text-xs font-medium">
-              Direct : {data.totalCA > 0 ? ((data.caDirect / data.totalCA) * 100).toFixed(0) : 0}%
-            </span>
-            <span className="bg-purple-100 text-purple-700 px-2.5 py-1 rounded-full text-xs font-medium">
-              Sous-traitance : {data.totalCA > 0 ? ((data.caSousTraitance / data.totalCA) * 100).toFixed(0) : 0}%
-            </span>
-          </div>
-        </div>
-
-        {data.topClientPct > 25 && (
-          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-3">
-            <div className="flex items-center gap-2">
-              <span className="text-xl">⚠️</span>
-              <div>
-                <span className="font-semibold text-amber-800">Risque de concentration</span>
-                <p className="text-sm text-amber-700">{data.clients[0]?.name} représente {data.topClientPct.toFixed(0)}% du CA. Si ce client est perdu, c'est {fmt(data.clients[0]?.total / data.nbActive)} €/mois en moins. Objectif : aucun client au-dessus de 25%.</p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        <div className="space-y-1.5">
-          {data.clients.slice(0, 15).map((c, i) => {
-            const w = (c.total / barMax) * 100
-            return (
-              <div key={i} className="flex items-center gap-2 text-sm">
-                <span className="w-40 text-right text-gray-600 truncate">{c.name}</span>
-                <div className="flex-1 bg-gray-100 rounded h-5 relative">
-                  <div
-                    className={`h-5 rounded ${c.pct > 25 ? 'bg-purple-500' : c.isSousTrait ? 'bg-purple-300' : 'bg-blue-400'}`}
-                    style={{ width: `${w}%` }}
-                  >
-                    {c.total > 2000 && <span className="absolute left-2 text-xs text-white font-medium leading-5">{fmt(c.total)}</span>}
-                  </div>
-                </div>
-                <span className="w-10 text-right text-xs text-gray-500">{c.pct.toFixed(0)}%</span>
-                <span className="text-xs">{c.isSousTrait ? '🤝' : '🏢'}</span>
-              </div>
-            )
-          })}
-        </div>
-
-        <div className="grid grid-cols-2 gap-3 mt-4">
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-            <div className="text-xs text-blue-600">🏢 CA Direct (marge pleine)</div>
-            <div className="text-lg font-bold text-blue-800">{fmt(data.caDirect)}</div>
-            <div className="text-xs text-blue-500">{data.totalCA > 0 ? ((data.caDirect / data.totalCA) * 100).toFixed(0) : 0}% — Objectif : 70%</div>
-            <div className="w-full bg-blue-100 rounded-full h-2 mt-1">
-              <div className="h-2 rounded-full bg-blue-500" style={{ width: `${Math.min(100, (data.caDirect / data.totalCA) * 100 / 70 * 100)}%` }} />
-            </div>
-          </div>
-          <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
-            <div className="text-xs text-purple-600">🤝 CA Sous-traitance (marge réduite)</div>
-            <div className="text-lg font-bold text-purple-800">{fmt(data.caSousTraitance)}</div>
-            <div className="text-xs text-purple-500">{data.totalCA > 0 ? ((data.caSousTraitance / data.totalCA) * 100).toFixed(0) : 0}% — Objectif : {'<'}30%</div>
-            <div className="w-full bg-purple-100 rounded-full h-2 mt-1">
-              <div className="h-2 rounded-full bg-purple-500" style={{ width: `${Math.min(100, (data.caSousTraitance / data.totalCA) * 100)}%` }} />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* ═══════ SECTION 5 : ÉVOLUTION CA ═══════ */}
-      <div className="bg-white border rounded-xl p-5">
-        <h3 className="text-lg font-bold text-gray-800 mb-3">📊 Évolution CA mensuel</h3>
-        <div className="space-y-1.5">
-          {data.caEvolution.map((m, i) => {
-            const maxCA = Math.max(...data.caEvolution.map(e => e.total), 1)
-            const wForm = (m.formation / maxCA) * 100
-            const wSous = (m.sousTrait / maxCA) * 100
-            return (
-              <div key={i} className="flex items-center gap-2 text-sm">
-                <span className="w-16 text-gray-500 text-xs">{m.month}</span>
-                <div className="flex-1 bg-gray-50 rounded h-5 flex">
-                  {m.formation > 0 && <div className="h-5 rounded-l bg-blue-500" style={{ width: `${wForm}%` }} />}
-                  {m.sousTrait > 0 && <div className={`h-5 ${m.formation > 0 ? '' : 'rounded-l'} rounded-r bg-purple-400`} style={{ width: `${wSous}%` }} />}
-                </div>
-                <span className="w-24 text-right tabular-nums text-xs font-medium text-gray-600">{m.total > 0 ? fmt(m.total) : '–'}</span>
-              </div>
-            )
-          })}
-        </div>
-        <div className="flex gap-4 mt-2 justify-center text-xs text-gray-500">
-          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-blue-500" /> CA Formations</span>
-          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-purple-400" /> Sous-traitance</span>
-        </div>
-      </div>
-
-      {/* ═══════ SECTION 6 : SIMULATEUR ═══════ */}
-      <div className="bg-white border rounded-xl p-5">
-        <h3 className="text-lg font-bold text-gray-800 mb-3">🎮 Simulateur objectif {fmt(objectif)}</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-          <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
-            <div className="flex justify-between items-center mb-2">
-              <span className="text-sm font-medium">🚀 Boost CA (effet Qualiopi + prospection)</span>
-              <span className="text-emerald-700 font-bold">+{simCA}%</span>
-            </div>
-            <input type="range" min="0" max="80" value={simCA} onChange={e => setSimCA(+e.target.value)} className="w-full accent-emerald-500" />
-            <div className="flex justify-between text-[10px] text-gray-400 mt-0.5">
-              <span>0% (statu quo)</span>
-              <span>+20% (Qualiopi modéré)</span>
-              <span>+80%</span>
-            </div>
-          </div>
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-            <div className="flex justify-between items-center mb-2">
-              <span className="text-sm font-medium">📉 Réduction charges</span>
-              <span className="text-red-600 font-bold">-{simCharges}%</span>
-            </div>
-            <input type="range" min="0" max="30" value={simCharges} onChange={e => setSimCharges(+e.target.value)} className="w-full accent-blue-500" />
-            <div className="flex justify-between text-[10px] text-gray-400 mt-0.5">
-              <span>0%</span>
-              <span>-10% (optimisations)</span>
-              <span>-30%</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-3 gap-3 mb-4">
-          <div className="border rounded-lg p-2.5">
-            <div className="text-xs text-gray-500">Solde actuel (€)</div>
-            <input type="number" value={soldeActuel} onChange={e => setSoldeActuel(+e.target.value)} className="w-full text-lg font-bold border-none p-0 focus:ring-0" />
-          </div>
-          <div className="border rounded-lg p-2.5">
-            <div className="text-xs text-gray-500">Objectif fin 2026 (€)</div>
-            <input type="number" value={objectif} onChange={e => setObjectif(+e.target.value)} className="w-full text-lg font-bold border-none p-0 focus:ring-0" />
-          </div>
-          <div className="border rounded-lg p-2.5">
-            <div className="text-xs text-gray-500">Mois restants 2026</div>
-            <div className="text-2xl font-bold text-blue-700">{sim.remainingMonths}</div>
-          </div>
-        </div>
-
-        <div className={`rounded-xl p-4 text-white ${sim.atteint ? 'bg-gradient-to-r from-emerald-600 to-teal-600' : 'bg-gradient-to-r from-red-600 to-rose-600'}`}>
-          <div className="grid grid-cols-4 gap-3 mb-3">
-            <div>
-              <div className="text-xs opacity-80">CA simulé/mois</div>
-              <div className="text-lg font-bold">{fmt(sim.caBoost)}</div>
-              <div className="text-xs opacity-60">vs {fmt(data.avgCA)} actuel</div>
-            </div>
-            <div>
-              <div className="text-xs opacity-80">Charges simulées/mois</div>
-              <div className="text-lg font-bold">{fmt(sim.chargesReduced)}</div>
-              <div className="text-xs opacity-60">vs {fmt(data.avgTotal)} actuel</div>
-            </div>
-            <div>
-              <div className="text-xs opacity-80">Net simulé/mois</div>
-              <div className="text-lg font-bold">{fmt(sim.netSim)}</div>
-            </div>
-            <div>
-              <div className="text-xs opacity-80">Projection fin 2026</div>
-              <div className="text-xl font-bold">{fmt(sim.projFin)}</div>
-            </div>
-          </div>
-          {sim.atteint ? (
-            <div className="text-center text-sm">✅ Objectif {fmt(objectif)} atteint ! Surplus : {fmt(sim.projFin - objectif)}</div>
-          ) : (
-            <div className="flex justify-between text-sm">
-              <span>🎯 Manque {fmt(objectif - sim.projFin)}</span>
-              <span>Besoin : {fmt((objectif - soldeActuel) / sim.remainingMonths)} net/mois</span>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* ═══════ SECTION 7 : PIPELINE COMPLET ═══════ */}
-      <div className="bg-white border rounded-xl p-5">
-        <div className="flex justify-between items-center mb-3">
-          <h3 className="text-lg font-bold text-gray-800">📋 Pipeline & Devis validés</h3>
-          <div className="flex gap-2 items-center">
-            <span className="text-sm text-gray-500">
-              Total : {fmt(pipeline.filter(p => p.status !== 'encaisse' && p.status !== 'annule').reduce((s, p) => s + (p.amount_ttc || 0), 0))}
-            </span>
-            <button
-              onClick={() => setShowPipeForm(!showPipeForm)}
-              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition"
-            >
-              + Ajouter
-            </button>
-          </div>
-        </div>
-
-        {Object.keys(pipelineByMonth).length === 0 ? (
-          <div className="text-center py-6 text-gray-400">
-            <p className="text-lg mb-1">📭 Aucune entrée dans le pipeline</p>
-            <p className="text-sm">Ajoutez vos devis validés et factures prévues pour améliorer la visibilité</p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {Object.entries(pipelineByMonth).sort(([a], [b]) => a.localeCompare(b)).map(([month, entries]) => {
-              const monthTotal = entries.reduce((s, p) => s + (p.amount_ttc || 0), 0)
-              const monthNames = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre']
-              const [y, m] = month.split('-')
-              const label = `${monthNames[parseInt(m) - 1]} ${y}`
-              const isCurrentMonth = month === currentMonth.monthKey
-
-              return (
-                <div key={month} className={`border rounded-lg overflow-hidden ${isCurrentMonth ? 'border-blue-300 bg-blue-50/30' : ''}`}>
-                  <div className="flex justify-between items-center px-3 py-2 bg-gray-50">
-                    <span className="font-medium text-gray-700">{label} {isCurrentMonth && <span className="text-xs text-blue-600 ml-1">← en cours</span>}</span>
-                    <span className="font-bold text-gray-800">{fmt(monthTotal)}</span>
-                  </div>
-                  <div className="divide-y">
-                    {entries.map(p => (
-                      <div key={p.id} className="flex items-center justify-between px-3 py-2 text-sm">
-                        <div className="flex items-center gap-2">
-                          <select
-                            value={p.status}
-                            onChange={e => updatePipeStatus(p.id, e.target.value)}
-                            className={`text-xs rounded px-1.5 py-0.5 border-0 font-medium ${statusStyles[p.status]?.bg || 'bg-gray-100'}`}
-                          >
-                            <option value="prevu">📋 Prévu</option>
-                            <option value="facture">📄 Facturé</option>
-                            <option value="encaisse">✅ Encaissé</option>
-                            <option value="annule">❌ Annulé</option>
-                          </select>
-                          <span className="font-medium text-gray-700">{p.client}</span>
-                          {p.trainer && <span className="text-xs px-1.5 py-0.5 bg-gray-100 rounded text-gray-500">{p.trainer}</span>}
-                          {p.description && <span className="text-xs text-gray-400">— {p.description}</span>}
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-gray-800">{fmt(p.amount_ttc)}</span>
-                          <button onClick={() => deletePipe(p.id)} className="text-gray-300 hover:text-red-500 transition">✕</button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* ═══════ SECTION 8 : TABLEAU DÉTAILLÉ CHARGES ═══════ */}
-      <div className="bg-white border rounded-xl p-5">
-        <h3 className="text-lg font-bold text-gray-800 mb-3">📋 Détail complet des charges par catégorie</h3>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-gray-500 border-b text-xs uppercase tracking-wider">
-              <th className="pb-2">Catégorie</th>
-              <th className="pb-2 text-center">Type</th>
-              <th className="pb-2 text-right">Total</th>
-              <th className="pb-2 text-right">Moy./mois</th>
-              <th className="pb-2 text-right">% charges</th>
-              <th className="pb-2 text-right">Nb tx</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(data.chargesList || []).map((c, i) => {
-              const pct = data.avgTotal > 0 ? (c.avg / data.avgTotal * 100) : 0
-              return (
-                <tr key={i} className="border-b last:border-0 hover:bg-gray-50">
-                  <td className="py-2">
-                    <span className="mr-1.5">{c.icon}</span>
-                    {c.name}
-                  </td>
-                  <td className="text-center">
-                    <span className={`text-xs px-1.5 py-0.5 rounded ${c.type === 'fixe' ? 'bg-red-100 text-red-600' : 'bg-amber-100 text-amber-600'}`}>{c.type}</span>
-                  </td>
-                  <td className="text-right tabular-nums">{fmt(c.total)}</td>
-                  <td className="text-right tabular-nums font-medium">{fmt(c.avg)}</td>
-                  <td className="text-right">
-                    <div className="flex items-center justify-end gap-1.5">
-                      <div className="w-12 bg-gray-100 rounded-full h-1.5">
-                        <div className="h-1.5 rounded-full bg-red-400" style={{ width: `${Math.min(100, pct * 2)}%` }} />
-                      </div>
-                      <span className="text-xs text-gray-500 w-10 text-right">{pct.toFixed(1)}%</span>
-                    </div>
-                  </td>
-                  <td className="text-right text-gray-500">{c.count || '–'}</td>
-                </tr>
-              )
-            })}
-            <tr className="font-bold border-t-2">
-              <td className="py-2">TOTAL</td>
-              <td></td>
-              <td className="text-right tabular-nums">{fmt(data.totalFixed + data.totalVariable)}</td>
-              <td className="text-right tabular-nums">{fmt(data.avgTotal)}</td>
-              <td className="text-right">100%</td>
-              <td></td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      {/* ═══════ SECTION 9 : PLAN D'ACTION ═══════ */}
-      <div className="bg-white border rounded-xl p-5">
-        <h3 className="text-lg font-bold text-gray-800 mb-4">🗓️ Plan d'action recommandé</h3>
-        <div className="space-y-3">
-          {[
-            { period: 'CETTE SEMAINE', color: 'bg-red-500', title: 'Relancer les factures en retard/échéance', sub: 'Prioriser OPCO2i (en retard), ISRPP, SOFIS, EIFFAGE', impact: 'Récupérer ~8 000€ de trésorerie' },
-            { period: 'CE MOIS', color: 'bg-amber-500', title: 'Audit abonnements SaaS', sub: 'Lister tous les prélèvements récurrents, supprimer les inutilisés', impact: 'Économie ~86€/mois' },
-            { period: 'MARS', color: 'bg-yellow-500', title: 'Négocier frais bancaires', sub: 'Comparer Qonto/Shine vs offre actuelle, demander un geste', impact: 'Économie ~50€/mois' },
-            { period: 'MARS-AVRIL', color: 'bg-emerald-500', title: 'Prospection directe Qualiopi', sub: 'Marine cible les entreprises directes (pas les OF). Argument : financement OPCO grâce à Qualiopi', impact: `Augmenter la part CA direct de ${data.totalCA > 0 ? ((data.caDirect / data.totalCA) * 100).toFixed(0) : 0}% → 70%` },
-            { period: 'AVRIL-MAI', color: 'bg-blue-500', title: 'Développer 2-3 nouveaux clients directs', sub: `Réduire la dépendance Pilocap (${data.topClientPct.toFixed(0)}% → <20%)`, impact: 'Sécuriser le CA + meilleure marge' },
-            { period: 'EN CONTINU', color: 'bg-purple-500', title: 'Plafond restauration 25€/repas', sub: 'Privilégier les formules midi, emporter un lunch si possible', impact: 'Économie ~213€/mois' },
-          ].map((a, i) => (
-            <div key={i} className="flex items-start gap-3 p-3 border rounded-lg hover:bg-gray-50 transition">
-              <div className={`w-3 h-3 rounded-full ${a.color} mt-1.5 flex-shrink-0`} />
-              <div className="flex-1">
-                <div className="text-[10px] uppercase tracking-wider text-gray-400 font-medium">{a.period}</div>
-                <div className="font-semibold text-gray-800">{a.title}</div>
-                <div className="text-sm text-gray-500">{a.sub}</div>
-              </div>
-              <span className="text-sm font-medium text-emerald-600 whitespace-nowrap">{a.impact}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-    </div>
-  )
-}
-// ════════════════════════════════════════════════════════════
-// MODAL INVITÉS REPAS (rétroactif depuis Transactions ou Saisie)
-// ════════════════════════════════════════════════════════════
-// ════════════════════════════════════════════════════════════
 // CLIENT SEARCH — Recherche intelligente pour rapprochement
 // ════════════════════════════════════════════════════════════
 function ClientSearchForMatch({ clients: clientsProp, invoices: invoicesProp, unpaidInvoices, bankDescription, onSelect }) {
