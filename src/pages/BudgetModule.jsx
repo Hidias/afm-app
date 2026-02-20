@@ -3333,24 +3333,26 @@ function RecommandationsTab({ transactions, categories }) {
 function ClientSearchForMatch({ clients, invoices, unpaidInvoices, bankDescription, onSelect }) {
   const [search, setSearch] = useState('')
 
+  // Normalise accents + majuscules : "opé" → "OPE", "OPÉRATEUR" → "OPERATEUR"
+  const norm = (s) => (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase()
+
   // Extraire des mots-clés utiles du libellé bancaire
   const bankWords = useMemo(() => {
-    const desc = (bankDescription || '').toUpperCase()
-    // Supprimer les mots bancaires courants et les nombres
+    const desc = norm(bankDescription)
     return desc
       .replace(/VIR\b|CHQ\b|PRLV\b|REM\b|SEPA|INST|BRET|FACT[-\d]*|\d{5,}|[,.]?\d+[,.]\d+|\b\d+\b/g, ' ')
       .split(/[\s\-_\/]+/)
       .filter(w => w.length >= 3)
-      .filter((w, i, arr) => arr.indexOf(w) === i) // unique
+      .filter((w, i, arr) => arr.indexOf(w) === i)
   }, [bankDescription])
 
   // Scoring de pertinence pour chaque client
   const scoredClients = useMemo(() => {
-    const s = search.toUpperCase().trim()
+    const s = norm(search)
     const searchWords = s ? s.split(/\s+/).filter(w => w.length >= 2) : []
 
     return clients.map(c => {
-      const name = (c.name || '').toUpperCase()
+      const name = norm(c.name)
       const nameWords = name.split(/[\s\-_]+/)
       let score = 0
 
@@ -3358,21 +3360,19 @@ function ClientSearchForMatch({ clients, invoices, unpaidInvoices, bankDescripti
       if (s) {
         if (name.includes(s)) score += 100
         if (name.startsWith(s)) score += 50
-        // Chaque mot de recherche trouvé
         for (const sw of searchWords) {
           if (name.includes(sw)) score += 30
-          // Match partiel (les 4 premiers chars)
-          if (sw.length >= 4 && nameWords.some(nw => nw.startsWith(sw.substring(0, 4)))) score += 15
+          if (sw.length >= 3 && nameWords.some(nw => nw.startsWith(sw))) score += 20
         }
       }
 
-      // Score basé sur les mots du libellé bancaire (auto-suggest)
+      // Score basé sur les mots du libellé bancaire
       for (const bw of bankWords) {
         if (name.includes(bw)) score += 20
         if (nameWords.some(nw => nw === bw)) score += 10
       }
 
-      // Bonus si factures impayées
+      // Bonus si factures
       const unpaidCount = unpaidInvoices.filter(inv => inv.client_id === c.id).length
       const allInvCount = invoices.filter(inv => inv.client_id === c.id).length
       if (unpaidCount > 0) score += 15
@@ -3381,9 +3381,7 @@ function ClientSearchForMatch({ clients, invoices, unpaidInvoices, bankDescripti
       return { ...c, score, unpaidCount, allInvCount }
     })
     .filter(c => {
-      // Sans recherche : montrer les clients avec score > 0 (match libellé ou factures)
-      if (!s) return c.score > 0 || c.allInvCount > 0
-      // Avec recherche : montrer si score > 0
+      if (!s) return c.allInvCount > 0 || c.score > 0
       return c.score > 0
     })
     .sort((a, b) => b.score - a.score)
@@ -3394,7 +3392,6 @@ function ClientSearchForMatch({ clients, invoices, unpaidInvoices, bankDescripti
     <div>
       <p className="text-sm text-gray-700 mb-2">Sélectionnez le client :</p>
 
-      {/* Mots-clés extraits du libellé */}
       {bankWords.length > 0 && (
         <div className="flex flex-wrap gap-1 mb-2">
           <span className="text-xs text-gray-400">Mots détectés :</span>
@@ -3406,7 +3403,7 @@ function ClientSearchForMatch({ clients, invoices, unpaidInvoices, bankDescripti
       )}
 
       <input type="text" value={search} onChange={e => setSearch(e.target.value)}
-        placeholder="🔍 Rechercher un client (nom, SIRET, mot-clé)..."
+        placeholder="🔍 Rechercher un client (nom, mot-clé)..."
         className="w-full border-2 border-blue-300 rounded-lg px-3 py-2 text-sm mb-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-500" autoFocus />
 
       <div className="max-h-64 overflow-y-auto space-y-1">
@@ -3423,7 +3420,7 @@ function ClientSearchForMatch({ clients, invoices, unpaidInvoices, bankDescripti
               <div className="flex items-center justify-between">
                 <span className="font-medium">{c.name}</span>
                 <div className="flex gap-1">
-                  {c.score >= 20 && <span className="text-xs bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded">🎯 suggestion</span>}
+                  {c.score >= 20 && !search && <span className="text-xs bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded">🎯 suggestion</span>}
                   {c.unpaidCount > 0 && <span className="text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded">{c.unpaidCount} en attente</span>}
                   {c.unpaidCount === 0 && c.allInvCount > 0 && <span className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">{c.allInvCount} fact.</span>}
                 </div>
