@@ -1390,14 +1390,72 @@ function PrevisionnelTab({ transactions, categories }) {
 }
 
 // ════════════════════════════════════════════════════════════
-//  RECOMMANDATIONS TAB — Analyse & optimisation
+//  RECOMMANDATIONS TAB — Analyse, prévisionnel & optimisation
 // ════════════════════════════════════════════════════════════
 function RecommandationsTab({ transactions, categories }) {
 
-  const [simCA, setSimCA] = useState(20) // boost CA %
-  const [simCharges, setSimCharges] = useState(10) // réduction charges %
+  const [simCA, setSimCA] = useState(20)
+  const [simCharges, setSimCharges] = useState(10)
   const [objectif, setObjectif] = useState(50000)
   const [soldeActuel, setSoldeActuel] = useState(3267)
+
+  // ── Pipeline / Prévisionnel ──
+  const [pipeline, setPipeline] = useState([])
+  const [loadingPipe, setLoadingPipe] = useState(true)
+  const [newPipe, setNewPipe] = useState({ client: '', amount_ttc: '', expected_month: '', type: 'previsionnel', trainer: 'Hicham', description: '' })
+  const [showPipeForm, setShowPipeForm] = useState(false)
+
+  // Charger le pipeline
+  useEffect(() => {
+    loadPipeline()
+  }, [])
+
+  async function loadPipeline() {
+    setLoadingPipe(true)
+    const { data, error } = await supabase
+      .from('budget_pipeline')
+      .select('*')
+      .not('status', 'eq', 'annule')
+      .order('expected_month', { ascending: true })
+    if (!error && data) setPipeline(data)
+    setLoadingPipe(false)
+  }
+
+  async function addPipeEntry() {
+    if (!newPipe.client || !newPipe.amount_ttc || !newPipe.expected_month) {
+      toast.error('Client, montant et mois requis')
+      return
+    }
+    const ht = parseFloat(newPipe.amount_ttc) / 1.2
+    const { error } = await supabase.from('budget_pipeline').insert({
+      client: newPipe.client.toUpperCase(),
+      description: newPipe.description,
+      amount_ht: Math.round(ht * 100) / 100,
+      amount_ttc: parseFloat(newPipe.amount_ttc),
+      expected_month: newPipe.expected_month,
+      type: newPipe.type,
+      status: 'prevu',
+      trainer: newPipe.trainer,
+    })
+    if (error) { toast.error('Erreur: ' + error.message); return }
+    toast.success('✅ Ajouté au prévisionnel')
+    setNewPipe({ client: '', amount_ttc: '', expected_month: '', type: 'previsionnel', trainer: 'Hicham', description: '' })
+    setShowPipeForm(false)
+    loadPipeline()
+  }
+
+  async function updatePipeStatus(id, newStatus) {
+    await supabase.from('budget_pipeline').update({ status: newStatus, updated_at: new Date().toISOString() }).eq('id', id)
+    toast.success('Statut mis à jour')
+    loadPipeline()
+  }
+
+  async function deletePipe(id) {
+    if (!confirm('Supprimer cette entrée ?')) return
+    await supabase.from('budget_pipeline').delete().eq('id', id)
+    toast.success('Supprimé')
+    loadPipeline()
+  }
 
   // ── Données calculées ──
   const data = useMemo(() => {
@@ -1405,7 +1463,6 @@ function RecommandationsTab({ transactions, categories }) {
     const catMap = {}
     categories.forEach(c => { catMap[c.name] = { type: c.type, direction: c.direction, icon: c.icon } })
 
-    // Mois avec du CA (exclure les mois à 0)
     const byMonth = {}
     co.forEach(tx => {
       const m = tx.month
@@ -1424,7 +1481,6 @@ function RecommandationsTab({ transactions, categories }) {
     const months = Object.keys(byMonth).sort()
     const nbMonths = months.length || 1
 
-    // CA réel (hors exceptionnel/neutre)
     let totalCA = 0
     const caByMonth = {}
     months.forEach(m => {
@@ -1439,16 +1495,13 @@ function RecommandationsTab({ transactions, categories }) {
       totalCA += ca
     })
 
-    // Mois actifs (avec du CA > 0)
     const activeMonths = months.filter(m => caByMonth[m] > 100)
     const nbActive = activeMonths.length || 1
     const avgCA = totalCA / nbActive
 
-    // Tendance CA sur les 4 derniers mois actifs
     const last4 = activeMonths.slice(-4)
     const avgCALast4 = last4.reduce((s, m) => s + caByMonth[m], 0) / (last4.length || 1)
 
-    // Charges par catégorie
     const chargesByCat = {}
     let totalFixed = 0, totalVariable = 0
     months.forEach(m => {
@@ -1468,21 +1521,14 @@ function RecommandationsTab({ transactions, categories }) {
     const avgTotal = avgFixed + avgVariable
     const netMensuel = avgCA - avgTotal
 
-    // Concentration client (par description contient certains noms)
     const caByClient = {}
     co.forEach(tx => {
       if (tx.credit > 0) {
         const info = catMap[tx.category_name] || {}
         if (info.direction === 'recette' && info.type !== 'exceptionnel') {
           const desc = tx.description || 'Inconnu'
-          // Extraire nom client
-          let client = desc
-            .replace(/^VIR (INST |SEPA )?/i, '')
-            .replace(/^\d+\s*/, '')
-            .substring(0, 40)
-            .trim()
-          // Regrouper les variantes connues
-          if (client.toUpperCase().includes('PILOCAP')) client = 'PILOCAP'
+          let client = desc.replace(/^VIR (INST |SEPA )?/i, '').replace(/^\d+\s*/, '').substring(0, 40).trim()
+          if (client.toUpperCase().includes('PILOCAP')) client = 'PIL O CAP AQUITAINE'
           else if (client.toUpperCase().includes('AFPI') || client.toUpperCase().includes('UIMM')) client = 'AFPI / UIMM'
           else if (client.toUpperCase().includes('EIFFAGE')) client = 'EIFFAGE'
           else if (client.toUpperCase().includes('SOFIS')) client = 'SOFIS'
@@ -1497,91 +1543,64 @@ function RecommandationsTab({ transactions, categories }) {
           else if (client.toUpperCase().includes('FORMASECO')) client = 'FORMASECO'
           else if (client.toUpperCase().includes('FORMALYON')) client = 'FORMALYON'
           else if (client.toUpperCase().includes('ISRPP')) client = 'ISRPP'
-          else if (client.toUpperCase().includes('COURTAGE')) return // Exclure Courtage 29
-
-          if (!caByClient[client]) caByClient[client] = { total: 0, count: 0, isSousTraitance: false }
+          else if (client.toUpperCase().includes('COURTAGE')) return
+          else if (client.toUpperCase().includes('TRESOVIV')) return
+          else if (client.toUpperCase().includes('SIE QUIMPERLE')) return
+          else if (client.toUpperCase().includes('AXA FRANCE')) return
+          else if (client.toUpperCase().includes('SWISSLIFE')) return
+          else if (client.toUpperCase().includes('GOOGLE')) return
+          else if (client.toUpperCase().includes('BOUYGUES')) return
+          if (!caByClient[client]) caByClient[client] = { total: 0, count: 0 }
           caByClient[client].total += tx.credit
           caByClient[client].count++
-          // Sous-traitance = CA Sous-traitance category
-          if (tx.category_name === 'CA Sous-traitance') caByClient[client].isSousTraitance = true
         }
       }
     })
 
-    // Top clients triés par montant
     const clients = Object.entries(caByClient)
-      .map(([name, d]) => ({ name, ...d, pct: d.total / totalCA * 100 }))
+      .map(([name, v]) => {
+        const sousTraitKw = ['PILOCAP', 'PIL O CAP', 'ISRPP', 'SOFIS', 'FORMALYON', 'KFORMATION', 'SMV', 'SOCOTEC', 'FORMASECO']
+        const isSousTrait = sousTraitKw.some(k => name.toUpperCase().includes(k))
+        return { name, total: v.total, count: v.count, pct: totalCA > 0 ? (v.total / totalCA * 100) : 0, isSousTrait }
+      })
       .sort((a, b) => b.total - a.total)
 
-    // Sous-traitance vs Direct
-    const caSousTraitance = clients.filter(c => c.isSousTraitance).reduce((s, c) => s + c.total, 0)
+    const topClientPct = clients[0]?.pct || 0
+    const caSousTraitance = clients.filter(c => c.isSousTrait).reduce((s, c) => s + c.total, 0)
     const caDirect = totalCA - caSousTraitance
 
-    // Optimisation : recommandations par poste
-    const optimisations = []
-    Object.entries(chargesByCat).forEach(([name, d]) => {
-      const monthly = d.total / nbMonths
-      let target = monthly, comment = '', priority = 0
+    // Optimisations
+    const chargesList = Object.entries(chargesByCat)
+      .map(([n, v]) => ({ name: n, avg: v.total / nbMonths, total: v.total, type: v.type, icon: v.icon }))
+      .sort((a, b) => b.avg - a.avg)
 
-      if (name === 'Restauration pro') {
-        target = 150; comment = 'Plafond 25€/repas, max 6 repas/mois'; priority = 3
-      } else if (name === 'Logiciels & SaaS') {
-        target = 200; comment = 'Audit abonnements : supprimer inutilisés, downgrader'; priority = 2
-      } else if (name === 'Matériel bureau/formation') {
-        target = 200; comment = 'Investissements démarrage terminés, régime de croisière'; priority = 1
-      } else if (name === 'Frais bancaires') {
-        target = 60; comment = 'Négocier avec la banque ou changer (Qonto ~30-50€)'; priority = 2
-      } else if (name.includes('Télécoms')) {
-        target = 60; comment = 'Vérifier forfait Orange, comparer alternatives pro'; priority = 1
-      } else {
-        return // Pas de recommandation
-      }
-
-      const saving = Math.max(0, monthly - target)
-      if (saving > 5) {
-        optimisations.push({ name, icon: d.icon, current: monthly, target, saving, comment, priority })
-      }
-    })
-    optimisations.sort((a, b) => b.saving - a.saving)
+    const targets = {
+      'Matériel bureau/formation': { target: 200, reason: 'Investissements démarrage terminés, régime de croisière' },
+      'Restauration pro': { target: 150, reason: 'Plafond 25€/repas, max 6 repas/mois' },
+      'Télécoms': { target: 60, reason: 'Vérifier forfait Orange, comparer alternatives pro' },
+      'Logiciels & SaaS': { target: 200, reason: 'Audit abonnements : supprimer inutilisés, downgrader' },
+      'Frais bancaires': { target: 20, reason: 'Négocier CMB ou migrer Qonto/Shine' },
+    }
+    const optimisations = chargesList
+      .filter(c => targets[c.name] && c.avg > targets[c.name].target)
+      .map(c => ({ ...c, target: targets[c.name].target, saving: c.avg - targets[c.name].target, reason: targets[c.name].reason }))
     const totalSavings = optimisations.reduce((s, o) => s + o.saving, 0)
 
-    // Score de santé (0-100)
-    let score = 50
-    // Ratio CA/charges (idéal > 1.3)
-    const ratio = avgCA / avgTotal
-    if (ratio > 1.3) score += 15
-    else if (ratio > 1.1) score += 10
-    else if (ratio > 1.0) score += 5
-    else if (ratio > 0.8) score -= 5
-    else score -= 15
-    // Tendance CA
-    if (avgCALast4 > avgCA * 1.1) score += 10
-    else if (avgCALast4 > avgCA) score += 5
-    else score -= 5
-    // Trésorerie
-    if (soldeActuel > 10000) score += 10
-    else if (soldeActuel > 5000) score += 5
-    else if (soldeActuel > 0) score -= 0
-    else score -= 15
-    // Concentration
-    const topClientPct = clients[0]?.pct || 0
-    if (topClientPct > 40) score -= 10
-    else if (topClientPct > 25) score -= 5
-    else score += 5
-    // Nombre de clients
-    if (clients.length >= 15) score += 10
-    else if (clients.length >= 10) score += 5
-    else score -= 5
-    score = Math.max(0, Math.min(100, score))
+    // Score de santé
+    const runwayMonths = avgTotal > 0 ? soldeActuel / avgTotal : 12
+    const scoreTreso = Math.min(25, runwayMonths * 6)
+    const trendPct = avgCA > 0 ? ((avgCALast4 - avgCA) / avgCA * 100) : 0
+    const scoreTrend = Math.min(25, Math.max(0, 12.5 + trendPct * 0.5))
+    const scoreRatio = avgTotal > 0 ? Math.min(25, (avgCA / avgTotal) * 25) : 0
+    const scoreDiversif = Math.min(25, 25 - topClientPct * 0.5)
+    const score = Math.round(scoreTreso + scoreTrend + scoreRatio + scoreDiversif)
 
-    // Label score
-    let scoreLabel = '', scoreColor = '', scoreBg = ''
-    if (score >= 75) { scoreLabel = 'Bonne santé'; scoreColor = 'text-green-700'; scoreBg = 'bg-green-500' }
+    let scoreLabel, scoreColor, scoreBg
+    if (score >= 75) { scoreLabel = 'Solide'; scoreColor = 'text-emerald-700'; scoreBg = 'bg-emerald-500' }
     else if (score >= 55) { scoreLabel = 'Correct — axes d\'amélioration'; scoreColor = 'text-amber-700'; scoreBg = 'bg-amber-500' }
     else if (score >= 35) { scoreLabel = 'Attention — actions requises'; scoreColor = 'text-orange-700'; scoreBg = 'bg-orange-500' }
     else { scoreLabel = 'Critique — agir vite'; scoreColor = 'text-red-700'; scoreBg = 'bg-red-500' }
 
-    // CA formation vs sous-traitance évolution
     const caEvolution = months.map(m => ({
       month: m,
       formation: byMonth[m].caFormation,
@@ -1592,290 +1611,550 @@ function RecommandationsTab({ transactions, categories }) {
     return {
       months, nbMonths, nbActive, activeMonths,
       avgCA, avgCALast4, totalCA, caByMonth, caEvolution,
-      chargesByCat, avgFixed, avgVariable, avgTotal, netMensuel,
+      chargesByCat, chargesList, avgFixed, avgVariable, avgTotal, netMensuel,
       totalFixed, totalVariable,
       clients, topClientPct, caSousTraitance, caDirect,
       optimisations, totalSavings,
       score, scoreLabel, scoreColor, scoreBg,
+      runwayMonths, trendPct,
     }
   }, [transactions, categories, soldeActuel])
 
-  // Simulateur
+  // ── Prévisionnel mois en cours ──
+  const currentMonth = useMemo(() => {
+    const now = new Date()
+    const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+    const monthNames = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre']
+    const monthLabel = `${monthNames[now.getMonth()]} ${now.getFullYear()}`
+
+    // CA réalisé ce mois (from transactions)
+    const caRealise = data.caByMonth[monthKey] || 0
+
+    // CA prévu (from pipeline entries for this month, not yet encaissé)
+    const pipeThisMonth = pipeline.filter(p => p.expected_month === monthKey && p.status !== 'encaisse' && p.status !== 'annule')
+    const caPrevu = pipeThisMonth.reduce((s, p) => s + (p.amount_ttc || 0), 0)
+
+    // CA projeté = réalisé + prévu
+    const caProjecte = caRealise + caPrevu
+
+    // Objectif mensuel pour atteindre 50k fin 2026
+    const remainingMonths = Math.max(1, 12 - now.getMonth())
+    const netNeeded = (objectif - soldeActuel) / remainingMonths
+    const caCibleMois = netNeeded + data.avgTotal // besoin net + charges moyennes
+    const progressPct = caCibleMois > 0 ? Math.min(100, (caProjecte / caCibleMois) * 100) : 0
+
+    // Charges réalisées ce mois
+    const chargesRealise = data.months.includes(monthKey)
+      ? Object.values(data.chargesByCat).reduce((s, c) => s, 0)
+      : 0
+
+    return {
+      monthKey, monthLabel, caRealise, caPrevu, caProjecte, pipeThisMonth,
+      caCibleMois, progressPct, remainingMonths, netNeeded,
+    }
+  }, [data, pipeline, objectif, soldeActuel])
+
+  // ── Alertes trésorerie ──
+  const alerts = useMemo(() => {
+    const list = []
+    // Alerte runway
+    if (data.runwayMonths < 1.5) {
+      list.push({ level: 'critical', icon: '🚨', title: 'Trésorerie critique', text: `Runway : ${data.runwayMonths.toFixed(1)} mois. Risque de cessation de paiement.`, color: 'bg-red-50 border-red-300 text-red-800' })
+    } else if (data.runwayMonths < 3) {
+      list.push({ level: 'warning', icon: '⚠️', title: 'Trésorerie tendue', text: `Runway : ${data.runwayMonths.toFixed(1)} mois de charges. Objectif : > 3 mois.`, color: 'bg-amber-50 border-amber-300 text-amber-800' })
+    }
+    // Alerte tendance baissière
+    if (data.trendPct < -15) {
+      list.push({ level: 'warning', icon: '📉', title: 'CA en baisse', text: `Tendance -${Math.abs(data.trendPct).toFixed(0)}% sur les 4 derniers mois vs moyenne.`, color: 'bg-orange-50 border-orange-300 text-orange-800' })
+    }
+    // Alerte concentration
+    if (data.topClientPct > 30) {
+      list.push({ level: 'warning', icon: '🎯', title: 'Dépendance client', text: `${data.clients[0]?.name} = ${data.topClientPct.toFixed(0)}% du CA. Cible : < 25%.`, color: 'bg-purple-50 border-purple-300 text-purple-800' })
+    }
+    // Alerte factures prévues non encaissées
+    const overdueCount = pipeline.filter(p => p.status === 'prevu' && p.expected_month < currentMonth.monthKey).length
+    if (overdueCount > 0) {
+      list.push({ level: 'warning', icon: '📋', title: `${overdueCount} facture(s) prévue(s) en retard`, text: 'Des entrées du pipeline sont passées sans encaissement.', color: 'bg-blue-50 border-blue-300 text-blue-800' })
+    }
+    return list
+  }, [data, pipeline, currentMonth])
+
+  // ── Simulateur ──
   const sim = useMemo(() => {
     const caBoost = data.avgCA * (1 + simCA / 100)
     const chargesReduced = data.avgTotal * (1 - simCharges / 100)
     const netSim = caBoost - chargesReduced
-    const remainingMonths = 12 - new Date().getMonth() // mois restants 2026
+    const remainingMonths = currentMonth.remainingMonths
     const projFin = soldeActuel + netSim * remainingMonths
     const atteint = projFin >= objectif
     return { caBoost, chargesReduced, netSim, remainingMonths, projFin, atteint }
-  }, [data, simCA, simCharges, objectif, soldeActuel])
+  }, [data, simCA, simCharges, objectif, soldeActuel, currentMonth])
+
+  // ── Trajectoire mois par mois ──
+  const trajectory = useMemo(() => {
+    const months = []
+    const now = new Date()
+    let cumul = soldeActuel
+    for (let i = now.getMonth(); i < 12; i++) {
+      const mKey = `2026-${String(i + 1).padStart(2, '0')}`
+      const monthNames = ['Jan','Fév','Mar','Avr','Mai','Jun','Jul','Aoû','Sep','Oct','Nov','Déc']
+      const pipeMois = pipeline.filter(p => p.expected_month === mKey && p.status !== 'annule')
+      const caPipe = pipeMois.reduce((s, p) => s + (p.amount_ttc || 0), 0)
+      const caEstime = Math.max(caPipe, sim.caBoost) // prend le max entre pipeline et estimation
+      cumul += caEstime - sim.chargesReduced
+      months.push({ month: mKey, label: monthNames[i], cumul, caPipe, caEstime })
+    }
+    return months
+  }, [sim, pipeline, soldeActuel])
 
   const barMax = Math.max(...data.clients.map(c => c.total), 1)
+
+  // ── Mois disponibles pour le formulaire pipeline ──
+  const availableMonths = useMemo(() => {
+    const now = new Date()
+    const result = []
+    for (let i = 0; i < 12; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() + i, 1)
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+      const monthNames = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre']
+      result.push({ key, label: `${monthNames[d.getMonth()]} ${d.getFullYear()}` })
+    }
+    return result
+  }, [])
+
+  // ── Pipeline regroupé par mois (pour section pipeline) ──
+  const pipelineByMonth = useMemo(() => {
+    const grouped = {}
+    pipeline.filter(p => p.status !== 'annule').forEach(p => {
+      if (!grouped[p.expected_month]) grouped[p.expected_month] = []
+      grouped[p.expected_month].push(p)
+    })
+    return grouped
+  }, [pipeline])
+
+  const statusStyles = {
+    prevu: { label: '📋 Prévu', bg: 'bg-blue-100 text-blue-700' },
+    facture: { label: '📄 Facturé', bg: 'bg-amber-100 text-amber-700' },
+    encaisse: { label: '✅ Encaissé', bg: 'bg-emerald-100 text-emerald-700' },
+    annule: { label: '❌ Annulé', bg: 'bg-red-100 text-red-700' },
+  }
 
   return (
     <div className="space-y-4">
 
-      {/* ═══════ SECTION 1 : SCORE DE SANTÉ ═══════ */}
-      <div className="bg-gradient-to-r from-gray-900 to-gray-800 rounded-xl p-5 text-white">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-bold">🎯 Score de santé financière</h2>
-          <div className={`px-3 py-1 rounded-full text-sm font-bold ${data.score >= 55 ? 'bg-green-500/20 text-green-300' : 'bg-red-500/20 text-red-300'}`}>
-            {data.scoreLabel}
-          </div>
-        </div>
-
-        <div className="flex items-center gap-6">
-          {/* Jauge circulaire */}
-          <div className="relative w-32 h-32 flex-shrink-0">
-            <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
-              <circle cx="50" cy="50" r="42" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="8" />
-              <circle cx="50" cy="50" r="42" fill="none" stroke={data.score >= 55 ? '#22c55e' : data.score >= 35 ? '#f59e0b' : '#ef4444'} strokeWidth="8"
-                strokeDasharray={`${data.score * 2.64} 264`} strokeLinecap="round" />
-            </svg>
-            <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <span className="text-3xl font-bold">{data.score}</span>
-              <span className="text-xs opacity-60">/100</span>
-            </div>
-          </div>
-
-          {/* KPIs rapides */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 flex-1">
-            <div className="bg-white/10 rounded-lg p-3">
-              <div className="text-xs opacity-60">CA moyen/mois</div>
-              <div className="text-lg font-bold text-green-400">{fmt(data.avgCA)}</div>
-              <div className="text-xs opacity-50">{data.nbActive} mois actifs</div>
-            </div>
-            <div className="bg-white/10 rounded-lg p-3">
-              <div className="text-xs opacity-60">Tendance (4 derniers)</div>
-              <div className="text-lg font-bold text-green-400">{fmt(data.avgCALast4)}</div>
-              <div className="text-xs">{data.avgCALast4 > data.avgCA ? '📈' : '📉'} {((data.avgCALast4 / data.avgCA - 1) * 100).toFixed(0)}% vs moyenne</div>
-            </div>
-            <div className="bg-white/10 rounded-lg p-3">
-              <div className="text-xs opacity-60">Charges/mois</div>
-              <div className="text-lg font-bold text-red-400">{fmt(data.avgTotal)}</div>
-              <div className="text-xs opacity-50">{fmt(data.avgFixed)} fixes + {fmt(data.avgVariable)} var.</div>
-            </div>
-            <div className="bg-white/10 rounded-lg p-3">
-              <div className="text-xs opacity-60">Net mensuel</div>
-              <div className={`text-lg font-bold ${data.netMensuel >= 0 ? 'text-green-400' : 'text-red-400'}`}>{fmt(data.netMensuel)}</div>
-              <div className="text-xs opacity-50">{data.netMensuel >= 0 ? '✅ Rentable' : '⚠️ Déficitaire'}</div>
-            </div>
-          </div>
-        </div>
-
-        {/* Barre de progression objectif */}
-        <div className="mt-4 bg-white/10 rounded-lg p-3">
-          <div className="flex justify-between text-xs mb-1">
-            <span>Solde actuel : {fmt(soldeActuel)}</span>
-            <span>Objectif : {fmt(objectif)}</span>
-          </div>
-          <div className="h-3 bg-white/10 rounded-full overflow-hidden">
-            <div className="h-full bg-gradient-to-r from-blue-500 to-green-500 rounded-full transition-all" style={{ width: `${Math.min(100, soldeActuel / objectif * 100)}%` }} />
-          </div>
-          <div className="text-xs opacity-50 mt-1 text-right">Gap : {fmt(objectif - soldeActuel)}</div>
-        </div>
-      </div>
-
-      {/* ═══════ SECTION 2 : OPTIMISATION DES CHARGES ═══════ */}
-      <div className="bg-white rounded-xl shadow-sm border p-5">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-bold text-gray-800">📉 Optimisation des charges</h2>
-          <div className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm font-bold">
-            Économie potentielle : {fmt(data.totalSavings)}/mois
-          </div>
-        </div>
-
-        <div className="space-y-3">
-          {data.optimisations.map((opt, i) => {
-            const pctReduction = opt.saving / opt.current * 100
-            return (
-              <div key={i} className="border rounded-lg p-4 hover:shadow-md transition-shadow">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xl">{opt.icon}</span>
-                    <div>
-                      <div className="font-bold text-gray-800">{opt.name}</div>
-                      <div className="text-xs text-gray-500">{opt.comment}</div>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-sm font-bold text-green-600">-{fmt(opt.saving)}/mois</div>
-                    <div className="text-xs text-gray-400">-{pctReduction.toFixed(0)}%</div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <div className="text-xs text-red-600 font-mono w-20 text-right">{fmt(opt.current)}</div>
-                  <div className="flex-1 h-3 bg-gray-100 rounded-full overflow-hidden relative">
-                    <div className="absolute inset-y-0 left-0 bg-red-200 rounded-full" style={{ width: '100%' }} />
-                    <div className="absolute inset-y-0 left-0 bg-green-500 rounded-full transition-all" style={{ width: `${opt.target / opt.current * 100}%` }} />
-                  </div>
-                  <div className="text-xs text-green-600 font-mono w-20">{fmt(opt.target)}</div>
-                </div>
-                <div className="flex justify-between text-xs text-gray-400 mt-1">
-                  <span>Actuel</span>
-                  <span>→ Cible</span>
-                </div>
-              </div>
-            )
-          })}
-        </div>
-
-        {data.optimisations.length === 0 && (
-          <div className="text-center py-8 text-gray-400">
-            <span className="text-3xl">✅</span>
-            <p className="mt-2">Aucune optimisation significative identifiée</p>
-          </div>
-        )}
-
-        {/* Résumé impact */}
-        {data.totalSavings > 0 && (
-          <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="font-bold text-green-800">💰 Impact total des optimisations</div>
-                <div className="text-sm text-green-600">
-                  {fmt(data.totalSavings)}/mois = {fmt(data.totalSavings * 12)}/an
-                </div>
-              </div>
-              <div className="text-right">
-                <div className="text-sm text-gray-600">Net après optimisation</div>
-                <div className={`text-lg font-bold ${data.netMensuel + data.totalSavings >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-                  {fmt(data.netMensuel + data.totalSavings)}/mois
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* ═══════ SECTION 3 : CONCENTRATION CLIENT ═══════ */}
-      <div className="bg-white rounded-xl shadow-sm border p-5">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-bold text-gray-800">🏢 Répartition clients</h2>
-          <div className="flex gap-2">
-            <div className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs font-bold">
-              Direct : {(data.caDirect / data.totalCA * 100).toFixed(0)}%
-            </div>
-            <div className="px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs font-bold">
-              Sous-traitance : {(data.caSousTraitance / data.totalCA * 100).toFixed(0)}%
-            </div>
-          </div>
-        </div>
-
-        {/* Alerte concentration */}
-        {data.topClientPct > 25 && (
-          <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-2">
-            <span className="text-xl">⚠️</span>
-            <div>
-              <div className="font-bold text-amber-800">Risque de concentration</div>
-              <div className="text-sm text-amber-600">
-                {data.clients[0]?.name} représente {data.topClientPct.toFixed(0)}% du CA.
-                Si ce client est perdu, c'est {fmt(data.clients[0]?.total / data.nbActive)}/mois en moins.
-                Objectif : aucun client au-dessus de 25%.
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Barres horizontales par client */}
+      {/* ═══════ ALERTES TRÉSORERIE ═══════ */}
+      {alerts.length > 0 && (
         <div className="space-y-2">
-          {data.clients.slice(0, 15).map((c, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <div className="w-32 md:w-40 text-xs text-gray-700 truncate text-right font-medium">{c.name}</div>
-              <div className="flex-1 h-6 bg-gray-100 rounded overflow-hidden relative">
-                <div
-                  className={`h-full rounded transition-all ${c.isSousTraitance ? 'bg-purple-400' : 'bg-blue-500'} ${c.pct > 30 ? 'bg-red-400' : ''}`}
-                  style={{ width: `${c.total / barMax * 100}%` }}
-                />
-                <div className="absolute inset-y-0 left-2 flex items-center text-xs font-bold text-white drop-shadow">
-                  {c.total > barMax * 0.15 ? fmt(c.total) : ''}
-                </div>
-              </div>
-              <div className="w-16 text-xs text-right">
-                <span className={`font-bold ${c.pct > 30 ? 'text-red-600' : 'text-gray-600'}`}>{c.pct.toFixed(0)}%</span>
-              </div>
-              <div className="w-8 text-xs">
-                {c.isSousTraitance ? <span className="text-purple-500" title="Sous-traitance">🤝</span> : <span className="text-blue-500" title="Direct">🏢</span>}
+          {alerts.map((a, i) => (
+            <div key={i} className={`flex items-center gap-3 p-3 rounded-lg border ${a.color}`}>
+              <span className="text-xl">{a.icon}</span>
+              <div>
+                <span className="font-semibold">{a.title}</span>
+                <span className="ml-2 text-sm opacity-80">{a.text}</span>
               </div>
             </div>
           ))}
         </div>
+      )}
 
-        {/* Direct vs sous-traitance */}
-        <div className="mt-4 grid grid-cols-2 gap-3">
-          <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
-            <div className="text-xs text-blue-600 font-bold">🏢 CA Direct (marge pleine)</div>
-            <div className="text-xl font-bold text-blue-700">{fmt(data.caDirect)}</div>
-            <div className="text-xs text-blue-500">{(data.caDirect / data.totalCA * 100).toFixed(0)}% — Objectif : 70%</div>
-            <div className="h-2 bg-blue-200 rounded-full mt-1 overflow-hidden">
-              <div className="h-full bg-blue-600 rounded-full" style={{ width: `${Math.min(100, data.caDirect / data.totalCA * 100 / 70 * 100)}%` }} />
+      {/* ═══════ SECTION 0 : PRÉVISIONNEL MOIS EN COURS ═══════ */}
+      <div className="bg-gradient-to-r from-blue-900 to-indigo-900 rounded-xl p-5 text-white">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-lg font-bold">📅 {currentMonth.monthLabel} — Prévisionnel</h3>
+          <button
+            onClick={() => setShowPipeForm(!showPipeForm)}
+            className="px-3 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg text-sm font-medium transition"
+          >
+            {showPipeForm ? '✕ Fermer' : '+ Ajouter'}
+          </button>
+        </div>
+
+        {/* KPIs du mois */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+          <div className="bg-white/10 rounded-lg p-3">
+            <div className="text-xs text-blue-200">CA réalisé</div>
+            <div className="text-lg font-bold text-blue-100">{fmt(currentMonth.caRealise)}</div>
+            <div className="text-xs text-blue-300">encaissé</div>
+          </div>
+          <div className="bg-white/10 rounded-lg p-3">
+            <div className="text-xs text-amber-200">CA prévu</div>
+            <div className="text-lg font-bold text-amber-100">{fmt(currentMonth.caPrevu)}</div>
+            <div className="text-xs text-amber-300">{currentMonth.pipeThisMonth.length} entrée(s)</div>
+          </div>
+          <div className="bg-white/10 rounded-lg p-3 border border-white/20">
+            <div className="text-xs text-emerald-200">CA projeté</div>
+            <div className="text-xl font-bold text-emerald-100">{fmt(currentMonth.caProjecte)}</div>
+            <div className="text-xs text-emerald-300">réalisé + prévu</div>
+          </div>
+          <div className="bg-white/10 rounded-lg p-3">
+            <div className="text-xs text-gray-300">Objectif mensuel</div>
+            <div className="text-lg font-bold">{fmt(currentMonth.caCibleMois)}</div>
+            <div className="text-xs text-gray-400">pour atteindre {fmt(objectif)}</div>
+          </div>
+        </div>
+
+        {/* Barre de progression vers objectif mensuel */}
+        <div className="mb-2">
+          <div className="flex justify-between text-xs text-blue-200 mb-1">
+            <span>Progression vers objectif mensuel</span>
+            <span>{currentMonth.progressPct.toFixed(0)}%</span>
+          </div>
+          <div className="w-full bg-white/10 rounded-full h-3">
+            <div
+              className={`h-3 rounded-full transition-all ${currentMonth.progressPct >= 100 ? 'bg-emerald-400' : currentMonth.progressPct >= 60 ? 'bg-blue-400' : 'bg-amber-400'}`}
+              style={{ width: `${Math.min(100, currentMonth.progressPct)}%` }}
+            />
+          </div>
+        </div>
+
+        {/* Liste des entrées pipeline du mois */}
+        {currentMonth.pipeThisMonth.length > 0 && (
+          <div className="mt-3 space-y-1.5">
+            {currentMonth.pipeThisMonth.map(p => (
+              <div key={p.id} className="flex items-center justify-between bg-white/10 rounded-lg px-3 py-2 text-sm">
+                <div className="flex items-center gap-2">
+                  <select
+                    value={p.status}
+                    onChange={e => updatePipeStatus(p.id, e.target.value)}
+                    className="bg-white/10 border border-white/20 rounded px-1.5 py-0.5 text-xs"
+                  >
+                    <option value="prevu">📋 Prévu</option>
+                    <option value="facture">📄 Facturé</option>
+                    <option value="encaisse">✅ Encaissé</option>
+                    <option value="annule">❌ Annulé</option>
+                  </select>
+                  <span className="font-medium">{p.client}</span>
+                  {p.trainer && <span className="text-xs text-blue-300">({p.trainer})</span>}
+                  {p.description && <span className="text-xs text-gray-400">— {p.description}</span>}
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="font-bold">{fmt(p.amount_ttc)}</span>
+                  <button onClick={() => deletePipe(p.id)} className="text-red-300 hover:text-red-100 text-xs">✕</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Formulaire ajout rapide */}
+        {showPipeForm && (
+          <div className="mt-3 bg-white/10 rounded-lg p-3 space-y-2">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+              <input
+                value={newPipe.client}
+                onChange={e => setNewPipe({ ...newPipe, client: e.target.value })}
+                placeholder="Client"
+                className="bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-sm placeholder-gray-400"
+              />
+              <input
+                type="number"
+                value={newPipe.amount_ttc}
+                onChange={e => setNewPipe({ ...newPipe, amount_ttc: e.target.value })}
+                placeholder="Montant TTC"
+                className="bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-sm placeholder-gray-400"
+              />
+              <select
+                value={newPipe.expected_month}
+                onChange={e => setNewPipe({ ...newPipe, expected_month: e.target.value })}
+                className="bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-sm"
+              >
+                <option value="">Mois</option>
+                {availableMonths.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
+              </select>
+              <select
+                value={newPipe.trainer}
+                onChange={e => setNewPipe({ ...newPipe, trainer: e.target.value })}
+                className="bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-sm"
+              >
+                <option value="Hicham">Hicham</option>
+                <option value="Maxime">Maxime</option>
+              </select>
+            </div>
+            <div className="flex gap-2">
+              <input
+                value={newPipe.description}
+                onChange={e => setNewPipe({ ...newPipe, description: e.target.value })}
+                placeholder="Description (optionnel)"
+                className="flex-1 bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-sm placeholder-gray-400"
+              />
+              <select
+                value={newPipe.type}
+                onChange={e => setNewPipe({ ...newPipe, type: e.target.value })}
+                className="bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-sm"
+              >
+                <option value="previsionnel">Prévisionnel</option>
+                <option value="devis_signe">Devis signé</option>
+                <option value="facture_emise">Facture émise</option>
+              </select>
+              <button onClick={addPipeEntry} className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 rounded-lg text-sm font-medium transition">
+                Ajouter
+              </button>
             </div>
           </div>
-          <div className="p-3 bg-purple-50 rounded-lg border border-purple-200">
-            <div className="text-xs text-purple-600 font-bold">🤝 CA Sous-traitance (marge réduite)</div>
-            <div className="text-xl font-bold text-purple-700">{fmt(data.caSousTraitance)}</div>
-            <div className="text-xs text-purple-500">{(data.caSousTraitance / data.totalCA * 100).toFixed(0)}% — Objectif : {'<'}30%</div>
-            <div className="h-2 bg-purple-200 rounded-full mt-1 overflow-hidden">
-              <div className="h-full bg-purple-600 rounded-full" style={{ width: `${Math.min(100, data.caSousTraitance / data.totalCA * 100)}%` }} />
+        )}
+      </div>
+
+      {/* ═══════ SECTION 1 : SCORE DE SANTÉ ═══════ */}
+      <div className="bg-gradient-to-r from-gray-900 to-gray-800 rounded-xl p-5 text-white">
+        <div className="flex justify-between items-center mb-3">
+          <h3 className="text-lg font-bold">🎯 Score de santé financière</h3>
+          <span className={`px-3 py-1 rounded-full text-sm font-medium ${data.scoreBg} text-white`}>{data.scoreLabel}</span>
+        </div>
+
+        <div className="flex items-center gap-6">
+          <div className="relative w-28 h-28 flex-shrink-0">
+            <svg viewBox="0 0 120 120" className="w-full h-full -rotate-90">
+              <circle cx="60" cy="60" r="52" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="10" />
+              <circle cx="60" cy="60" r="52" fill="none" stroke={data.score >= 70 ? '#34d399' : data.score >= 45 ? '#fbbf24' : '#ef4444'} strokeWidth="10" strokeDasharray={`${data.score * 3.27} 327`} strokeLinecap="round" />
+            </svg>
+            <div className="absolute inset-0 flex flex-col items-center justify-center">
+              <span className="text-3xl font-bold">{data.score}</span>
+              <span className="text-xs text-gray-400">/100</span>
             </div>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3 flex-1">
+            <div className="bg-white/10 rounded-lg p-2.5">
+              <div className="text-xs text-gray-400">CA moyen/mois</div>
+              <div className="text-sm font-bold text-emerald-300">{fmt(data.avgCA)}</div>
+              <div className="text-xs text-gray-500">{data.nbActive} mois actifs</div>
+            </div>
+            <div className="bg-white/10 rounded-lg p-2.5">
+              <div className="text-xs text-gray-400">Tendance (4 derniers)</div>
+              <div className="text-sm font-bold text-amber-300">{fmt(data.avgCALast4)}</div>
+              <div className="text-xs">{data.trendPct >= 0 ? '📈' : '📉'} {data.trendPct.toFixed(0)}% vs moyenne</div>
+            </div>
+            <div className="bg-white/10 rounded-lg p-2.5">
+              <div className="text-xs text-gray-400">Charges/mois</div>
+              <div className="text-sm font-bold text-red-300">{fmt(data.avgTotal)}</div>
+              <div className="text-xs text-gray-500">{fmt(data.avgFixed)} fixes + {fmt(data.avgVariable)} var.</div>
+            </div>
+            <div className="bg-white/10 rounded-lg p-2.5">
+              <div className="text-xs text-gray-400">Net mensuel</div>
+              <div className={`text-sm font-bold ${data.netMensuel >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>{fmt(data.netMensuel)}</div>
+              <div className="text-xs">{data.netMensuel >= 0 ? '✅ Rentable' : '❌ Déficitaire'}</div>
+            </div>
+            <div className="bg-white/10 rounded-lg p-2.5">
+              <div className="text-xs text-gray-400">Runway</div>
+              <div className={`text-sm font-bold ${data.runwayMonths >= 3 ? 'text-emerald-300' : data.runwayMonths >= 1.5 ? 'text-amber-300' : 'text-red-300'}`}>{data.runwayMonths.toFixed(1)} mois</div>
+              <div className="text-xs text-gray-500">de charges couvertes</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Barre objectif 50k */}
+        <div className="mt-3 flex justify-between text-xs text-gray-400">
+          <span>Solde actuel : {fmt(soldeActuel)}</span>
+          <span>Objectif : {fmt(objectif)}</span>
+        </div>
+        <div className="w-full bg-white/10 rounded-full h-2.5 mt-1">
+          <div className="h-2.5 rounded-full bg-gradient-to-r from-emerald-500 to-teal-400" style={{ width: `${Math.min(100, soldeActuel / objectif * 100)}%` }} />
+        </div>
+        <div className="text-right text-xs text-gray-500 mt-1">Gap : {fmt(objectif - soldeActuel)}</div>
+      </div>
+
+      {/* ═══════ SECTION 2 : TRAJECTOIRE 50K ═══════ */}
+      <div className="bg-white border rounded-xl p-5">
+        <div className="flex justify-between items-center mb-3">
+          <h3 className="text-lg font-bold text-gray-800">📈 Trajectoire fin 2026</h3>
+          <span className={`px-3 py-1 rounded-full text-xs font-medium ${sim.atteint ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+            Projection : {fmt(sim.projFin)} {sim.atteint ? '✅' : '❌'}
+          </span>
+        </div>
+        <div className="space-y-1.5">
+          {trajectory.map((m, i) => {
+            const pct = Math.min(100, Math.max(0, (m.cumul / objectif) * 100))
+            const isCurrentMonth = m.month === currentMonth.monthKey
+            return (
+              <div key={m.month} className={`flex items-center gap-2 text-sm ${isCurrentMonth ? 'font-bold' : ''}`}>
+                <span className="w-10 text-gray-500">{m.label}</span>
+                <div className="flex-1 bg-gray-100 rounded-full h-4 relative">
+                  <div
+                    className={`h-4 rounded-full transition-all ${m.cumul >= objectif ? 'bg-emerald-400' : m.cumul >= 0 ? 'bg-blue-400' : 'bg-red-400'}`}
+                    style={{ width: `${Math.max(2, pct)}%` }}
+                  />
+                  {isCurrentMonth && <div className="absolute inset-y-0 left-0 w-full flex items-center justify-center text-[10px] text-gray-600 font-medium">← vous êtes ici</div>}
+                </div>
+                <span className={`w-24 text-right tabular-nums text-xs ${m.cumul >= 0 ? 'text-gray-600' : 'text-red-600'}`}>{fmt(m.cumul)}</span>
+                {m.caPipe > 0 && <span className="text-[10px] text-blue-500">+{fmt(m.caPipe)} pipe</span>}
+              </div>
+            )
+          })}
+          <div className="flex items-center gap-2 text-sm border-t pt-1 mt-1">
+            <span className="w-10 text-gray-400">🎯</span>
+            <div className="flex-1 bg-gray-100 rounded-full h-4 relative">
+              <div className="h-4 rounded-full bg-emerald-200" style={{ width: '100%' }} />
+            </div>
+            <span className="w-24 text-right text-xs font-bold text-emerald-600">{fmt(objectif)}</span>
           </div>
         </div>
       </div>
 
-      {/* ═══════ SECTION 4 : ÉVOLUTION CA ═══════ */}
-      <div className="bg-white rounded-xl shadow-sm border p-5">
-        <h2 className="text-lg font-bold text-gray-800 mb-4">📈 Évolution CA mensuel</h2>
-        <div className="space-y-2">
-          {data.caEvolution.map((m, i) => {
-            const max = Math.max(...data.caEvolution.map(x => x.total), 1)
-            const pctForm = m.formation / max * 100
-            const pctST = m.sousTrait / max * 100
-            return (
-              <div key={i} className="flex items-center gap-2">
-                <div className="w-16 text-xs text-gray-500 font-mono">{m.month}</div>
-                <div className="flex-1 h-6 bg-gray-100 rounded overflow-hidden flex">
-                  <div className="h-full bg-blue-500" style={{ width: `${pctForm}%` }} title={`Formations: ${fmt(m.formation)}`} />
-                  <div className="h-full bg-purple-400" style={{ width: `${pctST}%` }} title={`Sous-traitance: ${fmt(m.sousTrait)}`} />
+      {/* ═══════ SECTION 3 : OPTIMISATION DES CHARGES ═══════ */}
+      <div className="bg-white border rounded-xl p-5">
+        <div className="flex justify-between items-center mb-3">
+          <h3 className="text-lg font-bold text-gray-800">📉 Optimisation des charges</h3>
+          <span className="bg-red-50 text-red-700 px-3 py-1 rounded-full text-sm font-medium">Économie potentielle : {fmt(data.totalSavings)}/mois</span>
+        </div>
+        <div className="space-y-3">
+          {data.optimisations.map((o, i) => (
+            <div key={i} className="border rounded-lg p-3">
+              <div className="flex justify-between items-start mb-1">
+                <div>
+                  <span className="text-lg mr-2">{o.icon}</span>
+                  <span className="font-semibold text-gray-800">{o.name}</span>
+                  <div className="text-xs text-gray-500 ml-7">{o.reason}</div>
                 </div>
-                <div className="w-24 text-xs text-right font-mono font-bold">{fmt(m.total)}</div>
+                <div className="text-right">
+                  <div className="text-red-600 font-bold">-{fmt(o.saving)}/mois</div>
+                  <div className="text-xs text-gray-500">-{((o.saving / o.avg) * 100).toFixed(0)}%</div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 mt-2">
+                <span className="text-xs text-gray-600 w-16">{fmt(o.avg)}</span>
+                <div className="flex-1 bg-gray-100 rounded-full h-3 relative">
+                  <div className="h-3 rounded-full bg-emerald-400" style={{ width: `${(o.target / o.avg) * 100}%` }} />
+                  <div className="h-3 rounded-full bg-red-200 absolute top-0 right-0" style={{ width: `${((o.avg - o.target) / o.avg) * 100}%` }} />
+                </div>
+                <span className="text-xs text-emerald-600 w-16 text-right">{fmt(o.target)}</span>
+              </div>
+              <div className="flex justify-between text-[10px] text-gray-400 mt-0.5 px-16">
+                <span>Actuel</span>
+                <span>→ Cible</span>
+              </div>
+            </div>
+          ))}
+        </div>
+        {data.totalSavings > 0 && (
+          <div className="mt-3 bg-emerald-50 border border-emerald-200 rounded-lg p-3 flex justify-between items-center">
+            <div>
+              <span className="font-semibold text-emerald-800">💰 Impact total des optimisations</span>
+              <div className="text-sm text-emerald-600">{fmt(data.totalSavings)}/mois = {fmt(data.totalSavings * 12)}/an</div>
+            </div>
+            <div className="text-right">
+              <div className="text-xs text-gray-500">Net après optimisation</div>
+              <div className="text-lg font-bold text-emerald-700">{fmt(data.netMensuel + data.totalSavings)}/mois</div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ═══════ SECTION 4 : CONCENTRATION CLIENT ═══════ */}
+      <div className="bg-white border rounded-xl p-5">
+        <div className="flex justify-between items-center mb-3">
+          <h3 className="text-lg font-bold text-gray-800">🏢 Répartition clients</h3>
+          <div className="flex gap-2">
+            <span className="bg-blue-100 text-blue-700 px-2.5 py-1 rounded-full text-xs font-medium">
+              Direct : {data.totalCA > 0 ? ((data.caDirect / data.totalCA) * 100).toFixed(0) : 0}%
+            </span>
+            <span className="bg-purple-100 text-purple-700 px-2.5 py-1 rounded-full text-xs font-medium">
+              Sous-traitance : {data.totalCA > 0 ? ((data.caSousTraitance / data.totalCA) * 100).toFixed(0) : 0}%
+            </span>
+          </div>
+        </div>
+
+        {data.topClientPct > 25 && (
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-3">
+            <div className="flex items-center gap-2">
+              <span className="text-xl">⚠️</span>
+              <div>
+                <span className="font-semibold text-amber-800">Risque de concentration</span>
+                <p className="text-sm text-amber-700">{data.clients[0]?.name} représente {data.topClientPct.toFixed(0)}% du CA. Si ce client est perdu, c'est {fmt(data.clients[0]?.total / data.nbActive)} €/mois en moins. Objectif : aucun client au-dessus de 25%.</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="space-y-1.5">
+          {data.clients.slice(0, 15).map((c, i) => {
+            const w = (c.total / barMax) * 100
+            return (
+              <div key={i} className="flex items-center gap-2 text-sm">
+                <span className="w-40 text-right text-gray-600 truncate">{c.name}</span>
+                <div className="flex-1 bg-gray-100 rounded h-5 relative">
+                  <div
+                    className={`h-5 rounded ${c.pct > 25 ? 'bg-purple-500' : c.isSousTrait ? 'bg-purple-300' : 'bg-blue-400'}`}
+                    style={{ width: `${w}%` }}
+                  >
+                    {c.total > 2000 && <span className="absolute left-2 text-xs text-white font-medium leading-5">{fmt(c.total)}</span>}
+                  </div>
+                </div>
+                <span className="w-10 text-right text-xs text-gray-500">{c.pct.toFixed(0)}%</span>
+                <span className="text-xs">{c.isSousTrait ? '🤝' : '🏢'}</span>
               </div>
             )
           })}
         </div>
-        <div className="flex gap-4 mt-3 justify-center">
-          <div className="flex items-center gap-1 text-xs"><div className="w-3 h-3 bg-blue-500 rounded" /> CA Formations</div>
-          <div className="flex items-center gap-1 text-xs"><div className="w-3 h-3 bg-purple-400 rounded" /> Sous-traitance</div>
+
+        <div className="grid grid-cols-2 gap-3 mt-4">
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+            <div className="text-xs text-blue-600">🏢 CA Direct (marge pleine)</div>
+            <div className="text-lg font-bold text-blue-800">{fmt(data.caDirect)}</div>
+            <div className="text-xs text-blue-500">{data.totalCA > 0 ? ((data.caDirect / data.totalCA) * 100).toFixed(0) : 0}% — Objectif : 70%</div>
+            <div className="w-full bg-blue-100 rounded-full h-2 mt-1">
+              <div className="h-2 rounded-full bg-blue-500" style={{ width: `${Math.min(100, (data.caDirect / data.totalCA) * 100 / 70 * 100)}%` }} />
+            </div>
+          </div>
+          <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
+            <div className="text-xs text-purple-600">🤝 CA Sous-traitance (marge réduite)</div>
+            <div className="text-lg font-bold text-purple-800">{fmt(data.caSousTraitance)}</div>
+            <div className="text-xs text-purple-500">{data.totalCA > 0 ? ((data.caSousTraitance / data.totalCA) * 100).toFixed(0) : 0}% — Objectif : {'<'}30%</div>
+            <div className="w-full bg-purple-100 rounded-full h-2 mt-1">
+              <div className="h-2 rounded-full bg-purple-500" style={{ width: `${Math.min(100, (data.caSousTraitance / data.totalCA) * 100)}%` }} />
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* ═══════ SECTION 5 : SIMULATEUR ═══════ */}
-      <div className="bg-gradient-to-br from-indigo-50 to-blue-50 rounded-xl shadow-sm border border-indigo-200 p-5">
-        <h2 className="text-lg font-bold text-indigo-800 mb-4">🎮 Simulateur objectif {fmt(objectif)}</h2>
+      {/* ═══════ SECTION 5 : ÉVOLUTION CA ═══════ */}
+      <div className="bg-white border rounded-xl p-5">
+        <h3 className="text-lg font-bold text-gray-800 mb-3">📊 Évolution CA mensuel</h3>
+        <div className="space-y-1.5">
+          {data.caEvolution.map((m, i) => {
+            const maxCA = Math.max(...data.caEvolution.map(e => e.total), 1)
+            const wForm = (m.formation / maxCA) * 100
+            const wSous = (m.sousTrait / maxCA) * 100
+            return (
+              <div key={i} className="flex items-center gap-2 text-sm">
+                <span className="w-16 text-gray-500 text-xs">{m.month}</span>
+                <div className="flex-1 bg-gray-50 rounded h-5 flex">
+                  {m.formation > 0 && <div className="h-5 rounded-l bg-blue-500" style={{ width: `${wForm}%` }} />}
+                  {m.sousTrait > 0 && <div className={`h-5 ${m.formation > 0 ? '' : 'rounded-l'} rounded-r bg-purple-400`} style={{ width: `${wSous}%` }} />}
+                </div>
+                <span className="w-24 text-right tabular-nums text-xs font-medium text-gray-600">{m.total > 0 ? fmt(m.total) : '–'}</span>
+              </div>
+            )
+          })}
+        </div>
+        <div className="flex gap-4 mt-2 justify-center text-xs text-gray-500">
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-blue-500" /> CA Formations</span>
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-purple-400" /> Sous-traitance</span>
+        </div>
+      </div>
 
+      {/* ═══════ SECTION 6 : SIMULATEUR ═══════ */}
+      <div className="bg-white border rounded-xl p-5">
+        <h3 className="text-lg font-bold text-gray-800 mb-3">🎮 Simulateur objectif {fmt(objectif)}</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-          <div className="bg-white rounded-lg p-4 shadow-sm">
-            <div className="flex items-center justify-between mb-2">
-              <label className="text-sm font-bold text-gray-700">🚀 Boost CA (effet Qualiopi + prospection)</label>
-              <span className="text-lg font-bold text-green-600">+{simCA}%</span>
+          <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
+            <div className="flex justify-between items-center mb-2">
+              <span className="text-sm font-medium">🚀 Boost CA (effet Qualiopi + prospection)</span>
+              <span className="text-emerald-700 font-bold">+{simCA}%</span>
             </div>
-            <input type="range" min="0" max="80" value={simCA} onChange={e => setSimCA(+e.target.value)}
-              className="w-full h-2 bg-green-200 rounded-lg appearance-none cursor-pointer accent-green-600" />
-            <div className="flex justify-between text-xs text-gray-400 mt-1">
+            <input type="range" min="0" max="80" value={simCA} onChange={e => setSimCA(+e.target.value)} className="w-full accent-emerald-500" />
+            <div className="flex justify-between text-[10px] text-gray-400 mt-0.5">
               <span>0% (statu quo)</span>
               <span>+20% (Qualiopi modéré)</span>
               <span>+80%</span>
             </div>
           </div>
-
-          <div className="bg-white rounded-lg p-4 shadow-sm">
-            <div className="flex items-center justify-between mb-2">
-              <label className="text-sm font-bold text-gray-700">📉 Réduction charges</label>
-              <span className="text-lg font-bold text-blue-600">-{simCharges}%</span>
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+            <div className="flex justify-between items-center mb-2">
+              <span className="text-sm font-medium">📉 Réduction charges</span>
+              <span className="text-red-600 font-bold">-{simCharges}%</span>
             </div>
-            <input type="range" min="0" max="30" value={simCharges} onChange={e => setSimCharges(+e.target.value)}
-              className="w-full h-2 bg-blue-200 rounded-lg appearance-none cursor-pointer accent-blue-600" />
-            <div className="flex justify-between text-xs text-gray-400 mt-1">
+            <input type="range" min="0" max="30" value={simCharges} onChange={e => setSimCharges(+e.target.value)} className="w-full accent-blue-500" />
+            <div className="flex justify-between text-[10px] text-gray-400 mt-0.5">
               <span>0%</span>
               <span>-10% (optimisations)</span>
               <span>-30%</span>
@@ -1883,138 +2162,194 @@ function RecommandationsTab({ transactions, categories }) {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
-          <div className="bg-white rounded-lg p-3 shadow-sm">
-            <label className="text-xs text-gray-500">Solde actuel (€)</label>
-            <input type="number" value={soldeActuel} onChange={e => setSoldeActuel(+e.target.value)}
-              className="w-full mt-1 p-2 border rounded text-sm font-mono" />
+        <div className="grid grid-cols-3 gap-3 mb-4">
+          <div className="border rounded-lg p-2.5">
+            <div className="text-xs text-gray-500">Solde actuel (€)</div>
+            <input type="number" value={soldeActuel} onChange={e => setSoldeActuel(+e.target.value)} className="w-full text-lg font-bold border-none p-0 focus:ring-0" />
           </div>
-          <div className="bg-white rounded-lg p-3 shadow-sm">
-            <label className="text-xs text-gray-500">Objectif fin 2026 (€)</label>
-            <input type="number" value={objectif} onChange={e => setObjectif(+e.target.value)}
-              className="w-full mt-1 p-2 border rounded text-sm font-mono" />
+          <div className="border rounded-lg p-2.5">
+            <div className="text-xs text-gray-500">Objectif fin 2026 (€)</div>
+            <input type="number" value={objectif} onChange={e => setObjectif(+e.target.value)} className="w-full text-lg font-bold border-none p-0 focus:ring-0" />
           </div>
-          <div className="bg-white rounded-lg p-3 shadow-sm">
-            <label className="text-xs text-gray-500">Mois restants 2026</label>
-            <div className="text-2xl font-bold text-indigo-700 mt-1">{sim.remainingMonths}</div>
+          <div className="border rounded-lg p-2.5">
+            <div className="text-xs text-gray-500">Mois restants 2026</div>
+            <div className="text-2xl font-bold text-blue-700">{sim.remainingMonths}</div>
           </div>
         </div>
 
-        {/* Résultat simulation */}
-        <div className={`rounded-xl p-5 ${sim.atteint ? 'bg-green-600' : 'bg-red-600'} text-white`}>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-3">
+        <div className={`rounded-xl p-4 text-white ${sim.atteint ? 'bg-gradient-to-r from-emerald-600 to-teal-600' : 'bg-gradient-to-r from-red-600 to-rose-600'}`}>
+          <div className="grid grid-cols-4 gap-3 mb-3">
             <div>
-              <div className="text-xs opacity-70">CA simulé/mois</div>
-              <div className="text-xl font-bold">{fmt(sim.caBoost)}</div>
-              <div className="text-xs opacity-50">vs {fmt(data.avgCA)} actuel</div>
+              <div className="text-xs opacity-80">CA simulé/mois</div>
+              <div className="text-lg font-bold">{fmt(sim.caBoost)}</div>
+              <div className="text-xs opacity-60">vs {fmt(data.avgCA)} actuel</div>
             </div>
             <div>
-              <div className="text-xs opacity-70">Charges simulées/mois</div>
-              <div className="text-xl font-bold">{fmt(sim.chargesReduced)}</div>
-              <div className="text-xs opacity-50">vs {fmt(data.avgTotal)} actuel</div>
+              <div className="text-xs opacity-80">Charges simulées/mois</div>
+              <div className="text-lg font-bold">{fmt(sim.chargesReduced)}</div>
+              <div className="text-xs opacity-60">vs {fmt(data.avgTotal)} actuel</div>
             </div>
             <div>
-              <div className="text-xs opacity-70">Net simulé/mois</div>
-              <div className="text-xl font-bold">{fmt(sim.netSim)}</div>
+              <div className="text-xs opacity-80">Net simulé/mois</div>
+              <div className="text-lg font-bold">{fmt(sim.netSim)}</div>
             </div>
             <div>
-              <div className="text-xs opacity-70">Projection fin 2026</div>
-              <div className="text-2xl font-bold">{fmt(sim.projFin)}</div>
+              <div className="text-xs opacity-80">Projection fin 2026</div>
+              <div className="text-xl font-bold">{fmt(sim.projFin)}</div>
             </div>
           </div>
-          <div className="flex items-center justify-between pt-3 border-t border-white/20">
-            <div className="text-lg font-bold">
-              {sim.atteint ? '✅ Objectif atteignable !' : `❌ Manque ${fmt(objectif - sim.projFin)}`}
+          {sim.atteint ? (
+            <div className="text-center text-sm">✅ Objectif {fmt(objectif)} atteint ! Surplus : {fmt(sim.projFin - objectif)}</div>
+          ) : (
+            <div className="flex justify-between text-sm">
+              <span>🎯 Manque {fmt(objectif - sim.projFin)}</span>
+              <span>Besoin : {fmt((objectif - soldeActuel) / sim.remainingMonths)} net/mois</span>
             </div>
-            <div className="text-sm opacity-70">
-              Besoin : {fmt((objectif - soldeActuel) / sim.remainingMonths)} net/mois
-            </div>
-          </div>
+          )}
         </div>
       </div>
 
-      {/* ═══════ SECTION 6 : TABLEAU DÉTAILLÉ CHARGES ═══════ */}
-      <div className="bg-white rounded-xl shadow-sm border p-5">
-        <h2 className="text-lg font-bold text-gray-800 mb-4">📋 Détail complet des charges par catégorie</h2>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b bg-gray-50">
-                <th className="text-left p-2">Catégorie</th>
-                <th className="text-center p-2">Type</th>
-                <th className="text-right p-2">Total</th>
-                <th className="text-right p-2">Moy./mois</th>
-                <th className="text-right p-2">% charges</th>
-                <th className="text-center p-2">Nb tx</th>
-              </tr>
-            </thead>
-            <tbody>
-              {Object.entries(data.chargesByCat)
-                .sort((a, b) => b[1].total - a[1].total)
-                .map(([name, d], i) => {
-                  const monthly = d.total / data.nbMonths
-                  const pct = d.total / (data.totalFixed + data.totalVariable) * 100
-                  return (
-                    <tr key={i} className="border-b hover:bg-gray-50">
-                      <td className="p-2 flex items-center gap-2">
-                        <span>{d.icon}</span>
-                        <span className="font-medium">{name}</span>
-                      </td>
-                      <td className="p-2 text-center">
-                        <span className={`px-2 py-0.5 rounded text-xs font-bold ${d.type === 'fixe' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>
-                          {d.type}
-                        </span>
-                      </td>
-                      <td className="p-2 text-right font-mono">{fmt(d.total)}</td>
-                      <td className="p-2 text-right font-mono font-bold">{fmt(monthly)}</td>
-                      <td className="p-2 text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          <div className="w-16 h-2 bg-gray-200 rounded-full overflow-hidden">
-                            <div className="h-full bg-red-400 rounded-full" style={{ width: `${Math.min(100, pct)}%` }} />
-                          </div>
-                          <span className="text-xs text-gray-500 w-10 text-right">{pct.toFixed(1)}%</span>
+      {/* ═══════ SECTION 7 : PIPELINE COMPLET ═══════ */}
+      <div className="bg-white border rounded-xl p-5">
+        <div className="flex justify-between items-center mb-3">
+          <h3 className="text-lg font-bold text-gray-800">📋 Pipeline & Devis validés</h3>
+          <div className="flex gap-2 items-center">
+            <span className="text-sm text-gray-500">
+              Total : {fmt(pipeline.filter(p => p.status !== 'encaisse' && p.status !== 'annule').reduce((s, p) => s + (p.amount_ttc || 0), 0))}
+            </span>
+            <button
+              onClick={() => setShowPipeForm(!showPipeForm)}
+              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition"
+            >
+              + Ajouter
+            </button>
+          </div>
+        </div>
+
+        {Object.keys(pipelineByMonth).length === 0 ? (
+          <div className="text-center py-6 text-gray-400">
+            <p className="text-lg mb-1">📭 Aucune entrée dans le pipeline</p>
+            <p className="text-sm">Ajoutez vos devis validés et factures prévues pour améliorer la visibilité</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {Object.entries(pipelineByMonth).sort(([a], [b]) => a.localeCompare(b)).map(([month, entries]) => {
+              const monthTotal = entries.reduce((s, p) => s + (p.amount_ttc || 0), 0)
+              const monthNames = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre']
+              const [y, m] = month.split('-')
+              const label = `${monthNames[parseInt(m) - 1]} ${y}`
+              const isCurrentMonth = month === currentMonth.monthKey
+
+              return (
+                <div key={month} className={`border rounded-lg overflow-hidden ${isCurrentMonth ? 'border-blue-300 bg-blue-50/30' : ''}`}>
+                  <div className="flex justify-between items-center px-3 py-2 bg-gray-50">
+                    <span className="font-medium text-gray-700">{label} {isCurrentMonth && <span className="text-xs text-blue-600 ml-1">← en cours</span>}</span>
+                    <span className="font-bold text-gray-800">{fmt(monthTotal)}</span>
+                  </div>
+                  <div className="divide-y">
+                    {entries.map(p => (
+                      <div key={p.id} className="flex items-center justify-between px-3 py-2 text-sm">
+                        <div className="flex items-center gap-2">
+                          <select
+                            value={p.status}
+                            onChange={e => updatePipeStatus(p.id, e.target.value)}
+                            className={`text-xs rounded px-1.5 py-0.5 border-0 font-medium ${statusStyles[p.status]?.bg || 'bg-gray-100'}`}
+                          >
+                            <option value="prevu">📋 Prévu</option>
+                            <option value="facture">📄 Facturé</option>
+                            <option value="encaisse">✅ Encaissé</option>
+                            <option value="annule">❌ Annulé</option>
+                          </select>
+                          <span className="font-medium text-gray-700">{p.client}</span>
+                          {p.trainer && <span className="text-xs px-1.5 py-0.5 bg-gray-100 rounded text-gray-500">{p.trainer}</span>}
+                          {p.description && <span className="text-xs text-gray-400">— {p.description}</span>}
                         </div>
-                      </td>
-                      <td className="p-2 text-center text-gray-400">{d.count}</td>
-                    </tr>
-                  )
-                })}
-            </tbody>
-            <tfoot>
-              <tr className="border-t-2 font-bold bg-gray-50">
-                <td className="p-2" colSpan="2">TOTAL</td>
-                <td className="p-2 text-right font-mono">{fmt(data.totalFixed + data.totalVariable)}</td>
-                <td className="p-2 text-right font-mono">{fmt(data.avgTotal)}</td>
-                <td className="p-2 text-right">100%</td>
-                <td className="p-2"></td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-gray-800">{fmt(p.amount_ttc)}</span>
+                          <button onClick={() => deletePipe(p.id)} className="text-gray-300 hover:text-red-500 transition">✕</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
       </div>
 
-      {/* ═══════ SECTION 7 : PLAN D'ACTION ═══════ */}
-      <div className="bg-white rounded-xl shadow-sm border p-5">
-        <h2 className="text-lg font-bold text-gray-800 mb-4">🗺️ Plan d'action recommandé</h2>
+      {/* ═══════ SECTION 8 : TABLEAU DÉTAILLÉ CHARGES ═══════ */}
+      <div className="bg-white border rounded-xl p-5">
+        <h3 className="text-lg font-bold text-gray-800 mb-3">📋 Détail complet des charges par catégorie</h3>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-gray-500 border-b text-xs uppercase tracking-wider">
+              <th className="pb-2">Catégorie</th>
+              <th className="pb-2 text-center">Type</th>
+              <th className="pb-2 text-right">Total</th>
+              <th className="pb-2 text-right">Moy./mois</th>
+              <th className="pb-2 text-right">% charges</th>
+              <th className="pb-2 text-right">Nb tx</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(data.chargesList || []).map((c, i) => {
+              const pct = data.avgTotal > 0 ? (c.avg / data.avgTotal * 100) : 0
+              return (
+                <tr key={i} className="border-b last:border-0 hover:bg-gray-50">
+                  <td className="py-2">
+                    <span className="mr-1.5">{c.icon}</span>
+                    {c.name}
+                  </td>
+                  <td className="text-center">
+                    <span className={`text-xs px-1.5 py-0.5 rounded ${c.type === 'fixe' ? 'bg-red-100 text-red-600' : 'bg-amber-100 text-amber-600'}`}>{c.type}</span>
+                  </td>
+                  <td className="text-right tabular-nums">{fmt(c.total)}</td>
+                  <td className="text-right tabular-nums font-medium">{fmt(c.avg)}</td>
+                  <td className="text-right">
+                    <div className="flex items-center justify-end gap-1.5">
+                      <div className="w-12 bg-gray-100 rounded-full h-1.5">
+                        <div className="h-1.5 rounded-full bg-red-400" style={{ width: `${Math.min(100, pct * 2)}%` }} />
+                      </div>
+                      <span className="text-xs text-gray-500 w-10 text-right">{pct.toFixed(1)}%</span>
+                    </div>
+                  </td>
+                  <td className="text-right text-gray-500">{c.count || '–'}</td>
+                </tr>
+              )
+            })}
+            <tr className="font-bold border-t-2">
+              <td className="py-2">TOTAL</td>
+              <td></td>
+              <td className="text-right tabular-nums">{fmt(data.totalFixed + data.totalVariable)}</td>
+              <td className="text-right tabular-nums">{fmt(data.avgTotal)}</td>
+              <td className="text-right">100%</td>
+              <td></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {/* ═══════ SECTION 9 : PLAN D'ACTION ═══════ */}
+      <div className="bg-white border rounded-xl p-5">
+        <h3 className="text-lg font-bold text-gray-800 mb-4">🗓️ Plan d'action recommandé</h3>
         <div className="space-y-3">
           {[
-            { icon: '🔴', timing: 'Cette semaine', action: 'Relancer les factures en retard/échéance', detail: 'Prioriser OPCO2i (en retard), ISRPP, SOFIS, EIFFAGE', impact: 'Récupérer ~8 000€ de trésorerie' },
-            { icon: '🟠', timing: 'Ce mois', action: 'Audit abonnements SaaS', detail: 'Lister tous les prélèvements récurrents, supprimer les inutilisés', impact: `Économie ~${Math.round(data.optimisations.find(o => o.name.includes('Logiciel'))?.saving || 80)}€/mois` },
-            { icon: '🟡', timing: 'Mars', action: 'Négocier frais bancaires', detail: 'Comparer Qonto/Shine vs offre actuelle, demander un geste', impact: 'Économie ~50€/mois' },
-            { icon: '🟢', timing: 'Mars-Avril', action: 'Prospection directe Qualiopi', detail: 'Marine cible les entreprises directes (pas les OF). Argument : financement OPCO grâce à Qualiopi', impact: 'Augmenter la part CA direct de 57% → 70%' },
-            { icon: '🔵', timing: 'Avril-Mai', action: 'Développer 2-3 nouveaux clients directs', detail: 'Réduire la dépendance Pilocap (33% → <20%)', impact: 'Sécuriser le CA + meilleure marge' },
-            { icon: '🟣', timing: 'En continu', action: 'Plafond restauration 25€/repas', detail: 'Privilégier les formules midi, emporter un lunch si possible', impact: `Économie ~${Math.round(data.optimisations.find(o => o.name.includes('Restauration'))?.saving || 140)}€/mois` },
+            { period: 'CETTE SEMAINE', color: 'bg-red-500', title: 'Relancer les factures en retard/échéance', sub: 'Prioriser OPCO2i (en retard), ISRPP, SOFIS, EIFFAGE', impact: 'Récupérer ~8 000€ de trésorerie' },
+            { period: 'CE MOIS', color: 'bg-amber-500', title: 'Audit abonnements SaaS', sub: 'Lister tous les prélèvements récurrents, supprimer les inutilisés', impact: 'Économie ~86€/mois' },
+            { period: 'MARS', color: 'bg-yellow-500', title: 'Négocier frais bancaires', sub: 'Comparer Qonto/Shine vs offre actuelle, demander un geste', impact: 'Économie ~50€/mois' },
+            { period: 'MARS-AVRIL', color: 'bg-emerald-500', title: 'Prospection directe Qualiopi', sub: 'Marine cible les entreprises directes (pas les OF). Argument : financement OPCO grâce à Qualiopi', impact: `Augmenter la part CA direct de ${data.totalCA > 0 ? ((data.caDirect / data.totalCA) * 100).toFixed(0) : 0}% → 70%` },
+            { period: 'AVRIL-MAI', color: 'bg-blue-500', title: 'Développer 2-3 nouveaux clients directs', sub: `Réduire la dépendance Pilocap (${data.topClientPct.toFixed(0)}% → <20%)`, impact: 'Sécuriser le CA + meilleure marge' },
+            { period: 'EN CONTINU', color: 'bg-purple-500', title: 'Plafond restauration 25€/repas', sub: 'Privilégier les formules midi, emporter un lunch si possible', impact: 'Économie ~213€/mois' },
           ].map((a, i) => (
-            <div key={i} className="flex gap-3 p-3 rounded-lg hover:bg-gray-50 border border-transparent hover:border-gray-200 transition-all">
-              <div className="text-2xl flex-shrink-0">{a.icon}</div>
+            <div key={i} className="flex items-start gap-3 p-3 border rounded-lg hover:bg-gray-50 transition">
+              <div className={`w-3 h-3 rounded-full ${a.color} mt-1.5 flex-shrink-0`} />
               <div className="flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-gray-400 uppercase">{a.timing}</span>
-                </div>
-                <div className="font-bold text-gray-800">{a.action}</div>
-                <div className="text-sm text-gray-500">{a.detail}</div>
+                <div className="text-[10px] uppercase tracking-wider text-gray-400 font-medium">{a.period}</div>
+                <div className="font-semibold text-gray-800">{a.title}</div>
+                <div className="text-sm text-gray-500">{a.sub}</div>
               </div>
-              <div className="text-xs text-green-600 font-bold text-right flex-shrink-0 self-center">{a.impact}</div>
+              <span className="text-sm font-medium text-emerald-600 whitespace-nowrap">{a.impact}</span>
             </div>
           ))}
         </div>
