@@ -1181,6 +1181,8 @@ function ImportTab({ loadAll, categories, rules, invoices, clients, transactions
   const [pre, setPre] = useState([])
   const [selectedRows, setSelectedRows] = useState(new Set())
   const [csvDragOver, setCsvDragOver] = useState(false)
+  const [searchOpenRow, setSearchOpenRow] = useState(null) // Index de la ligne avec panneau recherche ouvert
+  const [searchQuery, setSearchQuery] = useState('')
 
   // Nouveau : collage rapide texte brut
   const [rawText, setRawText] = useState('')
@@ -1401,6 +1403,87 @@ function ImportTab({ loadAll, categories, rules, invoices, clients, transactions
       const picked = tx.matchedInvoices.find(m => m.id === invoiceId)
       if (!picked) return tx
       return { ...tx, matchedInvoices: [picked], matchConfidence: 'high', matchType: 'Sélection manuelle' }
+    }))
+    setSearchOpenRow(null)
+  }
+
+  // Ouvrir/fermer le panneau de recherche inline
+  function toggleSearchPanel(idx) {
+    if (searchOpenRow === idx) { setSearchOpenRow(null); setSearchQuery('') }
+    else { setSearchOpenRow(idx); setSearchQuery('') }
+  }
+
+  // Scoring intelligent des factures pour une ligne crédit
+  function scoreInvoicesForRow(tx, query) {
+    const norm = (s) => (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9 ]/g, '').replace(/\s+/g, ' ').trim()
+    const descUp = norm(tx.description)
+    const descWords = descUp.split(/\s+/).filter(w => w.length > 3)
+    const amount = tx.credit
+    const qUp = norm(query)
+
+    return unpaidInvoices.map(inv => {
+      const cli = (clients || []).find(c => c.id === inv.client_id)
+      const cliName = cli?.name || ''
+      const cliNorm = norm(cliName)
+      const cliWords = cliNorm.split(/\s+/).filter(w => w.length > 3)
+      const due = parseFloat(inv.amount_due)
+      const ref = inv.reference || ''
+      let score = 0
+      const reasons = []
+
+      // Montant exact
+      if (Math.abs(due - amount) < 0.01) { score += 100; reasons.push('Montant exact') }
+      // Montant proche (< 10%)
+      else if (amount > 0 && Math.abs(due - amount) / amount < 0.10) { score += 50; reasons.push('Montant ~' + Math.round(Math.abs(due - amount) / amount * 100) + '%') }
+      // Montant proche (< 30%)
+      else if (amount > 0 && Math.abs(due - amount) / amount < 0.30) { score += 20; reasons.push('Montant ~' + Math.round(Math.abs(due - amount) / amount * 100) + '%') }
+
+      // Mots du libellé bancaire dans le nom client
+      for (const w of descWords) { if (cliNorm.includes(w)) { score += 80; reasons.push('Libellé → client'); break } }
+      // Mots du nom client dans le libellé bancaire
+      for (const w of cliWords) { if (descUp.includes(w)) { score += 80; reasons.push('Client → libellé'); break } }
+
+      // Référence facture dans le libellé
+      if (ref && descUp.includes(norm(ref).slice(-5))) { score += 90; reasons.push('Ref facture') }
+
+      // Même mois
+      if (inv.invoice_date && tx.date) {
+        const invMonth = inv.invoice_date.substring(0, 7)
+        const txMonth = tx.date.substring(0, 7)
+        if (invMonth === txMonth) { score += 10; reasons.push('Même mois') }
+      }
+
+      // Filtre par query de recherche
+      if (qUp) {
+        const matchQuery = norm(ref).includes(qUp) || cliNorm.includes(qUp) || norm(inv.object).includes(qUp)
+        if (!matchQuery) return null // Exclure si pas dans la recherche
+        score += 50
+      }
+
+      return {
+        id: inv.id, reference: ref, client_name: cliName, client_id: inv.client_id,
+        total_ttc: parseFloat(inv.total_ttc), amount_due: due,
+        invoice_date: inv.invoice_date, object: inv.object,
+        score, reasons: [...new Set(reasons)]
+      }
+    }).filter(Boolean).sort((a, b) => b.score - a.score)
+  }
+
+  // Multi-sélection de factures pour un row
+  function toggleInvoiceForRow(rowIdx, inv) {
+    setPre(prev => prev.map((tx, i) => {
+      if (i !== rowIdx) return tx
+      const current = tx.matchedInvoices || []
+      const exists = current.find(m => m.id === inv.id)
+      let updated
+      if (exists) {
+        updated = current.filter(m => m.id !== inv.id)
+      } else {
+        updated = [...current, { id: inv.id, reference: inv.reference, client_name: inv.client_name, total_ttc: inv.total_ttc, amount_due: inv.amount_due }]
+      }
+      const totalMatched = updated.reduce((s, m) => s + m.amount_due, 0)
+      const confidence = updated.length > 0 ? (Math.abs(totalMatched - tx.credit) < 0.01 ? 'high' : 'medium') : 'none'
+      return { ...tx, matchedInvoices: updated, matchConfidence: confidence, matchType: updated.length > 0 ? 'Sélection manuelle' : '' }
     }))
   }
 
@@ -2107,54 +2190,134 @@ function ImportTab({ loadAll, categories, rules, invoices, clients, transactions
                         </td>
                         <td className="px-2 py-1 text-right text-red-600 font-mono">{tx.debit > 0 ? tx.debit.toFixed(2) : ''}</td>
                         <td className="px-2 py-1 text-right text-green-600 font-mono">{tx.credit > 0 ? tx.credit.toFixed(2) : ''}</td>
-                        <td className="px-2 py-1 text-center">
+                        <td className="px-2 py-1 text-center" onClick={e => e.stopPropagation()}>
                           {tx.isDuplicate
                             ? <span className="text-xs bg-amber-200 text-amber-800 px-1.5 py-0.5 rounded">doublon</span>
                             : tx.matchConfidence === 'high'
-                              ? <span className="text-xs bg-blue-200 text-blue-800 px-1.5 py-0.5 rounded">🔗 rapprochée</span>
+                              ? <button onClick={() => toggleSearchPanel(i)} className="text-xs bg-blue-200 text-blue-800 px-1.5 py-0.5 rounded hover:bg-blue-300">🔗 rapprochée</button>
                               : tx.matchConfidence === 'medium' || tx.matchConfidence === 'ambiguous'
-                                ? <span className="text-xs bg-purple-200 text-purple-800 px-1.5 py-0.5 rounded">❓ à vérifier</span>
+                                ? <button onClick={() => toggleSearchPanel(i)} className="text-xs bg-purple-200 text-purple-800 px-1.5 py-0.5 rounded hover:bg-purple-300">❓ à vérifier</button>
                                 : tx.credit > 0
-                                  ? <span className="text-xs bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded">pas de match</span>
+                                  ? <button onClick={() => toggleSearchPanel(i)} className="text-xs bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded hover:bg-gray-300 cursor-pointer">🔍 matcher</button>
                                   : <span className="text-xs bg-green-200 text-green-800 px-1.5 py-0.5 rounded">nouvelle</span>
                           }
                         </td>
                       </tr>
-                      {/* Ligne de détail match pour les crédits */}
-                      {tx.credit > 0 && !tx.isDuplicate && tx.matchedInvoices?.length > 0 && (
+
+                      {/* Ligne de détail match pour les crédits — résumé compact */}
+                      {tx.credit > 0 && !tx.isDuplicate && tx.matchedInvoices?.length > 0 && searchOpenRow !== i && (
                         <tr className="bg-blue-50/30">
                           <td></td>
                           <td colSpan="6" className="px-2 py-1.5" onClick={e => e.stopPropagation()}>
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="text-xs text-gray-500">
-                                {tx.matchConfidence === 'high' ? '🟢' : tx.matchConfidence === 'ambiguous' ? '🟡' : '🟠'} {tx.matchType} →
+                                {tx.matchConfidence === 'high' ? '🟢' : '🟠'} {tx.matchType} →
                               </span>
-                              {tx.matchConfidence === 'ambiguous' ? (
-                                // Plusieurs candidats : boutons de sélection
-                                tx.matchedInvoices.map(inv => (
-                                  <button key={inv.id} onClick={() => pickInvoice(i, inv.id)}
-                                    className="text-xs border border-blue-300 bg-white rounded px-2 py-0.5 hover:bg-blue-100 transition-colors">
-                                    {inv.reference} — {inv.client_name} — {fmt(inv.amount_due)}
-                                  </button>
-                                ))
-                              ) : (
-                                // Match unique
-                                tx.matchedInvoices.map(inv => (
-                                  <span key={inv.id} className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-medium">
-                                    {inv.reference} — {inv.client_name} — {fmt(inv.amount_due)}
-                                    {Math.abs(inv.amount_due - tx.credit) > 0.01 && (
-                                      <span className="ml-1 text-amber-600">(due: {fmt(inv.amount_due)}, reçu: {fmt(tx.credit)})</span>
-                                    )}
-                                  </span>
-                                ))
-                              )}
-                              {tx.matchConfidence !== 'none' && (
-                                <button onClick={() => detachMatch(i)} className="text-xs text-red-400 hover:text-red-600" title="Détacher">✕</button>
-                              )}
+                              {tx.matchedInvoices.map(inv => (
+                                <span key={inv.id} className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-medium">
+                                  {inv.reference} — {inv.client_name} — {fmt(inv.amount_due)}
+                                </span>
+                              ))}
+                              {(() => {
+                                const totalM = tx.matchedInvoices.reduce((s, m) => s + m.amount_due, 0)
+                                return Math.abs(totalM - tx.credit) < 0.01
+                                  ? <span className="text-xs text-green-600">✅ exact</span>
+                                  : <span className="text-xs text-amber-600">⚠️ écart {fmt(Math.abs(totalM - tx.credit))}</span>
+                              })()}
+                              <button onClick={() => detachMatch(i)} className="text-xs text-red-400 hover:text-red-600" title="Détacher">✕</button>
+                              <button onClick={() => toggleSearchPanel(i)} className="text-xs text-blue-500 hover:text-blue-700">✏️</button>
                             </div>
                           </td>
                         </tr>
                       )}
+
+                      {/* Panneau de recherche inline pour matcher une facture */}
+                      {tx.credit > 0 && !tx.isDuplicate && searchOpenRow === i && (() => {
+                        const scored = scoreInvoicesForRow(tx, searchQuery)
+                        const selectedInvIds = new Set((tx.matchedInvoices || []).map(m => m.id))
+                        const totalSelected = (tx.matchedInvoices || []).reduce((s, m) => s + m.amount_due, 0)
+                        const diff = tx.credit - totalSelected
+                        return (
+                          <tr className="bg-gradient-to-r from-blue-50 to-indigo-50">
+                            <td></td>
+                            <td colSpan="6" className="p-3" onClick={e => e.stopPropagation()}>
+                              <div className="space-y-2">
+                                {/* Header du panneau */}
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-sm font-medium text-gray-700">🔍 Rapprocher {fmt(tx.credit)}</span>
+                                    {totalSelected > 0 && (
+                                      <span className={`text-xs px-2 py-0.5 rounded font-medium ${
+                                        Math.abs(diff) < 0.01 ? 'bg-green-100 text-green-700' :
+                                        diff > 0 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
+                                      }`}>
+                                        {Math.abs(diff) < 0.01 ? '✅ Correspondance exacte' :
+                                         diff > 0 ? `⚠️ Reste ${fmt(diff)} non couvert` :
+                                         `🔴 Dépasse de ${fmt(Math.abs(diff))}`}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <button onClick={() => { setSearchOpenRow(null); setSearchQuery('') }}
+                                    className="text-gray-400 hover:text-gray-600 text-sm">✕ Fermer</button>
+                                </div>
+
+                                {/* Recherche */}
+                                <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
+                                  placeholder="🔍 Filtrer par client, référence, objet..."
+                                  className="w-full border rounded-lg px-3 py-1.5 text-xs focus:border-blue-400 focus:ring-1 focus:ring-blue-400" />
+
+                                {/* Liste des factures scorées */}
+                                <div className="max-h-48 overflow-y-auto space-y-1">
+                                  {scored.length === 0 ? (
+                                    <div className="text-center py-3 text-xs text-gray-400">Aucune facture impayée trouvée</div>
+                                  ) : scored.slice(0, 15).map(inv => {
+                                    const isSelected = selectedInvIds.has(inv.id)
+                                    return (
+                                      <div key={inv.id} onClick={() => toggleInvoiceForRow(i, inv)}
+                                        className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition-colors text-xs
+                                          ${isSelected ? 'bg-blue-100 border-blue-400' : inv.score >= 80 ? 'bg-green-50 border-green-200 hover:bg-green-100' : 'bg-white border-gray-200 hover:bg-gray-50'}`}>
+                                        <input type="checkbox" checked={isSelected} readOnly className="rounded text-blue-600 pointer-events-none" />
+                                        <div className="flex-1 min-w-0">
+                                          <div className="flex items-center gap-2">
+                                            <span className="font-medium text-gray-800">{inv.reference}</span>
+                                            <span className="text-gray-500">—</span>
+                                            <span className="text-gray-700 truncate">{inv.client_name}</span>
+                                          </div>
+                                          {inv.object && <div className="text-gray-400 truncate">{inv.object}</div>}
+                                        </div>
+                                        <div className="text-right flex-shrink-0">
+                                          <div className={`font-bold ${Math.abs(inv.amount_due - tx.credit) < 0.01 ? 'text-green-700' : 'text-gray-700'}`}>
+                                            {fmt(inv.amount_due)}
+                                          </div>
+                                          <div className="text-gray-400">{inv.invoice_date}</div>
+                                        </div>
+                                        {inv.score >= 50 && (
+                                          <div className="flex-shrink-0">
+                                            <span className={`text-xs px-1.5 py-0.5 rounded ${inv.score >= 100 ? 'bg-green-200 text-green-800' : inv.score >= 50 ? 'bg-blue-200 text-blue-800' : 'bg-gray-200 text-gray-600'}`}>
+                                              {inv.reasons[0]}
+                                            </span>
+                                          </div>
+                                        )}
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+
+                                {/* Barre de total si sélection */}
+                                {(tx.matchedInvoices || []).length > 0 && (
+                                  <div className={`flex items-center justify-between p-2 rounded-lg border-2 text-xs font-medium ${
+                                    Math.abs(diff) < 0.01 ? 'bg-green-50 border-green-400 text-green-700' :
+                                    diff > 0 ? 'bg-amber-50 border-amber-400 text-amber-700' : 'bg-red-50 border-red-400 text-red-700'
+                                  }`}>
+                                    <span>{(tx.matchedInvoices || []).length} facture(s) = {fmt(totalSelected)}</span>
+                                    <span>Virement : {fmt(tx.credit)}</span>
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        )
+                      })()}
                     </React.Fragment>
                   ))}
                 </tbody>
