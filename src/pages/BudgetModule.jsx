@@ -27,6 +27,7 @@ const ML = {
   '01/2026':'Jan 26','02/2026':'Fév 26','03/2026':'Mar 26',
 }
 
+
 const fmt = (n) => n ? (n < 0 ? '-' : '') + Math.abs(n).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €' : '-'
 const fmtS = (n) => { if (!n) return '-'; const a = Math.abs(n); return a >= 1000 ? (a/1000).toFixed(1)+'k€' : Math.round(a)+'€' }
 
@@ -44,15 +45,24 @@ export default function BudgetModule() {
   const [showPerso, setShowPerso] = useState(true)
   const [editingTx, setEditingTx] = useState(null)
 
+  // Données partagées pour Import + Saisie
+  const [invoicesList, setInvoicesList] = useState([])
+  const [clientsList, setClientsList] = useState([])
+
+  // Modal invités repas (rétroactif)
+  const [mealGuestTxId, setMealGuestTxId] = useState(null)
+
   useEffect(() => { loadAll() }, [])
 
   async function loadAll() {
     setLoading(true)
-    const [txR, catR, ruleR, rcpR] = await Promise.all([
+    const [txR, catR, ruleR, rcpR, invR, cliR] = await Promise.all([
       supabase.from('budget_transactions').select('*').order('date', { ascending: false }),
       supabase.from('budget_categories').select('*').order('sort_order'),
       supabase.from('budget_rules').select('*, budget_categories(name, icon)').order('keyword'),
       supabase.from('budget_receipts').select('*'),
+      supabase.from('invoices').select('*, clients(name)').order('invoice_date', { ascending: false }),
+      supabase.from('clients').select('id,name,siret,status,city,phone,contact_email').order('name'),
     ])
     if (txR.data) setTransactions(txR.data)
     if (catR.data) setCategories(catR.data)
@@ -62,6 +72,8 @@ export default function BudgetModule() {
       rcpR.data.forEach(r => { if (!map[r.transaction_id]) map[r.transaction_id] = []; map[r.transaction_id].push(r) })
       setReceipts(map)
     }
+    if (invR.data) setInvoicesList(invR.data)
+    if (cliR.data) setClientsList(cliR.data)
     setLoading(false)
   }
 
@@ -96,6 +108,7 @@ export default function BudgetModule() {
       compteHicham: perso.filter(t => t.payer === 'hicham_perso').reduce((s, t) => s + (t.debit || 0) - (t.credit || 0), 0),
       compteMaxime: perso.filter(t => t.payer === 'maxime_perso').reduce((s, t) => s + (t.debit || 0) - (t.credit || 0), 0),
       notSent: transactions.filter(t => !t.sent_to_comptable && (Object.keys(receipts).includes(t.id) || t.is_manual)).length,
+      toInvoice: co.filter(t => t.credit > 0 && !t.linked_invoice_id && !t.is_personal).length,
     }
   }, [transactions, receipts])
 
@@ -110,43 +123,43 @@ export default function BudgetModule() {
   async function deleteTx(txId) {
     if (!confirm('Supprimer ?')) return
     await supabase.from('budget_transactions').delete().eq('id', txId)
-    setTransactions(p => p.filter(t => t.id !== txId)); toast.success('Supprimé')
+    setTransactions(p => p.filter(t => t.id !== txId))
+    toast.success('Supprimée'); loadAll()
   }
 
-  if (loading) return <div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" /></div>
+  if (loading) return <div className="p-8 text-center text-gray-400">⏳ Chargement...</div>
 
   return (
-    <div className="max-w-7xl mx-auto p-4 space-y-4">
-      <div className="bg-white rounded-xl shadow-sm border p-4">
-        <div className="flex items-center justify-between mb-3">
-          <h1 className="text-xl font-bold text-gray-800">💰 Budget & Trésorerie</h1>
+    <div className="p-4 md:p-6 max-w-7xl mx-auto">
+      {/* Header */}
+      <div className="bg-white rounded-xl shadow-sm border p-4 mb-4">
+        <div className="flex justify-between items-center mb-2">
+          <h2 className="text-xl font-bold text-gray-800">💰 Budget & Trésorerie</h2>
           <span className="text-xs text-gray-400">{transactions.length} opérations</span>
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-7 gap-2">
+        <div className="grid grid-cols-2 md:grid-cols-8 gap-2">
           <KPI label="Entrées" value={fmt(stats.totalCredit)} color="green" />
           <KPI label="Sorties" value={fmt(stats.totalDebit)} color="red" />
-          <KPI label="Balance" value={fmt(stats.totalCredit - stats.totalDebit)} color={stats.totalCredit - stats.totalDebit >= 0 ? 'green' : 'red'} />
-          <KPI label="Non classés" value={stats.unclassified} color={stats.unclassified > 0 ? 'amber' : 'green'} />
-          <KPI label="CCA Hicham" value={stats.compteHicham > 0 ? fmt(stats.compteHicham) : '0 €'} color={stats.compteHicham > 0 ? 'purple' : 'gray'} sub="dette gérant" />
-          <KPI label="CCA Maxime" value={stats.compteMaxime > 0 ? fmt(stats.compteMaxime) : '0 €'} color={stats.compteMaxime > 0 ? 'purple' : 'gray'} sub="dette gérant" />
-          <KPI label="À envoyer" value={stats.notSent} color={stats.notSent > 0 ? 'blue' : 'gray'} sub="comptable" />
+          <KPI label="Balance" value={fmt(stats.totalCredit - stats.totalDebit)} color={stats.totalCredit > stats.totalDebit ? 'green' : 'red'} />
+          <KPI label="Non classés" value={stats.unclassified} color="amber" />
+          <KPI label="CCA Hicham" value={fmt(stats.compteHicham)} color="purple" sub="dette gérant" />
+          <KPI label="CCA Maxime" value={fmt(stats.compteMaxime)} color="purple" sub="dette gérant" />
+          <KPI label="À envoyer" value={stats.notSent} color="blue" sub="comptable" />
         </div>
       </div>
 
-      <div className="flex gap-1 bg-gray-100 rounded-lg p-1 overflow-x-auto">
-        {TABS.map(t => (
-          <button key={t.key} onClick={() => setTab(t.key)}
-            className={`flex-1 py-2 px-2 rounded-md text-xs sm:text-sm font-medium transition-all whitespace-nowrap
+      {/* Tabs */}
+      <div className="flex gap-1 overflow-x-auto mb-4 pb-1">{TABS.map(t => (
+          <button key={t.key} onClick={() => setTab(t.key)} className={`px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap transition
               ${tab === t.key ? 'bg-white shadow text-blue-700' : 'text-gray-500 hover:text-gray-700'}`}>
             {t.label}
             {t.key === 'comptable' && stats.notSent > 0 && <span className="ml-1 bg-blue-500 text-white text-xs rounded-full px-1.5">{stats.notSent}</span>}
             {t.key === 'categorisation' && stats.unclassified > 0 && <span className="ml-1 bg-amber-500 text-white text-xs rounded-full px-1.5">{stats.unclassified}</span>}
           </button>
-        ))}
-      </div>
+        ))}</div>
 
-      {tab === 'transactions' && <TransactionsTab {...{ filtered, categories, months, filterMonth, setFilterMonth, filterCat, setFilterCat, filterDir, setFilterDir, filterSearch, setFilterSearch, showPerso, setShowPerso, editingTx, setEditingTx, changeCategory, deleteTx, receipts }} />}
-      {tab === 'saisie' && <SaisieTab categories={categories} rules={rules} loadAll={loadAll} />}
+      {tab === 'transactions' && <TransactionsTab {...{ filtered, categories, months, filterMonth, setFilterMonth, filterCat, setFilterCat, filterDir, setFilterDir, filterSearch, setFilterSearch, showPerso, setShowPerso, editingTx, setEditingTx, changeCategory, deleteTx, receipts, onMealGuest: setMealGuestTxId }} />}
+      {tab === 'saisie' && <SaisieTab categories={categories} rules={rules} loadAll={loadAll} clients={clientsList} />}
       {tab === 'dashboard' && <DashboardTab stats={stats} months={months} categories={categories} />}
       {tab === 'categorisation' && <CategorisationIATab transactions={transactions} categories={categories} rules={rules} loadAll={loadAll} />}
       {tab === 'previsionnel' && <PrevisionnelTab transactions={transactions} categories={categories} />}
@@ -154,20 +167,38 @@ export default function BudgetModule() {
       {tab === 'comptable' && <ComptableTab transactions={transactions} receipts={receipts} loadAll={loadAll} />}
       {tab === 'categories' && <CategoriesTab categories={categories} loadAll={loadAll} />}
       {tab === 'rules' && <RulesTab rules={rules} categories={categories} loadAll={loadAll} />}
-      {tab === 'import' && <ImportTab loadAll={loadAll} categories={categories} rules={rules} />}
+      {tab === 'import' && <ImportTab loadAll={loadAll} categories={categories} rules={rules} invoices={invoicesList} clients={clientsList} />}
+
+      {/* Modal invités repas (rétroactif) */}
+      {mealGuestTxId && (
+        <MealGuestModal
+          transactionId={mealGuestTxId}
+          transaction={transactions.find(t => t.id === mealGuestTxId)}
+          clients={clientsList}
+          onClose={() => setMealGuestTxId(null)}
+          onSaved={() => { setMealGuestTxId(null); loadAll() }}
+        />
+      )}
     </div>
   )
 }
 
 function KPI({ label, value, color = 'blue', sub }) {
-  const c = { green:'text-green-700 bg-green-50 border-green-200', red:'text-red-700 bg-red-50 border-red-200', blue:'text-blue-700 bg-blue-50 border-blue-200', amber:'text-amber-700 bg-amber-50 border-amber-200', purple:'text-purple-700 bg-purple-50 border-purple-200', gray:'text-gray-500 bg-gray-50 border-gray-200' }
-  return (<div className={`rounded-lg border p-2 ${c[color]||c.blue}`}><div className="text-xs font-medium opacity-70">{label}</div><div className="text-base font-bold mt-0.5">{value}</div>{sub && <div className="text-xs opacity-50">{sub}</div>}</div>)
+  return <div className={`bg-${color}-50 rounded-lg p-2 border border-${color}-100`}><div className={`text-xs text-${color}-600 font-medium`}>{label}</div><div className={`text-lg font-bold text-${color}-700 truncate`}>{value}</div>{sub && <div className="text-xs text-gray-400">{sub}</div>}</div>
 }
+// ════════════════════════════════════════
+// TRANSACTIONS — avec 🍽️ invités + badge rapprochement
+// ════════════════════════════════════════
+function TransactionsTab({ filtered, categories, months, filterMonth, setFilterMonth, filterCat, setFilterCat, filterDir, setFilterDir, filterSearch, setFilterSearch, showPerso, setShowPerso, editingTx, setEditingTx, changeCategory, deleteTx, receipts, onMealGuest }) {
+  const [filterSpecial, setFilterSpecial] = useState('')
 
-// ════════════════════════════════════════
-// TRANSACTIONS
-// ════════════════════════════════════════
-function TransactionsTab({ filtered, categories, months, filterMonth, setFilterMonth, filterCat, setFilterCat, filterDir, setFilterDir, filterSearch, setFilterSearch, showPerso, setShowPerso, editingTx, setEditingTx, changeCategory, deleteTx, receipts }) {
+  const displayed = useMemo(() => {
+    if (!filterSpecial) return filtered
+    if (filterSpecial === 'resto_no_guest') return filtered.filter(tx => tx.category_name === 'Restauration pro' && tx.debit > 0)
+    if (filterSpecial === 'credit_no_invoice') return filtered.filter(tx => tx.credit > 0 && !tx.linked_invoice_id && !tx.is_personal)
+    return filtered
+  }, [filtered, filterSpecial])
+
   return (
     <div className="space-y-3">
       <div className="bg-white rounded-xl shadow-sm border p-3">
@@ -184,9 +215,16 @@ function TransactionsTab({ filtered, categories, months, filterMonth, setFilterM
             <option value="all">Tout</option><option value="debit">Sorties</option><option value="credit">Entrées</option>
           </select>
           <input type="text" value={filterSearch} onChange={e => setFilterSearch(e.target.value)} placeholder="🔍 Rechercher..." className="border rounded-lg px-3 py-2 text-sm" />
-          <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
-            <input type="checkbox" checked={showPerso} onChange={e => setShowPerso(e.target.checked)} className="rounded" /> Afficher perso
-          </label>
+          <div className="flex items-center gap-2">
+            <label className="flex items-center gap-1 text-xs text-gray-600 cursor-pointer">
+              <input type="checkbox" checked={showPerso} onChange={e => setShowPerso(e.target.checked)} className="rounded" /> Perso
+            </label>
+            <select value={filterSpecial} onChange={e => setFilterSpecial(e.target.value)} className="border rounded px-2 py-1 text-xs flex-1">
+              <option value="">Filtres rapides</option>
+              <option value="resto_no_guest">🍽️ Restos sans invités</option>
+              <option value="credit_no_invoice">💳 Crédits non rapprochés</option>
+            </select>
+          </div>
         </div>
       </div>
       <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
@@ -204,13 +242,14 @@ function TransactionsTab({ filtered, categories, months, filterMonth, setFilterM
               </tr>
             </thead>
             <tbody>
-              {filtered.map(tx => (
+              {displayed.map(tx => (
                 <tr key={tx.id} className={`border-t hover:bg-blue-50/30 ${tx.is_personal ? 'bg-purple-50/30' : ''} ${tx.is_manual ? 'border-l-2 border-l-blue-400' : ''}`}>
                   <td className="px-3 py-1.5 text-gray-500 text-xs whitespace-nowrap">
                     {tx.date ? new Date(tx.date).toLocaleDateString('fr-FR') : '-'}
                     {tx.is_manual && <span className="ml-1 text-blue-500">✏️</span>}
                     {tx.is_personal && <span className="ml-1 text-purple-500">🏠</span>}
                     {tx.sent_to_comptable && <span className="ml-1 text-green-500" title="Envoyé au comptable">✓</span>}
+                    {tx.linked_invoice_id && <span className="ml-1 text-blue-500" title="Rapproché avec facture">🔗</span>}
                   </td>
                   <td className="px-3 py-1.5 max-w-xs"><div className="truncate text-gray-800 text-xs" title={tx.description}>{tx.description}</div></td>
                   <td className="px-3 py-1.5">
@@ -228,12 +267,19 @@ function TransactionsTab({ filtered, categories, months, filterMonth, setFilterM
                   <td className="px-3 py-1.5 text-right font-mono text-xs text-red-600">{tx.debit > 0 ? fmt(tx.debit) : ''}</td>
                   <td className="px-3 py-1.5 text-right font-mono text-xs text-green-600">{tx.credit > 0 ? fmt(tx.credit) : ''}</td>
                   <td className="px-2 py-1.5 text-center text-xs">{receipts[tx.id]?.length > 0 && <span title={`${receipts[tx.id].length} fichier(s)`}>📎{receipts[tx.id].length}</span>}</td>
-                  <td className="px-2 py-1.5">{tx.is_manual && <button onClick={() => deleteTx(tx.id)} className="text-red-300 hover:text-red-600 text-xs">✕</button>}</td>
+                  <td className="px-2 py-1.5">
+                    <div className="flex gap-0.5">
+                      {tx.category_name === 'Restauration pro' && tx.debit > 0 && (
+                        <button onClick={() => onMealGuest && onMealGuest(tx.id)} className="text-amber-400 hover:text-amber-600 text-xs" title="Registre invités">🍽️</button>
+                      )}
+                      {tx.is_manual && <button onClick={() => deleteTx(tx.id)} className="text-red-300 hover:text-red-600 text-xs">✕</button>}
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
-          {filtered.length === 0 && <div className="text-center py-12 text-gray-400">Aucune transaction</div>}
+          {displayed.length === 0 && <div className="text-center py-12 text-gray-400">Aucune transaction</div>}
         </div>
       </div>
     </div>
@@ -241,9 +287,9 @@ function TransactionsTab({ filtered, categories, months, filterMonth, setFilterM
 }
 
 // ════════════════════════════════════════
-// SAISIE MANUELLE + UPLOAD + IA
+// SAISIE — avec registre invités repas
 // ════════════════════════════════════════
-function SaisieTab({ categories, rules, loadAll }) {
+function SaisieTab({ categories, rules, loadAll, clients }) {
   const [form, setForm] = useState({ date: new Date().toISOString().split('T')[0], description: '', amount: '', type: 'debit', category_id: '', payer: 'entreprise', notes: '', note_comptable: '' })
   const [files, setFiles] = useState([])
   const [previews, setPreviews] = useState([])
@@ -251,6 +297,18 @@ function SaisieTab({ categories, rules, loadAll }) {
   const [analyzing, setAnalyzing] = useState(false)
   const [aiResult, setAiResult] = useState(null)
   const [recent, setRecent] = useState([])
+
+  // Repas / Invités
+  const [mealFor, setMealFor] = useState('hicham')
+  const [guests, setGuests] = useState([])
+  const [nbConvives, setNbConvives] = useState(2)
+  const [showProspectModal, setShowProspectModal] = useState(false)
+  const [prospectInitial, setProspectInitial] = useState({})
+
+  const isRestaurant = useMemo(() => {
+    const cat = categories.find(c => c.id === form.category_id)
+    return cat?.name === 'Restauration pro'
+  }, [form.category_id, categories])
 
   useEffect(() => {
     supabase.from('budget_transactions').select('*').eq('is_manual', true).order('created_at', { ascending: false }).limit(10)
@@ -291,7 +349,6 @@ function SaisieTab({ categories, rules, loadAll }) {
       const file = files[0]
       const base64 = await fileToBase64(file)
       const mediaType = file.type || 'image/jpeg'
-
       const catList = categories.map(c => `${c.icon} ${c.name} (${c.direction})`).join(', ')
 
       const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -302,26 +359,7 @@ function SaisieTab({ categories, rules, loadAll }) {
           max_tokens: 500,
           messages: [{ role: 'user', content: [
             { type: mediaType.startsWith('image/') ? 'image' : 'document', source: { type: 'base64', media_type: mediaType, data: base64 } },
-            { type: 'text', text: `Analyse cette facture/ticket pour Access Formation SARL (formation professionnelle SST/CACES/sécurité).
-
-Extrais en JSON strict (pas de markdown) :
-{
-  "fournisseur": "nom du fournisseur",
-  "montant": 123.45,
-  "date": "2026-02-19",
-  "description": "description courte",
-  "categorie_suggestion": "nom de la catégorie la plus proche",
-  "type_depense": "entreprise" ou "perso_hicham" ou "perso_maxime",
-  "explication": "pourquoi cette classification",
-  "note_comptable": "explication courte pour la comptable"
-}
-
-Catégories disponibles : ${catList}
-
-Règles :
-- Si c'est un achat clairement professionnel (matériel formation, logiciel, assurance, carburant, restaurant business) → "entreprise"
-- Si c'est un achat personnel (courses alimentaires, vêtements perso, loisirs) → "perso_hicham" ou "perso_maxime" (par défaut "perso_hicham")
-- En cas de doute → "entreprise"` }
+            { type: 'text', text: `Analyse cette facture/ticket pour Access Formation SARL (formation professionnelle SST/CACES/sécurité).\n\nExtrais en JSON strict (pas de markdown) :\n{\n  "fournisseur": "nom du fournisseur",\n  "montant": 123.45,\n  "date": "2026-02-19",\n  "description": "description courte",\n  "categorie_suggestion": "nom de la catégorie la plus proche",\n  "type_depense": "entreprise" ou "perso_hicham" ou "perso_maxime",\n  "explication": "pourquoi cette classification",\n  "note_comptable": "explication courte pour la comptable"\n}\n\nCatégories disponibles : ${catList}\n\nRègles :\n- Si c'est un achat clairement professionnel (matériel formation, logiciel, assurance, carburant, restaurant business) → "entreprise"\n- Si c'est un achat personnel (courses alimentaires, vêtements perso, loisirs) → "perso_hicham" ou "perso_maxime" (par défaut "perso_hicham")\n- En cas de doute → "entreprise"` }
           ]}]
         })
       })
@@ -330,7 +368,6 @@ Règles :
       const json = JSON.parse(text.replace(/```json|```/g, '').trim())
       setAiResult(json)
 
-      // Pré-remplir le formulaire
       if (json.fournisseur) setForm(f => ({ ...f, description: json.description || json.fournisseur }))
       if (json.montant) setForm(f => ({ ...f, amount: json.montant.toString().replace('.', ',') }))
       if (json.date) setForm(f => ({ ...f, date: json.date }))
@@ -338,12 +375,10 @@ Règles :
       if (json.type_depense === 'perso_hicham') setForm(f => ({ ...f, payer: 'hicham_perso' }))
       else if (json.type_depense === 'perso_maxime') setForm(f => ({ ...f, payer: 'maxime_perso' }))
       else setForm(f => ({ ...f, payer: 'entreprise' }))
-      // Match category
       if (json.categorie_suggestion) {
         const match = categories.find(c => c.name.toLowerCase().includes(json.categorie_suggestion.toLowerCase()) || json.categorie_suggestion.toLowerCase().includes(c.name.toLowerCase()))
         if (match) setForm(f => ({ ...f, category_id: match.id }))
       }
-
       toast.success('🤖 Facture analysée')
     } catch (e) {
       console.error(e)
@@ -351,6 +386,11 @@ Règles :
     }
     setAnalyzing(false)
   }
+
+  // Gestion invités
+  function addGuest() { setGuests(prev => [...prev, { name: '', company: '', client_id: '' }]) }
+  function updateGuest(idx, field, value) { setGuests(prev => prev.map((g, i) => i === idx ? { ...g, [field]: value } : g)) }
+  function removeGuest(idx) { setGuests(prev => prev.filter((_, i) => i !== idx)) }
 
   async function handleSave() {
     if (!form.description || !form.amount || !form.date) { toast.error('Date, description et montant requis'); return }
@@ -376,7 +416,6 @@ Règles :
     // Upload des fichiers
     if (files.length > 0 && txData) {
       for (const file of files) {
-        const ext = file.name.split('.').pop()
         const path = `${txData.id}/${Date.now()}_${file.name}`
         const { error: upErr } = await supabase.storage.from('budget-receipts').upload(path, file)
         if (upErr) { console.error('Upload error:', upErr); continue }
@@ -387,10 +426,32 @@ Règles :
       toast.success(`📎 ${files.length} fichier(s) uploadé(s)`)
     }
 
+    // Sauvegarder les invités si c'est un repas
+    if (isRestaurant && txData) {
+      const guestRows = guests.filter(g => g.name.trim()).map(g => ({
+        transaction_id: txData.id,
+        meal_for: mealFor,
+        guest_name: g.name.trim(),
+        guest_company: g.company.trim() || null,
+        guest_first_name: null,
+        client_id: g.client_id || null,
+        nb_convives: nbConvives,
+        motif: form.notes || null,
+      }))
+      // Si pas d'invités nommés, juste sauvegarder le meal_for
+      if (guestRows.length === 0) {
+        await supabase.from('budget_meal_guests').insert({
+          transaction_id: txData.id, meal_for: mealFor, nb_convives: nbConvives, motif: form.notes || null,
+        })
+      } else {
+        await supabase.from('budget_meal_guests').insert(guestRows)
+      }
+    }
+
     toast.success(`✅ ${form.type === 'debit' ? 'Dépense' : 'Entrée'}: ${fmt(amount)}`)
     setRecent(prev => [txData, ...prev].slice(0, 10))
     setForm({ date: new Date().toISOString().split('T')[0], description: '', amount: '', type: 'debit', category_id: '', payer: 'entreprise', notes: '', note_comptable: '' })
-    setFiles([]); setPreviews([]); setAiResult(null)
+    setFiles([]); setPreviews([]); setAiResult(null); setGuests([]); setNbConvives(2); setMealFor('hicham')
     setSaving(false)
     loadAll()
   }
@@ -400,7 +461,7 @@ Règles :
       <div className="bg-white rounded-xl shadow-sm border p-4 space-y-3">
         <h3 className="font-bold text-gray-700">➕ Nouvelle opération</h3>
 
-        {/* Upload zone EN PREMIER */}
+        {/* Upload zone */}
         <div>
           <label className="text-xs text-gray-500 font-medium">📎 Facture(s) / Justificatif(s)</label>
           <div className="mt-1 border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-blue-400 transition-colors cursor-pointer"
@@ -415,7 +476,6 @@ Règles :
                 <div key={i} className="relative group">
                   {p.url ? <img src={p.url} alt={p.name} className="w-16 h-16 object-cover rounded border" /> : <div className="w-16 h-16 bg-gray-100 rounded border flex items-center justify-center text-xs">📄 PDF</div>}
                   <button onClick={() => removeFile(i)} className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-4 h-4 text-xs leading-none opacity-0 group-hover:opacity-100">✕</button>
-                  <div className="text-xs text-gray-400 truncate w-16">{p.name}</div>
                 </div>
               ))}
             </div>
@@ -437,11 +497,10 @@ Règles :
             <div>Catégorie : <b>{aiResult.categorie_suggestion}</b></div>
             <div>Type : <b className={aiResult.type_depense === 'entreprise' ? 'text-blue-600' : 'text-purple-600'}>{aiResult.type_depense}</b></div>
             <div className="text-gray-600 italic">{aiResult.explication}</div>
-            <div>Note comptable : <i>{aiResult.note_comptable}</i></div>
           </div>
         )}
 
-        {/* Formulaire */}
+        {/* Direction */}
         <div className="flex gap-2">
           <button onClick={() => setForm(f => ({ ...f, type: 'debit' }))} className={`flex-1 py-2 rounded-lg text-sm font-medium ${form.type === 'debit' ? 'bg-red-500 text-white' : 'bg-gray-100'}`}>🔴 Dépense</button>
           <button onClick={() => setForm(f => ({ ...f, type: 'credit' }))} className={`flex-1 py-2 rounded-lg text-sm font-medium ${form.type === 'credit' ? 'bg-green-500 text-white' : 'bg-gray-100'}`}>🟢 Entrée</button>
@@ -465,6 +524,66 @@ Règles :
           </div>
           {form.payer !== 'entreprise' && <p className="text-xs text-purple-600 mt-1">⚠️ Hors budget entreprise → dette gérant</p>}
         </div>
+
+        {/* ══ SECTION REPAS / INVITÉS ══ */}
+        {isRestaurant && (
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium text-amber-800">🍽️ Registre repas professionnel</span>
+            </div>
+
+            {/* Repas pour qui */}
+            <div>
+              <label className="text-xs text-gray-600">Repas pour</label>
+              <div className="flex gap-2 mt-1">
+                <button onClick={() => setMealFor('hicham')} className={`flex-1 py-1.5 rounded-lg text-xs font-medium border ${mealFor === 'hicham' ? 'bg-blue-500 text-white' : 'bg-white text-gray-600'}`}>Hicham</button>
+                <button onClick={() => setMealFor('maxime')} className={`flex-1 py-1.5 rounded-lg text-xs font-medium border ${mealFor === 'maxime' ? 'bg-blue-500 text-white' : 'bg-white text-gray-600'}`}>Maxime</button>
+              </div>
+            </div>
+
+            {/* Nombre de convives */}
+            <div>
+              <label className="text-xs text-gray-600">Nombre de convives</label>
+              <input type="number" min="1" max="20" value={nbConvives} onChange={e => setNbConvives(parseInt(e.target.value) || 1)} className="w-full border rounded-lg px-3 py-1.5 text-sm mt-1" />
+            </div>
+
+            {/* Invités */}
+            <div>
+              <div className="flex items-center justify-between">
+                <label className="text-xs text-gray-600">Invités ({guests.length})</label>
+                <button onClick={addGuest} className="text-xs text-blue-600 hover:text-blue-800">+ Ajouter un invité</button>
+              </div>
+              {guests.map((g, idx) => (
+                <div key={idx} className="flex gap-1.5 mt-1.5 items-center">
+                  <input
+                    type="text" value={g.name} onChange={e => updateGuest(idx, 'name', e.target.value)}
+                    placeholder="Nom Prénom" className="flex-1 border rounded px-2 py-1.5 text-xs"
+                  />
+                  <div className="relative flex-1">
+                    <input
+                      type="text" value={g.company} onChange={e => { updateGuest(idx, 'company', e.target.value); updateGuest(idx, 'client_id', '') }}
+                      placeholder="Entreprise" className="w-full border rounded px-2 py-1.5 text-xs"
+                      list={`guest-clients-${idx}`}
+                    />
+                    <datalist id={`guest-clients-${idx}`}>
+                      {clients.filter(c => g.company && c.name.toUpperCase().includes(g.company.toUpperCase())).slice(0, 10).map(c => (
+                        <option key={c.id} value={c.name} />
+                      ))}
+                    </datalist>
+                  </div>
+                  {g.company && !clients.find(c => c.name.toUpperCase() === g.company.toUpperCase()) && (
+                    <button
+                      onClick={() => { setProspectInitial({ name: g.company, contact_name: g.name }); setShowProspectModal(true) }}
+                      className="text-xs text-emerald-600 hover:text-emerald-800 whitespace-nowrap" title="Créer comme prospect"
+                    >+🏢</button>
+                  )}
+                  <button onClick={() => removeGuest(idx)} className="text-red-400 hover:text-red-600 text-xs">✕</button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div><label className="text-xs text-gray-500">Note comptable</label><input type="text" value={form.note_comptable} onChange={e => setForm(f => ({ ...f, note_comptable: e.target.value }))} placeholder="Explication pour Cristina..." className="w-full border rounded-lg px-3 py-2 text-sm mt-1" /></div>
         <div><label className="text-xs text-gray-500">Notes internes</label><input type="text" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} placeholder="N° facture, détail..." className="w-full border rounded-lg px-3 py-2 text-sm mt-1" /></div>
 
@@ -473,6 +592,7 @@ Règles :
         </button>
       </div>
 
+      {/* Colonne droite */}
       <div className="bg-white rounded-xl shadow-sm border p-4">
         <h3 className="font-bold text-gray-700 mb-3">📝 Dernières saisies</h3>
         {recent.length === 0 ? <div className="text-center py-8 text-gray-400">Aucune saisie</div> : (
@@ -487,6 +607,25 @@ Règles :
           ))}</div>
         )}
       </div>
+
+      {/* Modal création prospect */}
+      {showProspectModal && (
+        <ProspectCreateModal
+          initial={prospectInitial}
+          onClose={() => setShowProspectModal(false)}
+          onCreated={(newClient) => {
+            setShowProspectModal(false)
+            // Mettre à jour le guest avec le nouveau client
+            const gIdx = guests.findIndex(g => g.company === prospectInitial.name || !g.company)
+            if (gIdx >= 0) {
+              updateGuest(gIdx, 'company', newClient.name)
+              updateGuest(gIdx, 'client_id', newClient.id)
+            }
+            loadAll()
+            toast.success(`🏢 Prospect "${newClient.name}" créé`)
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -980,14 +1119,37 @@ function RulesTab({ rules, categories, loadAll }) {
   )
 }
 
-// ════════════════════════════════════════
-// IMPORT
-// ════════════════════════════════════════
-function ImportTab({ loadAll, categories, rules }) {
+// ════════════════════════════════════════════════════════════
+// IMPORT — Texte brut CMB + Matching factures
+// ════════════════════════════════════════════════════════════
+function ImportTab({ loadAll, categories, rules, invoices, clients }) {
   const [imp, setImp] = useState(false)
   const [csv, setCsv] = useState('')
   const [pre, setPre] = useState([])
 
+  // Nouveau : collage rapide texte brut
+  const [rawText, setRawText] = useState('')
+  const [rawDirection, setRawDirection] = useState('credit')
+  const [rawParsed, setRawParsed] = useState(null)
+  const [rawSaving, setRawSaving] = useState(false)
+
+  // Matching factures
+  const [showMatchModal, setShowMatchModal] = useState(false)
+  const [matchTx, setMatchTx] = useState(null)
+  const [matchClient, setMatchClient] = useState(null)
+  const [matchCandidates, setMatchCandidates] = useState([])
+  const [matchSelected, setMatchSelected] = useState(new Set())
+  const [matchAllocations, setMatchAllocations] = useState({})
+  const [matchClientSearch, setMatchClientSearch] = useState('')
+  const [matchStep, setMatchStep] = useState('auto') // auto | select_client | select_invoices
+
+  // Factures non payées
+  const unpaidInvoices = useMemo(() =>
+    (invoices || []).filter(inv => inv.type !== 'credit_note' && ['sent', 'due', 'overdue', 'partial'].includes(inv.status) && parseFloat(inv.amount_due) > 0),
+    [invoices]
+  )
+
+  // ── Parser CSV (existant) ──
   function parse(text) {
     const lines = text.trim().split('\n').filter(l=>l.trim()); const txs = []
     for(const line of lines){const p=line.split(';');if(p.length<4||p[0]==='Date operation')continue;const ds=p[0].trim();const desc=p[2]?.trim()||'';const db=p[3]?.trim().replace(/\s/g,'').replace(',','.')||'';const cr=p[4]?.trim().replace(/\s/g,'').replace(',','.')||'';if(!ds||!desc)continue;const dp=ds.split('/');if(dp.length!==3)continue;const yr=dp[2].length===2?'20'+dp[2]:dp[2];const d=db?Math.abs(parseFloat(db)):0;const c=cr?Math.abs(parseFloat(cr)):0;if(isNaN(d)&&isNaN(c))continue;let cn='Autre / Non classé';const du=desc.toUpperCase();for(const r of rules){if(r.direction==='debit'&&!(d>0))continue;if(r.direction==='credit'&&!(c>0))continue;if(du.includes(r.keyword?.toUpperCase())){cn=r.budget_categories?.name||cn;break}};txs.push({date:`${yr}-${dp[1]}-${dp[0]}`,description:desc,debit:d||0,credit:c||0,category_name:cn,month:`${dp[1]}/${yr}`,year:parseInt(yr)})}
@@ -1000,8 +1162,527 @@ function ImportTab({ loadAll, categories, rules }) {
     setImp(false)
   }
 
+  // ══ Parser texte brut CMB ══
+  // Format: "20/02\n20/02\nVIR SOFIS 684,42  VIR SOFIS FACT-20251120-00047..."
+  function parseRawText(text) {
+    if (!text.trim()) return null
+    const lines = text.trim().split('\n').map(l => l.trim()).filter(Boolean)
+    if (lines.length < 2) return null
+
+    // Ligne 1 et 2 = dates (date opération / date valeur)
+    let dateOp = '', dateVal = ''
+    const today = new Date()
+    const currentYear = today.getFullYear()
+
+    for (let i = 0; i < Math.min(2, lines.length); i++) {
+      const dm = lines[i].match(/^(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?$/)
+      if (dm) {
+        const day = dm[1].padStart(2, '0')
+        const month = dm[2].padStart(2, '0')
+        const year = dm[3] ? (dm[3].length === 2 ? '20' + dm[3] : dm[3]) : String(currentYear)
+        const dateStr = `${year}-${month}-${day}`
+        if (!dateOp) dateOp = dateStr
+        else dateVal = dateStr
+      }
+    }
+
+    if (!dateOp) return null
+
+    // Reste = description + montant
+    const descLines = lines.slice(dateOp && dateVal ? 2 : 1)
+    let fullDesc = descLines.join(' ').replace(/\s+/g, ' ').trim()
+
+    // Extraire le montant (cherche un nombre avec virgule ou point, en fin ou au milieu)
+    let amount = 0
+    // Pattern: nombre avec séparateur milliers (point) et décimales (virgule) ou simple
+    const amountMatch = fullDesc.match(/(\d[\d\s.]*,\d{2})/)
+    if (amountMatch) {
+      amount = parseFloat(amountMatch[1].replace(/\s/g, '').replace('.', '').replace(',', '.'))
+    }
+
+    // Auto-catégoriser
+    let catName = 'Autre / Non classé'
+    const descUp = fullDesc.toUpperCase()
+    for (const r of rules) {
+      if (r.direction === 'debit' && rawDirection === 'credit') continue
+      if (r.direction === 'credit' && rawDirection === 'debit') continue
+      if (descUp.includes(r.keyword?.toUpperCase())) {
+        catName = r.budget_categories?.name || catName
+        break
+      }
+    }
+
+    // Extraire le nom du client (pour matching factures)
+    let detectedClient = null
+    if (rawDirection === 'credit') {
+      // Chercher dans les clients connus
+      for (const cli of (clients || [])) {
+        const cliUp = cli.name.toUpperCase()
+        // Chercher des mots du nom client dans la description
+        const words = cliUp.split(/[\s\-_]+/).filter(w => w.length > 3)
+        for (const w of words) {
+          if (descUp.includes(w)) { detectedClient = cli; break }
+        }
+        if (detectedClient) break
+      }
+    }
+
+    const dp = dateOp.split('-')
+    return {
+      date: dateOp,
+      description: fullDesc,
+      amount,
+      direction: rawDirection,
+      debit: rawDirection === 'debit' ? amount : 0,
+      credit: rawDirection === 'credit' ? amount : 0,
+      category_name: catName,
+      month: `${dp[1]}/${dp[0]}`,
+      year: parseInt(dp[0]),
+      detectedClient,
+    }
+  }
+
+  function handleParseRaw() {
+    const result = parseRawText(rawText)
+    if (!result) { toast.error('Format non reconnu. Collez date + libellé CMB'); return }
+    setRawParsed(result)
+
+    // Si c'est un crédit → lancer le matching
+    if (result.direction === 'credit' && result.amount > 0) {
+      startInvoiceMatching(result)
+    }
+    toast.success(`✅ Détecté: ${result.amount > 0 ? fmt(result.amount) : 'Montant non détecté'} — ${result.direction === 'credit' ? 'Entrée' : 'Sortie'}`)
+  }
+
+  // ══ Matching factures ══
+  function startInvoiceMatching(txData) {
+    setMatchTx(txData)
+    setMatchSelected(new Set())
+    setMatchAllocations({})
+
+    let candidates = []
+    let foundClient = txData.detectedClient
+
+    if (foundClient) {
+      // Factures de ce client
+      candidates = unpaidInvoices.filter(inv => inv.client_id === foundClient.id)
+    }
+
+    if (candidates.length > 0) {
+      setMatchClient(foundClient)
+      setMatchCandidates(candidates)
+
+      // Auto-sélectionner si montant exact
+      const exactMatch = candidates.filter(inv => Math.abs(parseFloat(inv.amount_due) - txData.amount) < 0.01)
+      if (exactMatch.length === 1) {
+        const inv = exactMatch[0]
+        setMatchSelected(new Set([inv.id]))
+        setMatchAllocations({ [inv.id]: parseFloat(inv.amount_due) })
+      } else {
+        // Essayer une combinaison de factures
+        autoMatchCombination(candidates, txData.amount)
+      }
+      setMatchStep('select_invoices')
+    } else {
+      // Client non trouvé → demander
+      setMatchClient(null)
+      setMatchCandidates([])
+      setMatchStep('select_client')
+    }
+    setShowMatchModal(true)
+  }
+
+  function autoMatchCombination(candidates, targetAmount) {
+    // Essayer de trouver une combinaison exacte (simple: 1, 2 ou 3 factures)
+    const sorted = [...candidates].sort((a, b) => parseFloat(b.amount_due) - parseFloat(a.amount_due))
+
+    // 1 facture exacte
+    for (const inv of sorted) {
+      if (Math.abs(parseFloat(inv.amount_due) - targetAmount) < 0.01) {
+        setMatchSelected(new Set([inv.id]))
+        setMatchAllocations({ [inv.id]: parseFloat(inv.amount_due) })
+        return
+      }
+    }
+
+    // 2 factures
+    for (let i = 0; i < sorted.length; i++) {
+      for (let j = i + 1; j < sorted.length; j++) {
+        const sum = parseFloat(sorted[i].amount_due) + parseFloat(sorted[j].amount_due)
+        if (Math.abs(sum - targetAmount) < 0.01) {
+          const sel = new Set([sorted[i].id, sorted[j].id])
+          const alloc = { [sorted[i].id]: parseFloat(sorted[i].amount_due), [sorted[j].id]: parseFloat(sorted[j].amount_due) }
+          setMatchSelected(sel)
+          setMatchAllocations(alloc)
+          return
+        }
+      }
+    }
+
+    // 3 factures
+    for (let i = 0; i < sorted.length; i++) {
+      for (let j = i + 1; j < sorted.length; j++) {
+        for (let k = j + 1; k < sorted.length; k++) {
+          const sum = parseFloat(sorted[i].amount_due) + parseFloat(sorted[j].amount_due) + parseFloat(sorted[k].amount_due)
+          if (Math.abs(sum - targetAmount) < 0.01) {
+            const sel = new Set([sorted[i].id, sorted[j].id, sorted[k].id])
+            const alloc = { [sorted[i].id]: parseFloat(sorted[i].amount_due), [sorted[j].id]: parseFloat(sorted[j].amount_due), [sorted[k].id]: parseFloat(sorted[k].amount_due) }
+            setMatchSelected(sel)
+            setMatchAllocations(alloc)
+            return
+          }
+        }
+      }
+    }
+  }
+
+  function handleSelectClient(clientId) {
+    const cli = (clients || []).find(c => c.id === clientId)
+    if (!cli) return
+    setMatchClient(cli)
+    const candidates = unpaidInvoices.filter(inv => inv.client_id === clientId)
+    setMatchCandidates(candidates)
+    if (matchTx) autoMatchCombination(candidates, matchTx.amount)
+    setMatchStep('select_invoices')
+  }
+
+  function toggleInvoice(invId) {
+    const next = new Set(matchSelected)
+    if (next.has(invId)) {
+      next.delete(invId)
+      const alloc = { ...matchAllocations }
+      delete alloc[invId]
+      setMatchAllocations(alloc)
+    } else {
+      next.add(invId)
+      const inv = matchCandidates.find(i => i.id === invId)
+      if (inv) {
+        setMatchAllocations(prev => ({ ...prev, [invId]: parseFloat(inv.amount_due) }))
+      }
+    }
+    setMatchSelected(next)
+  }
+
+  const matchTotal = useMemo(() =>
+    Object.values(matchAllocations).reduce((s, v) => s + (parseFloat(v) || 0), 0),
+    [matchAllocations]
+  )
+
+  const matchDiff = matchTx ? Math.abs(matchTotal - matchTx.amount) : 0
+  const matchExact = matchDiff < 0.01
+
+  // ══ Sauvegarder le rapprochement ══
+  async function saveReconciliation() {
+    if (!rawParsed || matchSelected.size === 0) return
+    setRawSaving(true)
+
+    try {
+      const cat = categories.find(c => c.name === rawParsed.category_name)
+      const dp = rawParsed.date.split('-')
+
+      // 1. Créer la transaction
+      const txRow = {
+        date: rawParsed.date,
+        description: rawParsed.description,
+        debit: rawParsed.debit,
+        credit: rawParsed.credit,
+        category_id: cat?.id || null,
+        category_name: rawParsed.category_name,
+        month: `${dp[1]}/${dp[0]}`,
+        year: parseInt(dp[0]),
+        source_file: 'import_rapide_cmb',
+        is_manual: false,
+        is_personal: false,
+        payer: 'entreprise',
+        reconciled_at: new Date().toISOString(),
+        linked_invoice_id: matchSelected.size === 1 ? [...matchSelected][0] : null,
+      }
+
+      const { data: txData, error: txErr } = await supabase.from('budget_transactions').insert(txRow).select().single()
+      if (txErr) throw txErr
+
+      // 2. Créer les liens dans budget_transaction_invoices
+      const links = [...matchSelected].map(invId => ({
+        transaction_id: txData.id,
+        invoice_id: invId,
+        amount_applied: matchAllocations[invId] || 0,
+        reconciled_by: 'Hicham',
+      }))
+      const { error: linkErr } = await supabase.from('budget_transaction_invoices').insert(links)
+      if (linkErr) throw linkErr
+
+      // 3. Mettre à jour chaque facture (amount_paid, status)
+      for (const invId of matchSelected) {
+        const inv = unpaidInvoices.find(i => i.id === invId)
+        if (!inv) continue
+        const applied = matchAllocations[invId] || 0
+        const newPaid = (parseFloat(inv.amount_paid) || 0) + applied
+        const newDue = parseFloat(inv.total_ttc) - newPaid
+        const newStatus = newDue <= 0.01 ? 'paid' : 'partial'
+
+        await supabase.from('invoices').update({
+          amount_paid: newPaid,
+          amount_due: Math.max(0, newDue),
+          status: newStatus,
+          updated_at: new Date().toISOString(),
+        }).eq('id', invId)
+
+        // Enregistrer le paiement dans invoice_payments
+        await supabase.from('invoice_payments').insert({
+          invoice_id: invId,
+          amount: applied,
+          payment_date: rawParsed.date,
+          payment_method: 'virement bancaire',
+          payment_reference: rawParsed.description.substring(0, 100),
+          notes: `Rapprochement bancaire du ${new Date().toLocaleDateString('fr-FR')}`,
+          created_by: 'Hicham Saidi',
+        })
+      }
+
+      toast.success(`✅ Transaction importée + ${matchSelected.size} facture(s) marquée(s) payée(s)`)
+      setShowMatchModal(false)
+      setRawText('')
+      setRawParsed(null)
+      setMatchTx(null)
+      loadAll()
+    } catch (err) {
+      toast.error('Erreur: ' + err.message)
+    }
+    setRawSaving(false)
+  }
+
+  // ══ Sauvegarder sans matching (débit ou crédit sans facture) ══
+  async function saveWithoutMatch() {
+    if (!rawParsed) return
+    setRawSaving(true)
+    try {
+      const cat = categories.find(c => c.name === rawParsed.category_name)
+      const dp = rawParsed.date.split('-')
+      const txRow = {
+        date: rawParsed.date,
+        description: rawParsed.description,
+        debit: rawParsed.debit,
+        credit: rawParsed.credit,
+        category_id: cat?.id || null,
+        category_name: rawParsed.category_name,
+        month: `${dp[1]}/${dp[0]}`,
+        year: parseInt(dp[0]),
+        source_file: 'import_rapide_cmb',
+        is_manual: false,
+        is_personal: false,
+        payer: 'entreprise',
+      }
+      const { error } = await supabase.from('budget_transactions').insert(txRow)
+      if (error) throw error
+      toast.success(`✅ Transaction importée`)
+      setRawText(''); setRawParsed(null)
+      loadAll()
+    } catch (err) { toast.error('Erreur: ' + err.message) }
+    setRawSaving(false)
+  }
+
   return (
     <div className="space-y-4">
+      {/* ══ IMPORT RAPIDE — Texte brut CMB ══ */}
+      <div className="bg-white rounded-xl shadow-sm border p-4">
+        <h3 className="font-bold text-gray-700 mb-2">⚡ Import rapide — Copier/coller CMB</h3>
+        <p className="text-xs text-gray-500 mb-3">Collez le texte brut copié depuis votre relevé CMB (date + libellé). Ex: "20/02\n20/02\nVIR SOFIS 684,42..."</p>
+
+        <div className="flex gap-2 mb-2">
+          <button onClick={() => setRawDirection('credit')} className={`flex-1 py-2 rounded-lg text-sm font-medium ${rawDirection === 'credit' ? 'bg-green-500 text-white' : 'bg-gray-100'}`}>🟢 Entrée (encaissement)</button>
+          <button onClick={() => setRawDirection('debit')} className={`flex-1 py-2 rounded-lg text-sm font-medium ${rawDirection === 'debit' ? 'bg-red-500 text-white' : 'bg-gray-100'}`}>🔴 Sortie (paiement)</button>
+        </div>
+
+        <textarea value={rawText} onChange={e => setRawText(e.target.value)}
+          placeholder={"20/02\n20/02\nVIR SOFIS 684,42  VIR SOFIS FACT-20251120-00047..."}
+          className="w-full h-28 border rounded-lg p-3 text-xs font-mono resize-y" />
+
+        <div className="flex gap-2 mt-2">
+          <button onClick={handleParseRaw} disabled={!rawText.trim()} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-50 flex-1">
+            🔍 Analyser
+          </button>
+          {rawParsed && rawDirection === 'debit' && (
+            <button onClick={saveWithoutMatch} disabled={rawSaving} className="bg-gray-600 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-50">
+              {rawSaving ? '⏳...' : '💾 Importer (sortie)'}
+            </button>
+          )}
+          {rawParsed && rawDirection === 'credit' && !showMatchModal && (
+            <button onClick={() => startInvoiceMatching(rawParsed)} className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm">
+              🔗 Rapprocher factures
+            </button>
+          )}
+          {rawParsed && rawDirection === 'credit' && (
+            <button onClick={saveWithoutMatch} disabled={rawSaving} className="bg-gray-400 text-white px-3 py-2 rounded-lg text-xs disabled:opacity-50" title="Importer sans lier à une facture">
+              Sans facture
+            </button>
+          )}
+        </div>
+
+        {/* Résultat du parsing */}
+        {rawParsed && (
+          <div className="mt-3 bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm space-y-1">
+            <div className="flex justify-between items-center">
+              <span className="font-medium text-blue-800">📋 Résultat :</span>
+              {rawParsed.detectedClient && (
+                <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Client détecté : {rawParsed.detectedClient.name}</span>
+              )}
+            </div>
+            <div className="text-xs">Date : <b>{rawParsed.date}</b></div>
+            <div className="text-xs">Description : <b className="break-all">{rawParsed.description}</b></div>
+            <div className="text-xs">Montant : <b className={rawDirection === 'credit' ? 'text-green-700' : 'text-red-700'}>{fmt(rawParsed.amount)}</b></div>
+            <div className="text-xs">Catégorie : <b>{rawParsed.category_name}</b></div>
+          </div>
+        )}
+      </div>
+
+      {/* ══ MODAL MATCHING FACTURES ══ */}
+      {showMatchModal && matchTx && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between p-4 border-b bg-green-50 rounded-t-xl">
+              <div>
+                <h3 className="font-bold text-green-800">🔗 Rapprochement bancaire</h3>
+                <p className="text-xs text-green-600 mt-0.5">Montant reçu : <b>{fmt(matchTx.amount)}</b></p>
+              </div>
+              <button onClick={() => setShowMatchModal(false)} className="text-gray-400 hover:text-gray-600 text-xl">✕</button>
+            </div>
+
+            <div className="overflow-y-auto flex-1 p-4 space-y-4">
+              {/* Étape : sélection client */}
+              {matchStep === 'select_client' && (
+                <div>
+                  <p className="text-sm text-gray-700 mb-2">Client non identifié automatiquement. Sélectionnez le client :</p>
+                  <input type="text" value={matchClientSearch} onChange={e => setMatchClientSearch(e.target.value)}
+                    placeholder="🔍 Rechercher un client..." className="w-full border rounded-lg px-3 py-2 text-sm mb-2" autoFocus />
+                  <div className="max-h-48 overflow-y-auto space-y-1">
+                    {(clients || [])
+                      .filter(c => {
+                        if (!matchClientSearch) return unpaidInvoices.some(inv => inv.client_id === c.id)
+                        return c.name.toUpperCase().includes(matchClientSearch.toUpperCase())
+                      })
+                      .slice(0, 20)
+                      .map(c => {
+                        const invCount = unpaidInvoices.filter(inv => inv.client_id === c.id).length
+                        return (
+                          <button key={c.id} onClick={() => handleSelectClient(c.id)}
+                            className="w-full text-left p-2 border rounded-lg hover:bg-blue-50 hover:border-blue-300 transition-colors text-sm">
+                            <span className="font-medium">{c.name}</span>
+                            {invCount > 0 && <span className="ml-2 text-xs text-green-600 bg-green-50 px-1.5 py-0.5 rounded">{invCount} facture(s) en attente</span>}
+                            {invCount === 0 && <span className="ml-2 text-xs text-gray-400">Aucune facture en attente</span>}
+                          </button>
+                        )
+                      })}
+                  </div>
+                </div>
+              )}
+
+              {/* Étape : sélection factures */}
+              {matchStep === 'select_invoices' && (
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <div>
+                      <span className="text-sm font-medium text-gray-700">Factures de </span>
+                      <span className="text-sm font-bold text-blue-700">{matchClient?.name}</span>
+                    </div>
+                    <button onClick={() => setMatchStep('select_client')} className="text-xs text-blue-600 hover:underline">Changer de client</button>
+                  </div>
+
+                  {matchCandidates.length === 0 ? (
+                    <div className="text-center py-6 text-gray-400">
+                      <p className="text-sm">Aucune facture en attente pour ce client</p>
+                      <button onClick={() => { setShowMatchModal(false); saveWithoutMatch() }} className="mt-2 text-blue-600 text-sm hover:underline">Importer sans rapprochement</button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {matchCandidates.map(inv => {
+                        const isSelected = matchSelected.has(inv.id)
+                        const due = parseFloat(inv.amount_due)
+                        return (
+                          <div key={inv.id}
+                            onClick={() => toggleInvoice(inv.id)}
+                            className={`p-3 border rounded-lg cursor-pointer transition-all ${isSelected ? 'bg-green-50 border-green-400 ring-1 ring-green-300' : 'hover:bg-gray-50'}`}>
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${isSelected ? 'bg-green-500 border-green-500 text-white' : 'border-gray-300'}`}>
+                                  {isSelected && <span className="text-xs">✓</span>}
+                                </div>
+                                <div>
+                                  <span className="font-medium text-sm">{inv.reference}</span>
+                                  <span className="text-xs text-gray-500 ml-2">{inv.object ? inv.object.substring(0, 40) : ''}</span>
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <div className="font-bold text-sm">{fmt(due)}</div>
+                                <div className="text-xs text-gray-400">TTC: {fmt(inv.total_ttc)}</div>
+                              </div>
+                            </div>
+                            <div className="text-xs text-gray-400 mt-1">
+                              {inv.invoice_date ? new Date(inv.invoice_date).toLocaleDateString('fr-FR') : ''} — 
+                              <span className={inv.status === 'overdue' ? 'text-red-600 font-medium' : ''}>{inv.status === 'overdue' ? 'En retard' : inv.status === 'partial' ? 'Paiement partiel' : 'À régler'}</span>
+                            </div>
+
+                            {/* Allocation manuelle si sélectionnée */}
+                            {isSelected && matchSelected.size > 1 && (
+                              <div className="mt-2 flex items-center gap-2" onClick={e => e.stopPropagation()}>
+                                <label className="text-xs text-gray-500">Montant imputé :</label>
+                                <input
+                                  type="number" step="0.01"
+                                  value={matchAllocations[inv.id] || ''}
+                                  onChange={e => setMatchAllocations(prev => ({ ...prev, [inv.id]: parseFloat(e.target.value) || 0 }))}
+                                  className="w-28 border rounded px-2 py-1 text-xs text-right"
+                                />
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+
+                  {/* Barre de total */}
+                  {matchSelected.size > 0 && (
+                    <div className={`mt-3 p-3 rounded-lg border-2 ${matchExact ? 'bg-green-50 border-green-400' : 'bg-amber-50 border-amber-400'}`}>
+                      <div className="flex justify-between items-center text-sm">
+                        <span className="font-medium">Total sélectionné :</span>
+                        <span className="font-bold text-lg">{fmt(matchTotal)}</span>
+                      </div>
+                      <div className="flex justify-between items-center text-sm mt-1">
+                        <span>Montant du virement :</span>
+                        <span className="font-bold">{fmt(matchTx.amount)}</span>
+                      </div>
+                      {!matchExact && (
+                        <div className="mt-2 flex items-center gap-2 text-amber-700">
+                          <span className="text-lg">⚠️</span>
+                          <span className="text-xs font-medium">Écart de {fmt(matchDiff)} — {matchTotal > matchTx.amount ? 'Factures > Virement' : 'Virement > Factures'}</span>
+                        </div>
+                      )}
+                      {matchExact && (
+                        <div className="mt-1 text-green-700 text-xs font-medium">✅ Montants correspondants</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="flex gap-2 p-4 border-t bg-gray-50 rounded-b-xl">
+              <button onClick={() => setShowMatchModal(false)} className="px-4 py-2 border rounded-lg text-sm text-gray-600 hover:bg-gray-100">
+                Annuler
+              </button>
+              <div className="flex-1" />
+              {matchSelected.size > 0 && (
+                <button onClick={saveReconciliation} disabled={rawSaving}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50 ${matchExact ? 'bg-green-600 hover:bg-green-700' : 'bg-amber-600 hover:bg-amber-700'}`}>
+                  {rawSaving ? '⏳...' : `✅ Rapprocher ${matchSelected.size} facture(s)${!matchExact ? ' (écart)' : ''}`}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══ IMPORT CSV classique (existant) ══ */}
       <div className="bg-white rounded-xl shadow-sm border p-4">
         <h3 className="font-bold text-gray-700 mb-2">📥 Import CSV Crédit Mutuel</h3>
         <textarea value={csv} onChange={e=>setCsv(e.target.value)} placeholder="Date operation;Date valeur;Libelle;Debit;Credit" className="w-full h-40 border rounded-lg p-3 text-xs font-mono resize-y"/>
@@ -1023,7 +1704,6 @@ function ImportTab({ loadAll, categories, rules }) {
     </div>
   )
 }
-
 // ════════════════════════════════════════════════════════════
 // CATÉGORISATION IA
 // ════════════════════════════════════════════════════════════
@@ -2581,6 +3261,306 @@ function RecommandationsTab({ transactions, categories }) {
         </div>
       </div>
 
+    </div>
+  )
+}
+// ════════════════════════════════════════════════════════════
+// MODAL INVITÉS REPAS (rétroactif depuis Transactions ou Saisie)
+// ════════════════════════════════════════════════════════════
+function MealGuestModal({ transactionId, transaction, clients, onClose, onSaved }) {
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [mealFor, setMealFor] = useState('hicham')
+  const [nbConvives, setNbConvives] = useState(2)
+  const [motif, setMotif] = useState('')
+  const [guests, setGuests] = useState([])
+  const [existing, setExisting] = useState([])
+  const [showProspect, setShowProspect] = useState(false)
+  const [prospectInit, setProspectInit] = useState({})
+
+  useEffect(() => {
+    loadExisting()
+  }, [transactionId])
+
+  async function loadExisting() {
+    setLoading(true)
+    const { data } = await supabase.from('budget_meal_guests').select('*').eq('transaction_id', transactionId)
+    if (data && data.length > 0) {
+      setExisting(data)
+      setMealFor(data[0].meal_for || 'hicham')
+      setNbConvives(data[0].nb_convives || 2)
+      setMotif(data[0].motif || '')
+      setGuests(data.filter(g => g.guest_name).map(g => ({
+        id: g.id,
+        name: g.guest_name || '',
+        company: g.guest_company || '',
+        client_id: g.client_id || '',
+      })))
+    }
+    setLoading(false)
+  }
+
+  function addGuest() { setGuests(prev => [...prev, { name: '', company: '', client_id: '' }]) }
+  function updateGuest(idx, field, value) { setGuests(prev => prev.map((g, i) => i === idx ? { ...g, [field]: value } : g)) }
+  function removeGuest(idx) { setGuests(prev => prev.filter((_, i) => i !== idx)) }
+
+  async function handleSave() {
+    setSaving(true)
+    try {
+      // Supprimer les anciens
+      await supabase.from('budget_meal_guests').delete().eq('transaction_id', transactionId)
+
+      // Insérer les nouveaux
+      const guestRows = guests.filter(g => g.name.trim()).map(g => ({
+        transaction_id: transactionId,
+        meal_for: mealFor,
+        guest_name: g.name.trim(),
+        guest_company: g.company.trim() || null,
+        guest_first_name: null,
+        client_id: g.client_id || null,
+        nb_convives: nbConvives,
+        motif: motif || null,
+      }))
+
+      if (guestRows.length === 0) {
+        // Sauvegarder au moins le meal_for + nb_convives
+        await supabase.from('budget_meal_guests').insert({
+          transaction_id: transactionId,
+          meal_for: mealFor,
+          nb_convives: nbConvives,
+          motif: motif || null,
+        })
+      } else {
+        await supabase.from('budget_meal_guests').insert(guestRows)
+      }
+
+      toast.success('🍽️ Registre invités mis à jour')
+      onSaved()
+    } catch (err) {
+      toast.error('Erreur: ' + err.message)
+    }
+    setSaving(false)
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg">
+        <div className="flex items-center justify-between p-4 border-b bg-amber-50 rounded-t-xl">
+          <div>
+            <h3 className="font-bold text-amber-800">🍽️ Registre repas professionnel</h3>
+            {transaction && (
+              <p className="text-xs text-amber-600 mt-0.5">
+                {new Date(transaction.date).toLocaleDateString('fr-FR')} — {transaction.description?.substring(0, 50)} — <b>{fmt(transaction.debit)}</b>
+              </p>
+            )}
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl">✕</button>
+        </div>
+
+        {loading ? (
+          <div className="p-8 text-center text-gray-400">⏳ Chargement...</div>
+        ) : (
+          <div className="p-4 space-y-3">
+            {/* Repas pour qui */}
+            <div>
+              <label className="text-xs text-gray-600 font-medium">Repas pour</label>
+              <div className="flex gap-2 mt-1">
+                <button onClick={() => setMealFor('hicham')} className={`flex-1 py-2 rounded-lg text-sm font-medium border ${mealFor === 'hicham' ? 'bg-blue-500 text-white' : 'bg-white text-gray-600'}`}>Hicham</button>
+                <button onClick={() => setMealFor('maxime')} className={`flex-1 py-2 rounded-lg text-sm font-medium border ${mealFor === 'maxime' ? 'bg-blue-500 text-white' : 'bg-white text-gray-600'}`}>Maxime</button>
+              </div>
+            </div>
+
+            {/* Nb convives */}
+            <div>
+              <label className="text-xs text-gray-600 font-medium">Nombre de convives</label>
+              <input type="number" min="1" max="20" value={nbConvives} onChange={e => setNbConvives(parseInt(e.target.value) || 1)} className="w-full border rounded-lg px-3 py-2 text-sm mt-1" />
+            </div>
+
+            {/* Motif */}
+            <div>
+              <label className="text-xs text-gray-600 font-medium">Motif du repas</label>
+              <input type="text" value={motif} onChange={e => setMotif(e.target.value)} placeholder="Réunion commerciale, prospection, partenariat..." className="w-full border rounded-lg px-3 py-2 text-sm mt-1" />
+            </div>
+
+            {/* Invités */}
+            <div>
+              <div className="flex items-center justify-between">
+                <label className="text-xs text-gray-600 font-medium">Invités ({guests.length})</label>
+                <button onClick={addGuest} className="text-xs text-blue-600 hover:text-blue-800 font-medium">+ Ajouter un invité</button>
+              </div>
+              <div className="space-y-2 mt-2">
+                {guests.map((g, idx) => (
+                  <div key={idx} className="flex gap-1.5 items-center">
+                    <input type="text" value={g.name} onChange={e => updateGuest(idx, 'name', e.target.value)}
+                      placeholder="Nom Prénom" className="flex-1 border rounded px-2 py-1.5 text-sm" />
+                    <div className="relative flex-1">
+                      <input type="text" value={g.company}
+                        onChange={e => { updateGuest(idx, 'company', e.target.value); updateGuest(idx, 'client_id', '') }}
+                        placeholder="Entreprise" className="w-full border rounded px-2 py-1.5 text-sm"
+                        list={`modal-guest-cli-${idx}`} />
+                      <datalist id={`modal-guest-cli-${idx}`}>
+                        {(clients || []).filter(c => g.company && c.name.toUpperCase().includes(g.company.toUpperCase())).slice(0, 10).map(c => (
+                          <option key={c.id} value={c.name} />
+                        ))}
+                      </datalist>
+                    </div>
+                    {g.company && !(clients || []).find(c => c.name.toUpperCase() === g.company.toUpperCase()) && (
+                      <button onClick={() => { setProspectInit({ name: g.company, contact_name: g.name }); setShowProspect(true) }}
+                        className="text-xs text-emerald-600 hover:text-emerald-800 whitespace-nowrap" title="Créer comme prospect">+🏢</button>
+                    )}
+                    <button onClick={() => removeGuest(idx)} className="text-red-400 hover:text-red-600">✕</button>
+                  </div>
+                ))}
+                {guests.length === 0 && (
+                  <p className="text-xs text-gray-400 italic py-2">Aucun invité ajouté — vous pouvez en ajouter maintenant ou plus tard</p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="flex gap-2 p-4 border-t bg-gray-50 rounded-b-xl">
+          <button onClick={onClose} className="px-4 py-2 border rounded-lg text-sm text-gray-600 hover:bg-gray-100">Annuler</button>
+          <div className="flex-1" />
+          <button onClick={handleSave} disabled={saving} className="px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-medium hover:bg-amber-700 disabled:opacity-50">
+            {saving ? '⏳...' : '💾 Enregistrer'}
+          </button>
+        </div>
+
+        {/* Sous-modal prospect */}
+        {showProspect && (
+          <ProspectCreateModal
+            initial={prospectInit}
+            onClose={() => setShowProspect(false)}
+            onCreated={(newClient) => {
+              setShowProspect(false)
+              const gIdx = guests.findIndex(g => g.company === prospectInit.name || !g.company)
+              if (gIdx >= 0) {
+                updateGuest(gIdx, 'company', newClient.name)
+                updateGuest(gIdx, 'client_id', newClient.id)
+              }
+              toast.success(`🏢 Prospect "${newClient.name}" créé`)
+            }}
+          />
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════
+// MODAL CRÉATION PROSPECT (depuis invités ou autre)
+// ════════════════════════════════════════════════════════════
+function ProspectCreateModal({ initial, onClose, onCreated }) {
+  const [form, setForm] = useState({
+    name: initial?.name || '',
+    siret: '',
+    address: '',
+    postal_code: '',
+    city: '',
+    phone: '',
+    contact_email: '',
+    contact_name: initial?.contact_name || '',
+    notes: '',
+    status: 'prospect',
+  })
+  const [saving, setSaving] = useState(false)
+
+  async function handleSave() {
+    if (!form.name.trim()) { toast.error('Nom requis'); return }
+    setSaving(true)
+    try {
+      const { data, error } = await supabase.from('clients').insert({
+        name: form.name.trim().toUpperCase(),
+        siret: form.siret || null,
+        address: form.address || null,
+        postal_code: form.postal_code || null,
+        city: form.city || null,
+        phone: form.phone || null,
+        contact_email: form.contact_email || null,
+        contact_name: form.contact_name || null,
+        notes: form.notes || null,
+        status: 'prospect',
+      }).select().single()
+
+      if (error) throw error
+      onCreated(data)
+    } catch (err) {
+      toast.error('Erreur: ' + err.message)
+    }
+    setSaving(false)
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[60] p-4">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
+        <div className="flex items-center justify-between p-4 border-b bg-emerald-50 rounded-t-xl">
+          <h3 className="font-bold text-emerald-800">🏢 Créer un prospect</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl">✕</button>
+        </div>
+
+        <div className="p-4 space-y-3">
+          <div>
+            <label className="text-xs text-gray-600 font-medium">Nom de l'entreprise *</label>
+            <input type="text" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+              className="w-full border rounded-lg px-3 py-2 text-sm mt-1" autoFocus />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-gray-600">SIRET</label>
+              <input type="text" value={form.siret} onChange={e => setForm(f => ({ ...f, siret: e.target.value }))}
+                placeholder="XXX XXX XXX XXXXX" className="w-full border rounded-lg px-3 py-2 text-sm mt-1" />
+            </div>
+            <div>
+              <label className="text-xs text-gray-600">Téléphone</label>
+              <input type="tel" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
+                className="w-full border rounded-lg px-3 py-2 text-sm mt-1" />
+            </div>
+          </div>
+          <div>
+            <label className="text-xs text-gray-600">Adresse</label>
+            <input type="text" value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))}
+              className="w-full border rounded-lg px-3 py-2 text-sm mt-1" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-gray-600">Code postal</label>
+              <input type="text" value={form.postal_code} onChange={e => setForm(f => ({ ...f, postal_code: e.target.value }))}
+                className="w-full border rounded-lg px-3 py-2 text-sm mt-1" />
+            </div>
+            <div>
+              <label className="text-xs text-gray-600">Ville</label>
+              <input type="text" value={form.city} onChange={e => setForm(f => ({ ...f, city: e.target.value }))}
+                className="w-full border rounded-lg px-3 py-2 text-sm mt-1" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-gray-600">Nom du contact</label>
+              <input type="text" value={form.contact_name} onChange={e => setForm(f => ({ ...f, contact_name: e.target.value }))}
+                className="w-full border rounded-lg px-3 py-2 text-sm mt-1" />
+            </div>
+            <div>
+              <label className="text-xs text-gray-600">Email</label>
+              <input type="email" value={form.contact_email} onChange={e => setForm(f => ({ ...f, contact_email: e.target.value }))}
+                className="w-full border rounded-lg px-3 py-2 text-sm mt-1" />
+            </div>
+          </div>
+          <div>
+            <label className="text-xs text-gray-600">Notes</label>
+            <textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+              placeholder="Contexte, origine du contact..." className="w-full border rounded-lg px-3 py-2 text-sm mt-1" rows={2} />
+          </div>
+        </div>
+
+        <div className="flex gap-2 p-4 border-t bg-gray-50 rounded-b-xl">
+          <button onClick={onClose} className="px-4 py-2 border rounded-lg text-sm text-gray-600 hover:bg-gray-100">Annuler</button>
+          <div className="flex-1" />
+          <button onClick={handleSave} disabled={saving} className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 disabled:opacity-50">
+            {saving ? '⏳...' : '🏢 Créer le prospect'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
