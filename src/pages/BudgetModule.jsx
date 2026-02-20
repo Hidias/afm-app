@@ -13,6 +13,7 @@ const TABS = [
   { key: 'dashboard', label: '📊 Dashboard' },
   { key: 'categorisation', label: '🤖 Catégorisation' },
   { key: 'previsionnel', label: '📈 Prévisionnel' },
+  { key: 'recommandations', label: '🎯 Recommandations' },
   { key: 'comptable', label: '📮 Comptable' },
   { key: 'categories', label: '🏷️ Catégories' },
   { key: 'rules', label: '⚙️ Règles' },
@@ -149,6 +150,7 @@ export default function BudgetModule() {
       {tab === 'dashboard' && <DashboardTab stats={stats} months={months} categories={categories} />}
       {tab === 'categorisation' && <CategorisationIATab transactions={transactions} categories={categories} rules={rules} loadAll={loadAll} />}
       {tab === 'previsionnel' && <PrevisionnelTab transactions={transactions} categories={categories} />}
+      {tab === 'recommandations' && <RecommandationsTab transactions={transactions} categories={categories} />}
       {tab === 'comptable' && <ComptableTab transactions={transactions} receipts={receipts} loadAll={loadAll} />}
       {tab === 'categories' && <CategoriesTab categories={categories} loadAll={loadAll} />}
       {tab === 'rules' && <RulesTab rules={rules} categories={categories} loadAll={loadAll} />}
@@ -1383,6 +1385,641 @@ function PrevisionnelTab({ transactions, categories }) {
         <p className="text-xs text-gray-500 mt-2">💡 Pour atteindre {fmt(config.objectif)}, votre CA mensuel doit couvrir {fmt(projections.totalFixedMonth)} de charges fixes + dégager {fmt(requiredMonthly)} de bénéfice net</p>
         <p className="text-xs text-gray-500">→ <b>CA minimum requis : {fmt(projections.totalFixedMonth + requiredMonthly)}/mois</b></p>
       </div>
+    </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════
+//  RECOMMANDATIONS TAB — Analyse & optimisation
+// ════════════════════════════════════════════════════════════
+function RecommandationsTab({ transactions, categories }) {
+
+  const [simCA, setSimCA] = useState(20) // boost CA %
+  const [simCharges, setSimCharges] = useState(10) // réduction charges %
+  const [objectif, setObjectif] = useState(50000)
+  const [soldeActuel, setSoldeActuel] = useState(3267)
+
+  // ── Données calculées ──
+  const data = useMemo(() => {
+    const co = transactions.filter(tx => !tx.is_personal)
+    const catMap = {}
+    categories.forEach(c => { catMap[c.name] = { type: c.type, direction: c.direction, icon: c.icon } })
+
+    // Mois avec du CA (exclure les mois à 0)
+    const byMonth = {}
+    co.forEach(tx => {
+      const m = tx.month
+      if (!m) return
+      if (!byMonth[m]) byMonth[m] = { debit: 0, credit: 0, caFormation: 0, caSousTrait: 0, cats: {} }
+      byMonth[m].debit += tx.debit || 0
+      byMonth[m].credit += tx.credit || 0
+      if (tx.category_name === 'CA Formations') byMonth[m].caFormation += tx.credit || 0
+      if (tx.category_name === 'CA Sous-traitance') byMonth[m].caSousTrait += tx.credit || 0
+      const c = tx.category_name || 'Non classé'
+      if (!byMonth[m].cats[c]) byMonth[m].cats[c] = { debit: 0, credit: 0 }
+      byMonth[m].cats[c].debit += tx.debit || 0
+      byMonth[m].cats[c].credit += tx.credit || 0
+    })
+
+    const months = Object.keys(byMonth).sort()
+    const nbMonths = months.length || 1
+
+    // CA réel (hors exceptionnel/neutre)
+    let totalCA = 0
+    const caByMonth = {}
+    months.forEach(m => {
+      let ca = 0
+      Object.entries(byMonth[m].cats).forEach(([cat, vals]) => {
+        const info = catMap[cat] || {}
+        if (info.direction === 'recette' && info.type !== 'exceptionnel') {
+          ca += vals.credit
+        }
+      })
+      caByMonth[m] = ca
+      totalCA += ca
+    })
+
+    // Mois actifs (avec du CA > 0)
+    const activeMonths = months.filter(m => caByMonth[m] > 100)
+    const nbActive = activeMonths.length || 1
+    const avgCA = totalCA / nbActive
+
+    // Tendance CA sur les 4 derniers mois actifs
+    const last4 = activeMonths.slice(-4)
+    const avgCALast4 = last4.reduce((s, m) => s + caByMonth[m], 0) / (last4.length || 1)
+
+    // Charges par catégorie
+    const chargesByCat = {}
+    let totalFixed = 0, totalVariable = 0
+    months.forEach(m => {
+      Object.entries(byMonth[m].cats).forEach(([cat, vals]) => {
+        const info = catMap[cat] || { type: 'variable', direction: 'depense' }
+        if (info.direction !== 'depense' || info.type === 'exceptionnel') return
+        if (!chargesByCat[cat]) chargesByCat[cat] = { total: 0, count: 0, type: info.type, icon: info.icon || '📦' }
+        chargesByCat[cat].total += vals.debit
+        chargesByCat[cat].count++
+        if (info.type === 'fixe') totalFixed += vals.debit
+        else totalVariable += vals.debit
+      })
+    })
+
+    const avgFixed = totalFixed / nbMonths
+    const avgVariable = totalVariable / nbMonths
+    const avgTotal = avgFixed + avgVariable
+    const netMensuel = avgCA - avgTotal
+
+    // Concentration client (par description contient certains noms)
+    const caByClient = {}
+    co.forEach(tx => {
+      if (tx.credit > 0) {
+        const info = catMap[tx.category_name] || {}
+        if (info.direction === 'recette' && info.type !== 'exceptionnel') {
+          const desc = tx.description || 'Inconnu'
+          // Extraire nom client
+          let client = desc
+            .replace(/^VIR (INST |SEPA )?/i, '')
+            .replace(/^\d+\s*/, '')
+            .substring(0, 40)
+            .trim()
+          // Regrouper les variantes connues
+          if (client.toUpperCase().includes('PILOCAP')) client = 'PILOCAP'
+          else if (client.toUpperCase().includes('AFPI') || client.toUpperCase().includes('UIMM')) client = 'AFPI / UIMM'
+          else if (client.toUpperCase().includes('EIFFAGE')) client = 'EIFFAGE'
+          else if (client.toUpperCase().includes('SOFIS')) client = 'SOFIS'
+          else if (client.toUpperCase().includes('KFORMATION') || client.toUpperCase().includes('K FORMATION')) client = 'KFORMATION'
+          else if (client.toUpperCase().includes('OPCO')) client = 'OPCO2i'
+          else if (client.toUpperCase().includes('SOCOTEC')) client = 'SOCOTEC'
+          else if (client.toUpperCase().includes('CAPIC')) client = 'CAPIC'
+          else if (client.toUpperCase().includes('ARMONIS')) client = 'ARMONIS'
+          else if (client.toUpperCase().includes('SMV')) client = 'SMV FORMATION'
+          else if (client.toUpperCase().includes('TRIANGLE')) client = 'TRIANGLE 210'
+          else if (client.toUpperCase().includes('VOLEFI')) client = 'VOLEFI'
+          else if (client.toUpperCase().includes('FORMASECO')) client = 'FORMASECO'
+          else if (client.toUpperCase().includes('FORMALYON')) client = 'FORMALYON'
+          else if (client.toUpperCase().includes('ISRPP')) client = 'ISRPP'
+          else if (client.toUpperCase().includes('COURTAGE')) return // Exclure Courtage 29
+
+          if (!caByClient[client]) caByClient[client] = { total: 0, count: 0, isSousTraitance: false }
+          caByClient[client].total += tx.credit
+          caByClient[client].count++
+          // Sous-traitance = CA Sous-traitance category
+          if (tx.category_name === 'CA Sous-traitance') caByClient[client].isSousTraitance = true
+        }
+      }
+    })
+
+    // Top clients triés par montant
+    const clients = Object.entries(caByClient)
+      .map(([name, d]) => ({ name, ...d, pct: d.total / totalCA * 100 }))
+      .sort((a, b) => b.total - a.total)
+
+    // Sous-traitance vs Direct
+    const caSousTraitance = clients.filter(c => c.isSousTraitance).reduce((s, c) => s + c.total, 0)
+    const caDirect = totalCA - caSousTraitance
+
+    // Optimisation : recommandations par poste
+    const optimisations = []
+    Object.entries(chargesByCat).forEach(([name, d]) => {
+      const monthly = d.total / nbMonths
+      let target = monthly, comment = '', priority = 0
+
+      if (name === 'Restauration pro') {
+        target = 150; comment = 'Plafond 25€/repas, max 6 repas/mois'; priority = 3
+      } else if (name === 'Logiciels & SaaS') {
+        target = 200; comment = 'Audit abonnements : supprimer inutilisés, downgrader'; priority = 2
+      } else if (name === 'Matériel bureau/formation') {
+        target = 200; comment = 'Investissements démarrage terminés, régime de croisière'; priority = 1
+      } else if (name === 'Frais bancaires') {
+        target = 60; comment = 'Négocier avec la banque ou changer (Qonto ~30-50€)'; priority = 2
+      } else if (name.includes('Télécoms')) {
+        target = 60; comment = 'Vérifier forfait Orange, comparer alternatives pro'; priority = 1
+      } else {
+        return // Pas de recommandation
+      }
+
+      const saving = Math.max(0, monthly - target)
+      if (saving > 5) {
+        optimisations.push({ name, icon: d.icon, current: monthly, target, saving, comment, priority })
+      }
+    })
+    optimisations.sort((a, b) => b.saving - a.saving)
+    const totalSavings = optimisations.reduce((s, o) => s + o.saving, 0)
+
+    // Score de santé (0-100)
+    let score = 50
+    // Ratio CA/charges (idéal > 1.3)
+    const ratio = avgCA / avgTotal
+    if (ratio > 1.3) score += 15
+    else if (ratio > 1.1) score += 10
+    else if (ratio > 1.0) score += 5
+    else if (ratio > 0.8) score -= 5
+    else score -= 15
+    // Tendance CA
+    if (avgCALast4 > avgCA * 1.1) score += 10
+    else if (avgCALast4 > avgCA) score += 5
+    else score -= 5
+    // Trésorerie
+    if (soldeActuel > 10000) score += 10
+    else if (soldeActuel > 5000) score += 5
+    else if (soldeActuel > 0) score -= 0
+    else score -= 15
+    // Concentration
+    const topClientPct = clients[0]?.pct || 0
+    if (topClientPct > 40) score -= 10
+    else if (topClientPct > 25) score -= 5
+    else score += 5
+    // Nombre de clients
+    if (clients.length >= 15) score += 10
+    else if (clients.length >= 10) score += 5
+    else score -= 5
+    score = Math.max(0, Math.min(100, score))
+
+    // Label score
+    let scoreLabel = '', scoreColor = '', scoreBg = ''
+    if (score >= 75) { scoreLabel = 'Bonne santé'; scoreColor = 'text-green-700'; scoreBg = 'bg-green-500' }
+    else if (score >= 55) { scoreLabel = 'Correct — axes d\'amélioration'; scoreColor = 'text-amber-700'; scoreBg = 'bg-amber-500' }
+    else if (score >= 35) { scoreLabel = 'Attention — actions requises'; scoreColor = 'text-orange-700'; scoreBg = 'bg-orange-500' }
+    else { scoreLabel = 'Critique — agir vite'; scoreColor = 'text-red-700'; scoreBg = 'bg-red-500' }
+
+    // CA formation vs sous-traitance évolution
+    const caEvolution = months.map(m => ({
+      month: m,
+      formation: byMonth[m].caFormation,
+      sousTrait: byMonth[m].caSousTrait,
+      total: caByMonth[m]
+    }))
+
+    return {
+      months, nbMonths, nbActive, activeMonths,
+      avgCA, avgCALast4, totalCA, caByMonth, caEvolution,
+      chargesByCat, avgFixed, avgVariable, avgTotal, netMensuel,
+      totalFixed, totalVariable,
+      clients, topClientPct, caSousTraitance, caDirect,
+      optimisations, totalSavings,
+      score, scoreLabel, scoreColor, scoreBg,
+    }
+  }, [transactions, categories, soldeActuel])
+
+  // Simulateur
+  const sim = useMemo(() => {
+    const caBoost = data.avgCA * (1 + simCA / 100)
+    const chargesReduced = data.avgTotal * (1 - simCharges / 100)
+    const netSim = caBoost - chargesReduced
+    const remainingMonths = 12 - new Date().getMonth() // mois restants 2026
+    const projFin = soldeActuel + netSim * remainingMonths
+    const atteint = projFin >= objectif
+    return { caBoost, chargesReduced, netSim, remainingMonths, projFin, atteint }
+  }, [data, simCA, simCharges, objectif, soldeActuel])
+
+  const barMax = Math.max(...data.clients.map(c => c.total), 1)
+
+  return (
+    <div className="space-y-4">
+
+      {/* ═══════ SECTION 1 : SCORE DE SANTÉ ═══════ */}
+      <div className="bg-gradient-to-r from-gray-900 to-gray-800 rounded-xl p-5 text-white">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-bold">🎯 Score de santé financière</h2>
+          <div className={`px-3 py-1 rounded-full text-sm font-bold ${data.score >= 55 ? 'bg-green-500/20 text-green-300' : 'bg-red-500/20 text-red-300'}`}>
+            {data.scoreLabel}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-6">
+          {/* Jauge circulaire */}
+          <div className="relative w-32 h-32 flex-shrink-0">
+            <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
+              <circle cx="50" cy="50" r="42" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="8" />
+              <circle cx="50" cy="50" r="42" fill="none" stroke={data.score >= 55 ? '#22c55e' : data.score >= 35 ? '#f59e0b' : '#ef4444'} strokeWidth="8"
+                strokeDasharray={`${data.score * 2.64} 264`} strokeLinecap="round" />
+            </svg>
+            <div className="absolute inset-0 flex flex-col items-center justify-center">
+              <span className="text-3xl font-bold">{data.score}</span>
+              <span className="text-xs opacity-60">/100</span>
+            </div>
+          </div>
+
+          {/* KPIs rapides */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 flex-1">
+            <div className="bg-white/10 rounded-lg p-3">
+              <div className="text-xs opacity-60">CA moyen/mois</div>
+              <div className="text-lg font-bold text-green-400">{fmt(data.avgCA)}</div>
+              <div className="text-xs opacity-50">{data.nbActive} mois actifs</div>
+            </div>
+            <div className="bg-white/10 rounded-lg p-3">
+              <div className="text-xs opacity-60">Tendance (4 derniers)</div>
+              <div className="text-lg font-bold text-green-400">{fmt(data.avgCALast4)}</div>
+              <div className="text-xs">{data.avgCALast4 > data.avgCA ? '📈' : '📉'} {((data.avgCALast4 / data.avgCA - 1) * 100).toFixed(0)}% vs moyenne</div>
+            </div>
+            <div className="bg-white/10 rounded-lg p-3">
+              <div className="text-xs opacity-60">Charges/mois</div>
+              <div className="text-lg font-bold text-red-400">{fmt(data.avgTotal)}</div>
+              <div className="text-xs opacity-50">{fmt(data.avgFixed)} fixes + {fmt(data.avgVariable)} var.</div>
+            </div>
+            <div className="bg-white/10 rounded-lg p-3">
+              <div className="text-xs opacity-60">Net mensuel</div>
+              <div className={`text-lg font-bold ${data.netMensuel >= 0 ? 'text-green-400' : 'text-red-400'}`}>{fmt(data.netMensuel)}</div>
+              <div className="text-xs opacity-50">{data.netMensuel >= 0 ? '✅ Rentable' : '⚠️ Déficitaire'}</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Barre de progression objectif */}
+        <div className="mt-4 bg-white/10 rounded-lg p-3">
+          <div className="flex justify-between text-xs mb-1">
+            <span>Solde actuel : {fmt(soldeActuel)}</span>
+            <span>Objectif : {fmt(objectif)}</span>
+          </div>
+          <div className="h-3 bg-white/10 rounded-full overflow-hidden">
+            <div className="h-full bg-gradient-to-r from-blue-500 to-green-500 rounded-full transition-all" style={{ width: `${Math.min(100, soldeActuel / objectif * 100)}%` }} />
+          </div>
+          <div className="text-xs opacity-50 mt-1 text-right">Gap : {fmt(objectif - soldeActuel)}</div>
+        </div>
+      </div>
+
+      {/* ═══════ SECTION 2 : OPTIMISATION DES CHARGES ═══════ */}
+      <div className="bg-white rounded-xl shadow-sm border p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-bold text-gray-800">📉 Optimisation des charges</h2>
+          <div className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm font-bold">
+            Économie potentielle : {fmt(data.totalSavings)}/mois
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          {data.optimisations.map((opt, i) => {
+            const pctReduction = opt.saving / opt.current * 100
+            return (
+              <div key={i} className="border rounded-lg p-4 hover:shadow-md transition-shadow">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xl">{opt.icon}</span>
+                    <div>
+                      <div className="font-bold text-gray-800">{opt.name}</div>
+                      <div className="text-xs text-gray-500">{opt.comment}</div>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-sm font-bold text-green-600">-{fmt(opt.saving)}/mois</div>
+                    <div className="text-xs text-gray-400">-{pctReduction.toFixed(0)}%</div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="text-xs text-red-600 font-mono w-20 text-right">{fmt(opt.current)}</div>
+                  <div className="flex-1 h-3 bg-gray-100 rounded-full overflow-hidden relative">
+                    <div className="absolute inset-y-0 left-0 bg-red-200 rounded-full" style={{ width: '100%' }} />
+                    <div className="absolute inset-y-0 left-0 bg-green-500 rounded-full transition-all" style={{ width: `${opt.target / opt.current * 100}%` }} />
+                  </div>
+                  <div className="text-xs text-green-600 font-mono w-20">{fmt(opt.target)}</div>
+                </div>
+                <div className="flex justify-between text-xs text-gray-400 mt-1">
+                  <span>Actuel</span>
+                  <span>→ Cible</span>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+
+        {data.optimisations.length === 0 && (
+          <div className="text-center py-8 text-gray-400">
+            <span className="text-3xl">✅</span>
+            <p className="mt-2">Aucune optimisation significative identifiée</p>
+          </div>
+        )}
+
+        {/* Résumé impact */}
+        {data.totalSavings > 0 && (
+          <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="font-bold text-green-800">💰 Impact total des optimisations</div>
+                <div className="text-sm text-green-600">
+                  {fmt(data.totalSavings)}/mois = {fmt(data.totalSavings * 12)}/an
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="text-sm text-gray-600">Net après optimisation</div>
+                <div className={`text-lg font-bold ${data.netMensuel + data.totalSavings >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                  {fmt(data.netMensuel + data.totalSavings)}/mois
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ═══════ SECTION 3 : CONCENTRATION CLIENT ═══════ */}
+      <div className="bg-white rounded-xl shadow-sm border p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-bold text-gray-800">🏢 Répartition clients</h2>
+          <div className="flex gap-2">
+            <div className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs font-bold">
+              Direct : {(data.caDirect / data.totalCA * 100).toFixed(0)}%
+            </div>
+            <div className="px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs font-bold">
+              Sous-traitance : {(data.caSousTraitance / data.totalCA * 100).toFixed(0)}%
+            </div>
+          </div>
+        </div>
+
+        {/* Alerte concentration */}
+        {data.topClientPct > 25 && (
+          <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-2">
+            <span className="text-xl">⚠️</span>
+            <div>
+              <div className="font-bold text-amber-800">Risque de concentration</div>
+              <div className="text-sm text-amber-600">
+                {data.clients[0]?.name} représente {data.topClientPct.toFixed(0)}% du CA.
+                Si ce client est perdu, c'est {fmt(data.clients[0]?.total / data.nbActive)}/mois en moins.
+                Objectif : aucun client au-dessus de 25%.
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Barres horizontales par client */}
+        <div className="space-y-2">
+          {data.clients.slice(0, 15).map((c, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <div className="w-32 md:w-40 text-xs text-gray-700 truncate text-right font-medium">{c.name}</div>
+              <div className="flex-1 h-6 bg-gray-100 rounded overflow-hidden relative">
+                <div
+                  className={`h-full rounded transition-all ${c.isSousTraitance ? 'bg-purple-400' : 'bg-blue-500'} ${c.pct > 30 ? 'bg-red-400' : ''}`}
+                  style={{ width: `${c.total / barMax * 100}%` }}
+                />
+                <div className="absolute inset-y-0 left-2 flex items-center text-xs font-bold text-white drop-shadow">
+                  {c.total > barMax * 0.15 ? fmt(c.total) : ''}
+                </div>
+              </div>
+              <div className="w-16 text-xs text-right">
+                <span className={`font-bold ${c.pct > 30 ? 'text-red-600' : 'text-gray-600'}`}>{c.pct.toFixed(0)}%</span>
+              </div>
+              <div className="w-8 text-xs">
+                {c.isSousTraitance ? <span className="text-purple-500" title="Sous-traitance">🤝</span> : <span className="text-blue-500" title="Direct">🏢</span>}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Direct vs sous-traitance */}
+        <div className="mt-4 grid grid-cols-2 gap-3">
+          <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+            <div className="text-xs text-blue-600 font-bold">🏢 CA Direct (marge pleine)</div>
+            <div className="text-xl font-bold text-blue-700">{fmt(data.caDirect)}</div>
+            <div className="text-xs text-blue-500">{(data.caDirect / data.totalCA * 100).toFixed(0)}% — Objectif : 70%</div>
+            <div className="h-2 bg-blue-200 rounded-full mt-1 overflow-hidden">
+              <div className="h-full bg-blue-600 rounded-full" style={{ width: `${Math.min(100, data.caDirect / data.totalCA * 100 / 70 * 100)}%` }} />
+            </div>
+          </div>
+          <div className="p-3 bg-purple-50 rounded-lg border border-purple-200">
+            <div className="text-xs text-purple-600 font-bold">🤝 CA Sous-traitance (marge réduite)</div>
+            <div className="text-xl font-bold text-purple-700">{fmt(data.caSousTraitance)}</div>
+            <div className="text-xs text-purple-500">{(data.caSousTraitance / data.totalCA * 100).toFixed(0)}% — Objectif : {'<'}30%</div>
+            <div className="h-2 bg-purple-200 rounded-full mt-1 overflow-hidden">
+              <div className="h-full bg-purple-600 rounded-full" style={{ width: `${Math.min(100, data.caSousTraitance / data.totalCA * 100)}%` }} />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ═══════ SECTION 4 : ÉVOLUTION CA ═══════ */}
+      <div className="bg-white rounded-xl shadow-sm border p-5">
+        <h2 className="text-lg font-bold text-gray-800 mb-4">📈 Évolution CA mensuel</h2>
+        <div className="space-y-2">
+          {data.caEvolution.map((m, i) => {
+            const max = Math.max(...data.caEvolution.map(x => x.total), 1)
+            const pctForm = m.formation / max * 100
+            const pctST = m.sousTrait / max * 100
+            return (
+              <div key={i} className="flex items-center gap-2">
+                <div className="w-16 text-xs text-gray-500 font-mono">{m.month}</div>
+                <div className="flex-1 h-6 bg-gray-100 rounded overflow-hidden flex">
+                  <div className="h-full bg-blue-500" style={{ width: `${pctForm}%` }} title={`Formations: ${fmt(m.formation)}`} />
+                  <div className="h-full bg-purple-400" style={{ width: `${pctST}%` }} title={`Sous-traitance: ${fmt(m.sousTrait)}`} />
+                </div>
+                <div className="w-24 text-xs text-right font-mono font-bold">{fmt(m.total)}</div>
+              </div>
+            )
+          })}
+        </div>
+        <div className="flex gap-4 mt-3 justify-center">
+          <div className="flex items-center gap-1 text-xs"><div className="w-3 h-3 bg-blue-500 rounded" /> CA Formations</div>
+          <div className="flex items-center gap-1 text-xs"><div className="w-3 h-3 bg-purple-400 rounded" /> Sous-traitance</div>
+        </div>
+      </div>
+
+      {/* ═══════ SECTION 5 : SIMULATEUR ═══════ */}
+      <div className="bg-gradient-to-br from-indigo-50 to-blue-50 rounded-xl shadow-sm border border-indigo-200 p-5">
+        <h2 className="text-lg font-bold text-indigo-800 mb-4">🎮 Simulateur objectif {fmt(objectif)}</h2>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+          <div className="bg-white rounded-lg p-4 shadow-sm">
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-sm font-bold text-gray-700">🚀 Boost CA (effet Qualiopi + prospection)</label>
+              <span className="text-lg font-bold text-green-600">+{simCA}%</span>
+            </div>
+            <input type="range" min="0" max="80" value={simCA} onChange={e => setSimCA(+e.target.value)}
+              className="w-full h-2 bg-green-200 rounded-lg appearance-none cursor-pointer accent-green-600" />
+            <div className="flex justify-between text-xs text-gray-400 mt-1">
+              <span>0% (statu quo)</span>
+              <span>+20% (Qualiopi modéré)</span>
+              <span>+80%</span>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-lg p-4 shadow-sm">
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-sm font-bold text-gray-700">📉 Réduction charges</label>
+              <span className="text-lg font-bold text-blue-600">-{simCharges}%</span>
+            </div>
+            <input type="range" min="0" max="30" value={simCharges} onChange={e => setSimCharges(+e.target.value)}
+              className="w-full h-2 bg-blue-200 rounded-lg appearance-none cursor-pointer accent-blue-600" />
+            <div className="flex justify-between text-xs text-gray-400 mt-1">
+              <span>0%</span>
+              <span>-10% (optimisations)</span>
+              <span>-30%</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
+          <div className="bg-white rounded-lg p-3 shadow-sm">
+            <label className="text-xs text-gray-500">Solde actuel (€)</label>
+            <input type="number" value={soldeActuel} onChange={e => setSoldeActuel(+e.target.value)}
+              className="w-full mt-1 p-2 border rounded text-sm font-mono" />
+          </div>
+          <div className="bg-white rounded-lg p-3 shadow-sm">
+            <label className="text-xs text-gray-500">Objectif fin 2026 (€)</label>
+            <input type="number" value={objectif} onChange={e => setObjectif(+e.target.value)}
+              className="w-full mt-1 p-2 border rounded text-sm font-mono" />
+          </div>
+          <div className="bg-white rounded-lg p-3 shadow-sm">
+            <label className="text-xs text-gray-500">Mois restants 2026</label>
+            <div className="text-2xl font-bold text-indigo-700 mt-1">{sim.remainingMonths}</div>
+          </div>
+        </div>
+
+        {/* Résultat simulation */}
+        <div className={`rounded-xl p-5 ${sim.atteint ? 'bg-green-600' : 'bg-red-600'} text-white`}>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-3">
+            <div>
+              <div className="text-xs opacity-70">CA simulé/mois</div>
+              <div className="text-xl font-bold">{fmt(sim.caBoost)}</div>
+              <div className="text-xs opacity-50">vs {fmt(data.avgCA)} actuel</div>
+            </div>
+            <div>
+              <div className="text-xs opacity-70">Charges simulées/mois</div>
+              <div className="text-xl font-bold">{fmt(sim.chargesReduced)}</div>
+              <div className="text-xs opacity-50">vs {fmt(data.avgTotal)} actuel</div>
+            </div>
+            <div>
+              <div className="text-xs opacity-70">Net simulé/mois</div>
+              <div className="text-xl font-bold">{fmt(sim.netSim)}</div>
+            </div>
+            <div>
+              <div className="text-xs opacity-70">Projection fin 2026</div>
+              <div className="text-2xl font-bold">{fmt(sim.projFin)}</div>
+            </div>
+          </div>
+          <div className="flex items-center justify-between pt-3 border-t border-white/20">
+            <div className="text-lg font-bold">
+              {sim.atteint ? '✅ Objectif atteignable !' : `❌ Manque ${fmt(objectif - sim.projFin)}`}
+            </div>
+            <div className="text-sm opacity-70">
+              Besoin : {fmt((objectif - soldeActuel) / sim.remainingMonths)} net/mois
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ═══════ SECTION 6 : TABLEAU DÉTAILLÉ CHARGES ═══════ */}
+      <div className="bg-white rounded-xl shadow-sm border p-5">
+        <h2 className="text-lg font-bold text-gray-800 mb-4">📋 Détail complet des charges par catégorie</h2>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b bg-gray-50">
+                <th className="text-left p-2">Catégorie</th>
+                <th className="text-center p-2">Type</th>
+                <th className="text-right p-2">Total</th>
+                <th className="text-right p-2">Moy./mois</th>
+                <th className="text-right p-2">% charges</th>
+                <th className="text-center p-2">Nb tx</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(data.chargesByCat)
+                .sort((a, b) => b[1].total - a[1].total)
+                .map(([name, d], i) => {
+                  const monthly = d.total / data.nbMonths
+                  const pct = d.total / (data.totalFixed + data.totalVariable) * 100
+                  return (
+                    <tr key={i} className="border-b hover:bg-gray-50">
+                      <td className="p-2 flex items-center gap-2">
+                        <span>{d.icon}</span>
+                        <span className="font-medium">{name}</span>
+                      </td>
+                      <td className="p-2 text-center">
+                        <span className={`px-2 py-0.5 rounded text-xs font-bold ${d.type === 'fixe' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>
+                          {d.type}
+                        </span>
+                      </td>
+                      <td className="p-2 text-right font-mono">{fmt(d.total)}</td>
+                      <td className="p-2 text-right font-mono font-bold">{fmt(monthly)}</td>
+                      <td className="p-2 text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <div className="w-16 h-2 bg-gray-200 rounded-full overflow-hidden">
+                            <div className="h-full bg-red-400 rounded-full" style={{ width: `${Math.min(100, pct)}%` }} />
+                          </div>
+                          <span className="text-xs text-gray-500 w-10 text-right">{pct.toFixed(1)}%</span>
+                        </div>
+                      </td>
+                      <td className="p-2 text-center text-gray-400">{d.count}</td>
+                    </tr>
+                  )
+                })}
+            </tbody>
+            <tfoot>
+              <tr className="border-t-2 font-bold bg-gray-50">
+                <td className="p-2" colSpan="2">TOTAL</td>
+                <td className="p-2 text-right font-mono">{fmt(data.totalFixed + data.totalVariable)}</td>
+                <td className="p-2 text-right font-mono">{fmt(data.avgTotal)}</td>
+                <td className="p-2 text-right">100%</td>
+                <td className="p-2"></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+
+      {/* ═══════ SECTION 7 : PLAN D'ACTION ═══════ */}
+      <div className="bg-white rounded-xl shadow-sm border p-5">
+        <h2 className="text-lg font-bold text-gray-800 mb-4">🗺️ Plan d'action recommandé</h2>
+        <div className="space-y-3">
+          {[
+            { icon: '🔴', timing: 'Cette semaine', action: 'Relancer les factures en retard/échéance', detail: 'Prioriser OPCO2i (en retard), ISRPP, SOFIS, EIFFAGE', impact: 'Récupérer ~8 000€ de trésorerie' },
+            { icon: '🟠', timing: 'Ce mois', action: 'Audit abonnements SaaS', detail: 'Lister tous les prélèvements récurrents, supprimer les inutilisés', impact: `Économie ~${Math.round(data.optimisations.find(o => o.name.includes('Logiciel'))?.saving || 80)}€/mois` },
+            { icon: '🟡', timing: 'Mars', action: 'Négocier frais bancaires', detail: 'Comparer Qonto/Shine vs offre actuelle, demander un geste', impact: 'Économie ~50€/mois' },
+            { icon: '🟢', timing: 'Mars-Avril', action: 'Prospection directe Qualiopi', detail: 'Marine cible les entreprises directes (pas les OF). Argument : financement OPCO grâce à Qualiopi', impact: 'Augmenter la part CA direct de 57% → 70%' },
+            { icon: '🔵', timing: 'Avril-Mai', action: 'Développer 2-3 nouveaux clients directs', detail: 'Réduire la dépendance Pilocap (33% → <20%)', impact: 'Sécuriser le CA + meilleure marge' },
+            { icon: '🟣', timing: 'En continu', action: 'Plafond restauration 25€/repas', detail: 'Privilégier les formules midi, emporter un lunch si possible', impact: `Économie ~${Math.round(data.optimisations.find(o => o.name.includes('Restauration'))?.saving || 140)}€/mois` },
+          ].map((a, i) => (
+            <div key={i} className="flex gap-3 p-3 rounded-lg hover:bg-gray-50 border border-transparent hover:border-gray-200 transition-all">
+              <div className="text-2xl flex-shrink-0">{a.icon}</div>
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-gray-400 uppercase">{a.timing}</span>
+                </div>
+                <div className="font-bold text-gray-800">{a.action}</div>
+                <div className="text-sm text-gray-500">{a.detail}</div>
+              </div>
+              <div className="text-xs text-green-600 font-bold text-right flex-shrink-0 self-center">{a.impact}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
     </div>
   )
 }
