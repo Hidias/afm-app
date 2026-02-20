@@ -167,7 +167,7 @@ export default function BudgetModule() {
       {tab === 'comptable' && <ComptableTab transactions={transactions} receipts={receipts} loadAll={loadAll} />}
       {tab === 'categories' && <CategoriesTab categories={categories} loadAll={loadAll} />}
       {tab === 'rules' && <RulesTab rules={rules} categories={categories} loadAll={loadAll} />}
-      {tab === 'import' && <ImportTab loadAll={loadAll} categories={categories} rules={rules} invoices={invoicesList} clients={clientsList} />}
+      {tab === 'import' && <ImportTab loadAll={loadAll} categories={categories} rules={rules} invoices={invoicesList} clients={clientsList} transactions={transactions} />}
 
       {/* Modal invités repas (rétroactif) */}
       {mealGuestTxId && (
@@ -1175,10 +1175,12 @@ function RulesTab({ rules, categories, loadAll }) {
 // ════════════════════════════════════════════════════════════
 // IMPORT — Texte brut CMB + Matching factures
 // ════════════════════════════════════════════════════════════
-function ImportTab({ loadAll, categories, rules, invoices, clients }) {
+function ImportTab({ loadAll, categories, rules, invoices, clients, transactions }) {
   const [imp, setImp] = useState(false)
   const [csv, setCsv] = useState('')
   const [pre, setPre] = useState([])
+  const [selectedRows, setSelectedRows] = useState(new Set())
+  const [csvDragOver, setCsvDragOver] = useState(false)
 
   // Nouveau : collage rapide texte brut
   const [rawText, setRawText] = useState('')
@@ -1201,16 +1203,97 @@ function ImportTab({ loadAll, categories, rules, invoices, clients }) {
     [invoices]
   )
 
-  // ── Parser CSV (existant) ──
+  // ── Parser CSV amélioré + déduplication ──
   function parse(text) {
-    const lines = text.trim().split('\n').filter(l=>l.trim()); const txs = []
-    for(const line of lines){const p=line.split(';');if(p.length<4||p[0]==='Date operation')continue;const ds=p[0].trim();const desc=p[2]?.trim()||'';const db=p[3]?.trim().replace(/\s/g,'').replace(',','.')||'';const cr=p[4]?.trim().replace(/\s/g,'').replace(',','.')||'';if(!ds||!desc)continue;const dp=ds.split('/');if(dp.length!==3)continue;const yr=dp[2].length===2?'20'+dp[2]:dp[2];const d=db?Math.abs(parseFloat(db)):0;const c=cr?Math.abs(parseFloat(cr)):0;if(isNaN(d)&&isNaN(c))continue;let cn='Autre / Non classé';const du=desc.toUpperCase();for(const r of rules){if(r.direction==='debit'&&!(d>0))continue;if(r.direction==='credit'&&!(c>0))continue;if(du.includes(r.keyword?.toUpperCase())){cn=r.budget_categories?.name||cn;break}};txs.push({date:`${yr}-${dp[1]}-${dp[0]}`,description:desc,debit:d||0,credit:c||0,category_name:cn,month:`${dp[1]}/${yr}`,year:parseInt(yr)})}
+    const lines = text.trim().split('\n').filter(l => l.trim())
+    const txs = []
+    for (const line of lines) {
+      const p = line.split(';')
+      if (p.length < 4) continue
+      if (p[0]?.trim() === 'Date operation' || p[0]?.trim() === 'Date opération') continue
+      const ds = p[0].trim(); const desc = p[2]?.trim() || ''
+      const db = p[3]?.trim().replace(/\s/g, '').replace(',', '.') || ''
+      const cr = p[4]?.trim().replace(/\s/g, '').replace(',', '.') || ''
+      if (!ds || !desc) continue
+      const dp = ds.split('/')
+      if (dp.length !== 3) continue
+      const yr = dp[2].length === 2 ? '20' + dp[2] : dp[2]
+      const d = db ? Math.abs(parseFloat(db)) : 0
+      const c = cr ? Math.abs(parseFloat(cr)) : 0
+      if (isNaN(d) && isNaN(c)) continue
+      let cn = 'Autre / Non classé'
+      const du = desc.toUpperCase()
+      for (const r of rules) {
+        if (r.direction === 'debit' && !(d > 0)) continue
+        if (r.direction === 'credit' && !(c > 0)) continue
+        if (du.includes(r.keyword?.toUpperCase())) { cn = r.budget_categories?.name || cn; break }
+      }
+      txs.push({ date: `${yr}-${dp[1]}-${dp[0]}`, description: desc, debit: d || 0, credit: c || 0, category_name: cn, month: `${dp[1]}/${yr}`, year: parseInt(yr) })
+    }
     return txs
   }
 
+  // Détection de doublons : compare date + description + montant
+  function checkDuplicates(parsedTxs) {
+    return parsedTxs.map(tx => {
+      const isDuplicate = (transactions || []).some(ex =>
+        ex.date === tx.date && ex.description === tx.description &&
+        Math.abs((ex.debit || 0) - tx.debit) < 0.01 && Math.abs((ex.credit || 0) - tx.credit) < 0.01
+      )
+      return { ...tx, isDuplicate }
+    })
+  }
+
+  function handleCsvFile(file) {
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      const text = e.target.result
+      setCsv(text)
+      const parsed = checkDuplicates(parse(text))
+      setPre(parsed)
+      const newSet = new Set()
+      parsed.forEach((tx, i) => { if (!tx.isDuplicate) newSet.add(i) })
+      setSelectedRows(newSet)
+      const newCount = parsed.filter(t => !t.isDuplicate).length
+      const dupCount = parsed.filter(t => t.isDuplicate).length
+      if (parsed.length > 0) toast.success(`📊 ${parsed.length} lignes — ${newCount} nouvelles, ${dupCount} doublons`)
+      else toast.error('Aucune transaction détectée')
+    }
+    reader.readAsText(file, 'utf-8')
+  }
+
+  function handleCsvDrop(e) { e.preventDefault(); setCsvDragOver(false); if (e.dataTransfer.files[0]) handleCsvFile(e.dataTransfer.files[0]) }
+  function handleCsvPaste() {
+    if (!csv.trim()) return
+    const parsed = checkDuplicates(parse(csv))
+    setPre(parsed)
+    const newSet = new Set()
+    parsed.forEach((tx, i) => { if (!tx.isDuplicate) newSet.add(i) })
+    setSelectedRows(newSet)
+    toast.success(`${parsed.length} lignes — ${parsed.filter(t => !t.isDuplicate).length} nouvelles`)
+  }
+
+  function toggleRow(idx) { setSelectedRows(prev => { const n = new Set(prev); if (n.has(idx)) n.delete(idx); else n.add(idx); return n }) }
+  function selectAllNew() { const s = new Set(); pre.forEach((tx, i) => { if (!tx.isDuplicate) s.add(i) }); setSelectedRows(s) }
+  function selectNone() { setSelectedRows(new Set()) }
+
   async function doImport() {
-    if(!pre.length)return; setImp(true)
-    try{const rows=pre.map(tx=>{const cat=categories.find(c=>c.name===tx.category_name);return{...tx,category_id:cat?.id||null,source_file:'import_csv_cmb',payer:'entreprise',is_manual:false,is_personal:false}});for(let i=0;i<rows.length;i+=50){const{error}=await supabase.from('budget_transactions').insert(rows.slice(i,i+50));if(error)throw error};toast.success(`✅ ${rows.length} importées`);setCsv('');setPre([]);loadAll()}catch(e){toast.error('Erreur: '+(e.message||''))}
+    const toImport = pre.filter((_, i) => selectedRows.has(i))
+    if (!toImport.length) { toast.error('Aucune ligne sélectionnée'); return }
+    setImp(true)
+    try {
+      const rows = toImport.map(tx => {
+        const cat = categories.find(c => c.name === tx.category_name)
+        return { date: tx.date, description: tx.description, debit: tx.debit, credit: tx.credit, category_id: cat?.id || null, category_name: tx.category_name, month: tx.month, year: tx.year, source_file: 'import_csv_cmb', payer: 'entreprise', is_manual: false, is_personal: false }
+      })
+      for (let i = 0; i < rows.length; i += 50) {
+        const { error } = await supabase.from('budget_transactions').insert(rows.slice(i, i + 50))
+        if (error) throw error
+      }
+      toast.success(`✅ ${rows.length} transactions importées (${pre.length - rows.length} doublons ignorés)`)
+      setCsv(''); setPre([]); setSelectedRows(new Set()); loadAll()
+    } catch (e) { toast.error('Erreur: ' + (e.message || '')) }
     setImp(false)
   }
 
@@ -1742,25 +1825,118 @@ function ImportTab({ loadAll, categories, rules, invoices, clients }) {
         </div>
       )}
 
-      {/* ══ IMPORT CSV classique (existant) ══ */}
+      {/* ══ IMPORT CSV Crédit Mutuel — Drag & Drop ══ */}
       <div className="bg-white rounded-xl shadow-sm border p-4">
-        <h3 className="font-bold text-gray-700 mb-2">📥 Import CSV Crédit Mutuel</h3>
-        <textarea value={csv} onChange={e=>setCsv(e.target.value)} placeholder="Date operation;Date valeur;Libelle;Debit;Credit" className="w-full h-40 border rounded-lg p-3 text-xs font-mono resize-y"/>
-        <div className="flex gap-2 mt-2">
-          <button onClick={()=>{const t=parse(csv);setPre(t);toast(t.length>0?`${t.length} détectées`:'Aucune')}} disabled={!csv.trim()} className="bg-gray-600 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-50">👁️ Prévisualiser</button>
-          {pre.length>0&&<button onClick={doImport} disabled={imp} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-50">{imp?'⏳...':` ✅ Importer ${pre.length}`}</button>}
+        <h3 className="font-bold text-gray-700 mb-3">📥 Import CSV Crédit Mutuel</h3>
+
+        {/* Zone drag & drop */}
+        <div
+          onDragOver={e => { e.preventDefault(); setCsvDragOver(true) }}
+          onDragLeave={() => setCsvDragOver(false)}
+          onDrop={handleCsvDrop}
+          className={`border-2 border-dashed rounded-xl p-6 text-center transition-colors cursor-pointer
+            ${csvDragOver ? 'border-blue-500 bg-blue-50' : 'border-gray-300 bg-gray-50 hover:border-blue-400 hover:bg-blue-50/50'}`}
+          onClick={() => document.getElementById('csv-file-input')?.click()}
+        >
+          <input id="csv-file-input" type="file" accept=".csv,.txt,.CSV" className="hidden"
+            onChange={e => { if (e.target.files[0]) handleCsvFile(e.target.files[0]); e.target.value = '' }} />
+          <div className="text-3xl mb-2">📂</div>
+          <p className="text-sm font-medium text-gray-700">Glisser-déposer votre fichier CSV ici</p>
+          <p className="text-xs text-gray-400 mt-1">ou cliquer pour sélectionner — format CMB (Date operation;Date valeur;Libelle;Debit;Credit)</p>
         </div>
+
+        {/* Ou coller manuellement */}
+        <details className="mt-3">
+          <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-600">Ou coller les données CSV manuellement...</summary>
+          <textarea value={csv} onChange={e => setCsv(e.target.value)}
+            placeholder="Date operation;Date valeur;Libelle;Debit;Credit&#10;20/02/2026;20/02/2026;VIR OPCO 2I;;834,00"
+            className="w-full h-32 border rounded-lg p-3 text-xs font-mono resize-y mt-2" />
+          <button onClick={handleCsvPaste} disabled={!csv.trim()}
+            className="mt-2 bg-gray-600 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-50 hover:bg-gray-700">
+            👁️ Analyser
+          </button>
+        </details>
       </div>
-      {pre.length>0&&(
-        <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
-          <div className="px-4 py-2 bg-amber-50 border-b text-sm text-amber-700 font-medium">⚠️ {pre.length} transactions</div>
-          <div className="max-h-96 overflow-y-auto">
-            <table className="w-full text-xs"><thead className="bg-gray-50 sticky top-0"><tr><th className="text-left px-2 py-1">Date</th><th className="text-left px-2 py-1">Description</th><th className="text-left px-2 py-1">Cat.</th><th className="text-right px-2 py-1">Débit</th><th className="text-right px-2 py-1">Crédit</th></tr></thead>
-              <tbody>{pre.map((tx,i)=><tr key={i} className="border-t"><td className="px-2 py-1">{tx.date}</td><td className="px-2 py-1 truncate max-w-xs">{tx.description}</td><td className="px-2 py-1"><span className={`px-1.5 py-0.5 rounded text-xs ${tx.category_name==='Autre / Non classé'?'bg-amber-100 text-amber-700':'bg-gray-100'}`}>{tx.category_name}</span></td><td className="px-2 py-1 text-right text-red-600">{tx.debit>0?tx.debit.toFixed(2):''}</td><td className="px-2 py-1 text-right text-green-600">{tx.credit>0?tx.credit.toFixed(2):''}</td></tr>)}</tbody>
-            </table>
+
+      {/* Résultats de l'analyse */}
+      {pre.length > 0 && (() => {
+        const newCount = pre.filter(t => !t.isDuplicate).length
+        const dupCount = pre.filter(t => t.isDuplicate).length
+        const selectedCount = selectedRows.size
+        return (
+          <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
+            {/* Header avec stats */}
+            <div className="px-4 py-3 bg-gradient-to-r from-blue-50 to-green-50 border-b flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-3">
+                <span className="text-sm font-bold text-gray-700">📊 {pre.length} transactions détectées</span>
+                <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">{newCount} nouvelles</span>
+                {dupCount > 0 && <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">{dupCount} doublons</span>}
+              </div>
+              <div className="flex gap-2">
+                <button onClick={selectAllNew} className="text-xs text-blue-600 hover:underline">Sélectionner nouvelles</button>
+                <button onClick={selectNone} className="text-xs text-gray-400 hover:underline">Tout désélectionner</button>
+              </div>
+            </div>
+
+            {/* Table */}
+            <div className="max-h-96 overflow-y-auto">
+              <table className="w-full text-xs">
+                <thead className="bg-gray-50 sticky top-0">
+                  <tr>
+                    <th className="px-2 py-1.5 text-left w-8">✓</th>
+                    <th className="px-2 py-1.5 text-left">Date</th>
+                    <th className="px-2 py-1.5 text-left">Description</th>
+                    <th className="px-2 py-1.5 text-left">Catégorie</th>
+                    <th className="px-2 py-1.5 text-right">Débit</th>
+                    <th className="px-2 py-1.5 text-right">Crédit</th>
+                    <th className="px-2 py-1.5 text-center">Statut</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pre.map((tx, i) => (
+                    <tr key={i} onClick={() => toggleRow(i)}
+                      className={`border-t cursor-pointer transition-colors
+                        ${tx.isDuplicate ? 'bg-amber-50/50 opacity-60' : selectedRows.has(i) ? 'bg-blue-50' : 'hover:bg-gray-50'}`}>
+                      <td className="px-2 py-1">
+                        <input type="checkbox" checked={selectedRows.has(i)} onChange={() => toggleRow(i)}
+                          className="rounded text-blue-600" />
+                      </td>
+                      <td className="px-2 py-1 whitespace-nowrap">{tx.date}</td>
+                      <td className="px-2 py-1 truncate max-w-xs" title={tx.description}>{tx.description}</td>
+                      <td className="px-2 py-1">
+                        <span className={`px-1.5 py-0.5 rounded text-xs ${tx.category_name === 'Autre / Non classé' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100'}`}>
+                          {tx.category_name}
+                        </span>
+                      </td>
+                      <td className="px-2 py-1 text-right text-red-600 font-mono">{tx.debit > 0 ? tx.debit.toFixed(2) : ''}</td>
+                      <td className="px-2 py-1 text-right text-green-600 font-mono">{tx.credit > 0 ? tx.credit.toFixed(2) : ''}</td>
+                      <td className="px-2 py-1 text-center">
+                        {tx.isDuplicate
+                          ? <span className="text-xs bg-amber-200 text-amber-800 px-1.5 py-0.5 rounded">doublon</span>
+                          : <span className="text-xs bg-green-200 text-green-800 px-1.5 py-0.5 rounded">nouvelle</span>
+                        }
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Footer import */}
+            <div className="px-4 py-3 bg-gray-50 border-t flex items-center justify-between">
+              <span className="text-sm text-gray-600">{selectedCount} ligne(s) sélectionnée(s)</span>
+              <div className="flex gap-2">
+                <button onClick={() => { setPre([]); setCsv(''); setSelectedRows(new Set()) }}
+                  className="px-4 py-2 border rounded-lg text-sm text-gray-600 hover:bg-gray-100">Annuler</button>
+                <button onClick={doImport} disabled={imp || selectedCount === 0}
+                  className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50 hover:bg-blue-700">
+                  {imp ? '⏳ Import en cours...' : `✅ Importer ${selectedCount} transaction(s)`}
+                </button>
+              </div>
+            </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
     </div>
   )
 }
