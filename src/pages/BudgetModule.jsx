@@ -162,7 +162,7 @@ export default function BudgetModule() {
       {tab === 'saisie' && <SaisieTab categories={categories} rules={rules} loadAll={loadAll} clients={clientsList} />}
       {tab === 'dashboard' && <DashboardTab stats={stats} months={months} categories={categories} />}
       {tab === 'categorisation' && <CategorisationIATab transactions={transactions} categories={categories} rules={rules} loadAll={loadAll} />}
-      {tab === 'previsionnel' && <PrevisionnelTab transactions={transactions} categories={categories} />}
+      {tab === 'previsionnel' && <PrevisionnelTab transactions={transactions} categories={categories} invoices={invoicesList} clients={clientsList} />}
       {tab === 'recommandations' && <RecommandationsTab transactions={transactions} categories={categories} />}
       {tab === 'comptable' && <ComptableTab transactions={transactions} receipts={receipts} loadAll={loadAll} />}
       {tab === 'categories' && <CategoriesTab categories={categories} loadAll={loadAll} />}
@@ -2602,27 +2602,34 @@ ${txList}` }]
 // ════════════════════════════════════════════════════════════
 // PRÉVISIONNEL & OBJECTIF 50K€
 // ════════════════════════════════════════════════════════════
-function PrevisionnelTab({ transactions, categories }) {
+function PrevisionnelTab({ transactions, categories, invoices, clients }) {
   const [config, setConfig] = useState({
     solde_actuel: 3267,
-    objectif: 50000,
-    salaires: 5000,
-    urssaf: 980,
-    ca_boost: 0,  // % boost CA post-Qualiopi
-    scenario: 'realiste'
+    objectif: 10000,
+    marge_securite: 2000,
   })
 
-  // ── Calcul des charges fixes moyennes depuis les données réelles ──
+  const now = new Date()
+  const currentMonthKey = `${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`
+  const currentYearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  const ML = { '01':'Jan','02':'Fév','03':'Mar','04':'Avr','05':'Mai','06':'Jun','07':'Jul','08':'Aoû','09':'Sep','10':'Oct','11':'Nov','12':'Déc' }
+
+  // ══ Factures impayées ══
+  const unpaidInvoices = useMemo(() =>
+    (invoices || []).filter(inv => inv.type !== 'credit_note' && ['sent', 'due', 'overdue', 'partial'].includes(inv.status) && parseFloat(inv.amount_due) > 0),
+    [invoices]
+  )
+
+  // ══ ANALYSE PRINCIPALE ══
   const analysis = useMemo(() => {
     const co = transactions.filter(tx => !tx.is_personal)
-
-    // Map catégorie name → type/direction
     const catMap = {}
-    categories.forEach(c => { catMap[c.name] = { type: c.type, direction: c.direction } })
+    categories.forEach(c => { catMap[c.name] = { type: c.type, direction: c.direction, icon: c.icon } })
 
     // Grouper par mois
     const byMonth = {}
     co.forEach(tx => {
+      if (!tx.month) return
       if (!byMonth[tx.month]) byMonth[tx.month] = { debit: 0, credit: 0, cats: {} }
       byMonth[tx.month].debit += tx.debit || 0
       byMonth[tx.month].credit += tx.credit || 0
@@ -2631,317 +2638,496 @@ function PrevisionnelTab({ transactions, categories }) {
       byMonth[tx.month].cats[c].debit += tx.debit || 0
       byMonth[tx.month].cats[c].credit += tx.credit || 0
     })
-
     const months = Object.keys(byMonth).sort()
     const nbMonths = months.length || 1
 
-    // Calculer depuis type/direction des catégories
-    let totalFixed = 0, totalVariable = 0, totalRevenue = 0
-    const fixedBreakdown = {}
+    // ── Mois en cours ──
+    const curTxs = co.filter(tx => tx.month === currentMonthKey)
+    const curEntrees = curTxs.filter(tx => (tx.credit || 0) > 0 && catMap[tx.category_name]?.direction === 'recette')
+    const curSorties = curTxs.filter(tx => (tx.debit || 0) > 0)
+    const totalEntreesRealisees = curEntrees.reduce((s, tx) => s + tx.credit, 0)
+    const totalSortiesRealisees = curSorties.reduce((s, tx) => s + tx.debit, 0)
 
+    // Entrées à venir : factures impayées avec échéance ce mois ou avant
+    const entreesAVenir = unpaidInvoices.filter(inv => {
+      const due = inv.due_date || inv.invoice_date
+      return due && due.substring(0, 7) <= currentYearMonth
+    })
+    const totalEntreesAVenir = entreesAVenir.reduce((s, inv) => s + parseFloat(inv.amount_due), 0)
+
+    // Sorties à venir : charges récurrentes pas encore débitées ce mois
+    const recurrentes = detectRecurringCharges(co, months, currentMonthKey, catMap)
+    const sortiesDejaFaites = new Set(curSorties.map(tx => normalizeDesc(tx.description)))
+    const sortiesAVenir = recurrentes.filter(r => !sortiesDejaFaites.has(normalizeDesc(r.description)))
+    const totalSortiesAVenir = sortiesAVenir.reduce((s, r) => s + r.montant, 0)
+
+    const netMois = (totalEntreesRealisees + totalEntreesAVenir) - (totalSortiesRealisees + totalSortiesAVenir)
+    const soldeProjeteFin = config.solde_actuel + netMois
+    const budgetLibre = soldeProjeteFin - config.marge_securite
+
+    // ── CA par catégorie et mois ──
+    let totalCAFormations = 0, totalCASousTrait = 0
+    const caByMonth = {}
     months.forEach(m => {
-      const mc = byMonth[m].cats
-      Object.entries(mc).forEach(([cat, vals]) => {
-        const info = catMap[cat] || { type: 'variable', direction: 'depense' }
+      let caF = 0, caS = 0
+      Object.entries(byMonth[m].cats).forEach(([cat, vals]) => {
+        if (cat === 'CA Formations') caF += vals.credit
+        if (cat === 'CA Sous-traitance') caS += vals.credit
+      })
+      caByMonth[m] = { formations: caF, soustraitance: caS, total: caF + caS }
+      totalCAFormations += caF
+      totalCASousTrait += caS
+    })
 
-        // Exclure exceptionnel et neutre
-        if (info.type === 'exceptionnel' || info.direction === 'neutre') return
+    // Mois actifs (avec du CA)
+    const activeMonths = months.filter(m => (caByMonth[m]?.total || 0) > 100)
+    const nbActive = activeMonths.length || 1
 
-        if (info.direction === 'recette' && vals.credit > 0) {
-          totalRevenue += vals.credit
-        } else if (info.type === 'fixe' && vals.debit > 0) {
+    // ── Tendances 3 derniers mois ──
+    const last3 = activeMonths.slice(-3)
+    const prev3 = activeMonths.slice(-6, -3)
+    const caLast3 = last3.reduce((s, m) => s + (caByMonth[m]?.total || 0), 0) / (last3.length || 1)
+    const caPrev3 = prev3.reduce((s, m) => s + (caByMonth[m]?.total || 0), 0) / (prev3.length || 1)
+    const caTrend = caPrev3 > 0 ? ((caLast3 - caPrev3) / caPrev3) * 100 : 0
+
+    const depLast3 = last3.reduce((s, m) => s + (byMonth[m]?.debit || 0), 0) / (last3.length || 1)
+    const depPrev3 = prev3.reduce((s, m) => s + (byMonth[m]?.debit || 0), 0) / (prev3.length || 1)
+    const depTrend = depPrev3 > 0 ? ((depLast3 - depPrev3) / depPrev3) * 100 : 0
+
+    const margeLast3 = caLast3 - depLast3
+
+    // ── Charges fixes moyennes ──
+    let totalFixed = 0
+    const fixedBreakdown = {}
+    months.forEach(m => {
+      Object.entries(byMonth[m].cats).forEach(([cat, vals]) => {
+        const info = catMap[cat] || {}
+        if (info.type === 'fixe' && vals.debit > 0) {
           totalFixed += vals.debit
           if (!fixedBreakdown[cat]) fixedBreakdown[cat] = 0
           fixedBreakdown[cat] += vals.debit
-        } else if (info.type === 'variable' && vals.debit > 0) {
-          totalVariable += vals.debit
         }
       })
     })
-
-    const avgMonthlyFixed = totalFixed / nbMonths
-    const avgMonthlyVariable = totalVariable / nbMonths
-    const avgMonthlyRevenue = totalRevenue / nbMonths
-    const avgMonthlyNet = avgMonthlyRevenue - (totalFixed + totalVariable) / nbMonths
-
-    // Saisonnalité : ratio par rapport à la moyenne
-    const seasonality = {}
-    const revenueByMonth = {}
-    months.forEach(m => {
-      let rev = 0
-      Object.entries(byMonth[m].cats).forEach(([cat, vals]) => {
-        const info = catMap[cat] || {}
-        if (info.direction === 'recette' && info.type !== 'exceptionnel' && vals.credit > 0) {
-          rev += vals.credit
-        }
-      })
-      revenueByMonth[m] = rev
-      const mm = m.split('/')[0]
-      if (!seasonality[mm]) seasonality[mm] = { total: 0, count: 0 }
-      seasonality[mm].total += rev
-      seasonality[mm].count++
-    })
-    Object.keys(seasonality).forEach(mm => {
-      seasonality[mm].avg = seasonality[mm].total / seasonality[mm].count
-      seasonality[mm].ratio = avgMonthlyRevenue > 0 ? seasonality[mm].avg / avgMonthlyRevenue : 1
-    })
-
-    // Détail charges fixes pour affichage (top catégories)
+    const avgFixed = totalFixed / nbMonths
     const fixedDetail = Object.entries(fixedBreakdown)
       .map(([name, total]) => ({ name, icon: categories.find(c => c.name === name)?.icon || '📦', monthly: total / nbMonths }))
       .sort((a, b) => b.monthly - a.monthly)
 
+    // ── Dépenses par catégorie (pour optimisation) ──
+    const depByCat = {}
+    months.forEach(m => {
+      Object.entries(byMonth[m].cats).forEach(([cat, vals]) => {
+        if (vals.debit > 0) {
+          if (!depByCat[cat]) depByCat[cat] = { total: 0, months: [], icon: catMap[cat]?.icon || '📦' }
+          depByCat[cat].total += vals.debit
+          depByCat[cat].months.push({ m, amount: vals.debit })
+        }
+      })
+    })
+    Object.values(depByCat).forEach(d => { d.monthly = d.total / nbMonths; d.last3 = d.months.filter(x => last3.includes(x.m)).reduce((s, x) => s + x.amount, 0) / (last3.length || 1) })
+
+    // ── Projection trimestre ──
+    const avgCA = (totalCAFormations + totalCASousTrait) / nbActive
+    const trimProjection = []
+    let soldeCumul = config.solde_actuel
+    for (let i = 0; i < 3; i++) {
+      const futureDate = new Date(now.getFullYear(), now.getMonth() + i, 1)
+      const mKey = `${String(futureDate.getMonth() + 1).padStart(2, '0')}/${futureDate.getFullYear()}`
+      const mLabel = ML[String(futureDate.getMonth() + 1).padStart(2, '0')] + ' ' + futureDate.getFullYear()
+
+      // CA projeté : utiliser la moyenne glissante
+      const caProj = i === 0 ? totalEntreesRealisees + totalEntreesAVenir : caLast3
+      const depProj = i === 0 ? totalSortiesRealisees + totalSortiesAVenir : depLast3
+      const net = caProj - depProj
+      soldeCumul += (i === 0 ? netMois : net)
+
+      trimProjection.push({ mKey, label: mLabel, ca: caProj, dep: depProj, net: i === 0 ? netMois : net, solde: soldeCumul, isCurrent: i === 0 })
+    }
+
+    // ── Recommandations ──
+    const recos = generateRecommendations({
+      unpaidInvoices, clients, caByMonth, depByCat, avgCA, avgFixed,
+      totalCAFormations, totalCASousTrait, nbActive, budgetLibre, config,
+      last3, caLast3, depLast3, categories, catMap
+    })
+
     return {
-      months, byMonth, nbMonths,
-      avgMonthlyFixed, avgMonthlyVariable, avgMonthlyRevenue, avgMonthlyNet,
-      fixedBreakdown, fixedDetail, seasonality, revenueByMonth,
-      totalFixed, totalVariable, totalRevenue
+      byMonth, months, nbMonths, currentMonthKey,
+      totalEntreesRealisees, totalSortiesRealisees, totalEntreesAVenir, totalSortiesAVenir,
+      entreesAVenir, sortiesAVenir, recurrentes,
+      netMois, soldeProjeteFin, budgetLibre,
+      caByMonth, totalCAFormations, totalCASousTrait, avgCA,
+      caLast3, caPrev3, caTrend, depLast3, depPrev3, depTrend, margeLast3,
+      fixedDetail, avgFixed, depByCat,
+      trimProjection, recos, last3, nbActive
     }
-  }, [transactions, categories])
+  }, [transactions, categories, unpaidInvoices, config, currentMonthKey])
 
-  // ── Projections mois par mois jusqu'à décembre 2026 ──
-  const projections = useMemo(() => {
-    const futureMonths = []
-    const now = new Date()
-    const currentMonth = now.getMonth() + 1  // 1-12
-    const currentYear = now.getFullYear()
+  // ── Helpers ──
+  function normalizeDesc(s) { return (s || '').toUpperCase().replace(/[^A-Z0-9]/g, '').substring(0, 20) }
 
-    for (let m = currentMonth; m <= 12; m++) {
-      futureMonths.push({ month: m, year: 2026, label: `${String(m).padStart(2, '0')}/2026` })
+  function detectRecurringCharges(txs, months, curMonth, catMap) {
+    // Trouver les descriptions qui apparaissent dans >= 3 mois différents
+    const descMap = {}
+    txs.forEach(tx => {
+      if ((tx.debit || 0) <= 0) return
+      const key = normalizeDesc(tx.description)
+      if (!descMap[key]) descMap[key] = { description: tx.description, months: new Set(), amounts: [], catName: tx.category_name }
+      descMap[key].months.add(tx.month)
+      descMap[key].amounts.push(tx.debit)
+    })
+    return Object.values(descMap)
+      .filter(d => d.months.size >= 3)
+      .map(d => ({
+        description: d.description,
+        montant: d.amounts.reduce((s, a) => s + a, 0) / d.amounts.length,
+        catName: d.catName,
+        frequence: d.months.size
+      }))
+      .sort((a, b) => b.montant - a.montant)
+  }
+
+  function generateRecommendations({ unpaidInvoices, clients, caByMonth, depByCat, avgCA, avgFixed, totalCAFormations, totalCASousTrait, nbActive, budgetLibre, config, last3, caLast3, depLast3, categories, catMap }) {
+    const recos = []
+
+    // Factures en retard
+    const overdue = unpaidInvoices.filter(inv => inv.status === 'overdue' || (inv.due_date && inv.due_date < new Date().toISOString().substring(0, 10)))
+    if (overdue.length > 0) {
+      const totalOverdue = overdue.reduce((s, inv) => s + parseFloat(inv.amount_due), 0)
+      const clientNames = [...new Set(overdue.map(inv => (clients || []).find(c => c.id === inv.client_id)?.name || '?'))]
+      recos.push({
+        type: 'alert', icon: '🔴', priority: 100,
+        title: `${overdue.length} facture(s) en retard — ${fmt(totalOverdue)}`,
+        detail: `Clients : ${clientNames.join(', ')}. Relancer rapidement pour préserver la trésorerie.`,
+        action: 'Relancer'
+      })
     }
 
-    // Mois faibles (août=8, décembre=12, janvier=1)
-    const weakMonths = [1, 8, 12]
-
-    // Charges fixes = moyenne historique HORS salaires et URSSAF (éditables séparément)
-    const salaryNames = ['Salaire Hicham', 'Salaire Maxime']
-    const urssafNames = ['Charges sociales (URSSAF)']
-    const excludeFromFixed = [...salaryNames, ...urssafNames]
-
-    const computedFixed = analysis.fixedDetail
-      .filter(d => !excludeFromFixed.includes(d.name))
-      .reduce((sum, d) => sum + d.monthly, 0)
-
-    const salaires = config.salaires
-    const urssaf = config.urssaf
-    const totalFixedMonth = computedFixed + salaires + urssaf
-
-    // Scénarios de CA
-    const scenarios = {
-      pessimiste: { label: '😟 Pessimiste', multiplier: 0.7, desc: 'CA -30% vs moyenne' },
-      realiste: { label: '📊 Réaliste', multiplier: 1.0, desc: 'CA = moyenne historique' },
-      optimiste: { label: '🚀 Optimiste', multiplier: 1.4, desc: 'CA +40% (effet Qualiopi + prospection)' },
+    // Factures à venir (pas en retard)
+    const pending = unpaidInvoices.filter(inv => !overdue.includes(inv))
+    if (pending.length > 0) {
+      const totalPending = pending.reduce((s, inv) => s + parseFloat(inv.amount_due), 0)
+      recos.push({
+        type: 'info', icon: '📬', priority: 60,
+        title: `${pending.length} facture(s) en attente — ${fmt(totalPending)}`,
+        detail: 'Virements attendus — surveiller les échéances.'
+      })
     }
 
-    const results = {}
-    for (const [key, sc] of Object.entries(scenarios)) {
-      let solde = config.solde_actuel
-      const monthlyData = []
-
-      for (const fm of futureMonths) {
-        const isWeak = weakMonths.includes(fm.month)
-        const seasonFactor = isWeak ? 0.5 : 1.1
-        const caEstim = analysis.avgMonthlyRevenue * sc.multiplier * seasonFactor * (1 + config.ca_boost / 100)
-
-        // Budget variable = ce qu'on peut dépenser en plus des charges fixes
-        const budgetVariable = Math.max(0, caEstim - totalFixedMonth)
-        // Variable réaliste = ~60% du budget variable plafonné à la moyenne historique
-        const depVariable = Math.min(budgetVariable * 0.6, analysis.avgMonthlyVariable)
-
-        const totalDepenses = totalFixedMonth + depVariable
-        const net = caEstim - totalDepenses
-        solde += net
-
-        monthlyData.push({
-          ...fm,
-          ca: caEstim,
-          fixedCharges: totalFixedMonth,
-          variable: depVariable,
-          totalDepenses,
-          net,
-          solde,
-          budgetVariableMax: budgetVariable,
-          isWeak,
-          onTrack: solde >= config.objectif * (fm.month / 12)
+    // Ratio sous-traitance vs formations directes
+    const totalCA = totalCAFormations + totalCASousTrait
+    if (totalCA > 0 && totalCASousTrait > 0) {
+      const ratioST = (totalCASousTrait / totalCA) * 100
+      if (ratioST > 60) {
+        recos.push({
+          type: 'levier', icon: '📊', priority: 80,
+          title: `Sous-traitance = ${ratioST.toFixed(0)}% du CA`,
+          detail: `Les formations directes ont une marge plus élevée (~80% vs ~40% sous-traitance). 1 session SST directe (1 175€) rapporte autant net que 2-3 sessions sous-traitées. Développer le CA direct via la prospection.`
         })
       }
-
-      results[key] = { ...sc, data: monthlyData, finalSolde: solde }
     }
 
-    return { results, totalFixedMonth, computedFixed, scenarios }
-  }, [analysis, config])
+    // Catégories de dépenses en hausse
+    Object.entries(depByCat).forEach(([cat, data]) => {
+      if (data.monthly < 50 || !last3.length) return
+      const info = catMap[cat] || {}
+      if (info.direction === 'recette' || info.direction === 'neutre') return
+      const last3Avg = data.last3
+      const prevAvg = data.monthly // Moyenne globale
+      if (last3Avg > prevAvg * 1.3 && last3Avg > 100) {
+        recos.push({
+          type: 'optimisation', icon: '💸', priority: 70,
+          title: `${data.icon} ${cat} en hausse`,
+          detail: `${fmt(last3Avg)}/mois ces 3 derniers mois vs ${fmt(prevAvg)}/mois en moyenne (+${((last3Avg/prevAvg - 1) * 100).toFixed(0)}%). Évaluer si c'est un investissement ou une dérive.`
+        })
+      }
+    })
 
-  const sc = projections.results[config.scenario]
-  const finalOk = sc?.finalSolde >= config.objectif
-  const gap = config.objectif - config.solde_actuel
-  const monthsLeft = sc?.data?.length || 10
-  const requiredMonthly = gap / monthsLeft
+    // Sessions à vendre pour atteindre l'objectif
+    if (config.objectif > 0 && caLast3 > 0) {
+      const gap = config.objectif - config.solde_actuel
+      const netMensuel = caLast3 - depLast3
+      if (netMensuel > 0) {
+        const moisNecessaires = Math.ceil(gap / netMensuel)
+        recos.push({
+          type: 'info', icon: '🎯', priority: 50,
+          title: `Objectif ${fmt(config.objectif)} atteignable en ~${moisNecessaires} mois`,
+          detail: `Au rythme actuel (net ${fmt(netMensuel)}/mois). Chaque session SST directe supplémentaire (1 175€) accélère de ~1 mois.`
+        })
+      }
+    }
 
-  const ML2 = { 1:'Jan',2:'Fév',3:'Mar',4:'Avr',5:'Mai',6:'Jun',7:'Jul',8:'Aoû',9:'Sep',10:'Oct',11:'Nov',12:'Déc' }
+    // Budget libre alert
+    if (budgetLibre < 0) {
+      recos.push({
+        type: 'alert', icon: '⚠️', priority: 95,
+        title: 'Trésorerie tendue ce mois',
+        detail: `Le solde projeté fin de mois (${fmt(config.solde_actuel + (caLast3 - depLast3))}) passe sous ta marge de sécurité de ${fmt(config.marge_securite)}. Prioriser les encaissements.`
+      })
+    }
+
+    return recos.sort((a, b) => b.priority - a.priority)
+  }
+
+  // ── Rendu ──
+  const trendArrow = (pct) => pct > 5 ? '↗️' : pct < -5 ? '↘️' : '→'
+  const trendColor = (pct, inverse = false) => {
+    const good = inverse ? pct < -5 : pct > 5
+    const bad = inverse ? pct > 5 : pct < -5
+    return good ? 'text-green-600' : bad ? 'text-red-600' : 'text-gray-600'
+  }
 
   return (
     <div className="space-y-4">
-      {/* KPIs objectif */}
+
+      {/* ══ BLOC 1 — Situation actuelle ══ */}
       <div className="bg-gradient-to-r from-blue-600 to-indigo-700 rounded-xl p-4 text-white">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="font-bold text-lg">🎯 Objectif : {fmt(config.objectif)} fin 2026</h3>
-          <span className={`px-3 py-1 rounded-full text-sm font-bold ${finalOk ? 'bg-green-400/30 text-green-100' : 'bg-red-400/30 text-red-100'}`}>
-            {finalOk ? '✅ Atteignable' : '⚠️ Difficile'}
+          <h3 className="font-bold text-lg">🏦 Situation — {ML[currentMonthKey.split('/')[0]]} {now.getFullYear()}</h3>
+          <span className={`px-3 py-1 rounded-full text-sm font-bold ${
+            analysis.budgetLibre > 1000 ? 'bg-green-400/30 text-green-100' :
+            analysis.budgetLibre > 0 ? 'bg-amber-400/30 text-amber-100' :
+            'bg-red-400/30 text-red-100'
+          }`}>
+            {analysis.budgetLibre > 1000 ? '✅ Confortable' : analysis.budgetLibre > 0 ? '⚠️ Attention' : '🔴 Critique'}
           </span>
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-          <div className="bg-white/10 rounded-lg p-2"><div className="text-xs opacity-70">Solde actuel</div><div className="font-bold">{fmt(config.solde_actuel)}</div></div>
-          <div className="bg-white/10 rounded-lg p-2"><div className="text-xs opacity-70">Gap à combler</div><div className="font-bold">{fmt(gap)}</div></div>
-          <div className="bg-white/10 rounded-lg p-2"><div className="text-xs opacity-70">Net requis/mois</div><div className="font-bold">{fmt(requiredMonthly)}</div></div>
-          <div className="bg-white/10 rounded-lg p-2"><div className="text-xs opacity-70">Projection fin</div><div className="font-bold">{fmt(sc?.finalSolde || 0)}</div></div>
-          <div className="bg-white/10 rounded-lg p-2"><div className="text-xs opacity-70">Charges fixes/mois</div><div className="font-bold">{fmt(projections.totalFixedMonth)}</div></div>
-        </div>
-        {/* Jauge progression */}
-        <div className="mt-3">
-          <div className="flex justify-between text-xs mb-1">
-            <span>{fmt(config.solde_actuel)}</span>
-            <span>{fmt(config.objectif)}</span>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="bg-white/10 rounded-lg p-3">
+            <div className="text-xs opacity-70">Solde actuel</div>
+            <div className="font-bold text-xl">{fmt(config.solde_actuel)}</div>
           </div>
-          <div className="bg-white/20 rounded-full h-3">
-            <div className={`rounded-full h-3 transition-all ${finalOk ? 'bg-green-400' : 'bg-amber-400'}`}
-              style={{ width: `${Math.min(100, Math.max(2, (config.solde_actuel / config.objectif) * 100))}%` }} />
+          <div className="bg-white/10 rounded-lg p-3">
+            <div className="text-xs opacity-70">Solde projeté fin de mois</div>
+            <div className={`font-bold text-xl ${analysis.soldeProjeteFin >= config.marge_securite ? '' : 'text-red-300'}`}>{fmt(analysis.soldeProjeteFin)}</div>
+          </div>
+          <div className={`rounded-lg p-3 ${analysis.budgetLibre > 1000 ? 'bg-green-500/30' : analysis.budgetLibre > 0 ? 'bg-amber-500/30' : 'bg-red-500/30'}`}>
+            <div className="text-xs opacity-70">💰 Budget libre</div>
+            <div className="font-bold text-xl">{fmt(analysis.budgetLibre)}</div>
+            <div className="text-xs opacity-60 mt-0.5">Dépensable sans risque</div>
+          </div>
+          <div className="bg-white/10 rounded-lg p-3">
+            <div className="text-xs opacity-70">🎯 Objectif</div>
+            <div className="font-bold text-xl">{fmt(config.objectif)}</div>
           </div>
         </div>
+        {/* Barre de progression */}
+        {config.objectif > 0 && (
+          <div className="mt-3">
+            <div className="flex justify-between text-xs mb-1 opacity-70">
+              <span>{fmt(config.solde_actuel)}</span>
+              <span>Gap : {fmt(Math.max(0, config.objectif - config.solde_actuel))}</span>
+              <span>{fmt(config.objectif)}</span>
+            </div>
+            <div className="bg-white/20 rounded-full h-2.5">
+              <div className="rounded-full h-2.5 bg-green-400 transition-all"
+                style={{ width: `${Math.min(100, Math.max(2, (config.solde_actuel / config.objectif) * 100))}%` }} />
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Paramètres ajustables */}
+      {/* Paramètres éditables */}
       <div className="bg-white rounded-xl shadow-sm border p-4">
-        <h3 className="font-bold text-gray-700 mb-3">⚙️ Paramètres</h3>
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-          <div>
-            <label className="text-xs text-gray-500">Solde actuel (€)</label>
-            <input type="number" value={config.solde_actuel} onChange={e => setConfig(c => ({ ...c, solde_actuel: +e.target.value }))} className="w-full border rounded-lg px-3 py-2 text-sm mt-1 font-mono" />
+        <details>
+          <summary className="font-bold text-gray-700 cursor-pointer hover:text-blue-600">⚙️ Paramètres</summary>
+          <div className="grid grid-cols-3 gap-3 mt-3">
+            <div>
+              <label className="text-xs text-gray-500">Solde actuel (€)</label>
+              <input type="number" value={config.solde_actuel} onChange={e => setConfig(c => ({ ...c, solde_actuel: +e.target.value }))} className="w-full border rounded-lg px-3 py-2 text-sm mt-1 font-mono" />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500">Objectif fin d'année (€)</label>
+              <input type="number" value={config.objectif} onChange={e => setConfig(c => ({ ...c, objectif: +e.target.value }))} className="w-full border rounded-lg px-3 py-2 text-sm mt-1 font-mono" />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500">Marge de sécurité (€)</label>
+              <input type="number" value={config.marge_securite} onChange={e => setConfig(c => ({ ...c, marge_securite: +e.target.value }))} className="w-full border rounded-lg px-3 py-2 text-sm mt-1 font-mono" />
+            </div>
           </div>
-          <div>
-            <label className="text-xs text-gray-500">Objectif (€)</label>
-            <input type="number" value={config.objectif} onChange={e => setConfig(c => ({ ...c, objectif: +e.target.value }))} className="w-full border rounded-lg px-3 py-2 text-sm mt-1 font-mono" />
+        </details>
+      </div>
+
+      {/* ══ BLOC 2 — Mois en cours ══ */}
+      <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
+        <div className="px-4 py-3 bg-gray-50 border-b">
+          <h3 className="font-bold text-gray-700">📅 {ML[currentMonthKey.split('/')[0]]} {now.getFullYear()} — Réalisé vs À venir</h3>
+        </div>
+        <div className="p-4">
+          <div className="grid grid-cols-4 gap-4 text-center text-sm">
+            <div></div>
+            <div className="font-medium text-gray-500">✅ Réalisé</div>
+            <div className="font-medium text-gray-500">⏳ À venir</div>
+            <div className="font-medium text-gray-700">Total mois</div>
+
+            <div className="text-left font-medium text-green-700">🟢 Entrées</div>
+            <div className="font-mono text-green-600">{fmt(analysis.totalEntreesRealisees)}</div>
+            <div className="font-mono text-green-500">{fmt(analysis.totalEntreesAVenir)}</div>
+            <div className="font-mono font-bold text-green-700">{fmt(analysis.totalEntreesRealisees + analysis.totalEntreesAVenir)}</div>
+
+            <div className="text-left font-medium text-red-700">🔴 Sorties</div>
+            <div className="font-mono text-red-600">{fmt(analysis.totalSortiesRealisees)}</div>
+            <div className="font-mono text-red-500">{fmt(analysis.totalSortiesAVenir)}</div>
+            <div className="font-mono font-bold text-red-700">{fmt(analysis.totalSortiesRealisees + analysis.totalSortiesAVenir)}</div>
+
+            <div className="text-left font-bold text-gray-700 border-t pt-2">Net</div>
+            <div className={`font-mono font-bold border-t pt-2 ${(analysis.totalEntreesRealisees - analysis.totalSortiesRealisees) >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+              {fmt(analysis.totalEntreesRealisees - analysis.totalSortiesRealisees)}
+            </div>
+            <div className="font-mono border-t pt-2 text-gray-500">
+              {fmt(analysis.totalEntreesAVenir - analysis.totalSortiesAVenir)}
+            </div>
+            <div className={`font-mono font-bold text-lg border-t pt-2 ${analysis.netMois >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+              {analysis.netMois >= 0 ? '+' : ''}{fmt(analysis.netMois)}
+            </div>
           </div>
-          <div>
-            <label className="text-xs text-gray-500">Salaires/mois (€)</label>
-            <input type="number" value={config.salaires} onChange={e => setConfig(c => ({ ...c, salaires: +e.target.value }))} className="w-full border rounded-lg px-3 py-2 text-sm mt-1 font-mono" />
+
+          {/* Détail factures attendues */}
+          {analysis.entreesAVenir.length > 0 && (
+            <details className="mt-4">
+              <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-600">📬 {analysis.entreesAVenir.length} facture(s) en attente de paiement</summary>
+              <div className="mt-2 space-y-1">
+                {analysis.entreesAVenir.map(inv => {
+                  const cli = (clients || []).find(c => c.id === inv.client_id)
+                  const isOverdue = inv.due_date && inv.due_date < new Date().toISOString().substring(0, 10)
+                  return (
+                    <div key={inv.id} className={`flex justify-between items-center text-xs px-2 py-1 rounded ${isOverdue ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>
+                      <span>{inv.reference} — {cli?.name || '?'} {isOverdue && <span className="font-bold">⚠️ RETARD</span>}</span>
+                      <span className="font-mono font-bold">{fmt(parseFloat(inv.amount_due))}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </details>
+          )}
+
+          {/* Détail charges récurrentes à venir */}
+          {analysis.sortiesAVenir.length > 0 && (
+            <details className="mt-2">
+              <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-600">📋 {analysis.sortiesAVenir.length} charge(s) récurrente(s) attendue(s)</summary>
+              <div className="mt-2 space-y-1">
+                {analysis.sortiesAVenir.slice(0, 10).map((r, i) => (
+                  <div key={i} className="flex justify-between items-center text-xs px-2 py-1 rounded bg-red-50 text-red-700">
+                    <span>{r.description} <span className="text-gray-400">({r.catName})</span></span>
+                    <span className="font-mono">~{fmt(r.montant)}</span>
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
+        </div>
+      </div>
+
+      {/* ══ BLOC 3 — Tendances & Trajectoire ══ */}
+      <div className="bg-white rounded-xl shadow-sm border p-4">
+        <h3 className="font-bold text-gray-700 mb-3">📈 Tendances (3 derniers mois vs précédents)</h3>
+        <div className="grid grid-cols-3 gap-4">
+          <div className="p-3 bg-green-50 rounded-lg text-center">
+            <div className="text-xs text-gray-500 mb-1">CA mensuel moyen</div>
+            <div className="font-bold text-lg text-green-700">{fmt(analysis.caLast3)}</div>
+            <div className={`text-sm font-medium ${trendColor(analysis.caTrend)}`}>
+              {trendArrow(analysis.caTrend)} {analysis.caTrend > 0 ? '+' : ''}{analysis.caTrend.toFixed(0)}%
+            </div>
           </div>
-          <div>
-            <label className="text-xs text-gray-500">URSSAF/mois (€)</label>
-            <input type="number" value={config.urssaf} onChange={e => setConfig(c => ({ ...c, urssaf: +e.target.value }))} className="w-full border rounded-lg px-3 py-2 text-sm mt-1 font-mono" />
+          <div className="p-3 bg-red-50 rounded-lg text-center">
+            <div className="text-xs text-gray-500 mb-1">Dépenses mensuelles</div>
+            <div className="font-bold text-lg text-red-700">{fmt(analysis.depLast3)}</div>
+            <div className={`text-sm font-medium ${trendColor(analysis.depTrend, true)}`}>
+              {trendArrow(analysis.depTrend)} {analysis.depTrend > 0 ? '+' : ''}{analysis.depTrend.toFixed(0)}%
+            </div>
           </div>
-          <div>
-            <label className="text-xs text-gray-500">Boost CA Qualiopi (%)</label>
-            <input type="number" value={config.ca_boost} onChange={e => setConfig(c => ({ ...c, ca_boost: +e.target.value }))} className="w-full border rounded-lg px-3 py-2 text-sm mt-1 font-mono" placeholder="0" />
+          <div className={`p-3 rounded-lg text-center ${analysis.margeLast3 >= 0 ? 'bg-blue-50' : 'bg-amber-50'}`}>
+            <div className="text-xs text-gray-500 mb-1">Marge nette</div>
+            <div className={`font-bold text-lg ${analysis.margeLast3 >= 0 ? 'text-blue-700' : 'text-red-700'}`}>{fmt(analysis.margeLast3)}</div>
+            <div className="text-xs text-gray-400">/mois</div>
+          </div>
+        </div>
+
+        {/* Historique CA par mois */}
+        <div className="mt-4">
+          <div className="text-xs text-gray-500 mb-2 font-medium">CA mensuel — Formations directes 🟢 vs Sous-traitance 🔵</div>
+          <div className="space-y-1">
+            {Object.entries(analysis.caByMonth).slice(-6).map(([m, data]) => {
+              const maxCA = Math.max(...Object.values(analysis.caByMonth).map(d => d.total), 1)
+              return (
+                <div key={m} className="flex items-center gap-2 text-xs">
+                  <span className="w-16 text-gray-500">{ML[m.split('/')[0]]} {m.split('/')[1].slice(2)}</span>
+                  <div className="flex-1 flex h-4 rounded overflow-hidden bg-gray-100">
+                    <div className="bg-green-400 h-full" style={{ width: `${(data.formations / maxCA) * 100}%` }} title={`Formations: ${fmt(data.formations)}`} />
+                    <div className="bg-blue-400 h-full" style={{ width: `${(data.soustraitance / maxCA) * 100}%` }} title={`Sous-traitance: ${fmt(data.soustraitance)}`} />
+                  </div>
+                  <span className="w-20 text-right font-mono font-medium">{fmt(data.total)}</span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* Projection trimestre */}
+        <div className="mt-4 pt-4 border-t">
+          <h4 className="text-sm font-bold text-gray-700 mb-2">🗓️ Projection trimestre</h4>
+          <div className="grid grid-cols-3 gap-2">
+            {analysis.trimProjection.map((m, i) => (
+              <div key={i} className={`p-3 rounded-lg border ${m.isCurrent ? 'border-blue-400 bg-blue-50' : 'border-gray-200'}`}>
+                <div className="text-xs font-medium text-gray-500">{m.label} {m.isCurrent && <span className="text-blue-600">← en cours</span>}</div>
+                <div className="flex justify-between mt-1">
+                  <span className="text-xs text-green-600">CA: {fmt(m.ca)}</span>
+                  <span className="text-xs text-red-600">Dép: {fmt(m.dep)}</span>
+                </div>
+                <div className={`font-bold text-sm mt-1 ${m.net >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                  Net: {m.net >= 0 ? '+' : ''}{fmt(m.net)}
+                </div>
+                <div className={`text-xs mt-0.5 ${m.solde >= config.marge_securite ? 'text-blue-600' : 'text-red-600'}`}>
+                  Solde: {fmt(m.solde)}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       </div>
 
-      {/* Sélection scénario */}
-      <div className="grid grid-cols-3 gap-3">
-        {Object.entries(projections.scenarios).map(([key, sc2]) => {
-          const r = projections.results[key]
-          const active = config.scenario === key
-          const ok = r.finalSolde >= config.objectif
-          return (
-            <button key={key} onClick={() => setConfig(c => ({ ...c, scenario: key }))}
-              className={`rounded-xl border-2 p-3 text-left transition-all ${active ? 'border-blue-500 bg-blue-50 shadow-md' : 'border-gray-200 hover:border-gray-300'}`}>
-              <div className="font-bold text-sm">{sc2.label}</div>
-              <div className="text-xs text-gray-500 mt-0.5">{sc2.desc}</div>
-              <div className={`font-bold text-lg mt-2 ${ok ? 'text-green-600' : 'text-red-600'}`}>{fmt(r.finalSolde)}</div>
-              <div className={`text-xs mt-0.5 ${ok ? 'text-green-600' : 'text-red-600'}`}>{ok ? '✅ Objectif atteint' : `❌ Manque ${fmt(config.objectif - r.finalSolde)}`}</div>
-            </button>
-          )
-        })}
-      </div>
-
-      {/* Tableau mensuel */}
-      {sc && (
-        <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
-          <div className="px-4 py-3 bg-gray-50 border-b flex items-center justify-between">
-            <h3 className="font-bold text-gray-700">📅 Projection mensuelle — {sc.label}</h3>
-            <span className="text-xs text-gray-500">CA moyen historique : {fmt(analysis.avgMonthlyRevenue)}/mois</span>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="text-left px-3 py-2 text-gray-500">Mois</th>
-                  <th className="text-right px-3 py-2 text-gray-500">CA estimé</th>
-                  <th className="text-right px-3 py-2 text-gray-500">Charges fixes</th>
-                  <th className="text-right px-3 py-2 text-gray-500">Variable</th>
-                  <th className="text-right px-3 py-2 text-gray-500">Net</th>
-                  <th className="text-right px-3 py-2 text-gray-500">Solde cumulé</th>
-                  <th className="text-center px-3 py-2 text-gray-500">Budget variable max</th>
-                  <th className="text-center px-2 py-2 text-gray-500">Statut</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sc.data.map((m, i) => (
-                  <tr key={i} className={`border-t ${m.isWeak ? 'bg-amber-50/50' : ''} ${m.solde < 0 ? 'bg-red-50' : ''}`}>
-                    <td className="px-3 py-1.5 font-medium">{ML2[m.month]} {m.year} {m.isWeak && <span className="text-amber-500 text-xs">🐌</span>}</td>
-                    <td className="px-3 py-1.5 text-right font-mono text-green-600">{fmt(m.ca)}</td>
-                    <td className="px-3 py-1.5 text-right font-mono text-red-500">{fmt(m.fixedCharges)}</td>
-                    <td className="px-3 py-1.5 text-right font-mono text-orange-500">{fmt(m.variable)}</td>
-                    <td className={`px-3 py-1.5 text-right font-mono font-bold ${m.net >= 0 ? 'text-green-700' : 'text-red-700'}`}>{m.net >= 0 ? '+' : ''}{fmt(m.net)}</td>
-                    <td className={`px-3 py-1.5 text-right font-mono font-bold ${m.solde >= 0 ? 'text-blue-700' : 'text-red-700'}`}>{fmt(m.solde)}</td>
-                    <td className="px-3 py-1.5 text-center">
-                      <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-xs font-mono">{fmt(m.budgetVariableMax)}</span>
-                    </td>
-                    <td className="px-2 py-1.5 text-center">
-                      {m.solde >= config.objectif ? '🎯' : m.solde >= 0 ? '✅' : '🔴'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr className={`border-t-2 font-bold ${sc.finalSolde >= config.objectif ? 'bg-green-50' : 'bg-red-50'}`}>
-                  <td className="px-3 py-2">Fin décembre 2026</td>
-                  <td colSpan={4}></td>
-                  <td className={`px-3 py-2 text-right font-mono text-lg ${sc.finalSolde >= config.objectif ? 'text-green-700' : 'text-red-700'}`}>{fmt(sc.finalSolde)}</td>
-                  <td colSpan={2} className="px-3 py-2 text-center">
-                    {sc.finalSolde >= config.objectif
-                      ? <span className="text-green-700">🎯 Objectif atteint !</span>
-                      : <span className="text-red-700">❌ Manque {fmt(config.objectif - sc.finalSolde)}</span>
-                    }
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
+      {/* ══ BLOC 4 — Recommandations ══ */}
+      {analysis.recos.length > 0 && (
+        <div className="bg-white rounded-xl shadow-sm border p-4">
+          <h3 className="font-bold text-gray-700 mb-3">🧠 Recommandations</h3>
+          <div className="space-y-2">
+            {analysis.recos.map((reco, i) => (
+              <div key={i} className={`p-3 rounded-lg border-l-4 ${
+                reco.type === 'alert' ? 'bg-red-50 border-red-500' :
+                reco.type === 'optimisation' ? 'bg-amber-50 border-amber-500' :
+                reco.type === 'levier' ? 'bg-blue-50 border-blue-500' :
+                'bg-green-50 border-green-500'
+              }`}>
+                <div className="flex items-start gap-2">
+                  <span className="text-lg">{reco.icon}</span>
+                  <div className="flex-1">
+                    <div className="font-medium text-sm text-gray-800">{reco.title}</div>
+                    <div className="text-xs text-gray-600 mt-0.5">{reco.detail}</div>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
 
-      {/* Détail charges fixes */}
+      {/* ══ Détail charges fixes ══ */}
       <div className="bg-white rounded-xl shadow-sm border p-4">
-        <h3 className="font-bold text-gray-700 mb-3">📊 Détail charges fixes mensuelles (calculé sur {analysis.nbMonths} mois)</h3>
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-          <div className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
-            <span>💰</span>
-            <div className="flex-1 text-xs text-gray-700">Salaires (paramètre)</div>
-            <div className="font-mono text-sm font-bold text-red-600">{fmt(config.salaires)}</div>
+        <details>
+          <summary className="font-bold text-gray-700 cursor-pointer hover:text-blue-600">
+            📋 Détail charges fixes — {fmt(analysis.avgFixed)}/mois (sur {analysis.nbMonths} mois)
+          </summary>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mt-3">
+            {analysis.fixedDetail.map((c, i) => (
+              <div key={i} className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
+                <span>{c.icon}</span>
+                <div className="flex-1 text-xs text-gray-700">{c.name}</div>
+                <div className="font-mono text-sm font-bold text-red-600">{fmt(c.monthly)}</div>
+              </div>
+            ))}
           </div>
-          <div className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
-            <span>🏛️</span>
-            <div className="flex-1 text-xs text-gray-700">URSSAF (paramètre)</div>
-            <div className="font-mono text-sm font-bold text-red-600">{fmt(config.urssaf)}</div>
-          </div>
-          {analysis.fixedDetail
-            .filter(d => !['Salaire Hicham', 'Salaire Maxime', 'Charges sociales (URSSAF)'].includes(d.name))
-            .map((c, i) => (
-            <div key={i} className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
-              <span>{c.icon}</span>
-              <div className="flex-1 text-xs text-gray-700">{c.name}</div>
-              <div className="font-mono text-sm font-bold text-red-600">{fmt(c.monthly)}</div>
-            </div>
-          ))}
-        </div>
-        <div className="mt-3 p-3 bg-red-50 rounded-lg border border-red-200 flex justify-between items-center">
-          <span className="font-bold text-red-800">Total charges fixes mensuelles</span>
-          <span className="font-mono text-xl font-bold text-red-700">{fmt(projections.totalFixedMonth)}</span>
-        </div>
-        <p className="text-xs text-gray-500 mt-2">💡 Pour atteindre {fmt(config.objectif)}, votre CA mensuel doit couvrir {fmt(projections.totalFixedMonth)} de charges fixes + dégager {fmt(requiredMonthly)} de bénéfice net</p>
-        <p className="text-xs text-gray-500">→ <b>CA minimum requis : {fmt(projections.totalFixedMonth + requiredMonthly)}/mois</b></p>
+        </details>
       </div>
     </div>
   )
