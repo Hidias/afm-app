@@ -1233,13 +1233,31 @@ function ImportTab({ loadAll, categories, rules, invoices, clients, transactions
     return txs
   }
 
-  // Détection de doublons : compare date + description + montant
+  // Détection de doublons : compare date + description normalisée + montant
   function checkDuplicates(parsedTxs) {
+    // Normalise : accents, apostrophes multiples, espaces
+    const normDesc = (s) => (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase()
+      .replace(/[''`´"]+/g, '').replace(/\s+/g, ' ').replace(/[^A-Z0-9 ]/g, '').trim()
+
     return parsedTxs.map(tx => {
-      const isDuplicate = (transactions || []).some(ex =>
-        ex.date === tx.date && ex.description === tx.description &&
-        Math.abs((ex.debit || 0) - tx.debit) < 0.01 && Math.abs((ex.credit || 0) - tx.credit) < 0.01
-      )
+      const txDesc = normDesc(tx.description)
+      const txAmount = tx.debit > 0 ? tx.debit : tx.credit
+
+      const isDuplicate = (transactions || []).some(ex => {
+        // Check 1 : même date + description normalisée + montant
+        const descMatch = ex.date === tx.date && normDesc(ex.description) === txDesc &&
+          Math.abs((ex.debit || 0) - tx.debit) < 0.01 && Math.abs((ex.credit || 0) - tx.credit) < 0.01
+        if (descMatch) return true
+
+        // Check 2 : même date + même montant + description contient les 15 premiers chars
+        const exAmount = (ex.debit || 0) > 0 ? (ex.debit || 0) : (ex.credit || 0)
+        if (ex.date === tx.date && Math.abs(exAmount - txAmount) < 0.01 && txAmount > 0) {
+          const short = txDesc.substring(0, 15)
+          if (short.length >= 10 && normDesc(ex.description).includes(short)) return true
+        }
+
+        return false
+      })
       return { ...tx, isDuplicate }
     })
   }
@@ -1277,6 +1295,10 @@ function ImportTab({ loadAll, categories, rules, invoices, clients, transactions
   function toggleRow(idx) { setSelectedRows(prev => { const n = new Set(prev); if (n.has(idx)) n.delete(idx); else n.add(idx); return n }) }
   function selectAllNew() { const s = new Set(); pre.forEach((tx, i) => { if (!tx.isDuplicate) s.add(i) }); setSelectedRows(s) }
   function selectNone() { setSelectedRows(new Set()) }
+
+  function changePreCategory(idx, catName) {
+    setPre(prev => prev.map((tx, i) => i === idx ? { ...tx, category_name: catName } : tx))
+  }
 
   async function doImport() {
     const toImport = pre.filter((_, i) => selectedRows.has(i))
@@ -1904,9 +1926,10 @@ function ImportTab({ loadAll, categories, rules, invoices, clients, transactions
                       <td className="px-2 py-1 whitespace-nowrap">{tx.date}</td>
                       <td className="px-2 py-1 truncate max-w-xs" title={tx.description}>{tx.description}</td>
                       <td className="px-2 py-1">
-                        <span className={`px-1.5 py-0.5 rounded text-xs ${tx.category_name === 'Autre / Non classé' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100'}`}>
-                          {tx.category_name}
-                        </span>
+                        <select value={tx.category_name} onChange={e => changePreCategory(i, e.target.value)}
+                          className={`text-xs rounded px-1 py-0.5 border-0 cursor-pointer ${tx.category_name === 'Autre / Non classé' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-700'}`}>
+                          {categories.map(cat => <option key={cat.id} value={cat.name}>{cat.icon} {cat.name}</option>)}
+                        </select>
                       </td>
                       <td className="px-2 py-1 text-right text-red-600 font-mono">{tx.debit > 0 ? tx.debit.toFixed(2) : ''}</td>
                       <td className="px-2 py-1 text-right text-green-600 font-mono">{tx.credit > 0 ? tx.credit.toFixed(2) : ''}</td>
