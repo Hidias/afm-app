@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
 import toast from 'react-hot-toast'
 
@@ -1268,15 +1268,7 @@ function ImportTab({ loadAll, categories, rules, invoices, clients, transactions
     reader.onload = (e) => {
       const text = e.target.result
       setCsv(text)
-      const parsed = checkDuplicates(parse(text))
-      setPre(parsed)
-      const newSet = new Set()
-      parsed.forEach((tx, i) => { if (!tx.isDuplicate) newSet.add(i) })
-      setSelectedRows(newSet)
-      const newCount = parsed.filter(t => !t.isDuplicate).length
-      const dupCount = parsed.filter(t => t.isDuplicate).length
-      if (parsed.length > 0) toast.success(`📊 ${parsed.length} lignes — ${newCount} nouvelles, ${dupCount} doublons`)
-      else toast.error('Aucune transaction détectée')
+      processCSV(text)
     }
     reader.readAsText(file, 'utf-8')
   }
@@ -1284,12 +1276,7 @@ function ImportTab({ loadAll, categories, rules, invoices, clients, transactions
   function handleCsvDrop(e) { e.preventDefault(); setCsvDragOver(false); if (e.dataTransfer.files[0]) handleCsvFile(e.dataTransfer.files[0]) }
   function handleCsvPaste() {
     if (!csv.trim()) return
-    const parsed = checkDuplicates(parse(csv))
-    setPre(parsed)
-    const newSet = new Set()
-    parsed.forEach((tx, i) => { if (!tx.isDuplicate) newSet.add(i) })
-    setSelectedRows(newSet)
-    toast.success(`${parsed.length} lignes — ${parsed.filter(t => !t.isDuplicate).length} nouvelles`)
+    processCSV(csv)
   }
 
   function toggleRow(idx) { setSelectedRows(prev => { const n = new Set(prev); if (n.has(idx)) n.delete(idx); else n.add(idx); return n }) }
@@ -1300,20 +1287,202 @@ function ImportTab({ loadAll, categories, rules, invoices, clients, transactions
     setPre(prev => prev.map((tx, i) => i === idx ? { ...tx, category_name: catName } : tx))
   }
 
+  // Détacher le match facture d'une ligne
+  function detachMatch(idx) {
+    setPre(prev => prev.map((tx, i) => i === idx ? { ...tx, matchedInvoices: [], matchConfidence: 'none', matchType: '' } : tx))
+  }
+
+  // Attacher manuellement des factures à une ligne crédit
+  function attachInvoices(idx, invIds) {
+    const invs = invIds.map(id => unpaidInvoices.find(inv => inv.id === id)).filter(Boolean).map(inv => {
+      const cli = (clients || []).find(c => c.id === inv.client_id)
+      return { id: inv.id, reference: inv.reference, client_name: cli?.name || '?', total_ttc: parseFloat(inv.total_ttc), amount_due: parseFloat(inv.amount_due) }
+    })
+    setPre(prev => prev.map((tx, i) => i === idx ? { ...tx, matchedInvoices: invs, matchConfidence: 'manual', matchType: 'Manuel' } : tx))
+  }
+
+  // ══ Auto-matching factures pour les lignes crédit ══
+  function autoMatchInvoices(parsedTxs) {
+    const norm = (s) => (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9 ]/g, '').replace(/\s+/g, ' ').trim()
+
+    return parsedTxs.map(tx => {
+      if (tx.credit <= 0 || tx.isDuplicate) return { ...tx, matchedInvoices: [], matchConfidence: 'none', matchType: '' }
+
+      const descUp = norm(tx.description)
+      const amount = tx.credit
+      let matchedInvoices = []
+      let matchConfidence = 'none'
+      let matchType = ''
+
+      // Stratégie 1 : référence facture dans le libellé (FACT-YYYYMMDD-XXXXX)
+      const refMatch = tx.description.match(/FACT[-_]?\d{6,8}[-_]?\d{3,5}/i)
+      if (refMatch) {
+        const ref = refMatch[0].toUpperCase().replace(/[_]/g, '-')
+        const inv = unpaidInvoices.find(u => u.reference?.toUpperCase().includes(ref.replace(/-/g, '').slice(-5)) || u.reference?.toUpperCase() === ref)
+        if (inv) {
+          const cli = (clients || []).find(c => c.id === inv.client_id)
+          matchedInvoices = [{ id: inv.id, reference: inv.reference, client_name: cli?.name || '?', total_ttc: parseFloat(inv.total_ttc), amount_due: parseFloat(inv.amount_due) }]
+          matchConfidence = Math.abs(parseFloat(inv.amount_due) - amount) < 0.01 ? 'high' : 'medium'
+          matchType = 'Référence'
+        }
+      }
+
+      // Stratégie 2 : montant exact unique
+      if (matchedInvoices.length === 0) {
+        const amountMatches = unpaidInvoices.filter(u => Math.abs(parseFloat(u.amount_due) - amount) < 0.01)
+        if (amountMatches.length === 1) {
+          const inv = amountMatches[0]
+          const cli = (clients || []).find(c => c.id === inv.client_id)
+          matchedInvoices = [{ id: inv.id, reference: inv.reference, client_name: cli?.name || '?', total_ttc: parseFloat(inv.total_ttc), amount_due: parseFloat(inv.amount_due) }]
+          matchConfidence = 'high'
+          matchType = 'Montant exact'
+        } else if (amountMatches.length > 1) {
+          // Plusieurs factures au même montant → chercher nom client dans description
+          const bestMatch = amountMatches.find(u => {
+            const cli = (clients || []).find(c => c.id === u.client_id)
+            if (!cli) return false
+            const cliWords = norm(cli.name).split(/\s+/).filter(w => w.length > 3)
+            return cliWords.some(w => descUp.includes(w))
+          })
+          if (bestMatch) {
+            const cli = (clients || []).find(c => c.id === bestMatch.client_id)
+            matchedInvoices = [{ id: bestMatch.id, reference: bestMatch.reference, client_name: cli?.name || '?', total_ttc: parseFloat(bestMatch.total_ttc), amount_due: parseFloat(bestMatch.amount_due) }]
+            matchConfidence = 'high'
+            matchType = 'Montant + client'
+          } else {
+            // Ambiguïté
+            matchedInvoices = amountMatches.slice(0, 3).map(inv => {
+              const cli = (clients || []).find(c => c.id === inv.client_id)
+              return { id: inv.id, reference: inv.reference, client_name: cli?.name || '?', total_ttc: parseFloat(inv.total_ttc), amount_due: parseFloat(inv.amount_due) }
+            })
+            matchConfidence = 'ambiguous'
+            matchType = `${amountMatches.length} factures au même montant`
+          }
+        }
+      }
+
+      // Stratégie 3 : nom client dans le libellé → ses factures impayées
+      if (matchedInvoices.length === 0) {
+        for (const cli of (clients || [])) {
+          const cliWords = norm(cli.name).split(/\s+/).filter(w => w.length > 3)
+          const descWords = descUp.split(/\s+/).filter(w => w.length > 3)
+          const clientMatch = cliWords.some(w => descUp.includes(w)) || descWords.some(w => norm(cli.name).includes(w))
+          if (clientMatch) {
+            const cliInvoices = unpaidInvoices.filter(u => u.client_id === cli.id)
+            if (cliInvoices.length > 0) {
+              // Chercher combinaison qui atteint le montant exact
+              const exactSingle = cliInvoices.find(u => Math.abs(parseFloat(u.amount_due) - amount) < 0.01)
+              if (exactSingle) {
+                matchedInvoices = [{ id: exactSingle.id, reference: exactSingle.reference, client_name: cli.name, total_ttc: parseFloat(exactSingle.total_ttc), amount_due: parseFloat(exactSingle.amount_due) }]
+                matchConfidence = 'high'
+                matchType = 'Client + montant'
+              } else {
+                // Toutes les factures du client comme candidats
+                matchedInvoices = cliInvoices.slice(0, 5).map(inv => ({
+                  id: inv.id, reference: inv.reference, client_name: cli.name, total_ttc: parseFloat(inv.total_ttc), amount_due: parseFloat(inv.amount_due)
+                }))
+                matchConfidence = 'medium'
+                matchType = `Client détecté (${cli.name})`
+              }
+              break
+            }
+          }
+        }
+      }
+
+      return { ...tx, matchedInvoices, matchConfidence, matchType }
+    })
+  }
+
+  // Sélection d'une facture parmi les candidats ambigus
+  function pickInvoice(rowIdx, invoiceId) {
+    setPre(prev => prev.map((tx, i) => {
+      if (i !== rowIdx) return tx
+      const picked = tx.matchedInvoices.find(m => m.id === invoiceId)
+      if (!picked) return tx
+      return { ...tx, matchedInvoices: [picked], matchConfidence: 'high', matchType: 'Sélection manuelle' }
+    }))
+  }
+
+  // ══ Process complet : parse → dedup → match ══
+  function processCSV(text) {
+    const parsed = autoMatchInvoices(checkDuplicates(parse(text)))
+    setPre(parsed)
+    const newSet = new Set()
+    parsed.forEach((tx, i) => { if (!tx.isDuplicate) newSet.add(i) })
+    setSelectedRows(newSet)
+    const newCount = parsed.filter(t => !t.isDuplicate).length
+    const dupCount = parsed.filter(t => t.isDuplicate).length
+    const matchedCount = parsed.filter(t => t.matchConfidence === 'high').length
+    if (parsed.length > 0) toast.success(`📊 ${parsed.length} lignes — ${newCount} nouvelles, ${matchedCount} rapprochements`)
+    else toast.error('Aucune transaction détectée')
+    return parsed
+  }
+
   async function doImport() {
     const toImport = pre.filter((_, i) => selectedRows.has(i))
     if (!toImport.length) { toast.error('Aucune ligne sélectionnée'); return }
     setImp(true)
+    let imported = 0, reconciled = 0, errors = []
     try {
-      const rows = toImport.map(tx => {
+      for (const tx of toImport) {
         const cat = categories.find(c => c.name === tx.category_name)
-        return { date: tx.date, description: tx.description, debit: tx.debit, credit: tx.credit, category_id: cat?.id || null, category_name: tx.category_name, month: tx.month, year: tx.year, source_file: 'import_csv_cmb', payer: 'entreprise', is_manual: false, is_personal: false }
-      })
-      for (let i = 0; i < rows.length; i += 50) {
-        const { error } = await supabase.from('budget_transactions').insert(rows.slice(i, i + 50))
-        if (error) throw error
+        const hasMatch = tx.credit > 0 && tx.matchConfidence === 'high' && tx.matchedInvoices?.length > 0
+
+        // 1. Créer la transaction budget
+        const txRow = {
+          date: tx.date, description: tx.description, debit: tx.debit, credit: tx.credit,
+          category_id: cat?.id || null, category_name: tx.category_name,
+          month: tx.month, year: tx.year, source_file: 'import_csv_cmb',
+          payer: 'entreprise', is_manual: false, is_personal: false,
+          linked_invoice_id: hasMatch ? tx.matchedInvoices[0].id : null,
+          reconciled_at: hasMatch ? new Date().toISOString() : null,
+        }
+        const { data: insertedTx, error: txErr } = await supabase.from('budget_transactions').insert(txRow).select('id').single()
+        if (txErr) { errors.push(`TX ${tx.description}: ${txErr.message}`); continue }
+        imported++
+
+        // 2. Si match haute confiance → rapprocher les factures
+        if (hasMatch) {
+          let remaining = tx.credit
+          for (const inv of tx.matchedInvoices) {
+            if (remaining <= 0) break
+            const payAmount = Math.min(remaining, inv.amount_due)
+            remaining -= payAmount
+
+            // Créer le paiement
+            const { error: payErr } = await supabase.from('invoice_payments').insert({
+              invoice_id: inv.id,
+              amount: payAmount,
+              payment_date: tx.date,
+              payment_method: 'virement bancaire',
+              payment_reference: tx.description.substring(0, 100),
+              notes: `Import CSV — ${tx.description.substring(0, 80)}`,
+              created_by: 'Import CSV CMB',
+            })
+            if (payErr) { errors.push(`Paiement ${inv.reference}: ${payErr.message}`); continue }
+
+            // Mettre à jour la facture
+            const newPaid = (parseFloat(inv.total_ttc) - inv.amount_due) + payAmount
+            const newDue = inv.amount_due - payAmount
+            const newStatus = newDue <= 0.01 ? 'paid' : 'partial'
+            await supabase.from('invoices').update({
+              amount_paid: newPaid,
+              amount_due: Math.max(0, newDue),
+              status: newStatus,
+              updated_at: new Date().toISOString(),
+            }).eq('id', inv.id)
+
+            reconciled++
+          }
+        }
       }
-      toast.success(`✅ ${rows.length} transactions importées (${pre.length - rows.length} doublons ignorés)`)
+
+      const msg = [`✅ ${imported} transactions importées`]
+      if (reconciled > 0) msg.push(`🔗 ${reconciled} facture(s) rapprochée(s)`)
+      if (errors.length > 0) msg.push(`⚠️ ${errors.length} erreur(s)`)
+      toast.success(msg.join(' — '))
+      if (errors.length > 0) console.warn('Import errors:', errors)
       setCsv(''); setPre([]); setSelectedRows(new Set()); loadAll()
     } catch (e) { toast.error('Erreur: ' + (e.message || '')) }
     setImp(false)
@@ -1884,15 +2053,19 @@ function ImportTab({ loadAll, categories, rules, invoices, clients, transactions
       {pre.length > 0 && (() => {
         const newCount = pre.filter(t => !t.isDuplicate).length
         const dupCount = pre.filter(t => t.isDuplicate).length
+        const matchedCount = pre.filter(t => t.matchConfidence === 'high').length
+        const ambiguousCount = pre.filter(t => t.matchConfidence === 'ambiguous' || t.matchConfidence === 'medium').length
         const selectedCount = selectedRows.size
         return (
           <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
             {/* Header avec stats */}
             <div className="px-4 py-3 bg-gradient-to-r from-blue-50 to-green-50 border-b flex items-center justify-between flex-wrap gap-2">
-              <div className="flex items-center gap-3">
-                <span className="text-sm font-bold text-gray-700">📊 {pre.length} transactions détectées</span>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-sm font-bold text-gray-700">📊 {pre.length} transactions</span>
                 <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">{newCount} nouvelles</span>
                 {dupCount > 0 && <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">{dupCount} doublons</span>}
+                {matchedCount > 0 && <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">🔗 {matchedCount} rapprochées</span>}
+                {ambiguousCount > 0 && <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">❓ {ambiguousCount} à vérifier</span>}
               </div>
               <div className="flex gap-2">
                 <button onClick={selectAllNew} className="text-xs text-blue-600 hover:underline">Sélectionner nouvelles</button>
@@ -1916,45 +2089,102 @@ function ImportTab({ loadAll, categories, rules, invoices, clients, transactions
                 </thead>
                 <tbody>
                   {pre.map((tx, i) => (
-                    <tr key={i} onClick={() => toggleRow(i)}
-                      className={`border-t cursor-pointer transition-colors
-                        ${tx.isDuplicate ? 'bg-amber-50/50 opacity-60' : selectedRows.has(i) ? 'bg-blue-50' : 'hover:bg-gray-50'}`}>
-                      <td className="px-2 py-1">
-                        <input type="checkbox" checked={selectedRows.has(i)} onChange={() => toggleRow(i)}
-                          className="rounded text-blue-600" />
-                      </td>
-                      <td className="px-2 py-1 whitespace-nowrap">{tx.date}</td>
-                      <td className="px-2 py-1 truncate max-w-xs" title={tx.description}>{tx.description}</td>
-                      <td className="px-2 py-1">
-                        <select value={tx.category_name} onChange={e => changePreCategory(i, e.target.value)}
-                          className={`text-xs rounded px-1 py-0.5 border-0 cursor-pointer ${tx.category_name === 'Autre / Non classé' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-700'}`}>
-                          {categories.map(cat => <option key={cat.id} value={cat.name}>{cat.icon} {cat.name}</option>)}
-                        </select>
-                      </td>
-                      <td className="px-2 py-1 text-right text-red-600 font-mono">{tx.debit > 0 ? tx.debit.toFixed(2) : ''}</td>
-                      <td className="px-2 py-1 text-right text-green-600 font-mono">{tx.credit > 0 ? tx.credit.toFixed(2) : ''}</td>
-                      <td className="px-2 py-1 text-center">
-                        {tx.isDuplicate
-                          ? <span className="text-xs bg-amber-200 text-amber-800 px-1.5 py-0.5 rounded">doublon</span>
-                          : <span className="text-xs bg-green-200 text-green-800 px-1.5 py-0.5 rounded">nouvelle</span>
-                        }
-                      </td>
-                    </tr>
+                    <React.Fragment key={i}>
+                      <tr onClick={() => toggleRow(i)}
+                        className={`border-t cursor-pointer transition-colors
+                          ${tx.isDuplicate ? 'bg-amber-50/50 opacity-60' : selectedRows.has(i) ? 'bg-blue-50' : 'hover:bg-gray-50'}`}>
+                        <td className="px-2 py-1">
+                          <input type="checkbox" checked={selectedRows.has(i)} onChange={() => toggleRow(i)}
+                            className="rounded text-blue-600" />
+                        </td>
+                        <td className="px-2 py-1 whitespace-nowrap">{tx.date}</td>
+                        <td className="px-2 py-1 truncate max-w-xs" title={tx.description}>{tx.description}</td>
+                        <td className="px-2 py-1" onClick={e => e.stopPropagation()}>
+                          <select value={tx.category_name} onChange={e => changePreCategory(i, e.target.value)}
+                            className={`text-xs rounded px-1 py-0.5 border-0 cursor-pointer ${tx.category_name === 'Autre / Non classé' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-700'}`}>
+                            {categories.map(cat => <option key={cat.id} value={cat.name}>{cat.icon} {cat.name}</option>)}
+                          </select>
+                        </td>
+                        <td className="px-2 py-1 text-right text-red-600 font-mono">{tx.debit > 0 ? tx.debit.toFixed(2) : ''}</td>
+                        <td className="px-2 py-1 text-right text-green-600 font-mono">{tx.credit > 0 ? tx.credit.toFixed(2) : ''}</td>
+                        <td className="px-2 py-1 text-center">
+                          {tx.isDuplicate
+                            ? <span className="text-xs bg-amber-200 text-amber-800 px-1.5 py-0.5 rounded">doublon</span>
+                            : tx.matchConfidence === 'high'
+                              ? <span className="text-xs bg-blue-200 text-blue-800 px-1.5 py-0.5 rounded">🔗 rapprochée</span>
+                              : tx.matchConfidence === 'medium' || tx.matchConfidence === 'ambiguous'
+                                ? <span className="text-xs bg-purple-200 text-purple-800 px-1.5 py-0.5 rounded">❓ à vérifier</span>
+                                : tx.credit > 0
+                                  ? <span className="text-xs bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded">pas de match</span>
+                                  : <span className="text-xs bg-green-200 text-green-800 px-1.5 py-0.5 rounded">nouvelle</span>
+                          }
+                        </td>
+                      </tr>
+                      {/* Ligne de détail match pour les crédits */}
+                      {tx.credit > 0 && !tx.isDuplicate && tx.matchedInvoices?.length > 0 && (
+                        <tr className="bg-blue-50/30">
+                          <td></td>
+                          <td colSpan="6" className="px-2 py-1.5" onClick={e => e.stopPropagation()}>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-xs text-gray-500">
+                                {tx.matchConfidence === 'high' ? '🟢' : tx.matchConfidence === 'ambiguous' ? '🟡' : '🟠'} {tx.matchType} →
+                              </span>
+                              {tx.matchConfidence === 'ambiguous' ? (
+                                // Plusieurs candidats : boutons de sélection
+                                tx.matchedInvoices.map(inv => (
+                                  <button key={inv.id} onClick={() => pickInvoice(i, inv.id)}
+                                    className="text-xs border border-blue-300 bg-white rounded px-2 py-0.5 hover:bg-blue-100 transition-colors">
+                                    {inv.reference} — {inv.client_name} — {fmt(inv.amount_due)}
+                                  </button>
+                                ))
+                              ) : (
+                                // Match unique
+                                tx.matchedInvoices.map(inv => (
+                                  <span key={inv.id} className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-medium">
+                                    {inv.reference} — {inv.client_name} — {fmt(inv.amount_due)}
+                                    {Math.abs(inv.amount_due - tx.credit) > 0.01 && (
+                                      <span className="ml-1 text-amber-600">(due: {fmt(inv.amount_due)}, reçu: {fmt(tx.credit)})</span>
+                                    )}
+                                  </span>
+                                ))
+                              )}
+                              {tx.matchConfidence !== 'none' && (
+                                <button onClick={() => detachMatch(i)} className="text-xs text-red-400 hover:text-red-600" title="Détacher">✕</button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
                   ))}
                 </tbody>
               </table>
             </div>
 
             {/* Footer import */}
-            <div className="px-4 py-3 bg-gray-50 border-t flex items-center justify-between">
-              <span className="text-sm text-gray-600">{selectedCount} ligne(s) sélectionnée(s)</span>
-              <div className="flex gap-2">
-                <button onClick={() => { setPre([]); setCsv(''); setSelectedRows(new Set()) }}
-                  className="px-4 py-2 border rounded-lg text-sm text-gray-600 hover:bg-gray-100">Annuler</button>
-                <button onClick={doImport} disabled={imp || selectedCount === 0}
-                  className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50 hover:bg-blue-700">
-                  {imp ? '⏳ Import en cours...' : `✅ Importer ${selectedCount} transaction(s)`}
-                </button>
+            <div className="px-4 py-3 bg-gray-50 border-t">
+              {/* Récap rapprochement */}
+              {matchedCount > 0 && (
+                <div className="mb-3 p-2 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-700 space-y-1">
+                  <div className="font-medium">🔗 Rapprochement automatique :</div>
+                  {pre.filter(t => selectedRows.has(pre.indexOf(t)) && t.matchConfidence === 'high' && t.matchedInvoices?.length > 0).map((tx, j) => (
+                    <div key={j} className="flex justify-between">
+                      <span>{tx.matchedInvoices[0]?.reference} — {tx.matchedInvoices[0]?.client_name}</span>
+                      <span className="font-medium">{fmt(tx.credit)} {Math.abs((tx.matchedInvoices[0]?.amount_due || 0) - tx.credit) < 0.01 ? '→ Payée ✅' : '→ Partiel'}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-gray-600">{selectedCount} ligne(s) sélectionnée(s)</span>
+                <div className="flex gap-2">
+                  <button onClick={() => { setPre([]); setCsv(''); setSelectedRows(new Set()) }}
+                    className="px-4 py-2 border rounded-lg text-sm text-gray-600 hover:bg-gray-100">Annuler</button>
+                  <button onClick={doImport} disabled={imp || selectedCount === 0}
+                    className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50 hover:bg-blue-700">
+                    {imp ? '⏳ Import en cours...' : `✅ Importer ${selectedCount} transaction(s)${matchedCount > 0 ? ` + ${matchedCount} rapprochement(s)` : ''}`}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
