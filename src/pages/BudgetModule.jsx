@@ -62,7 +62,7 @@ export default function BudgetModule() {
       supabase.from('budget_rules').select('*, budget_categories(name, icon)').order('keyword'),
       supabase.from('budget_receipts').select('*'),
       supabase.from('invoices').select('*, clients(name)').order('invoice_date', { ascending: false }),
-      supabase.from('clients').select('id,name,siret,status,city,phone,contact_email').order('name'),
+      supabase.from('clients').select('*').order('name'),
     ])
     if (txR.data) setTransactions(txR.data)
     if (catR.data) setCategories(catR.data)
@@ -3347,8 +3347,8 @@ function ClientSearchForMatch({ clients: clientsProp, invoices: invoicesProp, un
       }
       console.log('[ClientSearch] Props vides, chargement direct...', { clientsProp: clientsProp?.length, invoicesProp: invoicesProp?.length })
       const [cR, iR] = await Promise.all([
-        supabase.from('clients').select('id,name,siret,status,city,phone,contact_email').order('name'),
-        supabase.from('invoices').select('id,reference,client_id,total_ttc,amount_due,amount_paid,status,invoice_date,object').order('invoice_date', { ascending: false }),
+        supabase.from('clients').select('*').order('name'),
+        supabase.from('invoices').select('*').order('invoice_date', { ascending: false }),
       ])
       if (cR.data) setLocalClients(cR.data)
       if (iR.data) setLocalInvoices(iR.data)
