@@ -1193,7 +1193,6 @@ function ImportTab({ loadAll, categories, rules, invoices, clients }) {
   const [matchCandidates, setMatchCandidates] = useState([])
   const [matchSelected, setMatchSelected] = useState(new Set())
   const [matchAllocations, setMatchAllocations] = useState({})
-  const [matchClientSearch, setMatchClientSearch] = useState('')
   const [matchStep, setMatchStep] = useState('auto') // auto | select_client | select_invoices
 
   // Factures non payées
@@ -1628,47 +1627,13 @@ function ImportTab({ loadAll, categories, rules, invoices, clients }) {
             <div className="overflow-y-auto flex-1 p-4 space-y-4">
               {/* Étape : sélection client */}
               {matchStep === 'select_client' && (
-                <div>
-                  <p className="text-sm text-gray-700 mb-2">Client non identifié automatiquement. Sélectionnez le client :</p>
-                  <input type="text" value={matchClientSearch} onChange={e => setMatchClientSearch(e.target.value)}
-                    placeholder="🔍 Rechercher un client..." className="w-full border rounded-lg px-3 py-2 text-sm mb-2" autoFocus />
-                  <div className="max-h-60 overflow-y-auto space-y-1">
-                    {(clients || [])
-                      .filter(c => {
-                        const s = (matchClientSearch || '').toUpperCase()
-                        // Sans recherche : tous les clients qui ont des factures (payées ou non)
-                        if (!s) return (invoices || []).some(inv => inv.client_id === c.id)
-                        // Avec recherche : chercher dans nom, siret, et aussi dans les ref factures
-                        const nameMatch = c.name?.toUpperCase().includes(s)
-                        const siretMatch = c.siret?.includes(s)
-                        // Cherche aussi les mots séparément (OPCO 2I → OPCO et 2I)
-                        const words = s.split(/\s+/).filter(w => w.length >= 2)
-                        const wordMatch = words.length > 0 && words.every(w => c.name?.toUpperCase().includes(w))
-                        return nameMatch || siretMatch || wordMatch
-                      })
-                      .sort((a, b) => {
-                        // Trier : clients avec factures impayées en premier
-                        const aUnpaid = unpaidInvoices.filter(inv => inv.client_id === a.id).length
-                        const bUnpaid = unpaidInvoices.filter(inv => inv.client_id === b.id).length
-                        if (bUnpaid !== aUnpaid) return bUnpaid - aUnpaid
-                        return (a.name || '').localeCompare(b.name || '')
-                      })
-                      .slice(0, 25)
-                      .map(c => {
-                        const invCount = unpaidInvoices.filter(inv => inv.client_id === c.id).length
-                        const allInvCount = (invoices || []).filter(inv => inv.client_id === c.id).length
-                        return (
-                          <button key={c.id} onClick={() => handleSelectClient(c.id)}
-                            className="w-full text-left p-2 border rounded-lg hover:bg-blue-50 hover:border-blue-300 transition-colors text-sm">
-                            <span className="font-medium">{c.name}</span>
-                            {invCount > 0 && <span className="ml-2 text-xs text-green-600 bg-green-50 px-1.5 py-0.5 rounded">{invCount} en attente</span>}
-                            {invCount === 0 && allInvCount > 0 && <span className="ml-2 text-xs text-gray-400">{allInvCount} facture(s) — toutes réglées</span>}
-                            {allInvCount === 0 && <span className="ml-2 text-xs text-gray-300">Aucune facture</span>}
-                          </button>
-                        )
-                      })}
-                  </div>
-                </div>
+                <ClientSearchForMatch
+                  clients={clients || []}
+                  invoices={invoices || []}
+                  unpaidInvoices={unpaidInvoices}
+                  bankDescription={matchTx?.description || ''}
+                  onSelect={handleSelectClient}
+                />
               )}
 
               {/* Étape : sélection factures */}
@@ -3362,6 +3327,116 @@ function RecommandationsTab({ transactions, categories }) {
 // ════════════════════════════════════════════════════════════
 // MODAL INVITÉS REPAS (rétroactif depuis Transactions ou Saisie)
 // ════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════
+// CLIENT SEARCH — Recherche intelligente pour rapprochement
+// ════════════════════════════════════════════════════════════
+function ClientSearchForMatch({ clients, invoices, unpaidInvoices, bankDescription, onSelect }) {
+  const [search, setSearch] = useState('')
+
+  // Extraire des mots-clés utiles du libellé bancaire
+  const bankWords = useMemo(() => {
+    const desc = (bankDescription || '').toUpperCase()
+    // Supprimer les mots bancaires courants et les nombres
+    return desc
+      .replace(/VIR\b|CHQ\b|PRLV\b|REM\b|SEPA|INST|BRET|FACT[-\d]*|\d{5,}|[,.]?\d+[,.]\d+|\b\d+\b/g, ' ')
+      .split(/[\s\-_\/]+/)
+      .filter(w => w.length >= 3)
+      .filter((w, i, arr) => arr.indexOf(w) === i) // unique
+  }, [bankDescription])
+
+  // Scoring de pertinence pour chaque client
+  const scoredClients = useMemo(() => {
+    const s = search.toUpperCase().trim()
+    const searchWords = s ? s.split(/\s+/).filter(w => w.length >= 2) : []
+
+    return clients.map(c => {
+      const name = (c.name || '').toUpperCase()
+      const nameWords = name.split(/[\s\-_]+/)
+      let score = 0
+
+      // Score basé sur la recherche utilisateur
+      if (s) {
+        if (name.includes(s)) score += 100
+        if (name.startsWith(s)) score += 50
+        // Chaque mot de recherche trouvé
+        for (const sw of searchWords) {
+          if (name.includes(sw)) score += 30
+          // Match partiel (les 4 premiers chars)
+          if (sw.length >= 4 && nameWords.some(nw => nw.startsWith(sw.substring(0, 4)))) score += 15
+        }
+      }
+
+      // Score basé sur les mots du libellé bancaire (auto-suggest)
+      for (const bw of bankWords) {
+        if (name.includes(bw)) score += 20
+        if (nameWords.some(nw => nw === bw)) score += 10
+      }
+
+      // Bonus si factures impayées
+      const unpaidCount = unpaidInvoices.filter(inv => inv.client_id === c.id).length
+      const allInvCount = invoices.filter(inv => inv.client_id === c.id).length
+      if (unpaidCount > 0) score += 15
+      if (allInvCount > 0) score += 5
+
+      return { ...c, score, unpaidCount, allInvCount }
+    })
+    .filter(c => {
+      // Sans recherche : montrer les clients avec score > 0 (match libellé ou factures)
+      if (!s) return c.score > 0 || c.allInvCount > 0
+      // Avec recherche : montrer si score > 0
+      return c.score > 0
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 30)
+  }, [clients, search, bankWords, invoices, unpaidInvoices])
+
+  return (
+    <div>
+      <p className="text-sm text-gray-700 mb-2">Sélectionnez le client :</p>
+
+      {/* Mots-clés extraits du libellé */}
+      {bankWords.length > 0 && (
+        <div className="flex flex-wrap gap-1 mb-2">
+          <span className="text-xs text-gray-400">Mots détectés :</span>
+          {bankWords.slice(0, 8).map((w, i) => (
+            <button key={i} onClick={() => setSearch(w)}
+              className="text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded hover:bg-blue-100 cursor-pointer">{w}</button>
+          ))}
+        </div>
+      )}
+
+      <input type="text" value={search} onChange={e => setSearch(e.target.value)}
+        placeholder="🔍 Rechercher un client (nom, SIRET, mot-clé)..."
+        className="w-full border-2 border-blue-300 rounded-lg px-3 py-2 text-sm mb-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-500" autoFocus />
+
+      <div className="max-h-64 overflow-y-auto space-y-1">
+        {scoredClients.length === 0 ? (
+          <div className="text-center py-6 text-gray-400">
+            <p className="text-sm">{search ? `Aucun client trouvé pour "${search}"` : 'Aucun client trouvé'}</p>
+            <p className="text-xs mt-1">Tapez un nom ou un mot du libellé bancaire</p>
+          </div>
+        ) : (
+          scoredClients.map(c => (
+            <button key={c.id} onClick={() => onSelect(c.id)}
+              className={`w-full text-left p-2.5 border rounded-lg hover:bg-blue-50 hover:border-blue-300 transition-colors text-sm
+                ${c.score >= 20 ? 'border-blue-200 bg-blue-50/50' : ''}`}>
+              <div className="flex items-center justify-between">
+                <span className="font-medium">{c.name}</span>
+                <div className="flex gap-1">
+                  {c.score >= 20 && <span className="text-xs bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded">🎯 suggestion</span>}
+                  {c.unpaidCount > 0 && <span className="text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded">{c.unpaidCount} en attente</span>}
+                  {c.unpaidCount === 0 && c.allInvCount > 0 && <span className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">{c.allInvCount} fact.</span>}
+                </div>
+              </div>
+              {c.city && <span className="text-xs text-gray-400">{c.city}</span>}
+            </button>
+          ))
+        )}
+      </div>
+    </div>
+  )
+}
+
 function MealGuestModal({ transactionId, transaction, clients, onClose, onSaved }) {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
