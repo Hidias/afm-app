@@ -767,9 +767,42 @@ function ComptableTab({ transactions, receipts, loadAll }) {
 function DashboardTab({ stats, months, categories }) {
   const sm = months.slice().sort()
   const mx = Math.max(...sm.map(m => Math.max(stats.byMonth[m]?.debit||0, stats.byMonth[m]?.credit||0)), 1)
-  const cs = Object.entries(stats.byCat).filter(([_,v])=>v.debit>0).sort((a,b)=>b[1].debit-a[1].debit)
-  const mc = cs.length>0?cs[0][1].debit:1
-  const rc = Object.entries(stats.byCat).filter(([n,v])=>v.credit>0&&!['Prêts (réception)','Apports associés','Trésorerie interne'].includes(n)).sort((a,b)=>b[1].credit-a[1].credit)
+
+  // Catégories à exclure des totaux (transferts internes)
+  const EXCLUDE = ['Trésorerie interne', 'Prêts (réception)', 'Apports associés']
+
+  // Dépenses : catégories direction "depense" ou "both" avec des débits, hors exclues
+  const cs = Object.entries(stats.byCat)
+    .filter(([n, v]) => {
+      if (EXCLUDE.includes(n)) return false
+      const cat = categories.find(c => c.name === n)
+      return v.debit > 0 && cat?.direction !== 'recette'
+    })
+    .sort((a, b) => b[1].debit - a[1].debit)
+  const mc = cs.length > 0 ? cs[0][1].debit : 1
+
+  // Revenus : catégories direction "recette" avec des crédits
+  const rc = Object.entries(stats.byCat)
+    .filter(([n, v]) => {
+      if (EXCLUDE.includes(n)) return false
+      const cat = categories.find(c => c.name === n)
+      return v.credit > 0 && cat?.direction === 'recette'
+    })
+    .sort((a, b) => b[1].credit - a[1].credit)
+
+  // Remboursements : catégories non-recette avec des crédits (URSSAF, assurances etc.)
+  const remb = Object.entries(stats.byCat)
+    .filter(([n, v]) => {
+      if (EXCLUDE.includes(n)) return false
+      const cat = categories.find(c => c.name === n)
+      return v.credit > 0 && cat?.direction !== 'recette'
+    })
+    .sort((a, b) => b[1].credit - a[1].credit)
+  const totalRemb = remb.reduce((s, [, v]) => s + v.credit, 0)
+
+  // Transferts internes (info)
+  const transferts = Object.entries(stats.byCat).filter(([n]) => EXCLUDE.includes(n))
+  const totalTransferts = transferts.reduce((s, [, v]) => s + v.debit, 0)
 
   return (
     <div className="space-y-4">
@@ -799,11 +832,31 @@ function DashboardTab({ stats, months, categories }) {
           <h3 className="font-bold text-gray-700 mb-3">🔴 Dépenses</h3>
           <div className="space-y-1.5">{cs.slice(0,15).map(([n,v])=>{const cat=categories.find(c=>c.name===n);return(
             <div key={n} className="flex items-center gap-2"><span className="text-sm w-5">{cat?.icon||'📁'}</span><div className="flex-1"><div className="flex justify-between text-xs"><span className="text-gray-700 truncate">{n}</span><span className="text-red-600 font-medium ml-2">{fmtS(v.debit)}</span></div><div className="bg-gray-100 rounded-full h-1.5 mt-0.5"><div className="bg-red-400 rounded-full h-1.5" style={{width:`${(v.debit/mc)*100}%`}}/></div></div></div>)})}</div>
+          {totalTransferts > 0 && (
+            <div className="mt-3 pt-3 border-t text-xs text-gray-400 flex justify-between">
+              <span>🔄 Hors transferts internes</span><span>{fmtS(totalTransferts)} exclus</span>
+            </div>
+          )}
         </div>
         <div className="bg-white rounded-xl shadow-sm border p-4">
-          <h3 className="font-bold text-gray-700 mb-3">🟢 Revenus</h3>
+          <h3 className="font-bold text-gray-700 mb-3">🟢 Revenus (CA)</h3>
           {rc.length>0?(<div className="space-y-1.5">{rc.map(([n,v])=>{const cat=categories.find(c=>c.name===n);return(
             <div key={n} className="flex items-center gap-2"><span className="text-sm w-5">{cat?.icon||'📁'}</span><div className="flex-1"><div className="flex justify-between text-xs"><span className="text-gray-700 truncate">{n}</span><span className="text-green-600 font-medium ml-2">{fmtS(v.credit)}</span></div><div className="bg-gray-100 rounded-full h-1.5 mt-0.5"><div className="bg-green-400 rounded-full h-1.5" style={{width:`${(v.credit/rc[0][1].credit)*100}%`}}/></div></div></div>)})}</div>):<div className="text-center py-8 text-gray-400">-</div>}
+
+          {/* Remboursements séparés */}
+          {remb.length > 0 && totalRemb > 10 && (
+            <div className="mt-4 pt-3 border-t">
+              <h4 className="text-xs font-medium text-gray-500 mb-2">↩️ Remboursements & rétrocessions</h4>
+              <div className="space-y-1">{remb.filter(([,v]) => v.credit > 10).map(([n,v])=>{const cat=categories.find(c=>c.name===n);return(
+                <div key={n} className="flex items-center justify-between text-xs">
+                  <span className="text-gray-500">{cat?.icon||'📁'} {n}</span>
+                  <span className="text-blue-600 font-medium">{fmtS(v.credit)}</span>
+                </div>)})}</div>
+              <div className="flex justify-between text-xs font-medium mt-1 pt-1 border-t border-dashed text-blue-700">
+                <span>Total remboursements</span><span>{fmtS(totalRemb)}</span>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
