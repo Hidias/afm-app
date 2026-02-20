@@ -218,7 +218,44 @@ export default function Invoices() {
   const handleDelete = async (id) => { if(!confirm('Supprimer ?'))return; await supabase.from('invoice_items').delete().eq('invoice_id',id); await supabase.from('invoice_payments').delete().eq('invoice_id',id); await supabase.from('invoices').delete().eq('id',id); toast.success('Supprimée'); loadAll() }
 
   // ─── Status ───
-  const handleStatus = async (id,s) => { await supabase.from('invoices').update({status:s,updated_at:new Date().toISOString()}).eq('id',id); toast.success('Statut mis à jour'); loadAll() }
+  const handleStatus = async (id, s) => {
+    const inv = invoices.find(i => i.id === id)
+    const updateData = { status: s, updated_at: new Date().toISOString() }
+
+    // Si on passe en "paid" → mettre à jour amount_paid/amount_due + créer le paiement
+    if (s === 'paid' && inv) {
+      const ttc = parseFloat(inv.total_ttc) || 0
+      const alreadyPaid = parseFloat(inv.amount_paid) || 0
+      const remaining = ttc - alreadyPaid
+
+      updateData.amount_paid = ttc
+      updateData.amount_due = 0
+
+      // Créer un enregistrement de paiement pour le solde restant
+      if (remaining > 0.01) {
+        await supabase.from('invoice_payments').insert({
+          invoice_id: id,
+          amount: remaining,
+          payment_date: format(new Date(), 'yyyy-MM-dd'),
+          payment_method: inv.payment_method || 'virement bancaire',
+          payment_reference: '',
+          notes: 'Marquée payée manuellement',
+          created_by: inv.created_by || 'Hicham Saidi',
+        })
+      }
+    }
+
+    // Si on repasse en draft/sent/due depuis paid → remettre les montants (annulation)
+    if (['draft', 'sent', 'due'].includes(s) && inv?.status === 'paid') {
+      updateData.amount_paid = 0
+      updateData.amount_due = parseFloat(inv.total_ttc) || 0
+      // Note: on ne supprime pas les paiements existants pour garder l'historique
+    }
+
+    await supabase.from('invoices').update(updateData).eq('id', id)
+    toast.success('Statut mis à jour')
+    loadAll()
+  }
 
   // ─── Payment ───
   const handleAddPayment = async () => {
@@ -490,7 +527,13 @@ export default function Invoices() {
         {mode==='view'&&current?.type==='invoice'&&<div className="bg-white rounded-xl border p-5">
           <h3 className="font-semibold text-sm mb-3">Changer le statut</h3>
           <div className="flex flex-wrap gap-2">{Object.entries(STATUS_MAP).filter(([k])=>k!==current.status).map(([k,v])=>(
-            <button key={k} onClick={()=>{handleStatus(current.id,k);setCurrent({...current,status:k})}} className={`px-3 py-1.5 rounded-lg text-xs font-medium bg-${v.color}-100 text-${v.color}-700 hover:bg-${v.color}-200`}>{v.label}</button>
+            <button key={k} onClick={async ()=>{
+              await handleStatus(current.id,k)
+              const upd = { ...current, status: k }
+              if (k === 'paid') { upd.amount_paid = current.total_ttc; upd.amount_due = 0 }
+              setCurrent(upd)
+              if (current.id) await loadPayments(current.id)
+            }} className={`px-3 py-1.5 rounded-lg text-xs font-medium bg-${v.color}-100 text-${v.color}-700 hover:bg-${v.color}-200`}>{v.label}</button>
           ))}</div>
         </div>}
       </div>
