@@ -5,6 +5,7 @@ import { ArrowLeft, Building2, MapPin, Phone, Mail, Globe, Edit, Save, X, Plus, 
 import toast from 'react-hot-toast'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
+import SpeechToTextButton from '../components/SpeechToTextButton'
 
 // ═══════════════════════════════════════════════════════════
 // CONSTANTES
@@ -465,7 +466,7 @@ export default function ClientDetail() {
                 <input value={editForm.contact_phone || ''} onChange={e => setEditForm({ ...editForm, contact_phone: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm" /></div>
               <div><label className="text-xs font-medium text-gray-500 mb-1 block">Email</label>
                 <input type="email" value={editForm.contact_email || ''} onChange={e => setEditForm({ ...editForm, contact_email: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm" /></div>
-              <div className="col-span-2"><label className="text-xs font-medium text-gray-500 mb-1 block">Notes</label>
+              <div className="col-span-2"><label className="text-xs font-medium text-gray-500 mb-1 flex items-center justify-between">Notes <SpeechToTextButton onTranscript={(text) => setEditForm(f => ({ ...f, notes: f.notes ? f.notes + ' ' + text : text }))} /></label>
                 <textarea value={editForm.notes || ''} onChange={e => setEditForm({ ...editForm, notes: e.target.value })} rows={3} className="w-full px-3 py-2 border rounded-lg text-sm" /></div>
               <div className="col-span-2"><label className="text-xs font-medium text-gray-500 mb-1 block">OPCO</label>
                 <select value={editForm.opco_name || ''} onChange={e => setEditForm({ ...editForm, opco_name: e.target.value || null })}
@@ -645,7 +646,7 @@ export default function ClientDetail() {
                         placeholder="Ex: Relance devis SST, Appel RH, ..." className="w-full px-3 py-2 border rounded-lg text-sm" />
                     </div>
                     <div>
-                      <label className="text-xs font-medium text-gray-500 mb-1 block">Détails</label>
+                      <label className="text-xs font-medium text-gray-500 mb-1 flex items-center justify-between">Détails <SpeechToTextButton onTranscript={(text) => setInteractionForm(f => ({ ...f, content: f.content ? f.content + ' ' + text : text }))} /></label>
                       <textarea value={interactionForm.content} onChange={e => setInteractionForm(f => ({ ...f, content: e.target.value }))}
                         placeholder="Résumé de l'échange, décisions prises, prochaines étapes..." rows={4} className="w-full px-3 py-2 border rounded-lg text-sm" />
                     </div>
