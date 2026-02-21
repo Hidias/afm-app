@@ -2937,9 +2937,18 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
         d.last3 = d.months.filter(x => last3.includes(x.m)).reduce((s, x) => s + x.amount, 0) / (last3.length || 1)
       })
 
-      // ── Budget par catégorie pour le mois en cours ──
+      // ── Budget par catégorie pour le mois en cours (variable uniquement) ──
+      const fixedCatNames = new Set([
+        'Salaire Maxime', 'Salaire Hicham', 'Loyer siège', 'Charges sociales (URSSAF)',
+        'Prêts (remboursement)', 'Comptable', 'Véhicules (crédit auto)', 'Télécoms',
+        'Assurances véhicule', 'Assurances santé/prévoyance', 'Logiciels & SaaS',
+        'Frais bancaires', 'Impôts / TVA',
+      ])
+      const excludedCats = new Set([
+        'Véhicules (achat)', 'Trésorerie interne', 'Apports associés',
+      ])
       const budgetByCat = Object.entries(depByCat)
-        .filter(([, d]) => d.monthly >= 50)
+        .filter(([name, d]) => d.monthly >= 50 && !fixedCatNames.has(name) && !excludedCats.has(name))
         .map(([name, d]) => {
           const spent = curSorties.filter(tx => tx.category_name === name).reduce((s, tx) => s + tx.debit, 0)
           return { name, icon: d.icon, budget: Math.round(d.monthly), spent: Math.round(spent), remaining: Math.round(d.monthly - spent) }
@@ -2959,8 +2968,10 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
         isCurrent: m === currentMonthKey,
       }))
 
-      // Camembert sorties
+      // Camembert sorties (exclure one-shots et transferts internes)
+      const pieExclude = new Set(['Véhicules (achat)', 'Trésorerie interne', 'Apports associés'])
       const pieData = Object.entries(depByCat)
+        .filter(([name]) => !pieExclude.has(name))
         .map(([name, d]) => ({ name, value: Math.round(d.total), icon: d.icon }))
         .sort((a, b) => b.value - a.value)
       // Regrouper les petits (<3%)
@@ -2987,6 +2998,7 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
       // ── Projection trimestre ──
       const trimProjection = []
       let soldeCumul = solde
+      const depFixesValidees = Object.values(chargesFixes).reduce((s, v) => s + (v.montant || 0), 0)
       for (let i = 0; i < 3; i++) {
         const futureDate = new Date(now.getFullYear(), now.getMonth() + i, 1)
         const mLabel = `${ML[String(futureDate.getMonth() + 1).padStart(2, '0')]} ${futureDate.getFullYear()}`
@@ -2996,13 +3008,15 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
         const pipeMois = pipeline.filter(p => p.expected_month === mYM && p.status !== 'annule')
         const caPipe = pipeMois.reduce((s, p) => s + (p.amount_ht || 0), 0)
 
-        const caProj = i === 0 ? totalEntreesMois : caLast3 + caPipe
-        const depProj = i === 0 ? totalSortiesMois : depLast3
+        // Sessions planifiées ce mois (si pas déjà dans pipeline)
+        const sesMois = (sessionsByMonth[mYM] || []).reduce((s, ses) => s + ses.prix, 0)
+
+        const caProj = i === 0 ? totalEntreesMois : Math.max(caLast3, caPipe + sesMois)
+        const depProj = i === 0 ? totalSortiesMois : depFixesValidees
         const net = caProj - depProj
         soldeCumul += (i === 0 ? netMois : net)
 
-        // Mois le plus tendu
-        trimProjection.push({ label: mLabel, ca: caProj, dep: depProj, net: i === 0 ? netMois : net, solde: soldeCumul, isCurrent: i === 0, caPipe })
+        trimProjection.push({ label: mLabel, ca: caProj, dep: depProj, net: i === 0 ? netMois : net, solde: soldeCumul, isCurrent: i === 0, caPipe, sesMois })
       }
       const moisTendu = trimProjection.reduce((min, m) => m.solde < min.solde ? m : min, trimProjection[0])
 
@@ -3237,9 +3251,17 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
         detail: `Marge réduite. 1 SST directe (1 175€) rapporte autant net que 2-3 sessions sous-traitées. Marine doit cibler entreprises, pas OF.` })
     }
 
-    // ══ CHARGES EN HAUSSE ══
+    // ══ CHARGES VARIABLES EN HAUSSE (ignorer les fixes et one-shots) ══
+    const ignoreCats = new Set([
+      'Salaire Maxime', 'Salaire Hicham', 'Loyer siège', 'Charges sociales (URSSAF)',
+      'Prêts (remboursement)', 'Comptable', 'Véhicules (crédit auto)', 'Télécoms',
+      'Assurances véhicule', 'Assurances santé/prévoyance', 'Logiciels & SaaS',
+      'Frais bancaires', 'Impôts / TVA', 'Véhicules (achat)', 'Trésorerie interne',
+      'Apports associés',
+    ])
     Object.entries(depByCat).forEach(([cat, data]) => {
       if (data.monthly < 80 || !last3.length) return
+      if (ignoreCats.has(cat)) return
       const info = catMap[cat] || {}
       if (info.direction === 'recette' || info.direction === 'neutre') return
       if (data.last3 > data.monthly * 1.3 && data.last3 > 150) {
