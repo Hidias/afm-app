@@ -8,6 +8,7 @@ import {
   Settings, Smartphone, Monitor, ChevronDown, ChevronUp, X, Play, Pause
 } from 'lucide-react'
 import toast from 'react-hot-toast'
+import SpeechToTextButton from '../components/SpeechToTextButton'
 
 // ═══════════════════════════════════════════════════════════════
 // Assistant Phoning — Transcription & Analyse IA des appels
@@ -662,7 +663,7 @@ export default function PhoneAssistant() {
                 onChange={(e) => setNextActionDate(e.target.value)} />
             </div>
             <div>
-              <label className="text-xs text-gray-500">Notes</label>
+              <label className="text-xs text-gray-500 flex items-center justify-between">Notes <SpeechToTextButton onTranscript={(text) => setNotes(n => n ? n + ' ' + text : text)} /></label>
               <textarea className="input text-sm w-full mt-1" rows={callMode === 'iphone' ? 4 : 2}
                 value={notes} onChange={(e) => setNotes(e.target.value)}
                 placeholder={callMode === 'iphone' ? 'Résumez l\'appel : besoins, objections, points clés...' : 'Notes complémentaires...'} />
