@@ -6,6 +6,7 @@ import {
   Building2, FileText, Trash2, Plus, X
 } from 'lucide-react'
 import toast from 'react-hot-toast'
+import SpeechToTextButton from '../components/SpeechToTextButton'
 import ProspectNeedsAnalysis from '../components/ProspectNeedsAnalysis'
 import CompteRenduModal from '../components/CompteRenduModal'
 
@@ -609,8 +610,9 @@ export default function ProspectRDVDetail() {
 
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center justify-between">
                   Notes du RDV
+                  <SpeechToTextButton onTranscript={(text) => setFormData(f => ({ ...f, notes: f.notes ? f.notes + ' ' + text : text }))} />
                 </label>
                 <textarea
                   value={formData.notes}
