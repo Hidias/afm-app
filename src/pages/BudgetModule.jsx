@@ -2722,7 +2722,7 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
     // Charger les devis (envoyés, acceptés = pipeline auto)
     const { data: quotesData } = await supabase.from('quotes')
       .select('id, reference, client_id, quote_date, validity_date, status, total_ht, total_ttc, session_id, object, created_by, clients(name)')
-      .in('status', ['sent', 'accepted'])
+      .in('status', ['accepted'])
       .order('quote_date', { ascending: false })
     
     // Charger les sessions liées pour avoir les dates
@@ -2852,11 +2852,32 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
       const pipeThisMonth = pipeline.filter(p => p.expected_month === currentYearMonth && p.status !== 'annule')
       const totalPipeMois = pipeThisMonth.reduce((s, p) => s + (p.amount_ht || 0), 0)
 
-      // Sorties à venir : charges récurrentes pas encore débitées
-      const recurrentes = detectRecurringCharges(co, months, currentMonthKey)
-      const sortiesDejaFaites = new Set(curSorties.map(tx => normalizeDesc(tx.description)))
-      const sortiesAVenir = recurrentes.filter(r => !sortiesDejaFaites.has(normalizeDesc(r.description)))
-      const totalSortiesAVenir = sortiesAVenir.reduce((s, r) => s + r.montant, 0)
+      // Sorties à venir : charges fixes validées - ce qui est déjà débité
+      const catToChargeKey = {
+        'Salaire Maxime': 'Salaire Maxime', 'Salaire Hicham': 'Salaire Hicham',
+        'Loyer siège': 'Loyer siège', 'Charges sociales (URSSAF)': 'URSSAF',
+        'Prêts (remboursement)': 'Prêts', 'Comptable': 'Comptable',
+        'Véhicules (crédit auto)': 'Crédit auto', 'Télécoms': 'Télécoms',
+        'Assurances véhicule': 'Assurances véhicule', 'Assurances santé/prévoyance': 'Assurances santé',
+        'Logiciels & SaaS': 'Logiciels & SaaS', 'Frais bancaires': 'Frais bancaires',
+      }
+      // Total charges fixes attendues ce mois
+      const totalChargesFixesMois = Object.values(chargesFixes).reduce((s, v) => s + (v.montant || 0), 0)
+      // Ce qui est déjà débité dans les catégories de charges fixes
+      const dejaDebiteChargesFixes = curSorties
+        .filter(tx => catToChargeKey[tx.category_name])
+        .reduce((s, tx) => s + tx.debit, 0)
+      const totalSortiesAVenir = Math.max(0, totalChargesFixesMois - dejaDebiteChargesFixes)
+      // Détail pour affichage
+      const sortiesAVenir = Object.entries(chargesFixes)
+        .filter(([, v]) => v.montant > 0)
+        .map(([name, v]) => {
+          const cats = Object.entries(catToChargeKey).filter(([, k]) => k === name).map(([c]) => c)
+          const deja = curSorties.filter(tx => cats.includes(tx.category_name)).reduce((s, tx) => s + tx.debit, 0)
+          const reste = v.montant - deja
+          return { description: name, montant: reste, icon: v.icon, deja, attendu: v.montant }
+        })
+        .filter(r => r.montant > 50)
 
       const totalEntreesMois = totalEntreesRealisees + totalEntreesAVenir + totalPipeMois
       const totalSortiesMois = totalSortiesRealisees + totalSortiesAVenir
@@ -3023,30 +3044,54 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
         }
       }).sort((a, b) => b.prixCatalogue - a.prixCatalogue)
 
-      // ── Cash flow détaillé (semaine par semaine) ──
+      // ── Cash flow détaillé ──
       const cashFlowItems = []
-      // Salaires fin de mois
       const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0)
       const endStr = endOfMonth.toISOString().substring(0, 10)
-      if (endStr >= today) {
-        cashFlowItems.push({ date: endStr, label: 'Salaire Maxime', montant: -(chargesFixes['Salaire Maxime']?.montant || 2500), type: 'sortie' })
-        cashFlowItems.push({ date: endStr, label: 'Salaire Hicham', montant: -(chargesFixes['Salaire Hicham']?.montant || 2000), type: 'sortie' })
+
+      // Charges fixes validées — vérifier lesquelles sont déjà débitées ce mois
+      const chargesFixesMap = {
+        'Salaire Maxime': { date: endStr, cats: ['Salaire Maxime'] },
+        'Salaire Hicham': { date: endStr, cats: ['Salaire Hicham'] },
+        'Loyer siège': { date: `${currentYearMonth}-05`, cats: ['Loyer siège'] },
+        'URSSAF': { date: `${currentYearMonth}-20`, cats: ['Charges sociales (URSSAF)'] },
+        'Prêts': { date: `${currentYearMonth}-09`, cats: ['Prêts (remboursement)'] },
+        'Comptable': { date: `${currentYearMonth}-25`, cats: ['Comptable'] },
+        'Crédit auto': { date: `${currentYearMonth}-30`, cats: ['Véhicules (crédit auto)'] },
+        'Télécoms': { date: `${currentYearMonth}-26`, cats: ['Télécoms'] },
+        'Assurances véhicule': { date: `${currentYearMonth}-05`, cats: ['Assurances véhicule'] },
+        'Assurances santé': { date: `${currentYearMonth}-05`, cats: ['Assurances santé/prévoyance'] },
+        'Logiciels & SaaS': { date: `${currentYearMonth}-15`, cats: ['Logiciels & SaaS'] },
+        'Frais bancaires': { date: `${currentYearMonth}-10`, cats: ['Frais bancaires'] },
       }
-      // GOUYA si ce mois
-      const gouya = transactions.filter(tx => tx.description?.includes('GOUYA') && tx.month === currentMonthKey)
-      if (gouya.length === 0 && now.getMonth() < 4) { // fév-mai
-        cashFlowItems.push({ date: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-25`, label: 'GOUYA Frais juridiques', montant: -673.56, type: 'sortie' })
+
+      Object.entries(chargesFixes).forEach(([name, { montant, icon }]) => {
+        if (!montant || montant <= 0) return
+        const mapping = chargesFixesMap[name]
+        if (!mapping) return
+        // Vérifier si déjà débité ce mois (par catégorie)
+        const dejaDebite = curSorties
+          .filter(tx => mapping.cats.includes(tx.category_name))
+          .reduce((s, tx) => s + tx.debit, 0)
+        const reste = montant - dejaDebite
+        if (reste > 50) { // seuil pour éviter les centimes
+          cashFlowItems.push({ date: mapping.date >= today ? mapping.date : endStr, label: `${icon} ${name}`, montant: -reste, type: 'sortie' })
+        }
+      })
+
+      // GOUYA si ce mois (fév-mai 2026) et pas encore débité
+      const gouya = curSorties.filter(tx => tx.description?.includes('GOUYA'))
+      if (gouya.length === 0 && now.getFullYear() === 2026 && now.getMonth() >= 1 && now.getMonth() <= 4) {
+        cashFlowItems.push({ date: `${currentYearMonth}-25`, label: '🧮 GOUYA Frais juridiques', montant: -673.56, type: 'sortie' })
       }
-      // Factures attendues
+
+      // Factures attendues (entrées)
       entreesAVenir.forEach(inv => {
         const cli = (clients || []).find(c => c.id === inv.client_id)
         const isOverdue = inv.due_date && inv.due_date < today
         cashFlowItems.push({ date: inv.due_date || inv.invoice_date, label: `${inv.reference} — ${cli?.name || '?'}`, montant: parseFloat(inv.amount_due), type: isOverdue ? 'retard' : 'entree' })
       })
-      // Charges récurrentes à venir
-      sortiesAVenir.slice(0, 8).forEach(r => {
-        cashFlowItems.push({ date: endStr, label: r.description, montant: -r.montant, type: 'sortie' })
-      })
+
       cashFlowItems.sort((a, b) => a.date.localeCompare(b.date))
 
       // Solde glissant
@@ -3402,12 +3447,12 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
 
           {analysis.sortiesAVenir.length > 0 && (
             <details className="mt-2">
-              <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-600">📋 {analysis.sortiesAVenir.length} charge(s) récurrente(s) attendue(s)</summary>
+              <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-600">📋 {analysis.sortiesAVenir.length} charge(s) fixe(s) restante(s) ce mois</summary>
               <div className="mt-2 space-y-1">
-                {analysis.sortiesAVenir.slice(0, 10).map((r, i) => (
+                {analysis.sortiesAVenir.map((r, i) => (
                   <div key={i} className="flex justify-between text-xs px-2 py-1 rounded bg-red-50 text-red-700">
-                    <span>{r.description} <span className="text-gray-400">({r.catName})</span></span>
-                    <span className="font-mono">~{fmt(r.montant)}</span>
+                    <span>{r.icon} {r.description} <span className="text-gray-400">(débité {fmt(r.deja)} / {fmt(r.attendu)})</span></span>
+                    <span className="font-mono font-medium">reste ~{fmt(r.montant)}</span>
                   </div>
                 ))}
               </div>
@@ -3718,10 +3763,7 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
               Total pipeline : <b>{fmt(pipeline.reduce((s, p) => s + (p.amount_ht || 0), 0))} HT</b>
               {pipeline.filter(p => p.source === 'auto').length > 0 && (
                 <span className="ml-2">
-                  (dont <span className="text-green-600">{fmt(pipeline.filter(p => p.quote_status === 'accepted').reduce((s, p) => s + (p.amount_ht || 0), 0))}</span> confirmé
-                  {pipeline.filter(p => p.quote_status === 'sent').length > 0 && (
-                    <>, <span className="text-amber-600">{fmt(pipeline.filter(p => p.quote_status === 'sent').reduce((s, p) => s + (p.amount_ht || 0), 0))}</span> en attente</>
-                  )})
+                  (dont <span className="text-green-600">{fmt(pipeline.filter(p => p.source === 'auto').reduce((s, p) => s + (p.amount_ht || 0), 0))}</span> devis acceptés)
                 </span>
               )}
             </div>
