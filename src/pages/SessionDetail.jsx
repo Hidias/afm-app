@@ -192,7 +192,7 @@ export default function SessionDetail() {
   // Modal création nouveau stagiaire
   const [showNewTraineeModal, setShowNewTraineeModal] = useState(false)
   const [newTraineeForm, setNewTraineeForm] = useState({
-    first_name: '', last_name: '', email: '', phone: '', client_id: ''
+    first_name: '', last_name: '', email: '', phone: '', client_id: '', gender: 'male'
   })
   
   // Départ anticipé
@@ -2525,7 +2525,8 @@ ${trainer ? `${trainer.first_name} ${trainer.last_name}` : 'Access Formation'}`
         last_name: newTraineeForm.last_name,
         email: newTraineeForm.email || null,
         phone: newTraineeForm.phone || null,
-        client_id: newTraineeForm.client_id || session?.client_id || null
+        client_id: newTraineeForm.client_id || session?.client_id || null,
+        gender: newTraineeForm.gender || 'male'
       })
       .select()
       .single()
@@ -2544,7 +2545,7 @@ ${trainer ? `${trainer.first_name} ${trainer.last_name}` : 'Access Formation'}`
     if (data) setSession(data)
     
     // Réinitialiser le formulaire
-    setNewTraineeForm({ first_name: '', last_name: '', email: '', phone: '', client_id: '' })
+    setNewTraineeForm({ first_name: '', last_name: '', email: '', phone: '', client_id: '', gender: 'male' })
     setShowNewTraineeModal(false)
     toast.success(`${newTrainee.first_name} ${newTrainee.last_name} créé et ajouté à la session`)
   }
@@ -5169,6 +5170,17 @@ ${trainer ? `${trainer.first_name} ${trainer.last_name}` : 'Access Formation'}`
                   value={newTraineeForm.phone}
                   onChange={(e) => setNewTraineeForm(prev => ({ ...prev, phone: e.target.value }))}
                 />
+              </div>
+              <div>
+                <label className="label">Genre</label>
+                <select
+                  className="input w-full"
+                  value={newTraineeForm.gender}
+                  onChange={(e) => setNewTraineeForm(prev => ({ ...prev, gender: e.target.value }))}
+                >
+                  <option value="male">Homme</option>
+                  <option value="female">Femme</option>
+                </select>
               </div>
               <div>
                 <label className="label">Entreprise</label>
