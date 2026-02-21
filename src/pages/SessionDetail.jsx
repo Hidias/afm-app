@@ -1415,8 +1415,9 @@ export default function SessionDetail() {
     const totalHalfDays = getHalfDaysCount()
     const halfDays = []
     
-    // Si day_type === 'half', une seule période par jour (matin par défaut)
+    // Si day_type === 'half', une seule période par jour
     const isHalfDaySession = session?.day_type === 'half'
+    const halfDayPeriod = isHalfDaySession && session?.start_time && parseInt(session.start_time.split(':')[0], 10) >= 12 ? 'afternoon' : 'morning'
     
     let remaining = totalHalfDays
     for (const day of days) {
@@ -1424,8 +1425,8 @@ export default function SessionDetail() {
       const dateStr = format(day, 'yyyy-MM-dd')
       
       if (isHalfDaySession) {
-        // Session demi-journée : une seule case par jour (matin)
-        halfDays.push({ date: day, dateStr, period: 'morning', label: 'Demi-journée' })
+        // Session demi-journée : une seule case par jour
+        halfDays.push({ date: day, dateStr, period: halfDayPeriod, label: halfDayPeriod === 'afternoon' ? 'Après-midi' : 'Matin' })
         remaining--
       } else {
         // Session journée complète : matin + après-midi
@@ -1532,6 +1533,7 @@ export default function SessionDetail() {
     const validatedBy = session.trainers ? `${session.trainers.first_name} ${session.trainers.last_name}` : 'Formateur'
     const validatedAt = new Date().toISOString()
     const isHalfDaySession = session?.day_type === 'half'
+    const isAfternoonHalf = isHalfDaySession && session?.start_time && parseInt(session.start_time.split(':')[0], 10) >= 12
     
     for (const trainee of sessionTrainees) {
       // Grouper les demi-journées par date
@@ -1542,8 +1544,8 @@ export default function SessionDetail() {
           session_id: session.id,
           trainee_id: trainee.id,
           date: dateStr,
-          morning: true,
-          afternoon: isHalfDaySession ? false : true, // Pas d'après-midi pour les sessions demi-journée
+          morning: isAfternoonHalf ? false : true,
+          afternoon: isHalfDaySession && !isAfternoonHalf ? false : true,
           validated_by: validatedBy,
           validated_at: validatedAt,
         }
