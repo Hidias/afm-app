@@ -220,19 +220,21 @@ export async function generateInvoicePDF(invoice, items, client, contact, option
   doc.text('Tel : ' + cb.phone, ML, y + 23)
 
   // --- CLIENT ---
+  var billingClient = options.billingClient || null
+  var displayClient = billingClient || client  // OPCO si subrogation, sinon client normal
   var cX = 118
   var cy = y
   doc.setFontSize(10)
   doc.setFont(F, 'bold')
   doc.setTextColor(0, 0, 0)
-  doc.text(client?.name || '', cX, cy)
+  doc.text(displayClient?.name || '', cX, cy)
   cy += 6
 
   doc.setFont(F, 'normal')
   doc.setFontSize(9)
   doc.setTextColor(60, 60, 60)
 
-  if (contact) {
+  if (!billingClient && contact) {
     var cn = contact.name || ((contact.first_name || '') + ' ' + (contact.last_name || '')).trim()
     if (cn) {
       doc.text("A l'attention de " + (contact.civilite ? contact.civilite + ' ' : '') + cn, cX, cy)
@@ -240,20 +242,45 @@ export async function generateInvoicePDF(invoice, items, client, contact, option
     }
   }
 
-  if (client?.address) {
-    doc.text(client.address, cX, cy)
+  if (displayClient?.address) {
+    doc.text(displayClient.address, cX, cy)
     cy += 5
   }
 
-  var cl = [client?.postal_code, (client?.city || '').toUpperCase()].filter(Boolean).join(' ')
+  var cl = [displayClient?.postal_code, (displayClient?.city || '').toUpperCase()].filter(Boolean).join(' ')
   if (cl) {
     doc.text(cl, cX, cy)
     cy += 5
   }
   doc.text('France', cX, cy)
+  cy += 5
+
+  if (displayClient?.siret) {
+    doc.setFontSize(8)
+    doc.text('SIRET : ' + displayClient.siret, cX, cy)
+    cy += 4
+  }
+
+  // Mention subrogation si OPCO
+  if (billingClient && client) {
+    cy += 3
+    doc.setFontSize(8)
+    doc.setFont(F, 'bold')
+    doc.setTextColor(180, 120, 0)
+    doc.text('Formation réalisée pour le compte de :', cX, cy)
+    cy += 4
+    doc.setFont(F, 'normal')
+    doc.setTextColor(80, 80, 80)
+    doc.text(client.name || '', cX, cy)
+    if (client.siret) {
+      cy += 4
+      doc.text('SIRET : ' + client.siret, cX, cy)
+    }
+    doc.setTextColor(0, 0, 0)
+  }
 
   // --- OBJET ---
-  y = 82
+  y = Math.max(82, cy + 4)
   if (invoice.object) {
     doc.setFontSize(9)
     doc.setFont(F, 'normal')
