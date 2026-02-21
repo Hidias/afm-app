@@ -2619,6 +2619,8 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
   const [actionsLoaded, setActionsLoaded] = useState(false)
   const [pipeline, setPipeline] = useState([])
   const [pipeLoaded, setPipeLoaded] = useState(false)
+  const [sessions, setSessions] = useState([])
+  const [courses, setCourses] = useState([])
   const [showPipeForm, setShowPipeForm] = useState(false)
   const [newPipe, setNewPipe] = useState({ client: '', amount_ttc: '', expected_month: '', type: 'previsionnel', trainer: 'Hicham', description: '' })
   const [showActionForm, setShowActionForm] = useState(false)
@@ -2631,6 +2633,7 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
     loadSettings()
     loadActions()
     loadPipeline()
+    loadSessionsAndCourses()
   }, [])
 
   async function loadSettings() {
@@ -2713,9 +2716,58 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
 
   // ══ LOAD PIPELINE ══
   async function loadPipeline() {
-    const { data } = await supabase.from('budget_pipeline').select('*').not('status', 'eq', 'annule').order('expected_month')
-    if (data) setPipeline(data)
+    // Charger les entrées manuelles
+    const { data: manualData } = await supabase.from('budget_pipeline').select('*').not('status', 'eq', 'annule').order('expected_month')
+    
+    // Charger les devis (envoyés, acceptés = pipeline auto)
+    const { data: quotesData } = await supabase.from('quotes')
+      .select('id, reference, client_id, quote_date, validity_date, status, total_ht, total_ttc, session_id, object, created_by, clients(name)')
+      .in('status', ['sent', 'accepted'])
+      .order('quote_date', { ascending: false })
+    
+    // Charger les sessions liées pour avoir les dates
+    const sessionIds = (quotesData || []).filter(q => q.session_id).map(q => q.session_id)
+    let sessionsMap = {}
+    if (sessionIds.length > 0) {
+      const { data: sesData } = await supabase.from('sessions').select('id, start_date, trainer_id').in('id', sessionIds)
+      if (sesData) sesData.forEach(s => { sessionsMap[s.id] = s })
+    }
+
+    // Transformer les devis en entrées pipeline
+    const quotePipeline = (quotesData || []).map(q => {
+      const session = q.session_id ? sessionsMap[q.session_id] : null
+      const expectedDate = session?.start_date || q.validity_date || q.quote_date
+      const expectedMonth = expectedDate ? expectedDate.substring(0, 7) : null
+      return {
+        id: `quote_${q.id}`,
+        quote_id: q.id,
+        client: q.clients?.name || '?',
+        description: q.object || q.reference,
+        amount_ht: q.total_ht || 0,
+        amount_ttc: q.total_ttc || 0,
+        expected_month: expectedMonth,
+        type: 'devis',
+        status: q.status === 'accepted' ? 'confirme' : 'prevu',
+        trainer: q.created_by || '',
+        source: 'auto',
+        quote_ref: q.reference,
+        quote_status: q.status,
+      }
+    })
+
+    // Fusionner : devis auto + manuels
+    const manual = (manualData || []).map(p => ({ ...p, source: 'manual' }))
+    setPipeline([...quotePipeline, ...manual])
     setPipeLoaded(true)
+  }
+
+  async function loadSessionsAndCourses() {
+    const [sesR, couR] = await Promise.all([
+      supabase.from('sessions').select('id, reference, start_date, end_date, status, custom_price_ht, total_price, session_type, is_intra, client_id, course_id').not('status', 'eq', 'cancelled').order('start_date'),
+      supabase.from('courses').select('id, title, code, duration_days, price_ht'),
+    ])
+    if (sesR.data) setSessions(sesR.data)
+    if (couR.data) setCourses(couR.data)
   }
 
   async function addPipeEntry() {
@@ -2933,11 +2985,83 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
       }
       const moisTendu = trimProjection.reduce((min, m) => m.solde < min.solde ? m : min, trimProjection[0])
 
+      // ── Sessions & Formations à venir ──
+      const courseMap = {}
+      courses.forEach(c => { courseMap[c.id] = c })
+
+      const today = new Date().toISOString().substring(0, 10)
+      const futureSessions = sessions.filter(s => s.start_date >= today && s.status !== 'cancelled' && s.status !== 'draft')
+
+      // Grouper par mois
+      const sessionsByMonth = {}
+      futureSessions.forEach(s => {
+        const ym = s.start_date.substring(0, 7)
+        if (!sessionsByMonth[ym]) sessionsByMonth[ym] = []
+        const course = courseMap[s.course_id] || {}
+        const prix = s.custom_price_ht || s.total_price || course.price_ht || 0
+        const cli = (clients || []).find(c => c.id === s.client_id)
+        sessionsByMonth[ym].push({ ...s, prix, courseName: course.title || '?', courseCode: course.code || '?', clientName: cli?.name || '?' })
+      })
+
+      const sessionsTotal = futureSessions.reduce((s, ses) => {
+        const course = courseMap[ses.course_id] || {}
+        return s + (ses.custom_price_ht || ses.total_price || course.price_ht || 0)
+      }, 0)
+
+      // Classement formations par rentabilité
+      const formationsRank = courses.map(c => {
+        const sesDone = sessions.filter(s => s.course_id === c.id && s.status !== 'cancelled' && s.status !== 'draft' && s.start_date < today)
+        const nbDone = sesDone.length
+        const caDone = sesDone.reduce((sum, s) => sum + (s.custom_price_ht || s.total_price || 0), 0)
+        const prixMoyenRealise = nbDone > 0 ? caDone / nbDone : 0
+        const prixCatalogue = c.price_ht || 0
+        const margeDirecte = prixCatalogue // Marge ~100% sur formations directes
+        return {
+          ...c,
+          nbDone, caDone, prixMoyenRealise, prixCatalogue, margeDirecte,
+          sesFutures: futureSessions.filter(s => s.course_id === c.id).length
+        }
+      }).sort((a, b) => b.prixCatalogue - a.prixCatalogue)
+
+      // ── Cash flow détaillé (semaine par semaine) ──
+      const cashFlowItems = []
+      // Salaires fin de mois
+      const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0)
+      const endStr = endOfMonth.toISOString().substring(0, 10)
+      if (endStr >= today) {
+        cashFlowItems.push({ date: endStr, label: 'Salaire Maxime', montant: -(chargesFixes['Salaire Maxime']?.montant || 2500), type: 'sortie' })
+        cashFlowItems.push({ date: endStr, label: 'Salaire Hicham', montant: -(chargesFixes['Salaire Hicham']?.montant || 2000), type: 'sortie' })
+      }
+      // GOUYA si ce mois
+      const gouya = transactions.filter(tx => tx.description?.includes('GOUYA') && tx.month === currentMonthKey)
+      if (gouya.length === 0 && now.getMonth() < 4) { // fév-mai
+        cashFlowItems.push({ date: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-25`, label: 'GOUYA Frais juridiques', montant: -673.56, type: 'sortie' })
+      }
+      // Factures attendues
+      entreesAVenir.forEach(inv => {
+        const cli = (clients || []).find(c => c.id === inv.client_id)
+        const isOverdue = inv.due_date && inv.due_date < today
+        cashFlowItems.push({ date: inv.due_date || inv.invoice_date, label: `${inv.reference} — ${cli?.name || '?'}`, montant: parseFloat(inv.amount_due), type: isOverdue ? 'retard' : 'entree' })
+      })
+      // Charges récurrentes à venir
+      sortiesAVenir.slice(0, 8).forEach(r => {
+        cashFlowItems.push({ date: endStr, label: r.description, montant: -r.montant, type: 'sortie' })
+      })
+      cashFlowItems.sort((a, b) => a.date.localeCompare(b.date))
+
+      // Solde glissant
+      let soldeGlissant = solde
+      cashFlowItems.forEach(item => {
+        soldeGlissant += item.montant
+        item.soldeApres = soldeGlissant
+      })
+
       // ── Recommandations auto ──
       const recos = generateRecommendations({
         unpaidInvoices, clients, depByCat, totalCAFormations, totalCASousTrait,
         budgetLibre, config, last3, caLast3, depLast3, catMap, moisTendu, solde,
-        nbActive, pipeline
+        nbActive, pipeline, formationsRank, futureSessions, sessionsTotal,
+        chargesFixes, totalEntreesMois, totalSortiesMois, cashFlowItems
       })
 
       // ── Bilan mois précédent ──
@@ -2964,7 +3088,8 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
         caLast3, caPrev3, caTrend, depLast3, depPrev3, depTrend, margeLast3,
         fixedDetail, avgFixed, depByCat, budgetByCat,
         barData, pieMain, caDonut, sparkCA, sparkDep, sparkNet,
-        trimProjection, moisTendu, recos, bilanPrev, last3, nbActive
+        trimProjection, moisTendu, recos, bilanPrev, last3, nbActive,
+        sessionsByMonth, sessionsTotal, formationsRank, cashFlowItems
       }
     } catch (err) {
       console.error('PrevisionnelTab analysis error:', err)
@@ -2978,10 +3103,11 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
         caLast3: 0, caPrev3: 0, caTrend: 0, depLast3: 0, depPrev3: 0, depTrend: 0, margeLast3: 0,
         fixedDetail: [], avgFixed: 0, depByCat: {}, budgetByCat: [],
         barData: [], pieMain: [], caDonut: [], sparkCA: [], sparkDep: [], sparkNet: [],
-        trimProjection: [], moisTendu: null, recos: [], bilanPrev: null, last3: [], nbActive: 0
+        trimProjection: [], moisTendu: null, recos: [], bilanPrev: null, last3: [], nbActive: 0,
+        sessionsByMonth: {}, sessionsTotal: 0, formationsRank: [], cashFlowItems: []
       }
     }
-  }, [transactions, categories, unpaidInvoices, config, currentMonthKey, pipeline, chartPeriod, chargesFixes])
+  }, [transactions, categories, unpaidInvoices, config, currentMonthKey, pipeline, chartPeriod, chargesFixes, sessions, courses, clients])
 
   function detectRecurringCharges(txs, months, curMonth) {
     const descMap = {}
@@ -2998,54 +3124,98 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
       .sort((a, b) => b.montant - a.montant)
   }
 
-  function generateRecommendations({ unpaidInvoices, clients, depByCat, totalCAFormations, totalCASousTrait, budgetLibre, config, last3, caLast3, depLast3, catMap, moisTendu, solde, nbActive, pipeline }) {
+  function generateRecommendations({ unpaidInvoices, clients, depByCat, totalCAFormations, totalCASousTrait, budgetLibre, config, last3, caLast3, depLast3, catMap, moisTendu, solde, nbActive, pipeline, formationsRank, futureSessions, sessionsTotal, chargesFixes, totalEntreesMois, totalSortiesMois, cashFlowItems }) {
     const recos = []
+    const today = new Date().toISOString().substring(0, 10)
+    const totalChargesFixes = Object.values(chargesFixes || {}).reduce((s, v) => s + (v.montant || 0), 0)
 
-    // Factures en retard
-    const overdue = unpaidInvoices.filter(inv => inv.status === 'overdue' || (inv.due_date && inv.due_date < new Date().toISOString().substring(0, 10)))
+    // ══ URGENCE TRÉSORERIE ══
+    if (totalChargesFixes > 0 && solde < totalChargesFixes) {
+      recos.push({ type: 'alert', icon: '🚨', priority: 110,
+        title: `Trésorerie critique : ${fmt(solde)}`,
+        detail: `Charges fixes = ${fmt(totalChargesFixes)}/mois. Le solde ne couvre pas 1 mois complet. Priorité : encaisser les factures.` })
+    }
+
+    // Solde projeté négatif
+    const lastCF = (cashFlowItems || []).length > 0 ? cashFlowItems[cashFlowItems.length - 1] : null
+    if (lastCF && lastCF.soldeApres < 0) {
+      recos.push({ type: 'alert', icon: '🔴', priority: 105,
+        title: `Risque de solde négatif fin de mois : ${fmt(lastCF.soldeApres)}`,
+        detail: `Sans encaissement supplémentaire, le compte passe dans le rouge. Relancer les impayés EN URGENCE.` })
+    }
+
+    // ══ FACTURES EN RETARD ══
+    const overdue = unpaidInvoices.filter(inv => inv.status === 'overdue' || (inv.due_date && inv.due_date < today))
     if (overdue.length > 0) {
       const totalO = overdue.reduce((s, inv) => s + parseFloat(inv.amount_due), 0)
-      const names = [...new Set(overdue.map(inv => (clients || []).find(c => c.id === inv.client_id)?.name || '?'))]
-      recos.push({ type: 'alert', icon: '🔴', priority: 100, title: `${overdue.length} facture(s) en retard — ${fmt(totalO)}`, detail: `Clients : ${names.join(', ')}` })
+      const details = overdue.map(inv => {
+        const cli = (clients || []).find(c => c.id === inv.client_id)
+        const jours = Math.floor((new Date() - new Date(inv.due_date)) / 86400000)
+        return `${cli?.name || '?'} ${fmt(parseFloat(inv.amount_due))} (+${jours}j)`
+      }).join(' · ')
+      recos.push({ type: 'alert', icon: '🔴', priority: 100, title: `${overdue.length} facture(s) en retard — ${fmt(totalO)}`, detail: details })
     }
 
-    // Factures en attente
-    const pending = unpaidInvoices.filter(inv => !overdue.includes(inv))
-    if (pending.length > 0) {
-      const totalP = pending.reduce((s, inv) => s + parseFloat(inv.amount_due), 0)
-      recos.push({ type: 'info', icon: '📬', priority: 60, title: `${pending.length} facture(s) en attente — ${fmt(totalP)}`, detail: 'Virements attendus' })
+    // Factures dues ce mois
+    const curYM = new Date().toISOString().substring(0, 7)
+    const dueThisMonth = unpaidInvoices.filter(inv => !overdue.includes(inv) && inv.due_date && inv.due_date.substring(0, 7) <= curYM)
+    if (dueThisMonth.length > 0) {
+      const totalD = dueThisMonth.reduce((s, inv) => s + parseFloat(inv.amount_due), 0)
+      recos.push({ type: 'info', icon: '📬', priority: 70, title: `${dueThisMonth.length} facture(s) échéance ce mois — ${fmt(totalD)}`, detail: 'Suivre les virements de près' })
     }
 
-    // Ratio sous-traitance
-    const totalCA = totalCAFormations + totalCASousTrait
-    if (totalCA > 0 && totalCASousTrait > 0) {
-      const ratio = (totalCASousTrait / totalCA) * 100
-      if (ratio > 50) {
-        recos.push({ type: 'levier', icon: '📊', priority: 80, title: `Sous-traitance = ${ratio.toFixed(0)}% du CA`,
-          detail: `Formations directes : marge ~80% vs ~40% sous-traitance. 1 SST directe (1 175€) = 2-3 sessions sous-traitées en net.` })
+    // ══ FORMATIONS À POUSSER ══
+    if (formationsRank && formationsRank.length > 0) {
+      const top = formationsRank.filter(f => f.prixCatalogue >= 690).slice(0, 3)
+      if (top.length > 0) {
+        const detail = top.map(f => `${f.code} = ${fmt(f.prixCatalogue)}`).join(' · ')
+        const nbFutur = (futureSessions || []).length
+        recos.push({ type: 'levier', icon: '🎓', priority: 85,
+          title: 'Formations directes les plus rentables',
+          detail: `${detail}. Actuellement ${nbFutur} session(s) planifiée(s) = ${fmt(sessionsTotal || 0)} HT. 1 SST-FI directe (1 175€) = quasi 100% de marge.` })
       }
     }
 
-    // Catégories en hausse
+    // Sessions insuffisantes
+    if ((futureSessions || []).length < 5) {
+      recos.push({ type: 'levier', icon: '📅', priority: 82,
+        title: `Seulement ${(futureSessions || []).length} session(s) planifiée(s)`,
+        detail: `CA sessions prévu : ${fmt(sessionsTotal || 0)} HT. Planning trop vide → remplir via prospection directe (Marine).` })
+    }
+
+    // ══ RATIO SOUS-TRAITANCE ══
+    const totalCA = totalCAFormations + totalCASousTrait
+    if (totalCA > 0 && totalCASousTrait / totalCA > 0.5) {
+      const ratio = ((totalCASousTrait / totalCA) * 100).toFixed(0)
+      recos.push({ type: 'levier', icon: '📊', priority: 78,
+        title: `Sous-traitance = ${ratio}% du CA`,
+        detail: `Marge réduite. 1 SST directe (1 175€) rapporte autant net que 2-3 sessions sous-traitées. Marine doit cibler entreprises, pas OF.` })
+    }
+
+    // ══ CHARGES EN HAUSSE ══
     Object.entries(depByCat).forEach(([cat, data]) => {
       if (data.monthly < 80 || !last3.length) return
       const info = catMap[cat] || {}
       if (info.direction === 'recette' || info.direction === 'neutre') return
       if (data.last3 > data.monthly * 1.3 && data.last3 > 150) {
-        recos.push({ type: 'optimisation', icon: '💸', priority: 70, title: `${data.icon} ${cat} en hausse`,
-          detail: `${fmt(data.last3)}/mois récent vs ${fmt(data.monthly)} en moyenne (+${((data.last3 / data.monthly - 1) * 100).toFixed(0)}%)` })
+        recos.push({ type: 'optimisation', icon: '💸', priority: 65,
+          title: `${data.icon} ${cat} en hausse`,
+          detail: `${fmt(data.last3)}/mois récent vs ${fmt(data.monthly)} moyenne (+${((data.last3 / data.monthly - 1) * 100).toFixed(0)}%)` })
       }
     })
 
     // Budget libre
     if (budgetLibre < 0) {
-      recos.push({ type: 'alert', icon: '⚠️', priority: 95, title: 'Trésorerie tendue', detail: `Le solde projeté passe sous la marge de sécurité de ${fmt(config.marge_securite)}` })
+      recos.push({ type: 'alert', icon: '⚠️', priority: 90,
+        title: `Budget libre négatif : ${fmt(budgetLibre)}`,
+        detail: `Il manque ${fmt(Math.abs(budgetLibre))} pour rester au-dessus de la marge de sécurité (${fmt(config.marge_securite)}).` })
     }
 
-    // Mois le plus tendu
+    // Mois tendu
     if (moisTendu && moisTendu.solde < config.marge_securite && !moisTendu.isCurrent) {
-      recos.push({ type: 'alert', icon: '📅', priority: 85, title: `${moisTendu.label} sera serré`,
-        detail: `Solde projeté : ${fmt(moisTendu.solde)}. Anticiper les encaissements.` })
+      recos.push({ type: 'alert', icon: '📅', priority: 80,
+        title: `${moisTendu.label} sera serré — solde ${fmt(moisTendu.solde)}`,
+        detail: 'Anticiper les encaissements et limiter les dépenses.' })
     }
 
     // Objectif
@@ -3053,7 +3223,9 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
       const gap = config.objectif - solde
       const netMens = caLast3 - depLast3
       if (gap > 0 && netMens > 0) {
-        recos.push({ type: 'info', icon: '🎯', priority: 50, title: `Objectif ${fmt(config.objectif)} en ~${Math.ceil(gap / netMens)} mois`,
+        const mois = Math.ceil(gap / netMens)
+        recos.push({ type: 'info', icon: '🎯', priority: 45,
+          title: `Objectif ${fmt(config.objectif)} en ~${mois} mois`,
           detail: `Au rythme actuel (net ${fmt(netMens)}/mois)` })
       }
     }
@@ -3284,6 +3456,49 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
         </div>
       )}
 
+      {/* ══ CASH FLOW — Mouvements prévus ══ */}
+      {analysis.cashFlowItems.length > 0 && (
+        <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
+          <div className="px-4 py-3 bg-gray-50 border-b">
+            <h3 className="font-bold text-gray-700">💧 Cash flow — mouvements prévus</h3>
+          </div>
+          <div className="p-4">
+            <div className="space-y-1">
+              <div className="flex justify-between text-xs text-gray-400 px-2 mb-1">
+                <span>Solde actuel</span>
+                <span className="font-mono font-bold text-gray-700">{fmt(analysis.solde)}</span>
+              </div>
+              {analysis.cashFlowItems.map((item, i) => (
+                <div key={i} className={`flex items-center justify-between text-xs px-2 py-1.5 rounded ${
+                  item.type === 'retard' ? 'bg-red-50 border-l-2 border-red-400' :
+                  item.type === 'entree' ? 'bg-green-50 border-l-2 border-green-400' :
+                  'bg-gray-50 border-l-2 border-gray-300'
+                }`}>
+                  <div className="flex items-center gap-2 flex-1">
+                    <span className="text-gray-400 w-16">{item.date.substring(5)}</span>
+                    <span className={item.type === 'retard' ? 'text-red-700 font-medium' : ''}>{item.label}</span>
+                    {item.type === 'retard' && <span className="text-red-500 text-xs">⚠️ retard</span>}
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className={`font-mono font-medium ${item.montant >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {item.montant >= 0 ? '+' : ''}{fmt(item.montant)}
+                    </span>
+                    <span className={`font-mono text-xs w-20 text-right ${item.soldeApres < 0 ? 'text-red-700 font-bold' : item.soldeApres < 2000 ? 'text-amber-600' : 'text-gray-500'}`}>
+                      → {fmt(item.soldeApres)}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {analysis.cashFlowItems.some(i => i.soldeApres < 0) && (
+              <div className="mt-3 p-2 bg-red-100 rounded-lg text-xs text-red-800 font-medium text-center">
+                ⚠️ Le solde passe dans le rouge — les encaissements doivent arriver AVANT les prélèvements
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ══ BLOC 3 — Tendances & Graphiques ══ */}
       <div className="bg-white rounded-xl shadow-sm border p-4">
         <div className="flex items-center justify-between mb-3">
@@ -3418,9 +3633,14 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
       {/* ══ BLOC 4 — Pipeline ══ */}
       <div className="bg-white rounded-xl shadow-sm border p-4">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="font-bold text-gray-700">📋 Pipeline — CA prévu</h3>
+          <div className="flex items-center gap-2">
+            <h3 className="font-bold text-gray-700">📋 Pipeline — CA prévu</h3>
+            <span className="text-xs text-gray-400">
+              {pipeline.filter(p => p.source === 'auto').length} devis · {pipeline.filter(p => p.source === 'manual').length} manuels
+            </span>
+          </div>
           <button onClick={() => setShowPipeForm(f => !f)} className="text-xs bg-blue-100 text-blue-700 px-3 py-1 rounded-lg hover:bg-blue-200">
-            {showPipeForm ? '✕ Fermer' : '+ Ajouter'}
+            {showPipeForm ? '✕ Fermer' : '+ Manuel'}
           </button>
         </div>
 
@@ -3445,33 +3665,65 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
         )}
 
         {pipeline.length === 0 ? (
-          <div className="text-center py-4 text-gray-400 text-xs">Ajoutez vos devis validés et formations prévues</div>
+          <div className="text-center py-4 text-gray-400 text-xs">Les devis envoyés/acceptés apparaîtront ici automatiquement</div>
         ) : (
           <div className="space-y-1">
-            {pipeline.map(p => (
-              <div key={p.id} className="flex items-center justify-between p-2 rounded-lg bg-gray-50 text-xs">
+            {pipeline.sort((a, b) => (a.expected_month || '').localeCompare(b.expected_month || '')).map(p => (
+              <div key={p.id} className={`flex items-center justify-between p-2 rounded-lg text-xs ${
+                p.source === 'auto' ? 'bg-blue-50/50' : 'bg-gray-50'
+              }`}>
                 <div className="flex items-center gap-2 flex-1">
-                  <span className={`w-2 h-2 rounded-full ${p.status === 'facture' ? 'bg-green-500' : p.status === 'confirme' ? 'bg-blue-500' : 'bg-amber-500'}`} />
+                  <span className={`w-2 h-2 rounded-full ${
+                    p.status === 'facture' ? 'bg-green-500' : 
+                    p.status === 'confirme' ? 'bg-blue-500' : 
+                    'bg-amber-500'
+                  }`} />
+                  {p.source === 'auto' && (
+                    <span className={`text-xs px-1.5 py-0.5 rounded ${
+                      p.quote_status === 'accepted' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'
+                    }`}>
+                      {p.quote_status === 'accepted' ? '✅' : '📤'} {p.quote_ref}
+                    </span>
+                  )}
+                  {p.source === 'manual' && (
+                    <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">✋ manuel</span>
+                  )}
                   <span className="font-medium">{p.client}</span>
-                  {p.description && <span className="text-gray-400">— {p.description}</span>}
-                  <span className="text-gray-400">{p.expected_month}</span>
-                  <span className="text-gray-400">{p.trainer}</span>
+                  {p.description && <span className="text-gray-400 truncate max-w-48">— {p.description}</span>}
+                  <span className="text-gray-400">{p.expected_month || '?'}</span>
+                  {p.trainer && <span className="text-gray-400">{p.trainer}</span>}
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="font-mono font-bold">{fmt(p.amount_ht)} HT</span>
-                  <select value={p.status} onChange={e => updatePipeStatus(p.id, e.target.value)}
-                    className="border rounded px-1 py-0.5 text-xs bg-white">
-                    <option value="prevu">Prévu</option>
-                    <option value="confirme">Confirmé</option>
-                    <option value="facture">Facturé</option>
-                    <option value="annule">Annulé</option>
-                  </select>
-                  <button onClick={() => deletePipe(p.id)} className="text-red-400 hover:text-red-600">✕</button>
+                  {p.source === 'manual' ? (
+                    <>
+                      <select value={p.status} onChange={e => updatePipeStatus(p.id, e.target.value)}
+                        className="border rounded px-1 py-0.5 text-xs bg-white">
+                        <option value="prevu">Prévu</option>
+                        <option value="confirme">Confirmé</option>
+                        <option value="facture">Facturé</option>
+                        <option value="annule">Annulé</option>
+                      </select>
+                      <button onClick={() => deletePipe(p.id)} className="text-red-400 hover:text-red-600">✕</button>
+                    </>
+                  ) : (
+                    <span className={`text-xs px-1.5 py-0.5 rounded ${
+                      p.quote_status === 'accepted' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
+                    }`}>{p.quote_status === 'accepted' ? 'Accepté' : 'Envoyé'}</span>
+                  )}
                 </div>
               </div>
             ))}
             <div className="text-right text-xs text-gray-500 pt-1">
               Total pipeline : <b>{fmt(pipeline.reduce((s, p) => s + (p.amount_ht || 0), 0))} HT</b>
+              {pipeline.filter(p => p.source === 'auto').length > 0 && (
+                <span className="ml-2">
+                  (dont <span className="text-green-600">{fmt(pipeline.filter(p => p.quote_status === 'accepted').reduce((s, p) => s + (p.amount_ht || 0), 0))}</span> confirmé
+                  {pipeline.filter(p => p.quote_status === 'sent').length > 0 && (
+                    <>, <span className="text-amber-600">{fmt(pipeline.filter(p => p.quote_status === 'sent').reduce((s, p) => s + (p.amount_ht || 0), 0))}</span> en attente</>
+                  )})
+                </span>
+              )}
             </div>
           </div>
         )}
@@ -3499,6 +3751,74 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* ══ BLOC 5b — Formations à pousser ══ */}
+      {analysis.formationsRank.length > 0 && (
+        <div className="bg-white rounded-xl shadow-sm border p-4">
+          <h3 className="font-bold text-gray-700 mb-3">🎓 Formations — Classement rentabilité</h3>
+          <div className="space-y-2">
+            {analysis.formationsRank.map((f, i) => {
+              const ratio = f.prixCatalogue > 0 && f.prixMoyenRealise > 0 ? ((f.prixMoyenRealise / f.prixCatalogue) * 100).toFixed(0) : null
+              const isTop = f.prixCatalogue >= 690
+              return (
+                <div key={f.id || i} className={`p-3 rounded-lg border ${isTop ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded ${isTop ? 'bg-green-200 text-green-800' : 'bg-gray-200 text-gray-600'}`}>{f.code}</span>
+                      <span className="text-sm font-medium text-gray-800">{f.title}</span>
+                    </div>
+                    <span className="font-mono font-bold text-green-700">{fmt(f.prixCatalogue)} HT</span>
+                  </div>
+                  <div className="flex gap-4 mt-1 text-xs text-gray-500">
+                    <span>{f.nbDone} session(s) réalisée(s)</span>
+                    {f.nbDone > 0 && <span>Prix moyen réalisé : {fmt(f.prixMoyenRealise)} {ratio && ratio < 80 ? <span className="text-amber-600">(⚠️ {ratio}% du tarif)</span> : ''}</span>}
+                    {f.sesFutures > 0 && <span className="text-blue-600">{f.sesFutures} à venir</span>}
+                    {isTop && f.sesFutures === 0 && f.nbDone < 3 && <span className="text-red-500 font-medium">→ À développer !</span>}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+          <div className="mt-3 p-3 bg-blue-50 rounded-lg border border-blue-200 text-xs text-blue-800">
+            💡 <b>Stratégie :</b> Prioriser SST-FI (1 175€), R489/R485 (785€) et B0H0V (775€) en vente directe. 
+            Les formations à 345-350€ (extincteurs, IGPS) sont idéales en pack combiné pour augmenter le panier moyen.
+          </div>
+        </div>
+      )}
+
+      {/* ══ BLOC 5c — Sessions planifiées ══ */}
+      {Object.keys(analysis.sessionsByMonth).length > 0 && (
+        <div className="bg-white rounded-xl shadow-sm border p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-bold text-gray-700">📆 Sessions planifiées</h3>
+            <span className="text-sm font-mono font-bold text-green-700">{fmt(analysis.sessionsTotal)} HT</span>
+          </div>
+          {Object.entries(analysis.sessionsByMonth).sort(([a], [b]) => a.localeCompare(b)).map(([ym, sesList]) => {
+            const [y, m] = ym.split('-')
+            const total = sesList.reduce((s, ses) => s + ses.prix, 0)
+            return (
+              <div key={ym} className="mb-3">
+                <div className="flex justify-between items-center mb-1">
+                  <span className="text-xs font-bold text-gray-600">{ML[m]} {y}</span>
+                  <span className="text-xs font-mono text-gray-500">{sesList.length} session(s) — {fmt(total)} HT</span>
+                </div>
+                <div className="space-y-1">
+                  {sesList.map(ses => (
+                    <div key={ses.id} className="flex items-center justify-between text-xs px-2 py-1 rounded bg-gray-50">
+                      <div className="flex items-center gap-2">
+                        <span className="text-gray-400">{ses.start_date.substring(5)}</span>
+                        <span className="font-medium">{ses.courseCode}</span>
+                        <span className="text-gray-500">— {ses.clientName}</span>
+                      </div>
+                      <span className="font-mono font-medium text-green-600">{fmt(ses.prix)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )
+          })}
         </div>
       )}
 
