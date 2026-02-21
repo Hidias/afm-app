@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo, useRef } from 'react'
 import { useDataStore } from '../lib/store'
-import { Plus, Search, Edit, Trash2, X, Save, FileText, Upload, Eye, Building2, Download } from 'lucide-react'
+import { supabase } from '../lib/supabase'
+import { Plus, Search, Edit, Trash2, X, Save, FileText, Upload, Eye, Building2, Download, CheckSquare } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { format } from 'date-fns'
 
@@ -74,6 +75,24 @@ export default function Trainees() {
     { first_name: '', last_name: '', email: '', phone: '', social_security_number: '' }
   ])
   const [duplicateWarning, setDuplicateWarning] = useState(null) // { type: 'single'|'bulk', duplicates: [], onConfirm: fn }
+  
+  // Sélection en masse
+  const [selectedIds, setSelectedIds] = useState(new Set())
+  const [showBulkActions, setShowBulkActions] = useState(false)
+  const [bulkGender, setBulkGender] = useState('')
+  const [bulkCsp, setBulkCsp] = useState('')
+  const [massClientId, setMassClientId] = useState('')
+  const [bulkSaving, setBulkSaving] = useState(false)
+  
+  // Recherche entreprise dans filtre
+  const [clientSearch, setClientSearch] = useState('')
+  const [showClientDropdown, setShowClientDropdown] = useState(false)
+  const clientDropdownRef = useRef(null)
+  
+  const filteredClients = useMemo(() => {
+    if (!clientSearch) return clients
+    return clients.filter(c => c.name?.toLowerCase().includes(clientSearch.toLowerCase()))
+  }, [clients, clientSearch])
   const [form, setForm] = useState({
     first_name: '', last_name: '', email: '', phone: '', 
     social_security_number: '', client_id: '', notes: '',
@@ -451,6 +470,70 @@ export default function Trainees() {
     if (url) window.open(url, '_blank')
   }
   
+  // Fermer le dropdown entreprise au clic extérieur
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (clientDropdownRef.current && !clientDropdownRef.current.contains(e.target)) {
+        setShowClientDropdown(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+  
+  // Sélection en masse
+  const toggleSelect = (id) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+  
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filtered.length) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(filtered.map(t => t.id)))
+    }
+  }
+  
+  const handleBulkUpdate = async () => {
+    if (selectedIds.size === 0) return
+    setBulkSaving(true)
+    try {
+      const updates = {}
+      if (bulkGender) updates.gender = bulkGender
+      if (bulkCsp) updates.csp = bulkCsp
+      if (massClientId) updates.client_id = massClientId
+      
+      if (Object.keys(updates).length === 0) {
+        toast.error('Aucune modification sélectionnée')
+        setBulkSaving(false)
+        return
+      }
+      
+      const { error } = await supabase
+        .from('trainees')
+        .update(updates)
+        .in('id', Array.from(selectedIds))
+      
+      if (error) throw error
+      
+      toast.success(`${selectedIds.size} stagiaire(s) mis à jour`)
+      setSelectedIds(new Set())
+      setShowBulkActions(false)
+      setBulkGender('')
+      setBulkCsp('')
+      setMassClientId('')
+      fetchTrainees()
+    } catch (err) {
+      console.error('Erreur mise à jour en masse:', err)
+      toast.error('Erreur lors de la mise à jour')
+    }
+    setBulkSaving(false)
+  }
+  
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -468,15 +551,64 @@ export default function Trainees() {
         </div>
       </div>
       
-      <div className="flex gap-4">
-        <div className="relative flex-1">
+      <div className="flex gap-4 flex-wrap">
+        <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <input type="text" placeholder="Rechercher..." className="input pl-10 w-full" value={search} onChange={(e) => setSearch(e.target.value)} />
         </div>
-        <select className="input w-48" value={filterClient} onChange={(e) => setFilterClient(e.target.value)}>
-          <option value="">Toutes entreprises</option>
-          {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </select>
+        {/* Dropdown entreprise avec recherche */}
+        <div className="relative w-56" ref={clientDropdownRef}>
+          <div 
+            className="input w-full cursor-pointer flex items-center justify-between gap-2"
+            onClick={() => setShowClientDropdown(!showClientDropdown)}
+          >
+            <span className={filterClient ? 'text-gray-900' : 'text-gray-400'}>
+              {filterClient ? clients.find(c => c.id === filterClient)?.name || 'Entreprise' : 'Toutes entreprises'}
+            </span>
+            {filterClient && (
+              <button 
+                onClick={(e) => { e.stopPropagation(); setFilterClient(''); setClientSearch('') }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+          {showClientDropdown && (
+            <div className="absolute z-30 top-full mt-1 w-full bg-white border rounded-lg shadow-lg max-h-60 overflow-hidden">
+              <div className="p-2 border-b">
+                <input
+                  type="text"
+                  placeholder="Rechercher entreprise..."
+                  className="input w-full text-sm"
+                  value={clientSearch}
+                  onChange={(e) => setClientSearch(e.target.value)}
+                  autoFocus
+                />
+              </div>
+              <div className="overflow-y-auto max-h-48">
+                <button
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 text-gray-500"
+                  onClick={() => { setFilterClient(''); setClientSearch(''); setShowClientDropdown(false) }}
+                >
+                  Toutes entreprises
+                </button>
+                {filteredClients.map(c => (
+                  <button
+                    key={c.id}
+                    className={`w-full text-left px-3 py-2 text-sm hover:bg-primary-50 ${filterClient === c.id ? 'bg-primary-50 text-primary-700 font-medium' : ''}`}
+                    onClick={() => { setFilterClient(c.id); setClientSearch(''); setShowClientDropdown(false) }}
+                  >
+                    {c.name}
+                  </button>
+                ))}
+                {filteredClients.length === 0 && (
+                  <p className="px-3 py-2 text-sm text-gray-400">Aucun résultat</p>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
         <select className="input w-40" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
           <option value="name">Tri par nom</option>
           <option value="client">Tri par entreprise</option>
@@ -484,11 +616,37 @@ export default function Trainees() {
         </select>
       </div>
       
+      {/* Barre d'actions en masse */}
+      {selectedIds.size > 0 && (
+        <div className="bg-primary-50 border border-primary-200 rounded-lg p-3 flex items-center justify-between">
+          <span className="text-sm font-medium text-primary-700">
+            <CheckSquare className="w-4 h-4 inline mr-1" />
+            {selectedIds.size} stagiaire(s) sélectionné(s)
+          </span>
+          <div className="flex gap-2">
+            <button onClick={() => setShowBulkActions(true)} className="btn btn-primary text-sm py-1.5">
+              Modifier en masse
+            </button>
+            <button onClick={() => setSelectedIds(new Set())} className="btn btn-secondary text-sm py-1.5">
+              Désélectionner
+            </button>
+          </div>
+        </div>
+      )}
+      
       <div className="card overflow-hidden">
         <div className="overflow-x-auto">
         <table className="w-full min-w-[600px]">
           <thead className="bg-gray-50">
             <tr>
+              <th className="w-10 py-3 px-2">
+                <input 
+                  type="checkbox" 
+                  checked={filtered.length > 0 && selectedIds.size === filtered.length}
+                  onChange={toggleSelectAll}
+                  className="w-4 h-4 text-primary-500 rounded"
+                />
+              </th>
               <th className="text-left py-3 px-4 font-medium text-gray-600">Prénom NOM</th>
               <th className="text-left py-3 px-4 font-medium text-gray-600 hidden sm:table-cell">Email</th>
               <th className="text-left py-3 px-4 font-medium text-gray-600 hidden md:table-cell">Téléphone</th>
@@ -498,7 +656,15 @@ export default function Trainees() {
           </thead>
           <tbody className="divide-y">
             {filtered.map(t => (
-              <tr key={t.id} className="hover:bg-gray-50">
+              <tr key={t.id} className={`hover:bg-gray-50 ${selectedIds.has(t.id) ? 'bg-primary-50' : ''}`}>
+                <td className="py-3 px-2">
+                  <input 
+                    type="checkbox"
+                    checked={selectedIds.has(t.id)}
+                    onChange={() => toggleSelect(t.id)}
+                    className="w-4 h-4 text-primary-500 rounded"
+                  />
+                </td>
                 <td className="py-3 px-4">
                   <div className="flex items-center gap-2">
                     <button onClick={() => openPreview(t)} className="font-medium text-primary hover:underline">
@@ -522,7 +688,7 @@ export default function Trainees() {
                 </td>
               </tr>
             ))}
-            {filtered.length === 0 && <tr><td colSpan={5} className="py-8 text-center text-gray-500">Aucun stagiaire</td></tr>}
+            {filtered.length === 0 && <tr><td colSpan={6} className="py-8 text-center text-gray-500">Aucun stagiaire</td></tr>}
           </tbody>
         </table>
         </div>
@@ -957,6 +1123,63 @@ export default function Trainees() {
                     <Save className="w-4 h-4 mr-2" />Créer tous
                   </button>
                 </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Modal Actions en masse */}
+      {showBulkActions && (
+        <div className="fixed inset-0 z-50 overflow-y-auto">
+          <div className="fixed inset-0 bg-black/50" onClick={() => setShowBulkActions(false)} />
+          <div className="relative min-h-full flex items-center justify-center p-4">
+            <div className="relative bg-white rounded-xl shadow-xl w-full max-w-md">
+              <div className="flex items-center justify-between p-4 border-b">
+                <h2 className="text-lg font-semibold">Modifier {selectedIds.size} stagiaire(s)</h2>
+                <button onClick={() => setShowBulkActions(false)}><X className="w-5 h-5" /></button>
+              </div>
+              <div className="p-4 space-y-4">
+                <p className="text-sm text-gray-500">Laissez vide les champs que vous ne souhaitez pas modifier.</p>
+                
+                <div>
+                  <label className="label">Genre</label>
+                  <select className="input w-full" value={bulkGender} onChange={(e) => setBulkGender(e.target.value)}>
+                    <option value="">— Ne pas modifier —</option>
+                    <option value="male">Homme</option>
+                    <option value="female">Femme</option>
+                    <option value="non_binary">Non genré</option>
+                  </select>
+                </div>
+                
+                <div>
+                  <label className="label">CSP</label>
+                  <select className="input w-full" value={bulkCsp} onChange={(e) => setBulkCsp(e.target.value)}>
+                    <option value="">— Ne pas modifier —</option>
+                    <option value="Agriculteurs exploitants">Agriculteurs exploitants</option>
+                    <option value="Artisans, commerçants, chefs d'entreprise">Artisans, commerçants, chefs d'entreprise</option>
+                    <option value="Cadres et professions intellectuelles supérieures">Cadres et professions intellectuelles supérieures</option>
+                    <option value="Professions intermédiaires">Professions intermédiaires</option>
+                    <option value="Employés">Employés</option>
+                    <option value="Ouvriers">Ouvriers</option>
+                    <option value="Retraités">Retraités</option>
+                    <option value="Autres sans activité professionnelle">Autres sans activité professionnelle</option>
+                  </select>
+                </div>
+                
+                <div>
+                  <label className="label">Entreprise</label>
+                  <select className="input w-full" value={massClientId} onChange={(e) => setMassClientId(e.target.value)}>
+                    <option value="">— Ne pas modifier —</option>
+                    {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 p-4 border-t">
+                <button onClick={() => setShowBulkActions(false)} className="btn btn-secondary">Annuler</button>
+                <button onClick={handleBulkUpdate} disabled={bulkSaving} className="btn btn-primary flex items-center gap-2">
+                  {bulkSaving ? 'Mise à jour...' : `Appliquer à ${selectedIds.size} stagiaire(s)`}
+                </button>
               </div>
             </div>
           </div>
