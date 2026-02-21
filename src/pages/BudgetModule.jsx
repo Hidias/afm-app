@@ -2995,31 +2995,6 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
       const sparkDep = months.slice(-6).map(m => ({ m, v: byMonth[m]?.debit || 0 }))
       const sparkNet = months.slice(-6).map(m => ({ m, v: (byMonth[m]?.credit || 0) - (byMonth[m]?.debit || 0) }))
 
-      // ── Projection trimestre ──
-      const trimProjection = []
-      let soldeCumul = solde
-      const depFixesValidees = Object.values(chargesFixes).reduce((s, v) => s + (v.montant || 0), 0)
-      for (let i = 0; i < 3; i++) {
-        const futureDate = new Date(now.getFullYear(), now.getMonth() + i, 1)
-        const mLabel = `${ML[String(futureDate.getMonth() + 1).padStart(2, '0')]} ${futureDate.getFullYear()}`
-        const mYM = `${futureDate.getFullYear()}-${String(futureDate.getMonth() + 1).padStart(2, '0')}`
-
-        // Pipeline prévu pour ce mois
-        const pipeMois = pipeline.filter(p => p.expected_month === mYM && p.status !== 'annule')
-        const caPipe = pipeMois.reduce((s, p) => s + (p.amount_ht || 0), 0)
-
-        // Sessions planifiées ce mois (si pas déjà dans pipeline)
-        const sesMois = (sessionsByMonth[mYM] || []).reduce((s, ses) => s + ses.prix, 0)
-
-        const caProj = i === 0 ? totalEntreesMois : Math.max(caLast3, caPipe + sesMois)
-        const depProj = i === 0 ? totalSortiesMois : depFixesValidees
-        const net = caProj - depProj
-        soldeCumul += (i === 0 ? netMois : net)
-
-        trimProjection.push({ label: mLabel, ca: caProj, dep: depProj, net: i === 0 ? netMois : net, solde: soldeCumul, isCurrent: i === 0, caPipe, sesMois })
-      }
-      const moisTendu = trimProjection.reduce((min, m) => m.solde < min.solde ? m : min, trimProjection[0])
-
       // ── Sessions & Formations à venir ──
       const courseMap = {}
       courses.forEach(c => { courseMap[c.id] = c })
@@ -3050,13 +3025,38 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
         const caDone = sesDone.reduce((sum, s) => sum + (s.custom_price_ht || s.total_price || 0), 0)
         const prixMoyenRealise = nbDone > 0 ? caDone / nbDone : 0
         const prixCatalogue = c.price_ht || 0
-        const margeDirecte = prixCatalogue // Marge ~100% sur formations directes
+        const margeDirecte = prixCatalogue
         return {
           ...c,
           nbDone, caDone, prixMoyenRealise, prixCatalogue, margeDirecte,
           sesFutures: futureSessions.filter(s => s.course_id === c.id).length
         }
       }).sort((a, b) => b.prixCatalogue - a.prixCatalogue)
+
+      // ── Projection trimestre ──
+      const trimProjection = []
+      let soldeCumul = solde
+      const depFixesValidees = Object.values(chargesFixes).reduce((s, v) => s + (v.montant || 0), 0)
+      for (let i = 0; i < 3; i++) {
+        const futureDate = new Date(now.getFullYear(), now.getMonth() + i, 1)
+        const mLabel = `${ML[String(futureDate.getMonth() + 1).padStart(2, '0')]} ${futureDate.getFullYear()}`
+        const mYM = `${futureDate.getFullYear()}-${String(futureDate.getMonth() + 1).padStart(2, '0')}`
+
+        // Pipeline prévu pour ce mois
+        const pipeMois = pipeline.filter(p => p.expected_month === mYM && p.status !== 'annule')
+        const caPipe = pipeMois.reduce((s, p) => s + (p.amount_ht || 0), 0)
+
+        // Sessions planifiées ce mois (si pas déjà dans pipeline)
+        const sesMois = (sessionsByMonth[mYM] || []).reduce((s, ses) => s + ses.prix, 0)
+
+        const caProj = i === 0 ? totalEntreesMois : Math.max(caLast3, caPipe + sesMois)
+        const depProj = i === 0 ? totalSortiesMois : depFixesValidees
+        const net = caProj - depProj
+        soldeCumul += (i === 0 ? netMois : net)
+
+        trimProjection.push({ label: mLabel, ca: caProj, dep: depProj, net: i === 0 ? netMois : net, solde: soldeCumul, isCurrent: i === 0, caPipe, sesMois })
+      }
+      const moisTendu = trimProjection.reduce((min, m) => m.solde < min.solde ? m : min, trimProjection[0])
 
       // ── Cash flow détaillé ──
       const cashFlowItems = []
