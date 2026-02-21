@@ -2613,6 +2613,7 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
 
   // ══ STATE ══
   const [config, setConfig] = useState({ objectif: 10000, marge_securite: 2000, solde_override: '' })
+  const [chargesFixes, setChargesFixes] = useState({})
   const [configLoaded, setConfigLoaded] = useState(false)
   const [actions, setActions] = useState([])
   const [actionsLoaded, setActionsLoaded] = useState(false)
@@ -2641,6 +2642,21 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
         objectif: parseFloat(map.objectif || '10000'),
         marge_securite: parseFloat(map.marge_securite || '2000'),
         solde_override: map.solde_override || '',
+      })
+      // Charges fixes réelles validées
+      setChargesFixes({
+        'Salaire Maxime': { icon: '👤', montant: parseFloat(map.charge_salaire_maxime || '0') },
+        'Salaire Hicham': { icon: '👤', montant: parseFloat(map.charge_salaire_hicham || '0') },
+        'Loyer siège': { icon: '🏢', montant: parseFloat(map.charge_loyer || '0') },
+        'URSSAF': { icon: '📋', montant: parseFloat(map.charge_urssaf || '0') },
+        'Prêts': { icon: '🏦', montant: parseFloat(map.charge_prets || '0') },
+        'Comptable': { icon: '🧮', montant: parseFloat(map.charge_comptable || '0') },
+        'Crédit auto': { icon: '🚗', montant: parseFloat(map.charge_credit_auto || '0') },
+        'Télécoms': { icon: '📱', montant: parseFloat(map.charge_telecoms || '0') },
+        'Assurances véhicule': { icon: '🚗', montant: parseFloat(map.charge_assurance_vehicule || '0') },
+        'Assurances santé': { icon: '🏥', montant: parseFloat(map.charge_assurance_sante || '0') },
+        'Logiciels & SaaS': { icon: '💻', montant: parseFloat(map.charge_logiciels || '0') },
+        'Frais bancaires': { icon: '🏦', montant: parseFloat(map.charge_frais_bancaires || '0') },
       })
     }
     setConfigLoaded(true)
@@ -2825,23 +2841,12 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
       const depTrend = depPrev3 > 0 ? ((depLast3 - depPrev3) / depPrev3) * 100 : 0
       const margeLast3 = caLast3 - depLast3
 
-      // ── Charges fixes moyennes ──
-      let totalFixed = 0
-      const fixedBreakdown = {}
-      months.forEach(m => {
-        Object.entries(byMonth[m].cats).forEach(([cat, vals]) => {
-          const info = catMap[cat] || {}
-          if (info.type === 'fixe' && vals.debit > 0) {
-            totalFixed += vals.debit
-            if (!fixedBreakdown[cat]) fixedBreakdown[cat] = 0
-            fixedBreakdown[cat] += vals.debit
-          }
-        })
-      })
-      const avgFixed = totalFixed / nbMonths
-      const fixedDetail = Object.entries(fixedBreakdown)
-        .map(([name, total]) => ({ name, icon: categories.find(c => c.name === name)?.icon || '📦', monthly: total / nbMonths }))
+      // ── Charges fixes : utiliser les montants validés de budget_settings ──
+      const fixedDetail = Object.entries(chargesFixes)
+        .filter(([, v]) => v.montant > 0)
+        .map(([name, v]) => ({ name, icon: v.icon, monthly: v.montant }))
         .sort((a, b) => b.monthly - a.monthly)
+      const avgFixed = fixedDetail.reduce((s, d) => s + d.monthly, 0)
 
       // ── Dépenses par catégorie (pour camembert + optimisation) ──
       const depByCat = {}
@@ -2976,7 +2981,7 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
         trimProjection: [], moisTendu: null, recos: [], bilanPrev: null, last3: [], nbActive: 0
       }
     }
-  }, [transactions, categories, unpaidInvoices, config, currentMonthKey, pipeline, chartPeriod])
+  }, [transactions, categories, unpaidInvoices, config, currentMonthKey, pipeline, chartPeriod, chargesFixes])
 
   function detectRecurringCharges(txs, months, curMonth) {
     const descMap = {}
@@ -3603,16 +3608,37 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
       <div className="bg-white rounded-xl shadow-sm border p-4">
         <details>
           <summary className="font-bold text-gray-700 cursor-pointer hover:text-blue-600">
-            📋 Détail charges fixes — {fmt(analysis.avgFixed)}/mois
+            📋 Charges fixes validées — {fmt(analysis.avgFixed)}/mois
           </summary>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mt-3">
-            {analysis.fixedDetail.map((c, i) => (
-              <div key={i} className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
-                <span>{c.icon}</span>
-                <div className="flex-1 text-xs text-gray-700">{c.name}</div>
-                <div className="font-mono text-sm font-bold text-red-600">{fmt(c.monthly)}</div>
-              </div>
-            ))}
+          <p className="text-xs text-gray-400 mt-2 mb-3">Montants réels validés. Cliquer sur un montant pour modifier.</p>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+            {analysis.fixedDetail.map((c, i) => {
+              const settingsKey = Object.entries(chargesFixes).find(([name]) => name === c.name)?.[0]
+              const dbKey = settingsKey ? 'charge_' + {
+                'Salaire Maxime': 'salaire_maxime', 'Salaire Hicham': 'salaire_hicham',
+                'Loyer siège': 'loyer', 'URSSAF': 'urssaf', 'Prêts': 'prets',
+                'Comptable': 'comptable', 'Crédit auto': 'credit_auto', 'Télécoms': 'telecoms',
+                'Assurances véhicule': 'assurance_vehicule', 'Assurances santé': 'assurance_sante',
+                'Logiciels & SaaS': 'logiciels', 'Frais bancaires': 'frais_bancaires',
+              }[c.name] : null
+              return (
+                <div key={i} className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
+                  <span>{c.icon}</span>
+                  <div className="flex-1 text-xs text-gray-700">{c.name}</div>
+                  <input type="number" value={c.monthly} 
+                    onChange={e => {
+                      const val = +e.target.value
+                      setChargesFixes(prev => ({ ...prev, [c.name]: { ...prev[c.name], montant: val } }))
+                      if (dbKey) saveConfig(dbKey, val)
+                    }}
+                    className="w-20 text-right font-mono text-sm font-bold text-red-600 bg-transparent border-0 border-b border-transparent hover:border-gray-300 focus:border-blue-400 focus:outline-none px-1 py-0.5" />
+                </div>
+              )
+            })}
+          </div>
+          <div className="mt-3 p-3 bg-red-50 rounded-lg border border-red-200 flex justify-between items-center">
+            <span className="font-bold text-red-800">Total charges fixes mensuelles</span>
+            <span className="font-mono text-xl font-bold text-red-700">{fmt(analysis.avgFixed)}</span>
           </div>
         </details>
       </div>
