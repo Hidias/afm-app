@@ -295,6 +295,10 @@ function SaisieTab({ categories, rules, loadAll, clients }) {
   const [saving, setSaving] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
   const [aiResult, setAiResult] = useState(null)
+  const [aiResults, setAiResults] = useState([]) // multi-fichiers
+  const [aiCurrentIdx, setAiCurrentIdx] = useState(0)
+  const [aiProgress, setAiProgress] = useState({ current: 0, total: 0 })
+  const [dragOver, setDragOver] = useState(false)
   const [recent, setRecent] = useState([])
 
   // Repas / Invités
@@ -323,6 +327,18 @@ function SaisieTab({ categories, rules, loadAll, clients }) {
 
   function handleFiles(e) {
     const newFiles = Array.from(e.target.files)
+    addFiles(newFiles)
+  }
+
+  function handleDrop(e) {
+    e.preventDefault()
+    setDragOver(false)
+    const newFiles = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/') || f.type === 'application/pdf')
+    if (newFiles.length === 0) { toast.error('Formats acceptés : PDF, JPG, PNG'); return }
+    addFiles(newFiles)
+  }
+
+  function addFiles(newFiles) {
     setFiles(prev => [...prev, ...newFiles])
     newFiles.forEach(f => {
       if (f.type.startsWith('image/')) {
@@ -340,50 +356,120 @@ function SaisieTab({ categories, rules, loadAll, clients }) {
     setPreviews(prev => prev.filter((_, i) => i !== idx))
   }
 
-  // Analyse IA de la facture
+  // Analyse IA de la facture — MULTI-FICHIERS
   async function analyzeWithAI() {
     if (files.length === 0) { toast.error('Ajoutez une facture d\'abord'); return }
     setAnalyzing(true)
-    try {
-      const file = files[0]
-      const base64 = await fileToBase64(file)
-      const mediaType = file.type || 'image/jpeg'
-      const catList = categories.map(c => `${c.icon} ${c.name} (${c.direction})`).join(', ')
+    setAiResults([])
+    setAiCurrentIdx(0)
+    setAiResult(null)
+    const results = []
+    const total = files.length
+    setAiProgress({ current: 0, total })
 
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': import.meta.env.VITE_ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 500,
-          messages: [{ role: 'user', content: [
-            { type: mediaType.startsWith('image/') ? 'image' : 'document', source: { type: 'base64', media_type: mediaType, data: base64 } },
-            { type: 'text', text: `Analyse cette facture/ticket pour Access Formation SARL (formation professionnelle SST/CACES/sécurité).\n\nExtrais en JSON strict (pas de markdown) :\n{\n  "fournisseur": "nom du fournisseur",\n  "montant": 123.45,\n  "date": "2026-02-19",\n  "description": "description courte",\n  "categorie_suggestion": "nom de la catégorie la plus proche",\n  "type_depense": "entreprise" ou "perso_hicham" ou "perso_maxime",\n  "explication": "pourquoi cette classification",\n  "note_comptable": "explication courte pour la comptable"\n}\n\nCatégories disponibles : ${catList}\n\nRègles :\n- Si c'est un achat clairement professionnel (matériel formation, logiciel, assurance, carburant, restaurant business) → "entreprise"\n- Si c'est un achat personnel (courses alimentaires, vêtements perso, loisirs) → "perso_hicham" ou "perso_maxime" (par défaut "perso_hicham")\n- En cas de doute → "entreprise"` }
-          ]}]
+    for (let i = 0; i < files.length; i++) {
+      setAiProgress({ current: i + 1, total })
+      try {
+        const file = files[i]
+        const base64 = await fileToBase64(file)
+        const mediaType = file.type || 'image/jpeg'
+        const catList = categories.map(c => `${c.icon} ${c.name} (${c.direction})`).join(', ')
+
+        const response = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-api-key': import.meta.env.VITE_ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+          body: JSON.stringify({
+            model: 'claude-sonnet-4-20250514',
+            max_tokens: 500,
+            messages: [{ role: 'user', content: [
+              { type: mediaType.startsWith('image/') ? 'image' : 'document', source: { type: 'base64', media_type: mediaType, data: base64 } },
+              { type: 'text', text: `Analyse cette facture/ticket pour Access Formation SARL (formation professionnelle SST/CACES/sécurité).\n\nExtrais en JSON strict (pas de markdown) :\n{\n  "fournisseur": "nom du fournisseur",\n  "montant": 123.45,\n  "date": "2026-02-19",\n  "description": "description courte",\n  "categorie_suggestion": "nom de la catégorie la plus proche",\n  "type_depense": "entreprise" ou "perso_hicham" ou "perso_maxime",\n  "explication": "pourquoi cette classification",\n  "note_comptable": "explication courte pour la comptable"\n}\n\nCatégories disponibles : ${catList}\n\nRègles :\n- Si c'est un achat clairement professionnel (matériel formation, logiciel, assurance, carburant, restaurant business) → "entreprise"\n- Si c'est un achat personnel (courses alimentaires, vêtements perso, loisirs) → "perso_hicham" ou "perso_maxime" (par défaut "perso_hicham")\n- En cas de doute → "entreprise"` }
+            ]}]
+          })
         })
-      })
-      const data = await response.json()
-      const text = data.content?.[0]?.text || ''
-      const json = JSON.parse(text.replace(/```json|```/g, '').trim())
-      setAiResult(json)
-
-      if (json.fournisseur) setForm(f => ({ ...f, description: json.description || json.fournisseur }))
-      if (json.montant) setForm(f => ({ ...f, amount: json.montant.toString().replace('.', ',') }))
-      if (json.date) setForm(f => ({ ...f, date: json.date }))
-      if (json.note_comptable) setForm(f => ({ ...f, note_comptable: json.note_comptable }))
-      if (json.type_depense === 'perso_hicham') setForm(f => ({ ...f, payer: 'hicham_perso' }))
-      else if (json.type_depense === 'perso_maxime') setForm(f => ({ ...f, payer: 'maxime_perso' }))
-      else setForm(f => ({ ...f, payer: 'entreprise' }))
-      if (json.categorie_suggestion) {
-        const match = categories.find(c => c.name.toLowerCase().includes(json.categorie_suggestion.toLowerCase()) || json.categorie_suggestion.toLowerCase().includes(c.name.toLowerCase()))
-        if (match) setForm(f => ({ ...f, category_id: match.id }))
+        const data = await response.json()
+        const text = data.content?.[0]?.text || ''
+        const json = JSON.parse(text.replace(/```json|```/g, '').trim())
+        results.push({ ...json, _fileIndex: i, _fileName: file.name, _file: file })
+      } catch (e) {
+        console.error(`Erreur analyse fichier ${i}:`, e)
+        results.push({ _fileIndex: i, _fileName: files[i].name, _file: files[i], _error: true, fournisseur: files[i].name, montant: 0, description: files[i].name, explication: 'Erreur d\'analyse' })
       }
-      toast.success('🤖 Facture analysée')
-    } catch (e) {
-      console.error(e)
-      toast.error('Erreur analyse IA')
+    }
+
+    setAiResults(results)
+    setAiCurrentIdx(0)
+    if (results.length === 1) {
+      // Un seul fichier : comportement classique
+      applyResult(results[0])
+    } else if (results.length > 1) {
+      applyResult(results[0])
     }
     setAnalyzing(false)
+    toast.success(`🤖 ${results.filter(r => !r._error).length}/${total} fichier(s) analysé(s)`)
+  }
+
+  // Appliquer un résultat IA au formulaire
+  function applyResult(json) {
+    if (!json || json._error) return
+    setAiResult(json)
+    if (json.fournisseur) setForm(f => ({ ...f, description: json.description || json.fournisseur }))
+    if (json.montant) setForm(f => ({ ...f, amount: json.montant.toString().replace('.', ',') }))
+    if (json.date) setForm(f => ({ ...f, date: json.date }))
+    if (json.note_comptable) setForm(f => ({ ...f, note_comptable: json.note_comptable }))
+    if (json.type_depense === 'perso_hicham') setForm(f => ({ ...f, payer: 'hicham_perso' }))
+    else if (json.type_depense === 'perso_maxime') setForm(f => ({ ...f, payer: 'maxime_perso' }))
+    else setForm(f => ({ ...f, payer: 'entreprise' }))
+    if (json.categorie_suggestion) {
+      const match = categories.find(c => c.name.toLowerCase().includes(json.categorie_suggestion.toLowerCase()) || json.categorie_suggestion.toLowerCase().includes(c.name.toLowerCase()))
+      if (match) setForm(f => ({ ...f, category_id: match.id }))
+    }
+  }
+
+  // Naviguer dans les résultats multi-fichiers
+  function goToResult(idx) {
+    if (idx < 0 || idx >= aiResults.length) return
+    setAiCurrentIdx(idx)
+    applyResult(aiResults[idx])
+    // Mettre le fichier correspondant en premier pour la sauvegarde
+    const targetFile = aiResults[idx]._file
+    if (targetFile) {
+      setFiles([targetFile])
+      if (targetFile.type?.startsWith('image/')) {
+        const reader = new FileReader()
+        reader.onload = ev => setPreviews([{ name: targetFile.name, url: ev.target.result }])
+        reader.readAsDataURL(targetFile)
+      } else {
+        setPreviews([{ name: targetFile.name, url: null }])
+      }
+    }
+  }
+
+  // Sauvegarder le résultat courant et passer au suivant
+  async function validateAndNext() {
+    await handleSave()
+    const nextIdx = aiCurrentIdx + 1
+    if (nextIdx < aiResults.length) {
+      goToResult(nextIdx)
+      toast.success(`📄 Suivant : ${nextIdx + 1}/${aiResults.length}`)
+    } else {
+      setAiResults([])
+      setAiCurrentIdx(0)
+      toast.success('✅ Tous les fichiers ont été traités !')
+    }
+  }
+
+  // Passer sans sauvegarder
+  function skipResult() {
+    const nextIdx = aiCurrentIdx + 1
+    if (nextIdx < aiResults.length) {
+      goToResult(nextIdx)
+    } else {
+      setAiResults([])
+      setAiCurrentIdx(0)
+      setAiResult(null)
+      toast.success('✅ Terminé')
+    }
   }
 
   // Gestion invités
@@ -450,7 +536,11 @@ function SaisieTab({ categories, rules, loadAll, clients }) {
     toast.success(`✅ ${form.type === 'debit' ? 'Dépense' : 'Entrée'}: ${fmt(amount)}`)
     setRecent(prev => [txData, ...prev].slice(0, 10))
     setForm({ date: new Date().toISOString().split('T')[0], description: '', amount: '', type: 'debit', category_id: '', payer: 'entreprise', notes: '', note_comptable: '' })
-    setFiles([]); setPreviews([]); setAiResult(null); setGuests([]); setNbConvives(2); setMealFor('hicham')
+    // Ne reset files/aiResults que si on n'est pas en mode multi-validation
+    if (aiResults.length <= 1) {
+      setFiles([]); setPreviews([]); setAiResult(null); setAiResults([]); setAiCurrentIdx(0)
+    }
+    setGuests([]); setNbConvives(2); setMealFor('hicham')
     setSaving(false)
     loadAll()
   }
@@ -463,10 +553,13 @@ function SaisieTab({ categories, rules, loadAll, clients }) {
         {/* Upload zone */}
         <div>
           <label className="text-xs text-gray-500 font-medium">📎 Facture(s) / Justificatif(s)</label>
-          <div className="mt-1 border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-blue-400 transition-colors cursor-pointer"
-            onClick={() => document.getElementById('file-input').click()}>
+          <div className={`mt-1 border-2 border-dashed rounded-lg p-4 text-center transition-colors cursor-pointer ${dragOver ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:border-blue-400'}`}
+            onClick={() => document.getElementById('file-input').click()}
+            onDrop={handleDrop}
+            onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+            onDragLeave={() => setDragOver(false)}>
             <input id="file-input" type="file" multiple accept="image/*,.pdf" onChange={handleFiles} className="hidden" />
-            <p className="text-sm text-gray-500">📷 Cliquez ou glissez vos fichiers ici</p>
+            <p className="text-sm text-gray-500">{dragOver ? '📥 Lâchez pour ajouter' : '📷 Cliquez ou glissez vos fichiers ici'}</p>
             <p className="text-xs text-gray-400 mt-1">PDF, JPG, PNG — plusieurs fichiers possibles</p>
           </div>
           {previews.length > 0 && (
@@ -479,16 +572,58 @@ function SaisieTab({ categories, rules, loadAll, clients }) {
               ))}
             </div>
           )}
-          {files.length > 0 && (
+          {files.length > 0 && !analyzing && aiResults.length === 0 && (
             <button onClick={analyzeWithAI} disabled={analyzing}
               className="mt-2 w-full bg-purple-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-purple-700 disabled:opacity-50">
-              {analyzing ? '🤖 Analyse en cours...' : '🤖 Analyser avec IA'}
+              {files.length > 1 ? `🤖 Analyser ${files.length} fichiers avec IA` : '🤖 Analyser avec IA'}
             </button>
+          )}
+          {analyzing && (
+            <div className="mt-2 space-y-2">
+              <div className="flex items-center gap-2 text-sm text-purple-700 font-medium">
+                <div className="animate-spin rounded-full h-4 w-4 border-2 border-purple-600 border-t-transparent"></div>
+                Analyse {aiProgress.current}/{aiProgress.total}...
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-2">
+                <div className="bg-purple-600 h-2 rounded-full transition-all duration-300" style={{ width: `${(aiProgress.current / aiProgress.total) * 100}%` }}></div>
+              </div>
+            </div>
           )}
         </div>
 
-        {/* Résultat IA */}
-        {aiResult && (
+        {/* Résultat IA — mode multi-fichiers */}
+        {aiResults.length > 1 && !analyzing && (
+          <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 text-xs space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-purple-800">🤖 Fichier {aiCurrentIdx + 1}/{aiResults.length}</span>
+              <span className="text-purple-600 text-[10px]">{aiResults[aiCurrentIdx]?._fileName}</span>
+            </div>
+            {aiResults[aiCurrentIdx]?._error ? (
+              <div className="text-red-600">❌ Erreur d'analyse pour ce fichier</div>
+            ) : (
+              <>
+                <div>Fournisseur : <b>{aiResults[aiCurrentIdx]?.fournisseur}</b></div>
+                <div>Montant : <b>{aiResults[aiCurrentIdx]?.montant} €</b></div>
+                <div>Catégorie : <b>{aiResults[aiCurrentIdx]?.categorie_suggestion}</b></div>
+                <div>Type : <b className={aiResults[aiCurrentIdx]?.type_depense === 'entreprise' ? 'text-blue-600' : 'text-purple-600'}>{aiResults[aiCurrentIdx]?.type_depense}</b></div>
+                <div className="text-gray-600 italic">{aiResults[aiCurrentIdx]?.explication}</div>
+              </>
+            )}
+            <div className="flex gap-2 pt-1">
+              <button onClick={validateAndNext} disabled={saving || !form.description || !form.amount}
+                className="flex-1 bg-green-600 text-white py-2 rounded-lg text-xs font-medium hover:bg-green-700 disabled:opacity-50">
+                ✅ Valider & {aiCurrentIdx + 1 < aiResults.length ? 'Suivant' : 'Terminer'}
+              </button>
+              <button onClick={skipResult}
+                className="px-4 bg-gray-200 text-gray-700 py-2 rounded-lg text-xs font-medium hover:bg-gray-300">
+                Passer ▶
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Résultat IA — mode fichier unique */}
+        {aiResult && aiResults.length <= 1 && (
           <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 text-xs space-y-1">
             <div className="font-bold text-purple-800">🤖 Résultat IA :</div>
             <div>Fournisseur : <b>{aiResult.fournisseur}</b></div>
