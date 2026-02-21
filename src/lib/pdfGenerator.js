@@ -786,6 +786,12 @@ function generateEmargement(session, trainees = [], trainer = null, isBlank = fa
     return digitalSignatures.some(ds => ds.trainee_id === traineeId)
   }
 
+  // Helper : récupérer l'image de la signature depuis document_signatures
+  const getDigitalSignatureImage = (traineeId) => {
+    const ds = digitalSignatures.find(d => d.trainee_id === traineeId && d.signature_data)
+    return ds?.signature_data || null
+  }
+
   // Helper : formater un timestamp en "JJ/MM/AAAA à XXhXX"
   const formatSignedAt = (timestamp) => {
     if (!timestamp) return ''
@@ -869,7 +875,12 @@ function generateEmargement(session, trainees = [], trainer = null, isBlank = fa
   const startX = 15
 
   // Hauteur des lignes selon le mode
-  const rowH = isBlank ? 10 : 14  // compact en mode rempli
+  // Plus haut quand on a des signatures à afficher (18mm vs 10mm vierge)
+  const hasAnySignatureImage = !isBlank && (
+    signatures.some(s => s.signature_data || s.signature) ||
+    digitalSignatures.some(ds => ds.signature_data)
+  )
+  const rowH = isBlank ? 10 : (hasAnySignatureImage ? 18 : 14)
 
   // ============ EN-TÊTE TABLEAU ============
   doc.setFillColor(240, 240, 240)
@@ -912,15 +923,14 @@ function generateEmargement(session, trainees = [], trainer = null, isBlank = fa
     doc.rect(startX + nameColW, y, secuColW, rowH)
     doc.rect(startX + nameColW + secuColW, y, emailColW, rowH)
 
-    if (t.first_name) doc.text(`${t.last_name?.toUpperCase() || ''} ${t.first_name || ''}`, startX + 1, y + 5)
-    if (t.social_security_number) doc.text(maskSSN(t.social_security_number), startX + nameColW + 1, y + 5)
-    if (t.email) doc.text(t.email.substring(0, 22), startX + nameColW + secuColW + 1, y + 5)
+    if (t.first_name) doc.text(`${t.last_name?.toUpperCase() || ''} ${t.first_name || ''}`, startX + 1, y + rowH / 2 - 0.5)
+    if (t.social_security_number) doc.text(maskSSN(t.social_security_number), startX + nameColW + 1, y + rowH / 2 - 0.5)
+    if (t.email) doc.text(t.email.substring(0, 22), startX + nameColW + secuColW + 1, y + rowH / 2 - 0.5)
 
     // Colonnes demi-journées
     let xx = startX + nameColW + secuColW + emailColW
     displayDays.forEach((day, idx) => {
       const dateStr = isBlank ? null : format(day, 'yyyy-MM-dd')
-      const dateDisplay = isBlank ? null : format(day, 'dd/MM', { locale: fr })
 
       // Helper : dessiner une coche (checkmark) à la position donnée
       const drawCheckmark = (cx, cy, size, color) => {
@@ -966,20 +976,42 @@ function generateEmargement(session, trainees = [], trainer = null, isBlank = fa
         const hh = d ? String(d.getHours()).padStart(2, '0') : '--'
         const min = d ? String(d.getMinutes()).padStart(2, '0') : '--'
 
-        // Couleur : vert si signature num OU stagiaire a signé (signed_morning/afternoon_at) OU signature électronique, bleu si validé formateur uniquement
+        // Couleur : vert si signature stagiaire, bleu si validé formateur
         const hdSigned = hd && (period === 'morning' ? hd.signed_morning_at : hd.signed_afternoon_at)
         const digiSig = hasDigitalSignature(t.id)
         const color = (sig || hdSigned || digiSig) ? [0, 120, 0] : [0, 80, 160]
 
-        // Dessiner la coche
-        drawCheckmark(cellX + 1.5, y + 1.5, 4.5, color)
+        // Essayer d'injecter l'image de la signature pad
+        // Priorité : signature par demi-journée (attendances) → signature globale (document_signatures)
+        const sigImageData = sig ? (sig.signature_data || sig.signature) : null
+        const fallbackImage = !sigImageData ? getDigitalSignatureImage(t.id) : null
+        const imageToUse = sigImageData || fallbackImage
+        let signatureDrawn = false
 
-        // Date + heure à droite de la coche
-        doc.setFontSize(5)
+        if (imageToUse && typeof imageToUse === 'string' && imageToUse.startsWith('data:image')) {
+          try {
+            // Dimensions de l'image dans la case (avec marge)
+            const pad = 1
+            const imgW = dayColW - pad * 2
+            const imgH = rowH - 6  // laisser de la place pour le timestamp en bas
+            doc.addImage(imageToUse, 'PNG', cellX + pad, y + pad, imgW, imgH)
+            signatureDrawn = true
+          } catch (e) {
+            // Image invalide, fallback sur la coche
+            console.warn('Erreur addImage signature:', e)
+          }
+        }
+
+        if (!signatureDrawn) {
+          // Fallback : dessiner la coche comme avant
+          drawCheckmark(cellX + (dayColW - 4.5) / 2, y + 1.5, 4.5, color)
+        }
+
+        // Heure en bas de la case
+        doc.setFontSize(4)
         doc.setFont('helvetica', 'normal')
         doc.setTextColor(color[0], color[1], color[2])
-        doc.text(`${dateDisplay}`, cellX + 7.5, y + 4.5)
-        doc.text(`${hh}h${min}`, cellX + 7.5, y + 9)
+        doc.text(`${hh}h${min}`, cellX + dayColW / 2, y + rowH - 1.5, { align: 'center' })
         doc.setTextColor(0, 0, 0)
       }
 
@@ -1001,13 +1033,13 @@ function generateEmargement(session, trainees = [], trainer = null, isBlank = fa
     doc.setFillColor(0, 120, 0)
     doc.rect(15, y - 3.5, 3.5, 3.5, 'F')
     doc.setTextColor(0, 0, 0)
-    doc.text('Émargement signé par le stagiaire', 20, y)
+    doc.text('Signature électronique du stagiaire (image ou coche)', 20, y)
 
     // Carré bleu + texte
     doc.setFillColor(0, 80, 160)
-    doc.rect(115, y - 3.5, 3.5, 3.5, 'F')
+    doc.rect(155, y - 3.5, 3.5, 3.5, 'F')
     doc.setTextColor(0, 0, 0)
-    doc.text('Présence validée manuellement par le formateur', 120, y)
+    doc.text('Présence validée par le formateur', 160, y)
     y += 5
   }
 
