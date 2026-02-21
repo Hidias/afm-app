@@ -369,25 +369,39 @@ function SaisieTab({ categories, rules, loadAll, clients }) {
 
     for (let i = 0; i < files.length; i++) {
       setAiProgress({ current: i + 1, total })
+      // Délai entre les appels pour éviter le rate-limit (429)
+      if (i > 0) await new Promise(r => setTimeout(r, 1500))
       try {
         const file = files[i]
         const base64 = await fileToBase64(file)
         const mediaType = file.type || 'image/jpeg'
         const catList = categories.map(c => `${c.icon} ${c.name} (${c.direction})`).join(', ')
 
-        const response = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-api-key': import.meta.env.VITE_ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-          body: JSON.stringify({
-            model: 'claude-sonnet-4-20250514',
-            max_tokens: 500,
-            messages: [{ role: 'user', content: [
-              { type: mediaType.startsWith('image/') ? 'image' : 'document', source: { type: 'base64', media_type: mediaType, data: base64 } },
-              { type: 'text', text: `Analyse cette facture/ticket pour Access Formation SARL (formation professionnelle SST/CACES/sécurité).\n\nExtrais en JSON strict (pas de markdown) :\n{\n  "fournisseur": "nom du fournisseur",\n  "montant": 123.45,\n  "date": "2026-02-19",\n  "description": "description courte",\n  "categorie_suggestion": "nom de la catégorie la plus proche",\n  "type_depense": "entreprise" ou "perso_hicham" ou "perso_maxime",\n  "explication": "pourquoi cette classification",\n  "note_comptable": "explication courte pour la comptable"\n}\n\nCatégories disponibles : ${catList}\n\nRègles :\n- Si c'est un achat clairement professionnel (matériel formation, logiciel, assurance, carburant, restaurant business) → "entreprise"\n- Si c'est un achat personnel (courses alimentaires, vêtements perso, loisirs) → "perso_hicham" ou "perso_maxime" (par défaut "perso_hicham")\n- En cas de doute → "entreprise"` }
-            ]}]
+        // Retry jusqu'à 3 fois en cas de 429
+        let data = null
+        for (let attempt = 0; attempt < 3; attempt++) {
+          const response = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-api-key': import.meta.env.VITE_ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+            body: JSON.stringify({
+              model: 'claude-sonnet-4-20250514',
+              max_tokens: 500,
+              messages: [{ role: 'user', content: [
+                { type: mediaType.startsWith('image/') ? 'image' : 'document', source: { type: 'base64', media_type: mediaType, data: base64 } },
+                { type: 'text', text: `Analyse cette facture/ticket pour Access Formation SARL (formation professionnelle SST/CACES/sécurité).\n\nExtrais en JSON strict (pas de markdown) :\n{\n  "fournisseur": "nom du fournisseur",\n  "montant": 123.45,\n  "date": "2026-02-19",\n  "description": "description courte",\n  "categorie_suggestion": "nom de la catégorie la plus proche",\n  "type_depense": "entreprise" ou "perso_hicham" ou "perso_maxime",\n  "explication": "pourquoi cette classification",\n  "note_comptable": "explication courte pour la comptable"\n}\n\nCatégories disponibles : ${catList}\n\nRègles :\n- Si c'est un achat clairement professionnel (matériel formation, logiciel, assurance, carburant, restaurant business) → "entreprise"\n- Si c'est un achat personnel (courses alimentaires, vêtements perso, loisirs) → "perso_hicham" ou "perso_maxime" (par défaut "perso_hicham")\n- En cas de doute → "entreprise"` }
+              ]}]
+            })
           })
-        })
-        const data = await response.json()
+          if (response.status === 429) {
+            const wait = (attempt + 1) * 3000
+            console.warn(`429 sur fichier ${i}, retry dans ${wait/1000}s...`)
+            await new Promise(r => setTimeout(r, wait))
+            continue
+          }
+          data = await response.json()
+          break
+        }
+        if (!data) throw new Error('Rate limit persistant')
         const text = data.content?.[0]?.text || ''
         const json = JSON.parse(text.replace(/```json|```/g, '').trim())
         results.push({ ...json, _fileIndex: i, _fileName: file.name, _file: file })
