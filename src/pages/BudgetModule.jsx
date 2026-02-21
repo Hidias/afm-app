@@ -300,6 +300,7 @@ function SaisieTab({ categories, rules, loadAll, clients }) {
   const [aiProgress, setAiProgress] = useState({ current: 0, total: 0 })
   const [dragOver, setDragOver] = useState(false)
   const allFilesRef = useRef([])
+  const [editingTxId, setEditingTxId] = useState(null)
   const [recent, setRecent] = useState([])
 
   // Repas / Invités
@@ -318,6 +319,44 @@ function SaisieTab({ categories, rules, loadAll, clients }) {
     supabase.from('budget_transactions').select('*').eq('is_manual', true).order('created_at', { ascending: false }).limit(10)
       .then(({ data }) => { if (data) setRecent(data) })
   }, [])
+
+  // Supprimer une transaction récente
+  async function deleteTxLocal(txId) {
+    if (!confirm('Supprimer cette transaction ?')) return
+    await supabase.from('budget_receipts').delete().eq('transaction_id', txId)
+    await supabase.from('budget_meal_guests').delete().eq('transaction_id', txId)
+    await supabase.from('budget_transactions').delete().eq('id', txId)
+    setRecent(prev => prev.filter(t => t.id !== txId))
+    toast.success('🗑️ Supprimée')
+    loadAll()
+  }
+
+  // Modifier le payeur rapidement
+  async function changePayer(txId, newPayer) {
+    const isPerso = newPayer !== 'entreprise'
+    const { error } = await supabase.from('budget_transactions').update({ payer: newPayer, is_personal: isPerso }).eq('id', txId)
+    if (error) { toast.error('Erreur: ' + error.message); return }
+    setRecent(prev => prev.map(t => t.id === txId ? { ...t, payer: newPayer, is_personal: isPerso } : t))
+    toast.success('✅ Payeur modifié')
+    loadAll()
+  }
+
+  // Charger une transaction dans le formulaire pour édition
+  function editTxInForm(tx) {
+    setForm({
+      date: tx.date,
+      description: tx.description,
+      amount: (tx.debit > 0 ? tx.debit : tx.credit).toString().replace('.', ','),
+      type: tx.debit > 0 ? 'debit' : 'credit',
+      category_id: tx.category_id || '',
+      payer: tx.payer || 'entreprise',
+      notes: tx.notes || '',
+      note_comptable: tx.note_comptable || '',
+    })
+    setEditingTxId(tx.id)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+    toast('📝 Chargée — modifiez puis cliquez Enregistrer', { icon: '✏️' })
+  }
 
   // Auto-catégorisation par règles
   useEffect(() => {
@@ -582,11 +621,27 @@ function SaisieTab({ categories, rules, loadAll, clients }) {
       notes: form.notes || null, note_comptable: form.note_comptable || null,
     }
 
-    const { data: txData, error } = await supabase.from('budget_transactions').insert(row).select().single()
-    if (error) { toast.error('Erreur: ' + error.message); setSaving(false); return }
+    let txData
+    const isEditing = !!editingTxId
+    if (isEditing) {
+      // Mode édition — update
+      const { data, error } = await supabase.from('budget_transactions').update(row).eq('id', editingTxId).select().single()
+      if (error) { toast.error('Erreur: ' + error.message); setSaving(false); return }
+      txData = data
+      setRecent(prev => prev.map(t => t.id === editingTxId ? txData : t))
+      toast.success(`✏️ Transaction modifiée`)
+      setEditingTxId(null)
+    } else {
+      // Mode création — insert
+      const { data, error } = await supabase.from('budget_transactions').insert(row).select().single()
+      if (error) { toast.error('Erreur: ' + error.message); setSaving(false); return }
+      txData = data
+      setRecent(prev => [txData, ...prev].slice(0, 10))
+      toast.success(`✅ ${form.type === 'debit' ? 'Dépense' : 'Entrée'}: ${fmt(amount)}`)
+    }
 
-    // Upload des fichiers
-    if (files.length > 0 && txData) {
+    // Upload des fichiers (seulement en mode création)
+    if (files.length > 0 && txData && !isEditing) {
       for (const file of files) {
         const path = `${txData.id}/${Date.now()}_${file.name}`
         const { error: upErr } = await supabase.storage.from('budget-receipts').upload(path, file)
@@ -620,10 +675,8 @@ function SaisieTab({ categories, rules, loadAll, clients }) {
       }
     }
 
-    toast.success(`✅ ${form.type === 'debit' ? 'Dépense' : 'Entrée'}: ${fmt(amount)}`)
-    setRecent(prev => [txData, ...prev].slice(0, 10))
     setForm({ date: new Date().toISOString().split('T')[0], description: '', amount: '', type: 'debit', category_id: '', payer: 'entreprise', notes: '', note_comptable: '' })
-    setFiles([]); setPreviews([]); setAiResult(null); setAiResults([]); setAiCurrentIdx(0)
+    setFiles([]); setPreviews([]); setAiResult(null); setAiResults([]); setAiCurrentIdx(0); setEditingTxId(null)
     setGuests([]); setNbConvives(2); setMealFor('hicham')
     setSaving(false)
     loadAll()
@@ -632,7 +685,15 @@ function SaisieTab({ categories, rules, loadAll, clients }) {
   return (
     <div className="grid md:grid-cols-2 gap-4">
       <div className="bg-white rounded-xl shadow-sm border p-4 space-y-3">
-        <h3 className="font-bold text-gray-700">➕ Nouvelle opération</h3>
+        <div className="flex items-center justify-between">
+          <h3 className="font-bold text-gray-700">{editingTxId ? '✏️ Modifier l\'opération' : '➕ Nouvelle opération'}</h3>
+          {editingTxId && (
+            <button onClick={() => {
+              setEditingTxId(null)
+              setForm({ date: new Date().toISOString().split('T')[0], description: '', amount: '', type: 'debit', category_id: '', payer: 'entreprise', notes: '', note_comptable: '' })
+            }} className="text-xs text-gray-500 hover:text-red-500">✕ Annuler</button>
+          )}
+        </div>
 
         {/* Upload zone */}
         <div>
@@ -815,8 +876,8 @@ function SaisieTab({ categories, rules, loadAll, clients }) {
         <div><label className="text-xs text-gray-500">Note comptable</label><input type="text" value={form.note_comptable} onChange={e => setForm(f => ({ ...f, note_comptable: e.target.value }))} placeholder="Explication pour Cristina..." className="w-full border rounded-lg px-3 py-2 text-sm mt-1" /></div>
         <div><label className="text-xs text-gray-500">Notes internes</label><input type="text" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} placeholder="N° facture, détail..." className="w-full border rounded-lg px-3 py-2 text-sm mt-1" /></div>
 
-        <button onClick={handleSave} disabled={saving} className="w-full bg-blue-600 text-white py-3 rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50">
-          {saving ? '⏳...' : '💾 Enregistrer'}
+        <button onClick={handleSave} disabled={saving} className={`w-full py-3 rounded-lg font-medium disabled:opacity-50 ${editingTxId ? 'bg-amber-600 text-white hover:bg-amber-700' : 'bg-blue-600 text-white hover:bg-blue-700'}`}>
+          {saving ? '⏳...' : editingTxId ? '✏️ Modifier' : '💾 Enregistrer'}
         </button>
       </div>
 
@@ -825,12 +886,31 @@ function SaisieTab({ categories, rules, loadAll, clients }) {
         <h3 className="font-bold text-gray-700 mb-3">📝 Dernières saisies</h3>
         {recent.length === 0 ? <div className="text-center py-8 text-gray-400">Aucune saisie</div> : (
           <div className="space-y-2">{recent.map(tx => (
-            <div key={tx.id} className={`flex items-center gap-3 p-2 rounded-lg border ${tx.is_personal ? 'bg-purple-50 border-purple-200' : 'bg-gray-50'}`}>
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium truncate">{tx.description}</div>
-                <div className="text-xs text-gray-500">{new Date(tx.date).toLocaleDateString('fr-FR')} • {tx.category_name}{tx.is_personal && <span className="ml-1 text-purple-600">• Perso</span>}</div>
+            <div key={tx.id} className={`p-2 rounded-lg border ${tx.is_personal ? 'bg-purple-50 border-purple-200' : 'bg-gray-50'}`}>
+              <div className="flex items-center gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium truncate">{tx.description}</div>
+                  <div className="text-xs text-gray-500">
+                    {new Date(tx.date).toLocaleDateString('fr-FR')} • {tx.category_name}
+                    {tx.is_personal && <span className="ml-1 text-purple-600">• {tx.payer === 'hicham_perso' ? 'Hicham' : 'Maxime'}</span>}
+                    {!tx.is_personal && <span className="ml-1 text-blue-600">• Ent.</span>}
+                  </div>
+                </div>
+                <div className={`font-mono text-sm font-bold whitespace-nowrap ${tx.debit > 0 ? 'text-red-600' : 'text-green-600'}`}>{tx.debit > 0 ? '-' : '+'}{fmt(tx.debit > 0 ? tx.debit : tx.credit)}</div>
               </div>
-              <div className={`font-mono text-sm font-bold ${tx.debit > 0 ? 'text-red-600' : 'text-green-600'}`}>{tx.debit > 0 ? '-' : '+'}{fmt(tx.debit > 0 ? tx.debit : tx.credit)}</div>
+              {/* Actions rapides */}
+              <div className="flex items-center gap-1 mt-1.5 pt-1.5 border-t border-gray-200">
+                <div className="flex gap-0.5 flex-1">
+                  {[{ v:'entreprise', l:'Ent.', icon:'🏢' },{ v:'hicham_perso', l:'Hicham', icon:'🏠' },{ v:'maxime_perso', l:'Maxime', icon:'🏠' }].map(p => (
+                    <button key={p.v} onClick={() => changePayer(tx.id, p.v)}
+                      className={`px-2 py-0.5 rounded text-[10px] font-medium transition-all ${tx.payer === p.v ? (p.v === 'entreprise' ? 'bg-blue-500 text-white' : 'bg-purple-500 text-white') : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
+                      {p.icon} {p.l}
+                    </button>
+                  ))}
+                </div>
+                <button onClick={() => editTxInForm(tx)} className="text-blue-500 hover:text-blue-700 text-xs px-1" title="Modifier">✏️</button>
+                <button onClick={() => deleteTxLocal(tx.id)} className="text-red-400 hover:text-red-600 text-xs px-1" title="Supprimer">🗑️</button>
+              </div>
             </div>
           ))}</div>
         )}
