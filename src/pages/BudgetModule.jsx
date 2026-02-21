@@ -370,7 +370,7 @@ function SaisieTab({ categories, rules, loadAll, clients }) {
     for (let i = 0; i < files.length; i++) {
       setAiProgress({ current: i + 1, total })
       // Délai entre les appels pour éviter le rate-limit (429)
-      if (i > 0) await new Promise(r => setTimeout(r, 1500))
+      if (i > 0) await new Promise(r => setTimeout(r, 3000))
       try {
         const file = files[i]
         const base64 = await fileToBase64(file)
@@ -393,7 +393,7 @@ function SaisieTab({ categories, rules, loadAll, clients }) {
             })
           })
           if (response.status === 429) {
-            const wait = (attempt + 1) * 3000
+            const wait = (attempt + 1) * 5000
             console.warn(`429 sur fichier ${i}, retry dans ${wait/1000}s...`)
             await new Promise(r => setTimeout(r, wait))
             continue
@@ -459,18 +459,61 @@ function SaisieTab({ categories, rules, loadAll, clients }) {
     }
   }
 
-  // Sauvegarder le résultat courant et passer au suivant
+  // Sauvegarder le résultat courant et passer au suivant (sans reset du flow multi)
   async function validateAndNext() {
-    await handleSave()
-    const nextIdx = aiCurrentIdx + 1
-    if (nextIdx < aiResults.length) {
-      goToResult(nextIdx)
-      toast.success(`📄 Suivant : ${nextIdx + 1}/${aiResults.length}`)
-    } else {
-      setAiResults([])
-      setAiCurrentIdx(0)
-      toast.success('✅ Tous les fichiers ont été traités !')
+    if (!form.description || !form.amount || !form.date) { toast.error('Date, description et montant requis'); return }
+    setSaving(true)
+    try {
+      const amount = parseFloat(form.amount.replace(',', '.'))
+      if (isNaN(amount) || amount <= 0) { toast.error('Montant invalide'); setSaving(false); return }
+      const cat = categories.find(c => c.id === form.category_id)
+      const dp = form.date.split('-')
+      const isPerso = form.payer !== 'entreprise'
+
+      const row = {
+        date: form.date, description: form.description,
+        debit: form.type === 'debit' ? amount : 0, credit: form.type === 'credit' ? amount : 0,
+        category_id: form.category_id || null, category_name: cat?.name || 'Autre / Non classé',
+        month: `${dp[1]}/${dp[0]}`, year: parseInt(dp[0]),
+        source_file: 'saisie_manuelle', is_manual: true, is_personal: isPerso, payer: form.payer,
+        notes: form.notes || null, note_comptable: form.note_comptable || null,
+      }
+
+      const { data: txData, error } = await supabase.from('budget_transactions').insert(row).select().single()
+      if (error) { toast.error('Erreur: ' + error.message); setSaving(false); return }
+
+      // Upload du fichier associé
+      if (files.length > 0 && txData) {
+        for (const file of files) {
+          const path = `${txData.id}/${Date.now()}_${file.name}`
+          const { error: upErr } = await supabase.storage.from('budget-receipts').upload(path, file)
+          if (upErr) { console.error('Upload error:', upErr); continue }
+          await supabase.from('budget_receipts').insert({
+            transaction_id: txData.id, file_name: file.name, file_path: path, file_type: file.type, file_size: file.size
+          })
+        }
+      }
+
+      toast.success(`✅ Sauvegardé : ${form.description}`)
+      setRecent(prev => [txData, ...prev].slice(0, 10))
+
+      // Passer au fichier suivant
+      const nextIdx = aiCurrentIdx + 1
+      if (nextIdx < aiResults.length) {
+        goToResult(nextIdx)
+        toast.success(`📄 Suivant : ${nextIdx + 1}/${aiResults.length}`)
+      } else {
+        // Terminé — reset complet
+        setForm({ date: new Date().toISOString().split('T')[0], description: '', amount: '', type: 'debit', category_id: '', payer: 'entreprise', notes: '', note_comptable: '' })
+        setFiles([]); setPreviews([]); setAiResult(null); setAiResults([]); setAiCurrentIdx(0)
+        toast.success('🎉 Tous les fichiers ont été traités !')
+        loadAll()
+      }
+    } catch (e) {
+      console.error(e)
+      toast.error('Erreur sauvegarde')
     }
+    setSaving(false)
   }
 
   // Passer sans sauvegarder
@@ -550,10 +593,7 @@ function SaisieTab({ categories, rules, loadAll, clients }) {
     toast.success(`✅ ${form.type === 'debit' ? 'Dépense' : 'Entrée'}: ${fmt(amount)}`)
     setRecent(prev => [txData, ...prev].slice(0, 10))
     setForm({ date: new Date().toISOString().split('T')[0], description: '', amount: '', type: 'debit', category_id: '', payer: 'entreprise', notes: '', note_comptable: '' })
-    // Ne reset files/aiResults que si on n'est pas en mode multi-validation
-    if (aiResults.length <= 1) {
-      setFiles([]); setPreviews([]); setAiResult(null); setAiResults([]); setAiCurrentIdx(0)
-    }
+    setFiles([]); setPreviews([]); setAiResult(null); setAiResults([]); setAiCurrentIdx(0)
     setGuests([]); setNbConvives(2); setMealFor('hicham')
     setSaving(false)
     loadAll()
