@@ -857,7 +857,7 @@ function generateEmargement(session, trainees = [], trainer = null, isBlank = fa
     doc.text(`Dates : ${formatDate(session?.start_date)} au ${formatDate(session?.end_date)}`, 15, y)
   }
   doc.text(`Lieu : ${lieu}`, pw / 2, y); y += 5
-  doc.text(`Formateur : ${isBlank ? '________________________________' : (trainer ? `${trainer.first_name} ${trainer.last_name}` : ORG.dirigeant)}`, 15, y); y += 8
+  doc.text(`Formateur : ${isBlank ? '________________________________' : (trainer ? `${trainer.first_name} ${trainer.last_name}` : ORG.dirigeant)}`, 15, y); y += 6
 
   // ============ JOURS ============
   let days = []
@@ -923,7 +923,10 @@ function generateEmargement(session, trainees = [], trainer = null, isBlank = fa
     doc.rect(startX + nameColW, y, secuColW, rowH)
     doc.rect(startX + nameColW + secuColW, y, emailColW, rowH)
 
-    if (t.first_name) doc.text(`${t.last_name?.toUpperCase() || ''} ${t.first_name || ''}`, startX + 1, y + rowH / 2 - 0.5)
+    if (t.first_name) {
+      const fullName = `${t.last_name?.toUpperCase() || ''} ${t.first_name || ''}`
+      doc.text(fullName.length > 28 ? fullName.substring(0, 27) + '.' : fullName, startX + 1, y + rowH / 2 - 0.5)
+    }
     if (t.social_security_number) doc.text(maskSSN(t.social_security_number), startX + nameColW + 1, y + rowH / 2 - 0.5)
     if (t.email) doc.text(t.email.substring(0, 22), startX + nameColW + secuColW + 1, y + rowH / 2 - 0.5)
 
@@ -976,10 +979,14 @@ function generateEmargement(session, trainees = [], trainer = null, isBlank = fa
         const hh = d ? String(d.getHours()).padStart(2, '0') : '--'
         const min = d ? String(d.getMinutes()).padStart(2, '0') : '--'
 
-        // Couleur : vert si signature stagiaire, bleu si validé formateur
+        // Couleur : vert si signature stagiaire, bleu si validé formateur uniquement
         const hdSigned = hd && (period === 'morning' ? hd.signed_morning_at : hd.signed_afternoon_at)
         const digiSig = hasDigitalSignature(t.id)
-        const color = (sig || hdSigned || digiSig) ? [0, 120, 0] : [0, 80, 160]
+        // Fallback : si validated_by correspond au nom du stagiaire → auto-émargement → vert
+        const traineeName = (t.last_name || '').toLowerCase()
+        const hdSelfSigned = hd && hd.validated_by && traineeName &&
+          hd.validated_by.toLowerCase().includes(traineeName)
+        const color = (sig || hdSigned || digiSig || hdSelfSigned) ? [0, 120, 0] : [0, 80, 160]
 
         // Essayer d'injecter l'image de la signature pad
         // Priorité : signature par demi-journée (attendances) → signature globale (document_signatures)
@@ -1025,6 +1032,11 @@ function generateEmargement(session, trainees = [], trainer = null, isBlank = fa
 
   // ============ LÉGENDE ============
   if (!isBlank) {
+    // Vérifier s'il reste assez de place pour légende (10mm) + signature (25mm)
+    if (y + 35 > ph - 18) {
+      doc.addPage('landscape')
+      y = 10
+    }
     y += 4
     doc.setFontSize(6)
     doc.setFont('helvetica', 'normal')
@@ -1044,7 +1056,7 @@ function generateEmargement(session, trainees = [], trainer = null, isBlank = fa
   }
 
   // ============ SIGNATURE FORMATEUR ============
-  y += 8
+  y += 3
   if (y + 22 > ph - 18) {
     doc.addPage('landscape')
     y = 10
