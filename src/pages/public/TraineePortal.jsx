@@ -3,13 +3,121 @@ import { useParams } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { 
   User, GraduationCap, FileText, CheckCircle, AlertCircle, 
-  Loader2, Calendar, Star, MessageSquare, ExternalLink, Shield
+  Loader2, Calendar, Star, MessageSquare, ExternalLink, Shield,
+  ChevronRight, Fingerprint, ClipboardCheck
 } from 'lucide-react'
 import { format, parseISO, isToday, eachDayOfInterval } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import TraineeDocuments from '../../components/TraineeDocuments'
 import PositioningTestForm from '../../components/PositioningTestForm'
 import SignaturePad from '../../components/SignaturePad'
+
+// ─── CSS Animations ──────────────────────────────────────────
+const portalStyles = `
+  @keyframes fadeSlideIn {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes scaleIn {
+    from { opacity: 0; transform: scale(0.95); }
+    to { opacity: 1; transform: scale(1); }
+  }
+  @keyframes pulseGlow {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); }
+    50% { box-shadow: 0 0 0 12px rgba(16, 185, 129, 0); }
+  }
+  @keyframes checkPop {
+    0% { transform: scale(0); }
+    50% { transform: scale(1.2); }
+    100% { transform: scale(1); }
+  }
+  @keyframes shimmer {
+    0% { background-position: -200% center; }
+    100% { background-position: 200% center; }
+  }
+  @keyframes confettiBurst {
+    0% { opacity: 1; transform: translateY(0) rotate(0deg) scale(1); }
+    100% { opacity: 0; transform: translateY(-60px) rotate(360deg) scale(0); }
+  }
+  .portal-step-enter {
+    animation: fadeSlideIn 0.4s ease-out forwards;
+  }
+  .portal-card-enter {
+    animation: scaleIn 0.3s ease-out forwards;
+  }
+  .pulse-sign {
+    animation: pulseGlow 2s ease-in-out infinite;
+  }
+  .check-pop {
+    animation: checkPop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+  }
+  .btn-shimmer {
+    background-size: 200% auto;
+    animation: shimmer 3s linear infinite;
+  }
+  .glass-card {
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.6);
+  }
+  .glass-card-strong {
+    background: rgba(255, 255, 255, 0.92);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.8);
+  }
+`
+
+// ─── Progress Stepper ────────────────────────────────────────
+const STEPS_CONFIG = [
+  { key: 'info_sheet', label: 'Fiche', icon: FileText },
+  { key: 'positioning_test', label: 'Test', icon: ClipboardCheck },
+  { key: 'attendance', label: 'Émargement', icon: Fingerprint },
+  { key: 'evaluation', label: 'Évaluation', icon: Star },
+]
+
+const ProgressStepper = ({ currentStep, hasTest }) => {
+  const steps = hasTest ? STEPS_CONFIG : STEPS_CONFIG.filter(s => s.key !== 'positioning_test')
+  const currentIdx = steps.findIndex(s => s.key === currentStep)
+  // Si l'étape n'est pas dans la liste (select, verify_code, thank_you...), ne pas afficher
+  if (currentIdx === -1) return null
+
+  return (
+    <div className="flex items-center justify-between px-2 py-3 mb-1">
+      {steps.map((step, idx) => {
+        const Icon = step.icon
+        const isActive = idx === currentIdx
+        const isDone = idx < currentIdx
+        return (
+          <div key={step.key} className="flex items-center flex-1 last:flex-0">
+            <div className="flex flex-col items-center">
+              <div className={`w-9 h-9 rounded-full flex items-center justify-center transition-all duration-500 ${
+                isDone ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-200' 
+                : isActive ? 'bg-white text-emerald-600 shadow-lg shadow-emerald-100 ring-2 ring-emerald-400' 
+                : 'bg-white/50 text-gray-400'
+              }`}>
+                {isDone ? <CheckCircle className="w-4 h-4 check-pop" /> : <Icon className="w-4 h-4" />}
+              </div>
+              <span className={`text-[10px] mt-1 font-medium transition-colors ${
+                isDone ? 'text-emerald-600' : isActive ? 'text-emerald-700' : 'text-gray-400'
+              }`}>{step.label}</span>
+            </div>
+            {idx < steps.length - 1 && (
+              <div className="flex-1 mx-1.5 mt-[-12px]">
+                <div className="h-0.5 rounded-full bg-gray-200 overflow-hidden">
+                  <div className={`h-full bg-emerald-500 rounded-full transition-all duration-700 ${
+                    isDone ? 'w-full' : 'w-0'
+                  }`} />
+                </div>
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
 
 const evalQuestions = {
   organisation: [
@@ -859,12 +967,12 @@ export default function TraineePortal() {
   }
 
   const RatingButtons = ({ questionKey, currentValue }) => (
-    <div className="flex flex-wrap gap-1">
+    <div className="flex flex-wrap gap-1.5">
       <button
         type="button"
         onClick={() => setEvalForm({...evalForm, [questionKey]: 0})}
-        className={`px-2 py-1 text-xs rounded border ${
-          currentValue === 0 ? 'bg-gray-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-100'
+        className={`px-2.5 py-1.5 text-xs rounded-lg border transition-all duration-200 ${
+          currentValue === 0 ? 'bg-gray-700 text-white border-gray-700 shadow-sm' : 'bg-white text-gray-400 border-gray-200 hover:border-gray-300'
         }`}
       >
         N/C
@@ -874,8 +982,10 @@ export default function TraineePortal() {
           key={n}
           type="button"
           onClick={() => setEvalForm({...evalForm, [questionKey]: n})}
-          className={`w-9 h-9 rounded border text-sm ${
-            currentValue === n ? 'bg-orange-500 text-white' : 'bg-white text-gray-700 hover:bg-orange-50'
+          className={`w-9 h-9 rounded-lg border text-sm font-medium transition-all duration-200 ${
+            currentValue === n 
+              ? 'bg-gradient-to-br from-amber-400 to-orange-500 text-white border-amber-400 shadow-md shadow-amber-200 scale-110' 
+              : 'bg-white text-gray-600 border-gray-200 hover:border-amber-300 hover:bg-amber-50'
           }`}
         >
           {n}
@@ -897,17 +1007,26 @@ export default function TraineePortal() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-emerald-50/30 to-teal-50/40 flex items-center justify-center">
+        <style>{portalStyles}</style>
+        <div className="flex flex-col items-center gap-3 portal-card-enter">
+          <div className="w-14 h-14 rounded-2xl bg-white shadow-lg shadow-emerald-100 flex items-center justify-center">
+            <Loader2 className="w-7 h-7 animate-spin text-emerald-600" />
+          </div>
+          <p className="text-sm text-gray-500 font-medium">Chargement…</p>
+        </div>
       </div>
     )
   }
 
   if (error) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-        <div className="bg-white rounded-xl shadow-lg p-8 max-w-md text-center">
-          <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-red-50/20 to-orange-50/30 flex items-center justify-center p-4">
+        <style>{portalStyles}</style>
+        <div className="glass-card-strong rounded-2xl shadow-xl p-8 max-w-md text-center portal-card-enter">
+          <div className="w-16 h-16 rounded-full bg-red-50 flex items-center justify-center mx-auto mb-4">
+            <AlertCircle className="w-8 h-8 text-red-500" />
+          </div>
           <h1 className="text-xl font-bold text-gray-900 mb-2">Erreur</h1>
           <p className="text-gray-600">{error}</p>
         </div>
@@ -916,66 +1035,87 @@ export default function TraineePortal() {
   }
 
   const today = getTodayFormation()
-  const headerColor = currentStep === 'evaluation' ? 'from-orange-500 to-orange-600' 
-    : currentStep === 'info_sheet' ? 'from-blue-600 to-blue-700'
-    : currentStep === 'verify_code' ? 'from-purple-600 to-purple-700'
-    : currentStep === 'positioning_test' ? 'from-indigo-600 to-indigo-700'
-    : 'from-green-600 to-green-700'
 
   return (
-    <div className="min-h-screen bg-gray-50 py-6 px-4">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-emerald-50/30 to-teal-50/40 py-6 px-4">
+      <style>{portalStyles}</style>
       <div className="max-w-lg mx-auto">
-        {/* En-tête */}
-        <div className={`bg-gradient-to-r ${headerColor} rounded-t-xl p-5 text-white`}>
-          <div className="flex items-center gap-3 mb-2">
-            <GraduationCap className="w-8 h-8" />
-            <div>
-              <h1 className="text-xl font-bold">{session.courses?.title}</h1>
-              <p className="text-sm opacity-90">{session.clients?.name}</p>
+        {/* En-tête moderne */}
+        <div className="bg-gradient-to-br from-emerald-600 via-emerald-500 to-teal-500 rounded-t-2xl p-5 text-white relative overflow-hidden">
+          {/* Motif décoratif */}
+          <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2" />
+          <div className="absolute bottom-0 left-0 w-20 h-20 bg-white/5 rounded-full translate-y-1/2 -translate-x-1/2" />
+          <div className="relative">
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-10 h-10 rounded-xl bg-white/15 flex items-center justify-center backdrop-blur-sm">
+                <GraduationCap className="w-6 h-6" />
+              </div>
+              <div className="min-w-0">
+                <h1 className="text-lg font-bold leading-tight truncate">{session.courses?.title}</h1>
+                <p className="text-sm text-emerald-100">{session.clients?.name}</p>
+              </div>
             </div>
+            {selectedTrainee && (
+              <div className="mt-2 flex items-center gap-2 text-sm text-emerald-100">
+                <User className="w-3.5 h-3.5" />
+                <span>{selectedTrainee.first_name} {selectedTrainee.last_name}</span>
+              </div>
+            )}
+            {session.start_date && session.end_date && (
+              <p className="text-sm text-emerald-200 flex items-center gap-1 mt-1">
+                <Calendar className="w-3.5 h-3.5" />
+                {format(parseISO(session.start_date), 'd MMM', { locale: fr })} - {format(parseISO(session.end_date), 'd MMM yyyy', { locale: fr })}
+              </p>
+            )}
           </div>
-          {session.start_date && session.end_date && (
-            <p className="text-sm opacity-80 flex items-center gap-1">
-              <Calendar className="w-4 h-4" />
-              {format(parseISO(session.start_date), 'd MMM', { locale: fr })} - {format(parseISO(session.end_date), 'd MMM yyyy', { locale: fr })}
-            </p>
-          )}
         </div>
 
-        {/* Contenu */}
-        <div className="bg-white rounded-b-xl shadow-lg p-6">
+        {/* Stepper de progression */}
+        <div className="bg-white/60 backdrop-blur-sm border-x border-white/60">
+          <ProgressStepper currentStep={currentStep} hasTest={positioningQuestions.length > 0} />
+        </div>
+
+        {/* Contenu avec glassmorphism */}
+        <div className="glass-card-strong rounded-b-2xl shadow-xl shadow-emerald-900/5 p-6">
+          <div key={currentStep} className="portal-step-enter">
           {/* STEP: Sélection */}
           {currentStep === 'select' && (
             <div className="space-y-3">
-              <h2 className="text-lg font-semibold flex items-center gap-2">
-                <User className="w-5 h-5 text-blue-600" />
+              <h2 className="text-lg font-bold flex items-center gap-2 text-gray-900">
+                <User className="w-5 h-5 text-emerald-600" />
                 Sélectionnez votre nom
               </h2>
-              {trainees.map(trainee => (
+              {trainees.map((trainee, idx) => (
                 <button
                   key={trainee.id}
                   onClick={() => handleSelectTrainee(trainee)}
-                  className="w-full p-4 text-left border rounded-lg hover:bg-blue-50 hover:border-blue-300 transition"
+                  className="w-full p-4 text-left rounded-xl border-2 border-gray-100 hover:border-emerald-300 hover:bg-emerald-50/50 transition-all duration-200 hover:shadow-md group portal-card-enter"
+                  style={{ animationDelay: `${idx * 60}ms` }}
                 >
-                  <div className="font-medium text-gray-900">
-                    {trainee.first_name} {trainee.last_name}
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="font-semibold text-gray-900 group-hover:text-emerald-700 transition-colors">
+                        {trainee.first_name} {trainee.last_name}
+                      </div>
+                      {trainee.email && (
+                        <div className="text-sm text-gray-500">{trainee.email}</div>
+                      )}
+                    </div>
+                    <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-emerald-500 transition-all group-hover:translate-x-0.5" />
                   </div>
-                  {trainee.email && (
-                    <div className="text-sm text-gray-500">{trainee.email}</div>
-                  )}
                 </button>
               ))}
               
               {/* Bouton Documents */}
-              <div className="mt-6 pt-6 border-t">
+              <div className="mt-6 pt-6 border-t border-gray-100">
                 <button
                   onClick={() => setShowDocuments(true)}
-                  className="w-full p-4 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors flex items-center justify-center gap-3 font-medium"
+                  className="w-full p-4 bg-gradient-to-r from-blue-500 to-indigo-500 text-white rounded-xl hover:shadow-lg hover:shadow-blue-200 transition-all duration-200 flex items-center justify-center gap-3 font-semibold"
                 >
                   <FileText className="w-5 h-5" />
-                  📄 Consulter les documents de formation
+                  Consulter les documents de formation
                 </button>
-                <p className="text-xs text-center text-gray-500 mt-2">
+                <p className="text-xs text-center text-gray-400 mt-2">
                   Accédez aux supports pédagogiques et livrets
                 </p>
               </div>
@@ -986,16 +1126,18 @@ export default function TraineePortal() {
           {currentStep === 'verify_code' && (
             <div>
               <div className="text-center mb-6">
-                <Shield className="w-16 h-16 text-purple-600 mx-auto mb-4" />
+                <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center mx-auto mb-4 shadow-lg shadow-purple-200">
+                  <Shield className="w-8 h-8 text-white" />
+                </div>
                 <h2 className="text-xl font-bold mb-2">Vérification d'accès</h2>
-                <p className="text-gray-600">
-                  Bonjour <strong>{selectedTrainee.first_name} {selectedTrainee.last_name}</strong>
+                <p className="text-gray-500">
+                  Bonjour <strong className="text-gray-900">{selectedTrainee.first_name} {selectedTrainee.last_name}</strong>
                 </p>
               </div>
 
               <form onSubmit={handleVerifyCode} className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium mb-2">
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
                     Code d'accès à 6 chiffres
                   </label>
                   <input
@@ -1005,23 +1147,23 @@ export default function TraineePortal() {
                     maxLength={6}
                     value={accessCode}
                     onChange={(e) => setAccessCode(e.target.value.replace(/\D/g, ''))}
-                    className="w-full px-4 py-3 border rounded-lg text-center text-2xl tracking-widest focus:ring-2 focus:ring-purple-500"
+                    className="w-full px-4 py-3.5 border-2 border-gray-200 rounded-xl text-center text-2xl tracking-widest focus:ring-2 focus:ring-violet-500 focus:border-violet-400 transition-all"
                     placeholder="000000"
                     required
                     autoFocus
                   />
-                  <p className="text-xs text-gray-500 mt-2">
+                  <p className="text-xs text-gray-400 mt-2">
                     Vous avez reçu ce code par email ou de la part du formateur
                   </p>
                 </div>
 
                 {codeError && (
-                  <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-lg">
-                    <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
-                    <div className="text-sm text-red-800">
+                  <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-xl">
+                    <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+                    <div className="text-sm text-red-700">
                       {codeError}
                       {attemptsRemaining > 0 && (
-                        <div className="mt-1">Tentatives restantes : {attemptsRemaining}</div>
+                        <div className="mt-1 font-medium">Tentatives restantes : {attemptsRemaining}</div>
                       )}
                     </div>
                   </div>
@@ -1030,7 +1172,7 @@ export default function TraineePortal() {
                 <button
                   type="submit"
                   disabled={submitting || accessCode.length !== 6}
-                  className="w-full py-3 bg-purple-600 text-white font-semibold rounded-lg hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition flex items-center justify-center gap-2"
+                  className="w-full py-3.5 bg-gradient-to-r from-violet-600 to-purple-600 text-white font-bold rounded-xl hover:shadow-lg hover:shadow-purple-200 disabled:from-gray-300 disabled:to-gray-400 disabled:shadow-none disabled:cursor-not-allowed transition-all duration-200 flex items-center justify-center gap-2"
                 >
                   {submitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <CheckCircle className="w-5 h-5" />}
                   Vérifier
@@ -1044,7 +1186,7 @@ export default function TraineePortal() {
                     setAccessCode('')
                     setCodeError('')
                   }}
-                  className="w-full text-gray-600 hover:text-gray-800 transition text-sm"
+                  className="w-full text-gray-400 hover:text-gray-600 transition text-sm font-medium"
                 >
                   ← Changer de stagiaire
                 </button>
@@ -1376,12 +1518,12 @@ export default function TraineePortal() {
                   />
                 )}
 
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                  <p className="text-sm text-blue-900">
-                    <strong>{format(currentDate, 'EEEE d MMMM yyyy', { locale: fr })}</strong>
+                <div className="bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-100 rounded-xl p-4">
+                  <p className="text-sm font-semibold text-emerald-900 capitalize">
+                    {format(currentDate, 'EEEE d MMMM yyyy', { locale: fr })}
                   </p>
-                  <p className="text-xs text-blue-700 mt-1">
-                    Jour {todayIndex + 1}/{dates.length}
+                  <p className="text-xs text-emerald-600 mt-1 font-medium">
+                    Jour {todayIndex + 1} sur {dates.length}
                   </p>
                 </div>
 
@@ -1391,21 +1533,52 @@ export default function TraineePortal() {
                     const isChecked = attendanceData[key] === true
 
                     return (
-                      <div key={period} className="flex items-center justify-between p-4 border rounded-lg">
-                        <span className="font-medium">
-                          {period === 'morning' ? '🌅 Matin (9h-12h)' : '🌆 Après-midi (13h-17h)'}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => handleToggleAttendance(today, period)}
-                          className={`px-4 py-2 rounded-lg font-semibold transition ${
-                            isChecked
-                              ? 'bg-green-600 text-white'
-                              : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                          }`}
-                        >
-                          {isChecked ? 'Présent ✓' : 'Signer'}
-                        </button>
+                      <div key={period} 
+                        className={`relative rounded-xl overflow-hidden transition-all duration-300 ${
+                          isChecked 
+                            ? 'bg-gradient-to-r from-emerald-50 to-teal-50 border-2 border-emerald-200 shadow-lg shadow-emerald-100' 
+                            : 'bg-white border-2 border-gray-100 hover:border-emerald-200 hover:shadow-md'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between p-4">
+                          <div className="flex items-center gap-3">
+                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-300 ${
+                              isChecked ? 'bg-emerald-500 text-white' : 'bg-gray-100 text-gray-500'
+                            }`}>
+                              {isChecked 
+                                ? <CheckCircle className="w-5 h-5 check-pop" /> 
+                                : period === 'morning' ? <span className="text-lg">🌅</span> : <span className="text-lg">🌆</span>
+                              }
+                            </div>
+                            <div>
+                              <span className="font-semibold text-gray-900">
+                                {period === 'morning' ? 'Matin' : 'Après-midi'}
+                              </span>
+                              <p className="text-xs text-gray-500">
+                                {period === 'morning' ? '9h00 - 12h00' : '13h00 - 17h00'}
+                              </p>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleToggleAttendance(today, period)}
+                            className={`px-5 py-2.5 rounded-xl font-bold text-sm transition-all duration-300 ${
+                              isChecked
+                                ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-200'
+                                : 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-lg shadow-emerald-200 pulse-sign hover:shadow-xl hover:scale-105 active:scale-95'
+                            }`}
+                          >
+                            {isChecked ? '✓ Signé' : 'Signer'}
+                          </button>
+                        </div>
+                        {isChecked && (
+                          <div className="px-4 pb-3 -mt-1">
+                            <div className="flex items-center gap-1.5 text-xs text-emerald-600">
+                              <Fingerprint className="w-3 h-3" />
+                              <span>Émargement enregistré</span>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )
                   })}
@@ -1416,11 +1589,13 @@ export default function TraineePortal() {
 
           {/* STEP: Thank you */}
           {currentStep === 'thank_you' && (
-            <div className="text-center py-8">
-              <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
-              <h2 className="text-xl font-bold text-gray-900 mb-2">C'est noté !</h2>
-              <p className="text-gray-600">Merci d'avoir complété le questionnaire.</p>
-              <p className="text-sm text-gray-500 mt-4">À très bientôt pour la formation !</p>
+            <div className="text-center py-8 portal-card-enter">
+              <div className="w-20 h-20 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center mx-auto mb-5 shadow-lg shadow-emerald-200">
+                <CheckCircle className="w-10 h-10 text-white check-pop" />
+              </div>
+              <h2 className="text-2xl font-bold text-gray-900 mb-2">C'est noté !</h2>
+              <p className="text-gray-500">Merci d'avoir complété le questionnaire.</p>
+              <p className="text-sm text-gray-400 mt-4">À très bientôt pour la formation !</p>
             </div>
           )}
 
@@ -1601,10 +1776,11 @@ export default function TraineePortal() {
               <p className="text-xs text-gray-400">Vous pouvez fermer cette page.</p>
             </div>
           )}
+          </div>{/* fin portal-step-enter */}
         </div>
 
-        <p className="text-center text-xs text-gray-400 mt-4">
-          Access Formation • v2.0.0
+        <p className="text-center text-xs text-gray-400 mt-4 font-medium">
+          Access Formation • Portail stagiaire
         </p>
       </div>
     </div>
