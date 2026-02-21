@@ -167,20 +167,13 @@ export default function PositioningTestForm({ questions, traineeId, onComplete }
                       key={index}
                       type="button"
                       onClick={() => handleAnswer({ selectedIndex: index })}
-                      className={`w-full p-4 text-left border-2 rounded-lg transition-all ${
+                      className={`w-full p-4 text-left border-2 rounded-xl transition-all duration-200 ${
                         isSelected
-                          ? 'border-blue-600 bg-blue-50'
-                          : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50'
+                          ? 'border-blue-500 bg-blue-600 text-white shadow-md shadow-blue-200'
+                          : 'border-gray-200 bg-white text-gray-900 hover:border-blue-300 hover:bg-blue-50'
                       }`}
                     >
-                      <div className="flex items-center gap-3">
-                        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-                          isSelected ? 'border-blue-600 bg-blue-600' : 'border-gray-300'
-                        }`}>
-                          {isSelected && <div className="w-2 h-2 bg-white rounded-full" />}
-                        </div>
-                        <span className="text-gray-900">{option}</span>
-                      </div>
+                      <span className={isSelected ? 'font-medium' : ''}>{option}</span>
                     </button>
                   )
                 })}
@@ -189,19 +182,19 @@ export default function PositioningTestForm({ questions, traineeId, onComplete }
                 <button
                   type="button"
                   onClick={() => handleAnswer({ selectedIndex: -1 })}
-                  className={`w-full p-4 text-left border-2 rounded-lg transition-all ${
+                  className={`w-full p-4 text-left border-2 rounded-xl transition-all duration-200 ${
                     answers[currentQuestion.id]?.selectedIndex === -1
-                      ? 'border-gray-500 bg-gray-50'
-                      : 'border-gray-200 hover:border-gray-400 hover:bg-gray-50'
+                      ? 'border-gray-400 bg-gray-600 text-white shadow-md shadow-gray-200'
+                      : 'border-gray-200 bg-white hover:border-gray-400 hover:bg-gray-50'
                   }`}
                 >
                   <div className="flex items-center gap-3">
                     <HelpCircle className={`w-5 h-5 ${
                       answers[currentQuestion.id]?.selectedIndex === -1 
-                        ? 'text-gray-600' 
+                        ? 'text-gray-200' 
                         : 'text-gray-400'
                     }`} />
-                    <span className="text-gray-600 italic">Je ne sais pas</span>
+                    <span className="italic">Je ne sais pas</span>
                   </div>
                 </button>
               </div>
