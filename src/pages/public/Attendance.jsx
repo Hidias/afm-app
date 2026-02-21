@@ -146,10 +146,10 @@ export default function PublicAttendance() {
         trainee_id: selectedTrainee,
         date: currentDate,
         period: selectedPeriod,
-        signature_data: signatureData,
+        present: true,
+        signature: signatureData,
         signature_hash: signatureHash,
         signed_at: timestamp,
-        user_agent: navigator.userAgent,
       }
       
       const { data, error } = await supabase
