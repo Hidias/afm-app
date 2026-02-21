@@ -848,15 +848,22 @@ function generateEmargement(session, trainees = [], trainer = null, isBlank = fa
 
   doc.setFontSize(9)
   doc.setFont('helvetica', 'normal')
-  doc.text(`Formation : ${isBlank ? '________________________________________' : (course.title || '')}`, 15, y)
-  doc.text(`Client : ${isBlank ? '________________________' : (session?.clients?.name || '')}`, pw / 2, y); y += 5
+  const halfW = pw / 2 - 20  // largeur max colonne gauche
+  const rightW = pw / 2 - 18 // largeur max colonne droite
+  const truncText = (prefix, text, maxW) => {
+    const full = `${prefix}${text}`
+    const lines = doc.splitTextToSize(full, maxW)
+    return lines[0] || full  // ne garder que la première ligne
+  }
+  doc.text(truncText('Formation : ', isBlank ? '________________________________________' : (course.title || ''), halfW), 15, y)
+  doc.text(truncText('Client : ', isBlank ? '________________________' : (session?.clients?.name || ''), rightW), pw / 2, y); y += 5
 
   if (isBlank) {
     doc.text(`Dates : Du ___/___/______ au ___/___/______`, 15, y)
   } else {
     doc.text(`Dates : ${formatDate(session?.start_date)} au ${formatDate(session?.end_date)}`, 15, y)
   }
-  doc.text(`Lieu : ${lieu}`, pw / 2, y); y += 5
+  doc.text(truncText('Lieu : ', isBlank ? '________________________________' : lieu, rightW), pw / 2, y); y += 5
   doc.text(`Formateur : ${isBlank ? '________________________________' : (trainer ? `${trainer.first_name} ${trainer.last_name}` : ORG.dirigeant)}`, 15, y); y += 6
 
   // ============ JOURS ============
@@ -878,7 +885,8 @@ function generateEmargement(session, trainees = [], trainer = null, isBlank = fa
   // Plus haut quand on a des signatures à afficher (18mm vs 10mm vierge)
   const hasAnySignatureImage = !isBlank && (
     signatures.some(s => s.signature_data || s.signature) ||
-    digitalSignatures.some(ds => ds.signature_data)
+    digitalSignatures.some(ds => ds.signature_data) ||
+    halfdays.some(hd => hd.signature_morning || hd.signature_afternoon)
   )
   const rowH = isBlank ? 10 : (hasAnySignatureImage ? 18 : 14)
 
@@ -989,10 +997,11 @@ function generateEmargement(session, trainees = [], trainer = null, isBlank = fa
         const color = (sig || hdSigned || digiSig || hdSelfSigned) ? [0, 120, 0] : [0, 80, 160]
 
         // Essayer d'injecter l'image de la signature pad
-        // Priorité : signature par demi-journée (attendances) → signature globale (document_signatures)
+        // Priorité : 1) signature par demi-journée (attendances) → 2) signature dans halfdays → 3) signature globale (document_signatures)
         const sigImageData = sig ? (sig.signature_data || sig.signature) : null
-        const fallbackImage = !sigImageData ? getDigitalSignatureImage(t.id) : null
-        const imageToUse = sigImageData || fallbackImage
+        const hdSigImage = !sigImageData && hd ? (period === 'morning' ? hd.signature_morning : hd.signature_afternoon) : null
+        const fallbackImage = !sigImageData && !hdSigImage ? getDigitalSignatureImage(t.id) : null
+        const imageToUse = sigImageData || hdSigImage || fallbackImage
         let signatureDrawn = false
 
         if (imageToUse && typeof imageToUse === 'string' && imageToUse.startsWith('data:image')) {
