@@ -121,7 +121,12 @@ export default function Layout() {
   }, [activeSectionId])
   
   const toggleSection = (sectionId) => {
-    setOpenSections(prev => ({ ...prev, [sectionId]: !prev[sectionId] }))
+    setOpenSections(prev => {
+      const isOpen = prev[sectionId]
+      // Fermer toutes les sections, puis toggle celle cliquée
+      const allClosed = Object.keys(prev).reduce((acc, key) => ({ ...acc, [key]: false }), {})
+      return { ...allClosed, [sectionId]: !isOpen }
+    })
   }
   
   // Horloge temps réel
