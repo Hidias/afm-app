@@ -687,14 +687,20 @@ export default function TraineePortal() {
 
     try {
       // Utiliser la fonction RPC pour sauvegarder la présence
-      const { data: attendanceResult, error: attendanceError } = await supabase.rpc('save_single_attendance', {
+      // Passer la signature si elle existe (sauvegardée avec chaque demi-journée)
+      const rpcParams = {
         p_token: token,
         p_trainee_id: selectedTrainee.id,
         p_date: date,
         p_period: period,
         p_value: newValue,
         p_validated_by: `${selectedTrainee.first_name} ${selectedTrainee.last_name}`
-      })
+      }
+      // Toujours passer la signature si disponible (pas seulement isFirst)
+      if (signatureData && newValue) {
+        rpcParams.p_signature_data = signatureData
+      }
+      const { data: attendanceResult, error: attendanceError } = await supabase.rpc('save_single_attendance', rpcParams)
       
       if (attendanceError) {
         console.error('Erreur save attendance:', attendanceError)
