@@ -7,6 +7,7 @@ import {
   Clock, PhoneOff, XCircle, Snowflake, Bell, Plus, Edit2, Briefcase, Send, ArrowLeft, MessageSquare, BarChart3, ChevronRight, X, Paperclip, Trash2
 } from 'lucide-react'
 import toast from 'react-hot-toast'
+import SpeechToTextButton from '../components/SpeechToTextButton'
 import { MapContainer, TileLayer, CircleMarker, Circle, Popup, useMap } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 
@@ -2101,8 +2102,14 @@ export default function MarinePhoning() {
                   </div>
 
                   {/* Notes de l'appel */}
-                  <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes de l'échange (optionnel)..." rows="2"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent" />
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs text-gray-500">Notes de l'appel</span>
+                      <SpeechToTextButton onTranscript={(text) => setNotes(n => n ? n + ' ' + text : text)} compact />
+                    </div>
+                    <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes de l'échange (optionnel)..." rows="2"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent" />
+                  </div>
 
                   {/* 4 résultats */}
                   <div className="grid grid-cols-2 gap-3">
@@ -2157,8 +2164,13 @@ export default function MarinePhoning() {
                   </div>
 
                   {/* Notes */}
-                  <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes..." rows="2"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent" />
+                  <div>
+                    <div className="flex items-center justify-end mb-1">
+                      <SpeechToTextButton onTranscript={(text) => setNotes(n => n ? n + ' ' + text : text)} compact />
+                    </div>
+                    <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes..." rows="2"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent" />
+                  </div>
 
                   {/* RDV / Signal chaud */}
                   <div className="bg-green-50 rounded-lg p-3 space-y-2">
@@ -2203,8 +2215,13 @@ export default function MarinePhoning() {
                     <h3 className="font-semibold text-orange-700 text-sm">🟡 À rappeler — {contactName || current.name}</h3>
                   </div>
 
-                  <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes (ce qui a été dit, ce qu'il faut préparer...)" rows="3"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-orange-500 focus:border-transparent" />
+                  <div>
+                    <div className="flex items-center justify-end mb-1">
+                      <SpeechToTextButton onTranscript={(text) => setNotes(n => n ? n + ' ' + text : text)} compact />
+                    </div>
+                    <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes (ce qui a été dit, ce qu'il faut préparer...)" rows="3"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-orange-500 focus:border-transparent" />
+                  </div>
 
                   {/* Rappel */}
                   <div className="bg-orange-50 rounded-lg p-3 space-y-2">
@@ -2262,8 +2279,13 @@ export default function MarinePhoning() {
                     </div>
                   </div>
 
-                  <textarea value={transferNote} onChange={e => setTransferNote(e.target.value)} placeholder="Précisions (ce qu'il a dit, numéro siège, nom du contact...)" rows="2"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent" />
+                  <div>
+                    <div className="flex items-center justify-end mb-1">
+                      <SpeechToTextButton onTranscript={(text) => setTransferNote(n => n ? n + ' ' + text : text)} compact />
+                    </div>
+                    <textarea value={transferNote} onChange={e => setTransferNote(e.target.value)} placeholder="Précisions (ce qu'il a dit, numéro siège, nom du contact...)" rows="2"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent" />
+                  </div>
                   {transferReason && !transferNote.trim() && <p className="text-xs text-red-500">⚠️ Précise dans le champ ci-dessus</p>}
 
                   <button onClick={handleTransfer} disabled={saving || !transferReason || !transferNote.trim()}
@@ -2334,8 +2356,13 @@ export default function MarinePhoning() {
                     </div>
                   </div>
 
-                  <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes complémentaires (optionnel)" rows="2"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+                  <div>
+                    <div className="flex items-center justify-end mb-1">
+                      <SpeechToTextButton onTranscript={(text) => setNotes(n => n ? n + ' ' + text : text)} compact />
+                    </div>
+                    <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes complémentaires (optionnel)" rows="2"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+                  </div>
 
                   <button onClick={() => handleNotInterested(notInterestedTag === 'Autre' ? notInterestedCustom : notInterestedTag)} disabled={saving || !notInterestedTag || (notInterestedTag === 'Autre' && !notInterestedCustom.trim())}
                     className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-50 font-semibold text-sm">
