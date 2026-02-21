@@ -1476,7 +1476,8 @@ export default function TraineePortal() {
             console.log('currentDate:', currentDate)
 
             // Suppression du blocage - si on est sur cet onglet c'est qu'on doit y accéder
-            const isFirst = isFirstHalfDay(today, 'morning')
+            const firstPeriod = session.periods?.[0] || 'morning'
+            const isFirst = isFirstHalfDay(today, firstPeriod)
             
             return (
               <div className="space-y-5">
@@ -1486,7 +1487,9 @@ export default function TraineePortal() {
                     Émargement {session.day_type === 'half' ? 'demi-journée' : 'demi-journées'}
                   </h2>
                   <p className="text-xs text-gray-500 mt-1">
-                    {session.day_type === 'half' ? 'Matin' : 'Matin + Après-midi'} du jour en cours
+                    {session.day_type === 'half' 
+                      ? (firstPeriod === 'afternoon' ? 'Après-midi' : 'Matin') 
+                      : 'Matin + Après-midi'} du jour en cours
                   </p>
                 </div>
                 
