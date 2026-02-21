@@ -188,7 +188,9 @@ export default function TraineePortal() {
       // Déterminer les périodes selon le type de session
       let sessionPeriods = ['morning', 'afternoon']
       if (sessionData.day_type === 'half') {
-        sessionPeriods = ['morning']
+        // Déterminer si c'est matin ou après-midi selon l'heure de début
+        const startHour = sessionData.start_time ? parseInt(sessionData.start_time.split(':')[0], 10) : 9
+        sessionPeriods = startHour >= 12 ? ['afternoon'] : ['morning']
       }
       
       sessionData.periods = sessionPeriods
@@ -634,7 +636,8 @@ export default function TraineePortal() {
   const isFirstHalfDay = (date, period) => {
     if (!session?.start_date) return false
     const firstDate = format(parseISO(session.start_date), 'yyyy-MM-dd')
-    return date === firstDate && period === 'morning'
+    const firstPeriod = session.periods?.[0] || 'morning'
+    return date === firstDate && period === firstPeriod
   }
 
   // CORRECTION: Écrire dans attendance_halfdays avec morning/afternoon
