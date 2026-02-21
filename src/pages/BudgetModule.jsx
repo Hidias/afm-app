@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react'
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import toast from 'react-hot-toast'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, AreaChart, Area } from 'recharts'
@@ -299,6 +299,7 @@ function SaisieTab({ categories, rules, loadAll, clients }) {
   const [aiCurrentIdx, setAiCurrentIdx] = useState(0)
   const [aiProgress, setAiProgress] = useState({ current: 0, total: 0 })
   const [dragOver, setDragOver] = useState(false)
+  const allFilesRef = useRef([])
   const [recent, setRecent] = useState([])
 
   // Repas / Invités
@@ -356,23 +357,29 @@ function SaisieTab({ categories, rules, loadAll, clients }) {
     setPreviews(prev => prev.filter((_, i) => i !== idx))
   }
 
-  // Analyse IA de la facture — MULTI-FICHIERS
+  // Analyse IA de la facture — MULTI-FICHIERS (batch de 5 max)
   async function analyzeWithAI() {
     if (files.length === 0) { toast.error('Ajoutez une facture d\'abord'); return }
     setAnalyzing(true)
     setAiResults([])
     setAiCurrentIdx(0)
     setAiResult(null)
+    allFilesRef.current = [...files]
     const results = []
-    const total = files.length
+    const maxBatch = 5
+    const filesToProcess = files.slice(0, maxBatch)
+    const total = filesToProcess.length
     setAiProgress({ current: 0, total })
+    if (files.length > maxBatch) {
+      toast(`📋 Analyse des ${maxBatch} premiers fichiers (${files.length - maxBatch} en attente)`, { icon: 'ℹ️' })
+    }
 
-    for (let i = 0; i < files.length; i++) {
+    for (let i = 0; i < filesToProcess.length; i++) {
       setAiProgress({ current: i + 1, total })
       // Délai entre les appels pour éviter le rate-limit (429)
-      if (i > 0) await new Promise(r => setTimeout(r, 3000))
+      if (i > 0) await new Promise(r => setTimeout(r, 5000))
       try {
-        const file = files[i]
+        const file = filesToProcess[i]
         const base64 = await fileToBase64(file)
         const mediaType = file.type || 'image/jpeg'
         const catList = categories.map(c => `${c.icon} ${c.name} (${c.direction})`).join(', ')
@@ -407,20 +414,22 @@ function SaisieTab({ categories, rules, loadAll, clients }) {
         results.push({ ...json, _fileIndex: i, _fileName: file.name, _file: file })
       } catch (e) {
         console.error(`Erreur analyse fichier ${i}:`, e)
-        results.push({ _fileIndex: i, _fileName: files[i].name, _file: files[i], _error: true, fournisseur: files[i].name, montant: 0, description: files[i].name, explication: 'Erreur d\'analyse' })
+        results.push({ _fileIndex: i, _fileName: filesToProcess[i].name, _file: filesToProcess[i], _error: true, fournisseur: filesToProcess[i].name, montant: 0, description: filesToProcess[i].name, explication: 'Erreur d\'analyse' })
       }
     }
 
     setAiResults(results)
     setAiCurrentIdx(0)
-    if (results.length === 1) {
-      // Un seul fichier : comportement classique
-      applyResult(results[0])
-    } else if (results.length > 1) {
+    if (results.length >= 1) {
       applyResult(results[0])
     }
     setAnalyzing(false)
-    toast.success(`🤖 ${results.filter(r => !r._error).length}/${total} fichier(s) analysé(s)`)
+    const ok = results.filter(r => !r._error).length
+    const msg = ok === total ? `🤖 ${ok} fichier(s) analysé(s)` : `🤖 ${ok}/${total} analysé(s), ${total - ok} en erreur`
+    toast.success(msg)
+    if (files.length > maxBatch) {
+      toast(`💡 Relancez l'analyse pour les ${files.length - maxBatch} fichiers restants`, { icon: '📋', duration: 5000 })
+    }
   }
 
   // Appliquer un résultat IA au formulaire
@@ -503,10 +512,20 @@ function SaisieTab({ categories, rules, loadAll, clients }) {
         goToResult(nextIdx)
         toast.success(`📄 Suivant : ${nextIdx + 1}/${aiResults.length}`)
       } else {
-        // Terminé — reset complet
+        // Batch terminé — vérifier s'il reste des fichiers
+        const allOriginal = allFilesRef.current
+        const processedCount = Math.min(allOriginal.length, 5)
+        const remaining = allOriginal.slice(processedCount)
         setForm({ date: new Date().toISOString().split('T')[0], description: '', amount: '', type: 'debit', category_id: '', payer: 'entreprise', notes: '', note_comptable: '' })
-        setFiles([]); setPreviews([]); setAiResult(null); setAiResults([]); setAiCurrentIdx(0)
-        toast.success('🎉 Tous les fichiers ont été traités !')
+        setAiResult(null); setAiResults([]); setAiCurrentIdx(0)
+        if (remaining.length > 0) {
+          setFiles(remaining)
+          setPreviews(remaining.map(f => ({ name: f.name, url: null })))
+          toast.success(`🎉 Batch terminé — ${remaining.length} fichier(s) restant(s), relancez l'analyse`)
+        } else {
+          setFiles([]); setPreviews([])
+          toast.success('🎉 Tous les fichiers ont été traités !')
+        }
         loadAll()
       }
     } catch (e) {
@@ -522,10 +541,21 @@ function SaisieTab({ categories, rules, loadAll, clients }) {
     if (nextIdx < aiResults.length) {
       goToResult(nextIdx)
     } else {
+      // S'il reste des fichiers non analysés (batch > 5), les garder
+      const allOriginal = allFilesRef.current
+      const processedCount = Math.min(allOriginal.length, 5)
+      const remaining = allOriginal.slice(processedCount)
       setAiResults([])
       setAiCurrentIdx(0)
       setAiResult(null)
-      toast.success('✅ Terminé')
+      if (remaining.length > 0) {
+        setFiles(remaining)
+        setPreviews(remaining.map(f => ({ name: f.name, url: null })))
+        toast.success(`✅ Batch terminé — ${remaining.length} fichier(s) restant(s), relancez l'analyse`)
+      } else {
+        setFiles([]); setPreviews([])
+        toast.success('✅ Terminé')
+      }
     }
   }
 
@@ -629,7 +659,7 @@ function SaisieTab({ categories, rules, loadAll, clients }) {
           {files.length > 0 && !analyzing && aiResults.length === 0 && (
             <button onClick={analyzeWithAI} disabled={analyzing}
               className="mt-2 w-full bg-purple-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-purple-700 disabled:opacity-50">
-              {files.length > 1 ? `🤖 Analyser ${files.length} fichiers avec IA` : '🤖 Analyser avec IA'}
+              {files.length > 1 ? `🤖 Analyser ${Math.min(files.length, 5)} fichier${Math.min(files.length, 5) > 1 ? 's' : ''} avec IA${files.length > 5 ? ` (sur ${files.length})` : ''}` : '🤖 Analyser avec IA'}
             </button>
           )}
           {analyzing && (
@@ -659,14 +689,24 @@ function SaisieTab({ categories, rules, loadAll, clients }) {
                 <div>Fournisseur : <b>{aiResults[aiCurrentIdx]?.fournisseur}</b></div>
                 <div>Montant : <b>{aiResults[aiCurrentIdx]?.montant} €</b></div>
                 <div>Catégorie : <b>{aiResults[aiCurrentIdx]?.categorie_suggestion}</b></div>
-                <div>Type : <b className={aiResults[aiCurrentIdx]?.type_depense === 'entreprise' ? 'text-blue-600' : 'text-purple-600'}>{aiResults[aiCurrentIdx]?.type_depense}</b></div>
                 <div className="text-gray-600 italic">{aiResults[aiCurrentIdx]?.explication}</div>
               </>
             )}
+            {/* Sélecteur Payé par — bien visible dans le carousel */}
+            <div>
+              <label className="text-[10px] text-gray-500 font-medium">Payé par :</label>
+              <div className="flex gap-1 mt-1">
+                {[{ v:'entreprise', l:'🏢 Entreprise', color: 'blue' },{ v:'hicham_perso', l:'🏠 Hicham', color: 'purple' },{ v:'maxime_perso', l:'🏠 Maxime', color: 'purple' }].map(p => (
+                  <button key={p.v} onClick={() => setForm(f => ({ ...f, payer: p.v }))}
+                    className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-all ${form.payer === p.v ? (p.v === 'entreprise' ? 'bg-blue-500 text-white border-blue-600 ring-2 ring-blue-300' : 'bg-purple-500 text-white border-purple-600 ring-2 ring-purple-300') : 'bg-white text-gray-600 hover:bg-gray-50'}`}>{p.l}</button>
+                ))}
+              </div>
+              {form.payer !== 'entreprise' && <p className="text-[10px] text-purple-600 mt-0.5">⚠️ Sera comptabilisé en dette gérant</p>}
+            </div>
             <div className="flex gap-2 pt-1">
               <button onClick={validateAndNext} disabled={saving || !form.description || !form.amount}
                 className="flex-1 bg-green-600 text-white py-2 rounded-lg text-xs font-medium hover:bg-green-700 disabled:opacity-50">
-                ✅ Valider & {aiCurrentIdx + 1 < aiResults.length ? 'Suivant' : 'Terminer'}
+                {saving ? '⏳...' : `✅ Valider & ${aiCurrentIdx + 1 < aiResults.length ? 'Suivant' : 'Terminer'}`}
               </button>
               <button onClick={skipResult}
                 className="px-4 bg-gray-200 text-gray-700 py-2 rounded-lg text-xs font-medium hover:bg-gray-300">
