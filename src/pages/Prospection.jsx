@@ -1,9 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { 
-  Plus, Search, Calendar, MapPin, User, Phone, Mail, 
-  Edit, Trash2, FileText, CheckCircle, Clock, XCircle,
-  Building2, Users, Filter, ChevronDown
+  Plus, Search, Calendar, Edit, Trash2, CheckCircle, Clock, XCircle
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { format, parseISO, isBefore, isToday, isTomorrow } from 'date-fns'
@@ -131,113 +129,122 @@ export default function Prospection() {
   })
 
   const rdvsRealises = filteredRdvs.filter(r => r.status === 'realise')
+  const rdvsAutres = filteredRdvs.filter(r => r.status === 'annule' || r.status === 'reporte')
 
   const getDateLabel = (dateStr) => {
+    if (!dateStr) return null
     const date = parseISO(dateStr)
     if (isToday(date)) return "Aujourd'hui"
     if (isTomorrow(date)) return 'Demain'
-    return format(date, 'EEEE d MMMM yyyy', { locale: fr })
+    return format(date, 'EEE d MMM', { locale: fr })
   }
 
-  const RdvCard = ({ rdv }) => {
-    const StatusIcon = RDV_STATUS[rdv.status]?.icon || Clock
+  const getLocationLabel = (loc) => {
+    if (!loc) return ''
+    const map = { leurs_locaux: '📍 Leurs locaux', nos_locaux: '🏢 Nos locaux', visio: '💻 Visio', telephone: '📞 Tél.' }
+    return map[loc] || loc
+  }
+
+  // Composant ligne compacte
+  const RdvRow = ({ rdv, highlight }) => {
+    const StatusInfo = RDV_STATUS[rdv.status] || RDV_STATUS.prevu
+    const StatusIcon = StatusInfo.icon || Clock
     
     return (
-      <div className="bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md transition-shadow">
-        <div className="flex items-start justify-between mb-3">
-          <div className="flex-1">
-            <div className="flex items-center gap-2 mb-1">
-              <Building2 className="w-4 h-4 text-gray-400" />
-              <h3 className="font-semibold text-gray-900">
-                {rdv.clients?.name || 'Client inconnu'}
-              </h3>
-            </div>
-            {rdv.contact_name && (
-              <div className="flex items-center gap-2 text-sm text-gray-600">
-                <User className="w-3 h-3" />
-                <span>{rdv.contact_name}</span>
-              </div>
-            )}
+      <tr 
+        className={`border-b hover:bg-gray-50 cursor-pointer transition-colors ${highlight ? 'bg-red-50 hover:bg-red-100' : ''}`}
+        onClick={() => navigate(`/prospection/${rdv.id}`)}
+      >
+        {/* Statut + Urgence */}
+        <td className="px-3 py-2.5 w-10">
+          <div className="flex items-center gap-1.5">
+            {rdv.is_urgent && <span className="text-red-500 text-xs" title="Urgent">🔴</span>}
+            <StatusIcon className={`w-4 h-4 ${StatusInfo.color}`} title={StatusInfo.label} />
           </div>
+        </td>
+        {/* Entreprise + Contact */}
+        <td className="px-3 py-2.5">
           <div className="flex items-center gap-2">
-            {rdv.is_urgent && (
-              <span className="px-2 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700 flex items-center gap-1">
-                🔴 URGENT
-              </span>
-            )}
+            <span className="font-medium text-gray-900 text-sm">{rdv.clients?.name || 'Client inconnu'}</span>
             {rdv.rdv_type && (
-              <span className={`px-2 py-1 rounded-full text-xs font-medium ${RDV_TYPES[rdv.rdv_type]?.color || 'bg-gray-100'}`}>
+              <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${RDV_TYPES[rdv.rdv_type]?.color || 'bg-gray-100'}`}>
                 {RDV_TYPES[rdv.rdv_type]?.label || rdv.rdv_type}
               </span>
             )}
-            <StatusIcon className={`w-5 h-5 ${RDV_STATUS[rdv.status]?.color || 'text-gray-400'}`} />
           </div>
-        </div>
-
-        <div className="space-y-2 mb-3">
-          <div className="flex items-center gap-2 text-sm text-gray-600">
-            <Calendar className="w-4 h-4" />
-            {rdv.rdv_date ? (
-              <>
-                <span className="font-medium">{getDateLabel(rdv.rdv_date)}</span>
-                {rdv.rdv_time && <span>à {rdv.rdv_time.slice(0, 5)}</span>}
-              </>
-            ) : (
-              <span className="italic text-red-500">Date à définir</span>
-            )}
-          </div>
-
-          {rdv.rdv_location && (
-            <div className="flex items-center gap-2 text-sm text-gray-600">
-              <MapPin className="w-4 h-4" />
-              <span>
-                {rdv.rdv_location === 'leurs_locaux' ? 'Leurs locaux' :
-                 rdv.rdv_location === 'nos_locaux' ? 'Nos locaux' :
-                 rdv.rdv_location === 'visio' ? 'Visio' : 'Téléphone'}
+          {rdv.contact_name && (
+            <p className="text-xs text-gray-500 mt-0.5">{rdv.contact_name}</p>
+          )}
+        </td>
+        {/* Date + Heure */}
+        <td className="px-3 py-2.5 text-sm hidden md:table-cell">
+          {rdv.rdv_date ? (
+            <div>
+              <span className={`font-medium ${isToday(parseISO(rdv.rdv_date)) ? 'text-red-600' : isTomorrow(parseISO(rdv.rdv_date)) ? 'text-orange-600' : 'text-gray-700'}`}>
+                {getDateLabel(rdv.rdv_date)}
               </span>
+              {rdv.rdv_time && <span className="text-gray-400 ml-1.5">{rdv.rdv_time.slice(0, 5)}</span>}
             </div>
+          ) : (
+            <span className="text-red-500 text-xs italic">Date à définir</span>
           )}
-
-          {rdv.conducted_by && (
-            <div className="flex items-center gap-2 text-sm text-gray-600">
-              <User className="w-4 h-4" />
-              <span>{rdv.conducted_by}</span>
-            </div>
-          )}
-        </div>
-
-        {rdv.notes && (
-          <p className="text-sm text-gray-600 mb-3 line-clamp-2">
-            {rdv.notes}
-          </p>
-        )}
-
-        {rdv.next_action && (
-          <div className="bg-yellow-50 border border-yellow-200 rounded p-2 mb-3">
-            <p className="text-xs font-medium text-yellow-800 mb-1">Prochaine action</p>
-            <p className="text-sm text-yellow-900">{rdv.next_action}</p>
-            {rdv.next_action_date && (
-              <p className="text-xs text-yellow-700 mt-1">
-                {format(parseISO(rdv.next_action_date), 'd MMM yyyy', { locale: fr })}
-              </p>
-            )}
+        </td>
+        {/* Lieu */}
+        <td className="px-3 py-2.5 text-xs text-gray-500 hidden lg:table-cell">
+          {getLocationLabel(rdv.rdv_location)}
+        </td>
+        {/* Commercial */}
+        <td className="px-3 py-2.5 text-xs text-gray-500 hidden lg:table-cell">
+          {rdv.conducted_by || '—'}
+        </td>
+        {/* Notes / Prochaine action */}
+        <td className="px-3 py-2.5 hidden xl:table-cell max-w-[200px]">
+          {rdv.next_action ? (
+            <p className="text-xs text-yellow-700 bg-yellow-50 px-2 py-1 rounded truncate" title={rdv.next_action}>
+              ⚡ {rdv.next_action}
+            </p>
+          ) : rdv.notes ? (
+            <p className="text-xs text-gray-400 truncate" title={rdv.notes}>{rdv.notes}</p>
+          ) : null}
+        </td>
+        {/* Actions */}
+        <td className="px-3 py-2.5 text-right" onClick={e => e.stopPropagation()}>
+          <div className="flex gap-1 justify-end">
+            <button
+              onClick={() => navigate(`/prospection/${rdv.id}`)}
+              className="p-1.5 hover:bg-gray-100 rounded text-gray-500"
+              title="Éditer"
+            >
+              <Edit className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => handleDeleteRdv(rdv.id)}
+              className="p-1.5 hover:bg-red-100 rounded text-red-400"
+              title="Supprimer"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
           </div>
-        )}
+        </td>
+      </tr>
+    )
+  }
 
-        <div className="flex items-center gap-2 pt-3 border-t">
-          <button
-            onClick={() => navigate(`/prospection/${rdv.id}`)}
-            className="flex items-center gap-2 px-3 py-1.5 bg-primary-500 text-white rounded hover:bg-primary-600 text-sm"
-          >
-            <Edit className="w-4 h-4" />
-            Éditer
-          </button>
-          <button
-            onClick={() => handleDeleteRdv(rdv.id)}
-            className="flex items-center gap-2 px-3 py-1.5 bg-red-100 text-red-700 rounded hover:bg-red-200 text-sm"
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
+  // Composant tableau de section
+  const RdvSection = ({ title, icon: Icon, rdvList, color, highlight }) => {
+    if (rdvList.length === 0) return null
+    return (
+      <div className="mb-4">
+        <h2 className={`text-sm font-semibold ${color} mb-2 flex items-center gap-2 px-1`}>
+          <Icon className="w-4 h-4" />
+          {title} ({rdvList.length})
+        </h2>
+        <div className="bg-white rounded-lg border overflow-hidden">
+          <table className="w-full text-sm">
+            <tbody>
+              {rdvList.map(rdv => <RdvRow key={rdv.id} rdv={rdv} highlight={highlight} />)}
+            </tbody>
+          </table>
         </div>
       </div>
     )
@@ -372,57 +379,26 @@ export default function Prospection() {
           </button>
         </div>
       ) : (
-        <div className="space-y-6">
-          {/* RDV à prendre */}
-          {rdvsAPrendre.length > 0 && (
-            <div>
-              <h2 className="text-lg font-semibold text-red-700 mb-3 flex items-center gap-2">
-                <Clock className="w-5 h-5" />
-                🔴 À prendre ({rdvsAPrendre.length})
-              </h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {rdvsAPrendre.map(rdv => <RdvCard key={rdv.id} rdv={rdv} />)}
-              </div>
-            </div>
-          )}
+        <div>
+          {/* En-tête de colonnes global */}
+          <div className="hidden md:grid grid-cols-[40px_1fr_140px_120px_80px_200px_70px] gap-0 px-4 py-2 text-[10px] text-gray-400 uppercase font-medium mb-1">
+            <span></span>
+            <span>Entreprise</span>
+            <span>Date</span>
+            <span className="hidden lg:block">Lieu</span>
+            <span className="hidden lg:block">Par</span>
+            <span className="hidden xl:block">Action</span>
+            <span></span>
+          </div>
 
-          {/* RDV urgents */}
-          {rdvsUrgents.length > 0 && (
-            <div>
-              <h2 className="text-lg font-semibold text-red-700 mb-3 flex items-center gap-2">
-                <Calendar className="w-5 h-5" />
-                RDV urgents ({rdvsUrgents.length})
-              </h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {rdvsUrgents.map(rdv => <RdvCard key={rdv.id} rdv={rdv} />)}
-              </div>
-            </div>
+          <RdvSection title="🔴 À prendre" icon={Clock} rdvList={rdvsAPrendre} color="text-red-700" highlight />
+          <RdvSection title="⚠️ Urgents" icon={Calendar} rdvList={rdvsUrgents} color="text-orange-700" highlight />
+          <RdvSection title="📅 À venir" icon={Clock} rdvList={rdvsProchains} color="text-blue-700" />
+          {filterStatus !== 'prevu' && (
+            <RdvSection title="✅ Réalisés" icon={CheckCircle} rdvList={rdvsRealises} color="text-green-700" />
           )}
-
-          {/* RDV prochains */}
-          {rdvsProchains.length > 0 && (
-            <div>
-              <h2 className="text-lg font-semibold text-purple-700 mb-3 flex items-center gap-2">
-                <Clock className="w-5 h-5" />
-                À venir ({rdvsProchains.length})
-              </h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {rdvsProchains.map(rdv => <RdvCard key={rdv.id} rdv={rdv} />)}
-              </div>
-            </div>
-          )}
-
-          {/* RDV réalisés */}
-          {rdvsRealises.length > 0 && filterStatus !== 'prevu' && (
-            <div>
-              <h2 className="text-lg font-semibold text-green-700 mb-3 flex items-center gap-2">
-                <CheckCircle className="w-5 h-5" />
-                Réalisés ({rdvsRealises.length})
-              </h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {rdvsRealises.map(rdv => <RdvCard key={rdv.id} rdv={rdv} />)}
-              </div>
-            </div>
+          {rdvsAutres.length > 0 && (
+            <RdvSection title="📁 Annulés / Reportés" icon={XCircle} rdvList={rdvsAutres} color="text-gray-500" />
           )}
         </div>
       )}
