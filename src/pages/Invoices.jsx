@@ -99,7 +99,8 @@ export default function Invoices() {
     setCurrent({reference:ref,type,client_id:'',contact_id:'',quote_id:'',session_id:'',sellsy_reference:'',client_reference:'',
       invoice_date:format(new Date(),'yyyy-MM-dd'),service_start_date:'',service_end_date:'',due_date:dd,
       object:'',payment_method:'virement bancaire',payment_terms:'à 30 jours',discount_percent:0,discount_label:'',
-      tva_applicable:true,notes:'',created_by:'Hicham Saidi',status:'draft',parent_reference:'',parent_invoice_id:null,amount_paid:0,is_formation_pro:true})
+      tva_applicable:true,notes:'',created_by:'Hicham Saidi',status:'draft',parent_reference:'',parent_invoice_id:null,amount_paid:0,is_formation_pro:true,
+      is_subrogation:false,billing_client_id:''})
     setItems([emptyItem()]); setPayments([]); setContacts([]); setMode('create')
   }
 
@@ -117,7 +118,8 @@ export default function Invoices() {
       invoice_date:format(new Date(),'yyyy-MM-dd'),service_start_date:sStart,service_end_date:sEnd,due_date:dd,
       object:quote.object||'',payment_method:quote.payment_method||'virement bancaire',payment_terms:quote.payment_terms||'à 30 jours',
       discount_percent:quote.discount_percent||0,discount_label:quote.discount_label||'',tva_applicable:quote.tva_applicable!==false,
-      notes:'',created_by:'Hicham Saidi',status:'draft',parent_reference:quote.reference,parent_invoice_id:null,amount_paid:0,is_formation_pro:true,session_reference:sRef})
+      notes:'',created_by:'Hicham Saidi',status:'draft',parent_reference:quote.reference,parent_invoice_id:null,amount_paid:0,is_formation_pro:true,session_reference:sRef,
+      is_subrogation:false,billing_client_id:''})
     setItems((qItems||[]).map((it,i)=>({...it,id:undefined,quote_id:undefined,invoice_id:undefined,position:i})))
     setPayments([]); setShowQuoteSelector(false); setMode('create')
   }
@@ -151,7 +153,8 @@ export default function Invoices() {
       invoice_date: format(new Date(), 'yyyy-MM-dd'), service_start_date: sess.start_date || '', service_end_date: sess.end_date || '', due_date: dd,
       object: sess.courses?.title || '', payment_method: 'virement bancaire', payment_terms: 'à 30 jours',
       discount_percent: 0, discount_label: '', tva_applicable: true,
-      notes: '', created_by: 'Hicham Saidi', status: 'draft', parent_reference: '', parent_invoice_id: null, amount_paid: 0, is_formation_pro: true
+      notes: '', created_by: 'Hicham Saidi', status: 'draft', parent_reference: '', parent_invoice_id: null, amount_paid: 0, is_formation_pro: true,
+      is_subrogation: false, billing_client_id: ''
     })
     setItems(invoiceItems.length > 0 ? invoiceItems : [emptyItem()])
     setPayments([]); setMode('create')
@@ -168,7 +171,8 @@ export default function Invoices() {
       invoice_date:format(new Date(),'yyyy-MM-dd'),service_start_date:inv.service_start_date||'',service_end_date:inv.service_end_date||'',due_date:'',
       object:'Avoir sur facture '+inv.reference,payment_method:inv.payment_method,payment_terms:inv.payment_terms,
       discount_percent:inv.discount_percent||0,discount_label:inv.discount_label||'',tva_applicable:inv.tva_applicable!==false,
-      notes:'',created_by:'Hicham Saidi',status:'draft',parent_reference:inv.reference,parent_invoice_id:inv.id,amount_paid:0,is_formation_pro:true})
+      notes:'',created_by:'Hicham Saidi',status:'draft',parent_reference:inv.reference,parent_invoice_id:inv.id,amount_paid:0,is_formation_pro:true,
+      is_subrogation:inv.is_subrogation||false,billing_client_id:inv.billing_client_id||''})
     setItems((invItems||[]).map((it,i)=>({...it,id:undefined,invoice_id:undefined,position:i})))
     setPayments([]); setMode('create')
   }
@@ -195,7 +199,9 @@ export default function Invoices() {
       discount_label:current.discount_label||'', tva_applicable:current.tva_applicable,
       total_ht:totals.subtotalHt, total_discount:totals.discountAmt, total_net_ht:totals.netHt,
       total_tva:totals.totalTva, total_ttc:totals.totalTtc, amount_paid:ap, amount_due:totals.totalTtc-ap,
-      status:current.status, notes:current.notes||'', created_by:current.created_by, is_formation_pro:current.is_formation_pro!==false, updated_at:new Date().toISOString(),
+      status:current.status, notes:current.notes||'', created_by:current.created_by, is_formation_pro:current.is_formation_pro!==false,
+      is_subrogation:current.is_subrogation||false, billing_client_id:current.is_subrogation?current.billing_client_id||null:null,
+      updated_at:new Date().toISOString(),
     }
     try {
       let iid
@@ -275,11 +281,12 @@ export default function Invoices() {
   // ─── PDF ───
   const handlePDF = async (inv, itemsList) => {
     const client = clients.find(c=>c.id===inv.client_id)
+    const billingClient = inv.is_subrogation && inv.billing_client_id ? clients.find(c=>c.id===inv.billing_client_id) : null
     let contact=null; if(inv.contact_id){const{data}=await supabase.from('client_contacts').select('*').eq('id',inv.contact_id).single();contact=data}
     let pRef=inv.parent_reference||''; if(!pRef&&inv.parent_invoice_id){pRef=invoices.find(i=>i.id===inv.parent_invoice_id)?.reference||''}
     if(!pRef&&inv.quote_id){pRef=quotes.find(q=>q.id===inv.quote_id)?.reference||''}
     let sRef=''; if(inv.session_id){const{data:s}=await supabase.from('sessions').select('reference').eq('id',inv.session_id).single();sRef=s?.reference||''}
-    await generateInvoicePDF({...inv,parent_reference:pRef,session_reference:sRef}, itemsList||items, client, contact)
+    await generateInvoicePDF({...inv,parent_reference:pRef,session_reference:sRef}, itemsList||items, client, contact, { billingClient })
   }
 
   // ─── Items ───
@@ -374,7 +381,7 @@ export default function Invoices() {
             const st=STATUS_MAP[inv.status]||STATUS_MAP.draft, isCr=inv.type==='credit_note'
             const odDays = inv.status==='overdue'&&inv.due_date?differenceInDays(new Date(),new Date(inv.due_date)):0
             return(<tr key={inv.id} className="border-b hover:bg-gray-50 cursor-pointer" onClick={()=>handleView(inv)}>
-              <td className="px-4 py-3 font-medium"><span className={isCr?'text-orange-600':'text-gray-900'}>{inv.reference}</span>{isCr&&<span className="ml-2 text-xs bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded">Avoir</span>}</td>
+              <td className="px-4 py-3 font-medium"><span className={isCr?'text-orange-600':'text-gray-900'}>{inv.reference}</span>{isCr&&<span className="ml-2 text-xs bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded">Avoir</span>}{inv.is_subrogation&&<span className="ml-2 text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">OPCO</span>}</td>
               <td className="px-4 py-3 text-gray-600">{inv.clients?.name||'—'}</td>
               <td className="px-4 py-3 text-gray-500 max-w-[200px] truncate">{inv.object||'—'}</td>
               <td className="px-4 py-3 text-right">{money(inv.total_net_ht)}</td>
@@ -455,6 +462,28 @@ export default function Invoices() {
               :<select value={current?.contact_id||''} onChange={e=>setCurrent({...current,contact_id:e.target.value})} className="w-full border rounded-lg px-3 py-2 text-sm"><option value="">— Aucun —</option>{contacts.map(c=><option key={c.id} value={c.id}>{c.name}{c.is_billing?' 💰':c.is_primary?' ⭐':''}</option>)}</select>}
             </div>
             <div><label className="text-xs text-gray-500 block mb-1">Réf. client</label><input type="text" value={current?.client_reference||''} onChange={e=>setCurrent({...current,client_reference:e.target.value})} className="w-full border rounded-lg px-3 py-2 text-sm" readOnly={ro} placeholder="Ex: DUC, OPCO2i"/></div>
+          </div>
+          {/* Subrogation OPCO */}
+          <div className="mt-4 border-t pt-4">
+            <div className="flex items-center gap-3 mb-3">
+              <input type="checkbox" id="is_subrogation" checked={current?.is_subrogation||false} onChange={e=>setCurrent({...current,is_subrogation:e.target.checked,...(!e.target.checked&&{billing_client_id:''})})} disabled={ro} className="w-4 h-4 rounded text-amber-500"/>
+              <label htmlFor="is_subrogation" className="text-sm font-medium text-gray-700">💼 Subrogation OPCO <span className="text-xs text-gray-400 font-normal">— Facturer à un tiers payeur (OPCO, organisme financeur)</span></label>
+            </div>
+            {current?.is_subrogation && (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pl-7 border-l-2 border-amber-200">
+                <div className="col-span-2">
+                  <label className="text-xs text-gray-500 block mb-1">Client de facturation (OPCO)</label>
+                  {ro?<p className="text-sm font-medium text-amber-700">{clients.find(c=>c.id===current?.billing_client_id)?.name||'—'}</p>
+                  :<select value={current?.billing_client_id||''} onChange={e=>setCurrent({...current,billing_client_id:e.target.value})} className="w-full border border-amber-300 rounded-lg px-3 py-2 text-sm bg-amber-50">
+                    <option value="">— Sélectionner l'OPCO —</option>
+                    {clients.filter(c=>c.status!=='inactif').map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>}
+                </div>
+                <div className="col-span-2 flex items-end">
+                  <p className="text-xs text-amber-600">La facture sera adressée à l'OPCO avec la mention « Formation réalisée pour le compte de {client?.name || '...'} »</p>
+                </div>
+              </div>
+            )}
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
             <div><label className="text-xs text-gray-500 block mb-1">Réf. Sellsy</label><input type="text" value={current?.sellsy_reference||''} onChange={e=>setCurrent({...current,sellsy_reference:e.target.value})} className="w-full border rounded-lg px-3 py-2 text-sm" readOnly={ro} placeholder="FACT-..."/></div>
