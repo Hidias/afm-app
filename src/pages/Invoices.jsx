@@ -43,6 +43,8 @@ export default function Invoices() {
   const [paymentForm, setPaymentForm] = useState({amount:'',payment_date:format(new Date(),'yyyy-MM-dd'),payment_method:'virement bancaire',payment_reference:'',notes:''})
   const [showQuoteSelector, setShowQuoteSelector] = useState(false)
   const [quoteSearch, setQuoteSearch] = useState('')
+  const [sortField, setSortField] = useState('invoice_date')
+  const [sortDir, setSortDir] = useState('desc')
 
   // ─── Load ───
   const loadAll = useCallback(async () => {
@@ -287,11 +289,34 @@ export default function Invoices() {
   const addFromCourse = (c) => setItems([...items.filter(it=>it.description_title),{code:c.code||'',description_title:c.title,description_detail:c.description||'',quantity:1,unit:'unité',unit_price_ht:c.price_ht||0,tva_rate:20,course_id:c.id}])
 
   // ─── Filtered ───
-  const filtered = useMemo(()=>invoices.filter(inv=>{
-    const s=search.toLowerCase()
-    return (!s||inv.reference?.toLowerCase().includes(s)||inv.clients?.name?.toLowerCase().includes(s)||inv.object?.toLowerCase().includes(s)||inv.client_reference?.toLowerCase().includes(s))
-      &&(!statusFilter||inv.status===statusFilter)&&(!typeFilter||inv.type===typeFilter)
-  }),[invoices,search,statusFilter,typeFilter])
+  const toggleSort = (field) => {
+    if (sortField === field) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortField(field); setSortDir('asc') }
+  }
+  const SortIcon = ({ field }) => sortField !== field ? <span className="text-gray-300 ml-1">↕</span> : <span className="ml-1">{sortDir === 'asc' ? '↑' : '↓'}</span>
+
+  const filtered = useMemo(()=>{
+    let result = invoices.filter(inv=>{
+      const s=search.toLowerCase()
+      return (!s||inv.reference?.toLowerCase().includes(s)||inv.clients?.name?.toLowerCase().includes(s)||inv.object?.toLowerCase().includes(s)||inv.client_reference?.toLowerCase().includes(s))
+        &&(!statusFilter||inv.status===statusFilter)&&(!typeFilter||inv.type===typeFilter)
+    })
+    result.sort((a,b)=>{
+      let va, vb
+      switch(sortField){
+        case 'reference': va=a.reference||''; vb=b.reference||''; break
+        case 'client': va=a.clients?.name||''; vb=b.clients?.name||''; break
+        case 'total_ht': va=parseFloat(a.total_net_ht)||0; vb=parseFloat(b.total_net_ht)||0; break
+        case 'total_ttc': va=parseFloat(a.total_ttc)||0; vb=parseFloat(b.total_ttc)||0; break
+        case 'status': va=a.status||''; vb=b.status||''; break
+        case 'due_date': va=a.due_date||''; vb=b.due_date||''; break
+        default: va=a.invoice_date||''; vb=b.invoice_date||''
+      }
+      if (typeof va === 'number') return sortDir==='asc'?va-vb:vb-va
+      return sortDir==='asc'?String(va).localeCompare(String(vb)):String(vb).localeCompare(String(va))
+    })
+    return result
+  },[invoices,search,statusFilter,typeFilter,sortField,sortDir])
 
   // ─── Stats ───
   const stats = useMemo(()=>{
@@ -341,9 +366,9 @@ export default function Invoices() {
       {loading?<p className="text-center py-8 text-gray-400">Chargement...</p>:filtered.length===0?<p className="text-center py-8 text-gray-500">{search||statusFilter||typeFilter?'Aucun résultat':'Aucune facture'}</p>:(
         <div className="bg-white rounded-xl border overflow-x-auto"><table className="w-full text-sm">
           <thead><tr className="border-b bg-gray-50 text-gray-500 text-xs uppercase">
-            <th className="px-4 py-3 text-left">Référence</th><th className="px-4 py-3 text-left">Client</th><th className="px-4 py-3 text-left">Objet</th>
-            <th className="px-4 py-3 text-right">HT</th><th className="px-4 py-3 text-right">TTC</th><th className="px-4 py-3 text-right">Dû</th>
-            <th className="px-4 py-3 text-center">Statut</th><th className="px-4 py-3 text-center">Échéance</th><th className="px-4 py-3 text-right">Actions</th>
+            <th className="px-4 py-3 text-left cursor-pointer select-none hover:text-gray-700" onClick={()=>toggleSort('reference')}>Référence<SortIcon field="reference"/></th><th className="px-4 py-3 text-left cursor-pointer select-none hover:text-gray-700" onClick={()=>toggleSort('client')}>Client<SortIcon field="client"/></th><th className="px-4 py-3 text-left">Objet</th>
+            <th className="px-4 py-3 text-right cursor-pointer select-none hover:text-gray-700" onClick={()=>toggleSort('total_ht')}>HT<SortIcon field="total_ht"/></th><th className="px-4 py-3 text-right cursor-pointer select-none hover:text-gray-700" onClick={()=>toggleSort('total_ttc')}>TTC<SortIcon field="total_ttc"/></th><th className="px-4 py-3 text-right">Dû</th>
+            <th className="px-4 py-3 text-center cursor-pointer select-none hover:text-gray-700" onClick={()=>toggleSort('status')}>Statut<SortIcon field="status"/></th><th className="px-4 py-3 text-center cursor-pointer select-none hover:text-gray-700" onClick={()=>toggleSort('due_date')}>Échéance<SortIcon field="due_date"/></th><th className="px-4 py-3 text-right">Actions</th>
           </tr></thead>
           <tbody>{filtered.map(inv=>{
             const st=STATUS_MAP[inv.status]||STATUS_MAP.draft, isCr=inv.type==='credit_note'
