@@ -873,6 +873,7 @@ function generateEmargement(session, trainees = [], trainer = null, isBlank = fa
   }
   const displayDays = isBlank ? [1, 2, 3] : (days.length > 0 ? days : [new Date()])
   const isHalfDay = session?.day_type === 'half'
+  const halfDayPeriod = isHalfDay && session?.start_time ? (parseInt(session.start_time.split(':')[0], 10) >= 12 ? 'afternoon' : 'morning') : 'morning'
   const colsPerDay = isHalfDay ? 1 : 2
 
   // Largeurs des colonnes
@@ -906,7 +907,7 @@ function generateEmargement(session, trainees = [], trainer = null, isBlank = fa
     const dateStr = isBlank ? `J${idx + 1}` : format(day, 'dd/MM', { locale: fr })
     if (isHalfDay) {
       doc.text(dateStr, x + dayColW / 2, y + 4, { align: 'center' })
-      doc.text('Demi-j.', x + dayColW / 2, y + 10, { align: 'center' })
+      doc.text(halfDayPeriod === 'afternoon' ? 'A-midi' : 'Matin', x + dayColW / 2, y + 10, { align: 'center' })
       x += dayColW
     } else {
       const centerX = x + dayColW
@@ -1039,7 +1040,7 @@ function generateEmargement(session, trainees = [], trainer = null, isBlank = fa
       }
 
       if (isHalfDay) {
-        drawCell(xx, 'morning')             // Case unique demi-journée
+        drawCell(xx, halfDayPeriod)          // Case unique demi-journée (matin ou après-midi)
         xx += dayColW
       } else {
         drawCell(xx, 'morning')             // Case Matin
