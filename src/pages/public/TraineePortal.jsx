@@ -79,7 +79,9 @@ const STEPS_CONFIG = [
 
 const ProgressStepper = ({ currentStep, hasTest }) => {
   const steps = hasTest ? STEPS_CONFIG : STEPS_CONFIG.filter(s => s.key !== 'positioning_test')
-  const currentIdx = steps.findIndex(s => s.key === currentStep)
+  // attendance_complete = émargement terminé, en route vers évaluation
+  const mappedStep = currentStep === 'attendance_complete' ? 'evaluation' : currentStep
+  const currentIdx = steps.findIndex(s => s.key === mappedStep)
   // Si l'étape n'est pas dans la liste (select, verify_code, thank_you...), ne pas afficher
   if (currentIdx === -1) return null
 
@@ -115,6 +117,79 @@ const ProgressStepper = ({ currentStep, hasTest }) => {
           </div>
         )
       })}
+    </div>
+  )
+}
+
+// ─── Attendance Complete Page ────────────────────────────────
+const AttendanceCompletePage = ({ session, trainee, onContinue }) => {
+  const [showButton, setShowButton] = useState(false)
+
+  useEffect(() => {
+    const timer = setTimeout(() => setShowButton(true), 4000)
+    return () => clearTimeout(timer)
+  }, [])
+
+  const courseTitle = session.courses?.title || 'la formation'
+  const firstName = trainee.first_name || ''
+
+  return (
+    <div className="text-center py-6 portal-card-enter">
+      {/* Icône animée */}
+      <div className="relative mx-auto mb-6 w-24 h-24">
+        <div className="absolute inset-0 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 opacity-20 animate-ping" style={{ animationDuration: '2s' }} />
+        <div className="relative w-24 h-24 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center shadow-xl shadow-emerald-200">
+          <CheckCircle className="w-12 h-12 text-white check-pop" />
+        </div>
+      </div>
+
+      <h2 className="text-2xl font-bold text-gray-900 mb-2">
+        Merci {firstName} !
+      </h2>
+      <p className="text-gray-600 mb-1">
+        Votre présence a bien été enregistrée.
+      </p>
+      <p className="text-sm text-gray-400 mb-6">
+        Nous espérons que {courseTitle} vous a été utile et enrichissante.
+      </p>
+
+      {/* Récap discret */}
+      <div className="bg-gradient-to-r from-emerald-50 to-teal-50 rounded-xl p-4 mb-6 text-left">
+        <div className="flex items-center gap-2 text-sm text-emerald-700 mb-2">
+          <Fingerprint className="w-4 h-4" />
+          <span className="font-semibold">Émargement confirmé</span>
+        </div>
+        <div className="flex items-center gap-2 text-xs text-emerald-600">
+          <Calendar className="w-3.5 h-3.5" />
+          <span>{format(new Date(), "EEEE d MMMM yyyy 'à' HH'h'mm", { locale: fr })}</span>
+        </div>
+      </div>
+
+      {/* Message avant bouton */}
+      <p className="text-sm text-gray-500 mb-4">
+        Une dernière étape : votre avis compte pour nous améliorer !
+      </p>
+
+      {/* Bouton différé avec fade-in */}
+      <div className={`transition-all duration-700 ${showButton ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4 pointer-events-none'}`}>
+        <button
+          type="button"
+          onClick={onContinue}
+          className="w-full py-3.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white font-bold rounded-xl shadow-lg shadow-orange-200 hover:shadow-xl hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 flex items-center justify-center gap-2"
+        >
+          <Star className="w-5 h-5" />
+          Donner mon avis
+        </button>
+      </div>
+
+      {/* Points de chargement avant le bouton */}
+      {!showButton && (
+        <div className="flex items-center justify-center gap-2 text-emerald-500">
+          <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-bounce" style={{ animationDelay: '0ms' }} />
+          <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-bounce" style={{ animationDelay: '150ms' }} />
+          <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+        </div>
+      )}
     </div>
   )
 }
@@ -193,7 +268,7 @@ export default function TraineePortal() {
   const [trainees, setTrainees] = useState([])
   const [selectedTrainee, setSelectedTrainee] = useState(null)
   
-  // Steps: 'select' | 'verify_code' | 'info_sheet' | 'positioning_test' | 'attendance' | 'evaluation' | 'thank_you' | 'google_review' | 'thank_you_website'
+  // Steps: 'select' | 'verify_code' | 'info_sheet' | 'positioning_test' | 'attendance' | 'attendance_complete' | 'evaluation' | 'thank_you' | 'google_review' | 'thank_you_website'
   const [currentStep, setCurrentStep] = useState('select')
   const [showDocuments, setShowDocuments] = useState(false)
   
@@ -489,7 +564,7 @@ export default function TraineePortal() {
               if (evalData && evalData.questionnaire_submitted) {
                 setCurrentStep('thank_you')
               } else {
-                setCurrentStep('evaluation')
+                setCurrentStep('attendance_complete')
               }
             } else {
               setCurrentStep('thank_you')
@@ -881,7 +956,7 @@ export default function TraineePortal() {
           if (evaluationData && evaluationData.questionnaire_submitted) {
             setCurrentStep('thank_you')
           } else {
-            setCurrentStep('evaluation')
+            setCurrentStep('attendance_complete')
           }
         } else {
           setCurrentStep('thank_you')
@@ -1589,6 +1664,15 @@ export default function TraineePortal() {
               </div>
             )
           })()}
+
+          {/* STEP: Émargement terminé - transition vers évaluation */}
+          {currentStep === 'attendance_complete' && selectedTrainee && (
+            <AttendanceCompletePage
+              session={session}
+              trainee={selectedTrainee}
+              onContinue={() => setCurrentStep('evaluation')}
+            />
+          )}
 
           {/* STEP: Thank you */}
           {currentStep === 'thank_you' && (
