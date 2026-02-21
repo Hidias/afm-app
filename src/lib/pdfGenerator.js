@@ -848,12 +848,12 @@ function generateEmargement(session, trainees = [], trainer = null, isBlank = fa
 
   doc.setFontSize(9)
   doc.setFont('helvetica', 'normal')
-  const halfW = pw / 2 - 20  // largeur max colonne gauche
-  const rightW = pw / 2 - 18 // largeur max colonne droite
+  const halfW = pw / 2 - 20
+  const rightW = pw / 2 - 18
   const truncText = (prefix, text, maxW) => {
     const full = `${prefix}${text}`
     const lines = doc.splitTextToSize(full, maxW)
-    return lines[0] || full  // ne garder que la première ligne
+    return lines[0] || full
   }
   doc.text(truncText('Formation : ', isBlank ? '________________________________________' : (course.title || ''), halfW), 15, y)
   doc.text(truncText('Client : ', isBlank ? '________________________' : (session?.clients?.name || ''), rightW), pw / 2, y); y += 5
@@ -872,17 +872,18 @@ function generateEmargement(session, trainees = [], trainer = null, isBlank = fa
     try { days = eachDayOfInterval({ start: parseISO(session.start_date), end: parseISO(session.end_date) }) } catch {}
   }
   const displayDays = isBlank ? [1, 2, 3] : (days.length > 0 ? days : [new Date()])
+  const isHalfDay = session?.day_type === 'half'
+  const colsPerDay = isHalfDay ? 1 : 2
 
   // Largeurs des colonnes
   const nameColW = 45
   const secuColW = 40
   const emailColW = 35
   const remainingW = pw - 30 - nameColW - secuColW - emailColW
-  const dayColW = Math.min(25, remainingW / (displayDays.length * 2))
+  const dayColW = Math.min(25, remainingW / (displayDays.length * colsPerDay))
   const startX = 15
 
   // Hauteur des lignes selon le mode
-  // Plus haut quand on a des signatures à afficher (18mm vs 10mm vierge)
   const hasAnySignatureImage = !isBlank && (
     signatures.some(s => s.signature_data || s.signature) ||
     digitalSignatures.some(ds => ds.signature_data) ||
@@ -892,7 +893,7 @@ function generateEmargement(session, trainees = [], trainer = null, isBlank = fa
 
   // ============ EN-TÊTE TABLEAU ============
   doc.setFillColor(240, 240, 240)
-  doc.rect(startX, y, nameColW + secuColW + emailColW + displayDays.length * dayColW * 2, 14, 'F')
+  doc.rect(startX, y, nameColW + secuColW + emailColW + displayDays.length * dayColW * colsPerDay, 14, 'F')
 
   doc.setFontSize(7)
   doc.setFont('helvetica', 'bold')
@@ -903,11 +904,17 @@ function generateEmargement(session, trainees = [], trainer = null, isBlank = fa
   let x = startX + nameColW + secuColW + emailColW
   displayDays.forEach((day, idx) => {
     const dateStr = isBlank ? `J${idx + 1}` : format(day, 'dd/MM', { locale: fr })
-    const centerX = x + dayColW
-    doc.text(dateStr, centerX, y + 4, { align: 'center' })
-    doc.text('Matin', x + dayColW / 2, y + 10, { align: 'center' })
-    doc.text('A-midi', x + dayColW + dayColW / 2, y + 10, { align: 'center' })
-    x += dayColW * 2
+    if (isHalfDay) {
+      doc.text(dateStr, x + dayColW / 2, y + 4, { align: 'center' })
+      doc.text('Demi-j.', x + dayColW / 2, y + 10, { align: 'center' })
+      x += dayColW
+    } else {
+      const centerX = x + dayColW
+      doc.text(dateStr, centerX, y + 4, { align: 'center' })
+      doc.text('Matin', x + dayColW / 2, y + 10, { align: 'center' })
+      doc.text('A-midi', x + dayColW + dayColW / 2, y + 10, { align: 'center' })
+      x += dayColW * 2
+    }
   })
   y += 14
 
@@ -997,7 +1004,7 @@ function generateEmargement(session, trainees = [], trainer = null, isBlank = fa
         const color = (sig || hdSigned || digiSig || hdSelfSigned) ? [0, 120, 0] : [0, 80, 160]
 
         // Essayer d'injecter l'image de la signature pad
-        // Priorité : 1) signature par demi-journée (attendances) → 2) signature dans halfdays → 3) signature globale (document_signatures)
+        // Priorité : 1) attendances → 2) halfdays.signature_morning/afternoon → 3) document_signatures
         const sigImageData = sig ? (sig.signature_data || sig.signature) : null
         const hdSigImage = !sigImageData && hd ? (period === 'morning' ? hd.signature_morning : hd.signature_afternoon) : null
         const fallbackImage = !sigImageData && !hdSigImage ? getDigitalSignatureImage(t.id) : null
@@ -1031,10 +1038,14 @@ function generateEmargement(session, trainees = [], trainer = null, isBlank = fa
         doc.setTextColor(0, 0, 0)
       }
 
-      drawCell(xx, 'morning')           // Case Matin
-      drawCell(xx + dayColW, 'afternoon') // Case Après-midi
-
-      xx += dayColW * 2
+      if (isHalfDay) {
+        drawCell(xx, 'morning')             // Case unique demi-journée
+        xx += dayColW
+      } else {
+        drawCell(xx, 'morning')             // Case Matin
+        drawCell(xx + dayColW, 'afternoon') // Case Après-midi
+        xx += dayColW * 2
+      }
     })
     y += rowH
   })
