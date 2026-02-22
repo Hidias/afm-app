@@ -65,6 +65,12 @@ export default function ClientDetail() {
   const [showInteractionForm, setShowInteractionForm] = useState(false)
   const [interactionForm, setInteractionForm] = useState({ type: 'call', title: '', content: '', author: 'Hicham' })
 
+  // Email direct
+  const [showEmailForm, setShowEmailForm] = useState(false)
+  const [emailForm, setEmailForm] = useState({ to: '', subject: '', body: '', brief: '', sender: 'Hicham' })
+  const [emailGenerating, setEmailGenerating] = useState(false)
+  const [emailSending, setEmailSending] = useState(false)
+
   // Formations
   const [formations, setFormations] = useState([])
 
@@ -302,6 +308,85 @@ export default function ClientDetail() {
     await supabase.from('client_interactions').delete().eq('id', intId)
     toast.success('Supprimé')
     loadInteractions()
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // EMAIL DIRECT CLIENT
+  // ═══════════════════════════════════════════════════════════
+  async function generateEmailIA() {
+    if (!emailForm.brief?.trim()) return toast.error('Décrivez ce que vous voulez dire')
+    setEmailGenerating(true)
+    try {
+      const timeline = getMergedTimeline()
+      const res = await fetch('/api/generate-client-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          brief: emailForm.brief,
+          clientName: client?.name,
+          clientSector: client?.secteur_activite,
+          contactName: emailForm.to ? contacts.find(c => c.email === emailForm.to)?.name : null,
+          senderName: emailForm.sender,
+          recentInteractions: timeline.slice(0, 5).map(i => ({ date: i.date, type: i.type, title: i.title, content: i.content })),
+          formations: formations.slice(0, 5).map(f => ({ type_formation: f.type_formation, status: f.status })),
+        }),
+      })
+      const data = await res.json()
+      if (data.error) throw new Error(data.error)
+      setEmailForm(f => ({ ...f, subject: data.subject || f.subject, body: data.body || f.body }))
+      toast.success('Email généré !')
+    } catch (err) {
+      toast.error('Erreur IA : ' + err.message)
+    }
+    setEmailGenerating(false)
+  }
+
+  async function sendClientEmail() {
+    if (!emailForm.to || !emailForm.subject || !emailForm.body) return toast.error('Destinataire, objet et corps requis')
+    setEmailSending(true)
+    try {
+      const res = await fetch('/api/send-prospect-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: emailForm.to,
+          subject: emailForm.subject,
+          body: emailForm.body,
+          caller: emailForm.sender,
+          clientId: id,
+          prospectName: client?.name,
+          templateType: 'client_direct',
+        }),
+      })
+      const data = await res.json()
+      if (data.error) throw new Error(data.error)
+
+      // Aussi enregistrer dans client_interactions pour la timeline
+      await supabase.from('client_interactions').insert({
+        client_id: id,
+        type: 'email',
+        title: `📧 Email envoyé : ${emailForm.subject}`,
+        content: `À : ${emailForm.to}\nObjet : ${emailForm.subject}\n\n${emailForm.body.replace(/<[^>]*>/g, '')}`,
+        author: emailForm.sender,
+      })
+
+      toast.success('📧 Email envoyé !')
+      setShowEmailForm(false)
+      setEmailForm({ to: '', subject: '', body: '', brief: '', sender: 'Hicham' })
+      loadInteractions()
+    } catch (err) {
+      toast.error('Erreur envoi : ' + err.message)
+    }
+    setEmailSending(false)
+  }
+
+  function openEmailForm() {
+    // Pré-remplir le destinataire avec le contact principal ou le premier contact avec email
+    const primary = contacts.find(c => c.is_primary && c.email)
+    const firstWithEmail = contacts.find(c => c.email)
+    const defaultTo = primary?.email || firstWithEmail?.email || client?.contact_email || ''
+    setEmailForm({ to: defaultTo, subject: '', body: '', brief: '', sender: 'Hicham' })
+    setShowEmailForm(true)
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -621,10 +706,105 @@ export default function ClientDetail() {
 
             {sections.timeline && (
               <div className="px-5 pb-4">
-                <button onClick={() => setShowInteractionForm(!showInteractionForm)}
-                  className="w-full flex items-center justify-center gap-1.5 py-2.5 mb-3 text-sm text-blue-600 hover:bg-blue-50 rounded-lg border border-dashed border-blue-300 transition-colors">
-                  <Plus className="w-4 h-4" /> Ajouter une interaction
-                </button>
+                <div className="flex gap-2 mb-3">
+                  <button onClick={() => { setShowInteractionForm(!showInteractionForm); setShowEmailForm(false) }}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-sm text-blue-600 hover:bg-blue-50 rounded-lg border border-dashed border-blue-300 transition-colors">
+                    <Plus className="w-4 h-4" /> Ajouter une interaction
+                  </button>
+                  <button onClick={() => { openEmailForm(); setShowInteractionForm(false) }}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-sm text-green-600 hover:bg-green-50 rounded-lg border border-dashed border-green-300 transition-colors">
+                    <Mail className="w-4 h-4" /> Envoyer un email
+                  </button>
+                </div>
+
+                {/* ── Formulaire email direct ── */}
+                {showEmailForm && (
+                  <div className="bg-green-50/50 border border-green-200 rounded-lg p-4 mb-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-semibold text-green-800">📧 Envoyer un email</h3>
+                      <button onClick={() => setShowEmailForm(false)} className="text-gray-400 hover:text-gray-600"><X className="w-4 h-4" /></button>
+                    </div>
+
+                    {/* Destinataire */}
+                    <div>
+                      <label className="text-xs font-medium text-gray-500 mb-1 block">Destinataire</label>
+                      {contacts.filter(c => c.email).length > 0 ? (
+                        <select value={emailForm.to} onChange={e => setEmailForm(f => ({ ...f, to: e.target.value }))}
+                          className="w-full px-3 py-2 border rounded-lg text-sm bg-white">
+                          <option value="">— Choisir un contact —</option>
+                          {contacts.filter(c => c.email).map(c => (
+                            <option key={c.id} value={c.email}>{c.name} — {c.email} {c.is_primary ? '⭐' : ''}</option>
+                          ))}
+                          {client?.contact_email && !contacts.find(c => c.email === client.contact_email) && (
+                            <option value={client.contact_email}>{client.contact_email} (fiche client)</option>
+                          )}
+                        </select>
+                      ) : (
+                        <input type="email" value={emailForm.to} onChange={e => setEmailForm(f => ({ ...f, to: e.target.value }))}
+                          placeholder="email@exemple.com" className="w-full px-3 py-2 border rounded-lg text-sm" />
+                      )}
+                    </div>
+
+                    {/* Expéditeur */}
+                    <div>
+                      <label className="text-xs font-medium text-gray-500 mb-1.5 block">Expéditeur</label>
+                      <div className="flex gap-1.5">
+                        {AUTHORS.map(name => (
+                          <button key={name} onClick={() => setEmailForm(f => ({ ...f, sender: name }))}
+                            className={'px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ' +
+                              (emailForm.sender === name ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-600 border-gray-200 hover:border-green-300')}>
+                            {name}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Brief IA */}
+                    <div>
+                      <label className="text-xs font-medium text-gray-500 mb-1 flex items-center justify-between">
+                        ✨ Décrivez votre email en quelques mots
+                        <SpeechToTextButton onTranscript={(text) => setEmailForm(f => ({ ...f, brief: f.brief ? f.brief + ' ' + text : text }))} />
+                      </label>
+                      <div className="flex gap-2">
+                        <textarea value={emailForm.brief} onChange={e => setEmailForm(f => ({ ...f, brief: e.target.value }))}
+                          placeholder="Ex: Relancer pour le devis SST, proposer une date en mars..."
+                          rows={2} className="flex-1 px-3 py-2 border rounded-lg text-sm" />
+                        <button onClick={generateEmailIA} disabled={emailGenerating}
+                          className="px-4 py-2 bg-gradient-to-r from-purple-500 to-indigo-500 text-white rounded-lg text-xs font-medium hover:from-purple-600 hover:to-indigo-600 disabled:opacity-50 whitespace-nowrap flex items-center gap-1.5">
+                          {emailGenerating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : '✨'} Générer
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Objet */}
+                    <div>
+                      <label className="text-xs font-medium text-gray-500 mb-1 block">Objet</label>
+                      <input value={emailForm.subject} onChange={e => setEmailForm(f => ({ ...f, subject: e.target.value }))}
+                        placeholder="Objet de l'email..." className="w-full px-3 py-2 border rounded-lg text-sm" />
+                    </div>
+
+                    {/* Corps */}
+                    <div>
+                      <label className="text-xs font-medium text-gray-500 mb-1 flex items-center justify-between">
+                        Corps du message
+                        <SpeechToTextButton onTranscript={(text) => setEmailForm(f => ({ ...f, body: f.body ? f.body + ' ' + text : text }))} />
+                      </label>
+                      <textarea value={emailForm.body.replace(/<[^>]*>/g, '')} onChange={e => setEmailForm(f => ({ ...f, body: e.target.value }))}
+                        placeholder="Le contenu de votre email..."
+                        rows={6} className="w-full px-3 py-2 border rounded-lg text-sm" />
+                      <p className="text-[10px] text-gray-400 mt-1">La signature Access Formation sera ajoutée automatiquement. BCC : contact@accessformation.pro</p>
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex items-center justify-end gap-2 pt-1">
+                      <button onClick={() => setShowEmailForm(false)} className="px-3 py-1.5 text-sm text-gray-500 hover:text-gray-700">Annuler</button>
+                      <button onClick={sendClientEmail} disabled={emailSending || !emailForm.to || !emailForm.subject || !emailForm.body}
+                        className="flex items-center gap-1.5 px-4 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700 shadow-sm disabled:opacity-50">
+                        {emailSending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />} Envoyer
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {showInteractionForm && (
                   <div className="bg-blue-50/50 border border-blue-200 rounded-lg p-4 mb-4 space-y-3">
