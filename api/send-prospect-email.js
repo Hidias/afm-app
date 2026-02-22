@@ -76,6 +76,7 @@ function wrapEmailHTML(body, caller) {
   return `
     <div style="font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #333; max-width: 650px;">
       ${body}
+      <p style="margin-top: 16px;">Bien cordialement,</p>
       ${signature}
     </div>
   `
