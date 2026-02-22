@@ -34,7 +34,6 @@ export default async function handler(req, res) {
         'pages_read_engagement',
         'instagram_basic',
         'instagram_content_publish',
-        'instagram_manage_comments',
       ].join(',')
 
       const authUrl = `https://www.facebook.com/v21.0/dialog/oauth?client_id=${META_APP_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=${scope}&response_type=code`
