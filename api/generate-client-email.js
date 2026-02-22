@@ -76,15 +76,24 @@ Réponds UNIQUEMENT au format JSON suivant, sans backticks ni markdown :
     }
 
     const data = await response.json()
-    const textContent = data.content?.[0]?.text || ''
+    let textContent = (data.content?.[0]?.text || '').trim()
+
+    // Nettoyer les artefacts markdown (```json ... ```)
+    textContent = textContent.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim()
 
     try {
-      const parsed = JSON.parse(textContent.trim())
-      return res.status(200).json({ subject: parsed.subject, body: parsed.body })
+      const parsed = JSON.parse(textContent)
+      // Nettoyer le body de tout résidu JSON/markdown
+      const cleanBody = (parsed.body || '').replace(/["\s}`]+$/, '').replace(/^["\s{`]+/, '').trim()
+      const cleanSubject = (parsed.subject || '').replace(/["`]+/g, '').trim()
+      return res.status(200).json({ subject: cleanSubject, body: cleanBody })
     } catch (parseErr) {
+      // Fallback : extraire le body manuellement
+      const subjectMatch = textContent.match(/"subject"\s*:\s*"([^"]*)"/)
+      const bodyMatch = textContent.match(/"body"\s*:\s*"([\s\S]*?)"\s*}/)
       return res.status(200).json({
-        subject: `Access Formation — ${clientName || ''}`,
-        body: textContent,
+        subject: subjectMatch?.[1] || `Access Formation — ${clientName || ''}`,
+        body: (bodyMatch?.[1] || textContent).replace(/\\n/g, '\n').replace(/["`}]+$/g, '').trim(),
       })
     }
   } catch (error) {
