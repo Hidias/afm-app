@@ -34,11 +34,53 @@ export default function SocialMedia() {
   const [loading, setLoading] = useState(true)
   const [stats, setStats] = useState(null)
   const [editingDraft, setEditingDraft] = useState(null)
+  const [connections, setConnections] = useState({})
 
   // Charger les données au montage
   useEffect(() => {
     loadData()
+    loadConnections()
+    handleOAuthCallback()
   }, [])
+
+  // Vérifier si on revient d'un OAuth
+  const handleOAuthCallback = () => {
+    const params = new URLSearchParams(window.location.hash.split('?')[1] || '')
+
+    if (params.get('meta') === 'success') {
+      const page = params.get('page')
+      const igUser = params.get('ig_user')
+      toast.success(`Facebook connecté : ${page}${igUser ? ` + Instagram @${igUser}` : ''}`)
+      loadConnections()
+    } else if (params.get('meta') === 'error') {
+      toast.error(`Erreur Meta : ${params.get('reason')}`)
+    }
+
+    if (params.get('google') === 'success') {
+      toast.success(`Google My Business connecté : ${params.get('location')}`)
+      loadConnections()
+    } else if (params.get('google') === 'error') {
+      toast.error(`Erreur Google : ${params.get('reason')}`)
+    }
+
+    // Nettoyer l'URL
+    if (params.get('meta') || params.get('google')) {
+      window.history.replaceState(null, '', window.location.pathname + '#/social')
+    }
+  }
+
+  // Charger le statut des connexions
+  const loadConnections = async () => {
+    try {
+      const res = await fetch('/api/social/status')
+      if (res.ok) {
+        const data = await res.json()
+        setConnections(data)
+      }
+    } catch (err) {
+      console.warn('Erreur chargement connexions:', err)
+    }
+  }
 
   const loadData = async () => {
     setLoading(true)
@@ -125,12 +167,10 @@ export default function SocialMedia() {
           <h1 className="text-2xl font-bold text-[#0F2D35]">📱 Social & Communication</h1>
           <p className="text-sm text-gray-500 mt-1">Générez et planifiez vos publications sur tous vos réseaux</p>
         </div>
-        <div className="flex items-center gap-2">
-          {PLATFORMS.map(p => (
-            <span key={p.id} className="text-lg" title={p.label}>{p.icon}</span>
-          ))}
-        </div>
       </div>
+
+      {/* Panneau Connexions */}
+      <ConnectionPanel connections={connections} onRefresh={loadConnections} />
 
       {/* Onglets */}
       <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
@@ -155,7 +195,7 @@ export default function SocialMedia() {
       </div>
 
       {/* Contenu */}
-      {activeTab === 'generator' && <GeneratorTab stats={stats} onSave={loadData} media={media} editingDraft={editingDraft} onClearDraft={() => setEditingDraft(null)} />}
+      {activeTab === 'generator' && <GeneratorTab stats={stats} onSave={loadData} media={media} editingDraft={editingDraft} onClearDraft={() => setEditingDraft(null)} connections={connections} />}
       {activeTab === 'calendar' && <CalendarTab posts={posts} onUpdate={loadData} />}
       {activeTab === 'library' && <LibraryTab media={media} onUpdate={loadData} />}
       {activeTab === 'drafts' && <DraftsTab posts={posts.filter(p => p.status === 'draft')} onUpdate={loadData} onEdit={(draft) => { setEditingDraft(draft); setActiveTab('generator') }} />}
@@ -165,9 +205,141 @@ export default function SocialMedia() {
 
 
 // ═══════════════════════════════════════════════════════════
+// PANNEAU DE CONNEXION AUX RÉSEAUX
+// ═══════════════════════════════════════════════════════════
+function ConnectionPanel({ connections, onRefresh }) {
+  const [expanded, setExpanded] = useState(false)
+
+  const platformConfigs = [
+    {
+      id: 'facebook',
+      label: 'Facebook',
+      icon: '📘',
+      connectUrl: '/api/auth/meta?action=connect',
+      color: 'blue',
+      details: connections?.facebook?.metadata?.page_name,
+    },
+    {
+      id: 'instagram',
+      label: 'Instagram',
+      icon: '📸',
+      connectUrl: null, // Se connecte via Meta
+      color: 'pink',
+      details: connections?.instagram?.metadata?.username ? `@${connections.instagram.metadata.username}` : null,
+      linkedTo: 'facebook',
+    },
+    {
+      id: 'gmb',
+      label: 'Google',
+      icon: '📍',
+      connectUrl: '/api/auth/google?action=connect',
+      color: 'green',
+      details: connections?.gmb?.metadata?.location_name,
+    },
+    {
+      id: 'linkedin',
+      label: 'LinkedIn',
+      icon: '💼',
+      connectUrl: null,
+      color: 'blue',
+      details: 'En attente de validation API',
+      disabled: true,
+    },
+  ]
+
+  const connectedCount = platformConfigs.filter(p => connections?.[p.id]?.connected).length
+
+  return (
+    <div className="bg-white rounded-xl border overflow-hidden">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors"
+      >
+        <div className="flex items-center gap-3">
+          <span className="text-sm font-medium text-[#0F2D35]">🔗 Réseaux connectés</span>
+          <div className="flex gap-1">
+            {platformConfigs.map(p => {
+              const isConnected = connections?.[p.id]?.connected
+              return (
+                <span
+                  key={p.id}
+                  className={`text-sm ${isConnected ? '' : 'opacity-30 grayscale'}`}
+                  title={`${p.label} : ${isConnected ? 'connecté' : 'non connecté'}`}
+                >
+                  {p.icon}
+                  {isConnected && <span className="text-[8px] ml-[-4px]">✅</span>}
+                </span>
+              )
+            })}
+          </div>
+          <span className="text-[10px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
+            {connectedCount}/4
+          </span>
+        </div>
+        <span className={`text-gray-400 transition-transform ${expanded ? 'rotate-180' : ''}`}>▼</span>
+      </button>
+
+      {expanded && (
+        <div className="px-4 pb-4 border-t">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-3">
+            {platformConfigs.map(p => {
+              const conn = connections?.[p.id]
+              const isConnected = conn?.connected
+
+              return (
+                <div
+                  key={p.id}
+                  className={`rounded-lg border p-3 text-center space-y-2 ${
+                    isConnected ? 'border-green-300 bg-green-50' : 'border-gray-200'
+                  } ${p.disabled ? 'opacity-50' : ''}`}
+                >
+                  <div className="text-2xl">{p.icon}</div>
+                  <div className="text-xs font-medium">{p.label}</div>
+
+                  {isConnected ? (
+                    <>
+                      <div className="text-[10px] text-green-700 font-medium">✅ Connecté</div>
+                      {p.details && <div className="text-[10px] text-gray-500 truncate">{p.details}</div>}
+                    </>
+                  ) : (
+                    <>
+                      {p.linkedTo ? (
+                        <div className="text-[10px] text-gray-400">
+                          {connections?.[p.linkedTo]?.connected ? '✅ Lié via Facebook' : 'Connectez Facebook d\'abord'}
+                        </div>
+                      ) : p.disabled ? (
+                        <div className="text-[10px] text-gray-400">{p.details}</div>
+                      ) : p.connectUrl ? (
+                        <a
+                          href={p.connectUrl}
+                          className="inline-block text-[10px] bg-[#0F2D35] text-white px-3 py-1.5 rounded-lg hover:opacity-90 transition-colors font-medium"
+                        >
+                          Connecter
+                        </a>
+                      ) : null}
+                    </>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
+          {connectedCount < 3 && (
+            <p className="text-[10px] text-gray-400 mt-3 text-center">
+              💡 Connectez vos comptes pour publier directement depuis Campus. Facebook connecte aussi Instagram automatiquement.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+
+// ═══════════════════════════════════════════════════════════
 // ONGLET GÉNÉRATEUR IA
 // ═══════════════════════════════════════════════════════════
-function GeneratorTab({ stats, onSave, media, editingDraft, onClearDraft }) {
+function GeneratorTab({ stats, onSave, media, editingDraft, onClearDraft, connections }) {
   const [postType, setPostType] = useState('expertise')
   const [selectedPlatforms, setSelectedPlatforms] = useState(['linkedin', 'facebook', 'instagram', 'gmb'])
   const [freeInput, setFreeInput] = useState('')
@@ -180,6 +352,7 @@ function GeneratorTab({ stats, onSave, media, editingDraft, onClearDraft }) {
   const [title, setTitle] = useState('')
   const [scheduledAt, setScheduledAt] = useState('')
   const [editingId, setEditingId] = useState(null) // ID du brouillon en cours d'édition
+  const [publishing, setPublishing] = useState(false)
 
   // ── Charger un brouillon pour édition ────────────────
   useEffect(() => {
@@ -699,20 +872,95 @@ Réponds UNIQUEMENT en JSON valide (pas de markdown, pas de backticks) avec cett
                 className="w-full mt-1 border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#E9B44C]"
               />
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
               <button
                 onClick={() => savePost('draft')}
                 disabled={saving}
-                className="px-5 py-2.5 bg-gray-200 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-300 disabled:opacity-50 transition-colors"
+                className="px-4 py-2.5 bg-gray-200 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-300 disabled:opacity-50 transition-colors"
               >
                 📝 Brouillon
               </button>
               <button
                 onClick={() => savePost(scheduledAt ? 'scheduled' : 'draft')}
                 disabled={saving || !scheduledAt}
-                className="px-5 py-2.5 bg-[#E9B44C] text-[#0F2D35] rounded-xl text-sm font-bold hover:bg-[#d4a43e] disabled:opacity-50 transition-colors"
+                className="px-4 py-2.5 bg-[#E9B44C] text-[#0F2D35] rounded-xl text-sm font-bold hover:bg-[#d4a43e] disabled:opacity-50 transition-colors"
               >
                 {saving ? '⏳...' : '📅 Planifier'}
+              </button>
+              {/* 🚀 PUBLIER MAINTENANT */}
+              <button
+                onClick={async () => {
+                  const connectedPlatforms = selectedPlatforms.filter(p => p !== 'linkedin' && connections?.[p === 'gmb' ? 'gmb' : p]?.connected)
+                  if (connectedPlatforms.length === 0) {
+                    toast.error('Connectez d\'abord vos réseaux (panneau ci-dessus)')
+                    return
+                  }
+                  if (!confirm(`Publier maintenant sur ${connectedPlatforms.map(p => PLATFORMS.find(x => x.id === p)?.label).join(', ')} ?`)) return
+
+                  setPublishing(true)
+                  try {
+                    // D'abord sauvegarder le post
+                    const { data: { user } } = await supabase.auth.getUser()
+                    const postData = {
+                      title: title || 'Sans titre',
+                      content_linkedin: editedPosts.linkedin || null,
+                      content_facebook: editedPosts.facebook || null,
+                      content_instagram: editedPosts.instagram || null,
+                      content_gmb: editedPosts.gmb || null,
+                      media_urls: selectedMedia.map(m => m.file_url),
+                      platforms: selectedPlatforms,
+                      status: 'publishing',
+                      post_type: postType,
+                      source_type: 'ai',
+                      ai_prompt: freeInput || null,
+                      created_by: user?.id,
+                    }
+
+                    let postId = editingId
+                    if (editingId) {
+                      await supabase.from('social_posts').update(postData).eq('id', editingId)
+                    } else {
+                      const { data: newPost, error } = await supabase.from('social_posts').insert(postData).select('id').single()
+                      if (error) throw error
+                      postId = newPost.id
+                    }
+
+                    // Appeler l'API de publication
+                    const pubRes = await fetch('/api/social/publish', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ post_id: postId }),
+                    })
+                    const pubData = await pubRes.json()
+
+                    if (pubData.success) {
+                      const results = pubData.results || {}
+                      const published = Object.entries(results).filter(([_, r]) => r.status === 'published').map(([p]) => PLATFORMS.find(x => x.id === p)?.label)
+                      const failed = Object.entries(results).filter(([_, r]) => r.status === 'error').map(([p, r]) => `${PLATFORMS.find(x => x.id === p)?.label}: ${r.reason}`)
+
+                      if (published.length > 0) toast.success(`✅ Publié sur ${published.join(', ')}`)
+                      if (failed.length > 0) toast.error(`❌ Échec : ${failed.join(' | ')}`)
+
+                      // Reset
+                      setGeneratedPosts(null); setEditedPosts({}); setFreeInput(''); setTitle(''); setScheduledAt(''); setSelectedMedia([]); setEditingId(null)
+                      onSave?.()
+                    } else {
+                      throw new Error(pubData.error || 'Erreur publication')
+                    }
+                  } catch (err) {
+                    console.error('Erreur publication:', err)
+                    toast.error('Erreur : ' + err.message)
+                  }
+                  setPublishing(false)
+                }}
+                disabled={publishing || saving}
+                className="px-4 py-2.5 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl text-sm font-bold hover:opacity-90 disabled:opacity-50 transition-all flex items-center gap-1"
+              >
+                {publishing ? (
+                  <><div className="animate-spin rounded-full h-3.5 w-3.5 border-2 border-white border-t-transparent" /> Publication...</>
+                ) : (
+                  <>🚀 Publier maintenant</>
+                )}
               </button>
               {/* Bouton copier tout */}
               <button
