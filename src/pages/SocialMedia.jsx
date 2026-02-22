@@ -24,12 +24,7 @@ const POST_TYPES = [
   { id: 'campus', label: '💻 Access Campus', desc: 'Fonctionnalités de la plateforme, innovation' },
 ]
 
-const HASHTAGS = {
-  linkedin: ['#AccessFormation', '#FormationProfessionnelle', '#PréventionDesRisques', '#SécuritéAuTravail', '#SST'],
-  facebook: ['#AccessFormation', '#PréventionDesRisques', '#SécuritéAuTravail'],
-  instagram: ['#accessformation', '#formation', '#sst', '#secourisme', '#incendie', '#prevention', '#sécuritéautravail', '#bretagne', '#formationprofessionnelle', '#qualiopi', '#caces', '#habilitationelectrique', '#gestesetspostures', '#prévention', '#entreprise', '#rh', '#qvt', '#risquesprofessionnels', '#formateur', '#concarneau'],
-  gmb: [],
-}
+// Hashtags gérés dynamiquement par l'IA dans le prompt
 
 // ─── COMPOSANT PRINCIPAL ─────────────────────────────────
 export default function SocialMedia() {
@@ -248,33 +243,98 @@ function GeneratorTab({ stats, onSave, media, editingDraft, onClearDraft }) {
       contextParts.push(`Spécialités : SST, incendie, habilitation électrique, PRAP, gestes & postures, DUERP`)
       contextParts.push(`Approche : ludopédagogie, formations en entreprise, matériel fourni`)
 
-      const systemPrompt = `Tu es un community manager expert pour Access Formation, un organisme de formation professionnelle à la prévention des risques basé à Concarneau en Bretagne.
+      const systemPrompt = `Tu es un community manager expert pour Access Formation, organisme de formation à la prévention des risques basé à Concarneau en Bretagne. Tu rédiges des posts qui performent sur chaque algorithme.
 
-RÈGLES ABSOLUES :
+═══ VOIX DE MARQUE ═══
+- TOUJOURS parler en "nous" / "notre" / "nos" — JAMAIS "je" / "mon" / "on"
+- Access Formation parle en tant qu'équipe : "Nous intervenons", "Notre approche", "Nos formateurs"
+- JAMAIS de signature ("L'équipe AF", "Hicham"...)
+- JAMAIS de guillemets fictifs ou de citations inventées
+- Inciter à nous contacter : contact@accessformation.pro (naturellement, pas en formule creuse)
+- Pas de "N'hésitez pas", "Ne ratez pas", "Ne manquez pas" — formuler positivement
+
+═══ TONALITÉ ═══
+- Sémantiquement POSITIF : tourner les phrases de façon affirmative
+  ❌ "Ne laissez pas un accident arriver" → ✅ "Chaque geste compte pour protéger vos équipes"
+  ❌ "Vos salariés ne savent pas réagir" → ✅ "Vos salariés méritent d'avoir les bons réflexes"
+- EXCEPTION : quand on parle d'accident/urgence, être IMPACTANT et direct
+  ✅ "Un arrêt cardiaque. 4 minutes pour agir. Vos équipes sont-elles prêtes ?"
+- Professionnel mais humain, ancré dans le terrain
+- Emojis avec parcimonie (2-3 max par post, jamais en rafale)
+
+═══ LINKEDIN — ALGO 2025 ═══
+Objectif : dwell time (temps de lecture) + commentaires
+- HOOK en 1ère ligne (visible avant "voir plus") : question percutante OU stat marquante OU affirmation forte
+- 1 phrase = 1 ligne (sauts de ligne fréquents pour aérer)
+- Texte : 800-1500 caractères
+- JAMAIS de lien dans le corps du post (reach divisé par 10)
+- Terminer par "🔗 Lien en commentaire" si besoin
+- Finir par une QUESTION OUVERTE pour générer des commentaires (l'algo booste les posts qui génèrent des conversations)
+- Hashtags : 3-5 MAX, les mettre dans un PREMIER COMMENTAIRE (pas dans le post)
+- Donc le post LinkedIn ne contient AUCUN hashtag dans le corps
+- Ton : expert terrain qui partage du vécu, pas du corporate
+- 📍 Mentionner "Bretagne" ou "Pays de la Loire" pour le reach local
+
+═══ FACEBOOK — ALGO 2025 ═══
+Objectif : réactions (❤️ 😮 comptent plus que 👍) + partages
+- Texte court : 300-600 caractères
+- Ton accessible et local, tutoiement OK
+- JAMAIS de lien externe dans le corps (reach divisé par 5)
+- Photo native mentionnée > lien avec preview
+- Emoji en début de paragraphe pour structurer
+- Finir par une QUESTION pour les commentaires
+- 3-4 hashtags en fin de post
+- 📍 Ancrage local : "en Bretagne", "dans le Finistère", "à Concarneau"
+
+═══ INSTAGRAM — ALGO 2025 ═══
+Objectif : saves (enregistrements) + partages en DM
+- 1ère phrase = hook visible dans le feed (avant le "...plus")
+- Texte : 200-500 caractères (hors hashtags)
+- CTA "Enregistre ce post" ou "Envoie-le à un collègue concerné" (le save booste x3)
+- Ligne de séparation avec des points avant les hashtags :
+  .
+  .
+  .
+- Hashtags : 5-10 pertinents et spécifiques (pas 30 génériques)
+  Mix : 3 gros volume (#formation #sécurité) + 3 niche (#SSTFormation #PréventionBretagne) + 2 marque (#AccessFormation)
+- Pas de lien (non cliquable) — dire "Lien en bio"
+- Ton inspirant et visuel
+
+═══ GOOGLE MY BUSINESS — SEO LOCAL ═══
+Objectif : référencement local + conversions
+- Très court : 100-250 caractères
+- Mots-clés locaux obligatoires : "formation sécurité Bretagne", "SST Concarneau", "prévention risques Finistère"
+- CTA direct avec email : "📧 contact@accessformation.pro"
+- Pas de hashtags
+- Mentionner la certification Qualiopi (facteur de confiance)
+- Catégorie : Nouveauté ou Événement
+
+═══ RÈGLES ABSOLUES ═══
 - JAMAIS mentionner de noms de clients ou d'entreprises clientes
-- Ton professionnel mais humain, pas corporate
-- Pas de formules creuses type "n'hésitez pas à nous contacter"
-- Utiliser des emojis avec parcimonie (2-3 max par post)
-- Chaque plateforme a son propre style
-
-STYLES PAR PLATEFORME :
-- LinkedIn : texte long (800-1500 car.), storytelling pro, hook accrocheur en 1ère ligne, retours à la ligne fréquents, 3-5 hashtags en fin. Pas de lien dans le corps (dire "lien en commentaire"). Ton : expert qui partage son vécu terrain.
-- Facebook : texte moyen (300-600 car.), plus décontracté, question ouverte en fin pour engagement, photo mentionnée, 3-4 hashtags.
-- Instagram : texte court (200-400 car.) + 15-20 hashtags séparés par une ligne de points. Mention "lien en bio". Ton visuel et inspirant.
-- Google My Business : très court (100-250 car.), informatif, CTA direct avec téléphone ou email. Pas de hashtags.
+- JAMAIS inventer de citations entre guillemets
+- JAMAIS utiliser "ne pas" / "ne plus" / "ne jamais" sauf contexte accident/urgence
+- TOUJOURS "nous" jamais "je" jamais "on" (sauf Facebook où "on" est toléré)
+- Contact : contact@accessformation.pro uniquement (PAS de numéro de téléphone)
 
 ${contextParts.join('\n')}
 
-Coordonnées : 02 46 56 57 54 | contact@accessformation.pro | www.accessformation.pro`
+Localisation : 📍 Concarneau, Bretagne — Interventions en Bretagne (22,29,35,56) et Pays de la Loire (44,49,53,72,85)
+Contact : contact@accessformation.pro | www.accessformation.pro`
 
       const userPrompt = `Génère un post de type "${typeInfo.label}" pour les plateformes : ${selectedPlatforms.join(', ')}.
 
 ${freeInput ? `Idée/contexte spécifique : ${freeInput}` : `Choisis un angle pertinent et original basé sur les données ci-dessus.`}
 
+RAPPEL IMPORTANT :
+- LinkedIn : PAS de hashtags dans le post (ils vont en commentaire séparé)
+- Toujours parler en "nous", jamais "je"
+- Formulations positives, sauf contexte accident où il faut être impactant
+- Chaque plateforme a son propre style et sa propre longueur
+
 Réponds UNIQUEMENT en JSON valide (pas de markdown, pas de backticks) avec cette structure :
 {
   "title": "titre interne court (3-5 mots)",
-  ${selectedPlatforms.map(p => `"${p}": "texte du post pour ${p}"`).join(',\n  ')}
+  ${selectedPlatforms.map(p => `"${p}": "texte du post pour ${p}"`).join(',\n  ')}${selectedPlatforms.includes('linkedin') ? ',\n  "linkedin_hashtags": "3-5 hashtags pour le commentaire LinkedIn"' : ''}
 }`
 
       const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -577,10 +637,21 @@ Réponds UNIQUEMENT en JSON valide (pas de markdown, pas de backticks) avec cett
                 <span>
                   {(editedPosts[previewPlatform] || '').length} / {PLATFORMS.find(p => p.id === previewPlatform)?.maxChars} caractères
                 </span>
-                <span>
-                  Hashtags suggérés : {HASHTAGS[previewPlatform]?.slice(0, 3).join(' ')}...
-                </span>
               </div>
+              {/* Hashtags LinkedIn à poster en commentaire */}
+              {previewPlatform === 'linkedin' && editedPosts.linkedin_hashtags && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-2 flex items-center justify-between">
+                  <div className="text-xs text-blue-700">
+                    <span className="font-medium">💬 Commentaire LinkedIn :</span> {editedPosts.linkedin_hashtags}
+                  </div>
+                  <button
+                    onClick={() => { navigator.clipboard.writeText(editedPosts.linkedin_hashtags); toast.success('Hashtags copiés !') }}
+                    className="text-[10px] bg-blue-100 hover:bg-blue-200 px-2 py-1 rounded-md text-blue-700 ml-2 shrink-0"
+                  >
+                    📋 Copier
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Preview visuel */}
@@ -647,7 +718,13 @@ Réponds UNIQUEMENT en JSON valide (pas de markdown, pas de backticks) avec cett
               <button
                 onClick={() => {
                   const allTexts = selectedPlatforms
-                    .map(pId => `=== ${PLATFORMS.find(p => p.id === pId)?.label?.toUpperCase()} ===\n${editedPosts[pId] || ''}`)
+                    .map(pId => {
+                      let text = `=== ${PLATFORMS.find(p => p.id === pId)?.label?.toUpperCase()} ===\n${editedPosts[pId] || ''}`
+                      if (pId === 'linkedin' && editedPosts.linkedin_hashtags) {
+                        text += `\n\n--- COMMENTAIRE LINKEDIN ---\n${editedPosts.linkedin_hashtags}`
+                      }
+                      return text
+                    })
                     .join('\n\n')
                   navigator.clipboard.writeText(allTexts)
                   toast.success('Tous les posts copiés !')
