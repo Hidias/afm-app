@@ -1,9 +1,7 @@
 {
   "rewrites": [
-    {
-      "source": "/(.*)",
-      "destination": "/index.html"
-    }
+    { "source": "/api/(.*)", "destination": "/api/$1" },
+    { "source": "/(.*)", "destination": "/index.html" }
   ],
   "functions": {
     "api/import-departement.js": {
@@ -19,6 +17,9 @@
       "maxDuration": 60
     },
     "api/send-phoning-report.js": {
+      "maxDuration": 60
+    },
+    "api/social/publish.js": {
       "maxDuration": 60
     }
   },
