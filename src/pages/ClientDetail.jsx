@@ -333,7 +333,9 @@ export default function ClientDetail() {
       })
       const data = await res.json()
       if (data.error) throw new Error(data.error)
-      setEmailForm(f => ({ ...f, subject: data.subject || f.subject, body: data.body || f.body }))
+      // Convertir HTML → texte lisible pour le textarea
+      let bodyText = (data.body || '').replace(/<\/p>\s*<p>/gi, '\n\n').replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]*>/g, '').trim()
+      setEmailForm(f => ({ ...f, subject: data.subject || f.subject, body: bodyText || f.body }))
       toast.success('Email généré !')
     } catch (err) {
       toast.error('Erreur IA : ' + err.message)
@@ -345,13 +347,19 @@ export default function ClientDetail() {
     if (!emailForm.to || !emailForm.subject || !emailForm.body) return toast.error('Destinataire, objet et corps requis')
     setEmailSending(true)
     try {
+      // Convertir le texte brut en HTML si pas déjà du HTML
+      let htmlBody = emailForm.body
+      if (!htmlBody.includes('<p>') && !htmlBody.includes('<br')) {
+        htmlBody = htmlBody.split(/\n\n+/).map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`).join('')
+      }
+
       const res = await fetch('/api/send-prospect-email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           to: emailForm.to,
           subject: emailForm.subject,
-          body: emailForm.body,
+          body: htmlBody,
           caller: emailForm.sender,
           clientId: id,
           prospectName: client?.name,
@@ -789,7 +797,7 @@ export default function ClientDetail() {
                         Corps du message
                         <SpeechToTextButton onTranscript={(text) => setEmailForm(f => ({ ...f, body: f.body ? f.body + ' ' + text : text }))} />
                       </label>
-                      <textarea value={emailForm.body.replace(/<[^>]*>/g, '')} onChange={e => setEmailForm(f => ({ ...f, body: e.target.value }))}
+                      <textarea value={emailForm.body} onChange={e => setEmailForm(f => ({ ...f, body: e.target.value }))}
                         placeholder="Le contenu de votre email..."
                         rows={6} className="w-full px-3 py-2 border rounded-lg text-sm" />
                       <p className="text-[10px] text-gray-400 mt-1">La signature Access Formation sera ajoutée automatiquement. BCC : contact@accessformation.pro</p>
