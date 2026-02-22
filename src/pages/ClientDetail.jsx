@@ -334,7 +334,17 @@ export default function ClientDetail() {
       const data = await res.json()
       if (data.error) throw new Error(data.error)
       // Convertir HTML → texte lisible pour le textarea
-      let bodyText = (data.body || '').replace(/<\/p>\s*<p>/gi, '\n\n').replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]*>/g, '').trim()
+      let bodyText = (data.body || '')
+        .replace(/<\/p>/gi, '\n\n')
+        .replace(/<p[^>]*>/gi, '')
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<[^>]*>/g, '')
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim()
       setEmailForm(f => ({ ...f, subject: data.subject || f.subject, body: bodyText || f.body }))
       toast.success('Email généré !')
     } catch (err) {
@@ -368,15 +378,6 @@ export default function ClientDetail() {
       })
       const data = await res.json()
       if (data.error) throw new Error(data.error)
-
-      // Aussi enregistrer dans client_interactions pour la timeline
-      await supabase.from('client_interactions').insert({
-        client_id: id,
-        type: 'email',
-        title: `📧 Email envoyé : ${emailForm.subject}`,
-        content: `À : ${emailForm.to}\nObjet : ${emailForm.subject}\n\n${emailForm.body.replace(/<[^>]*>/g, '')}`,
-        author: emailForm.sender,
-      })
 
       toast.success('📧 Email envoyé !')
       setShowEmailForm(false)
