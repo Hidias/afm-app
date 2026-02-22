@@ -38,6 +38,7 @@ export default function SocialMedia() {
   const [media, setMedia] = useState([])
   const [loading, setLoading] = useState(true)
   const [stats, setStats] = useState(null)
+  const [editingDraft, setEditingDraft] = useState(null)
 
   // Charger les données au montage
   useEffect(() => {
@@ -159,10 +160,10 @@ export default function SocialMedia() {
       </div>
 
       {/* Contenu */}
-      {activeTab === 'generator' && <GeneratorTab stats={stats} onSave={loadData} media={media} />}
+      {activeTab === 'generator' && <GeneratorTab stats={stats} onSave={loadData} media={media} editingDraft={editingDraft} onClearDraft={() => setEditingDraft(null)} />}
       {activeTab === 'calendar' && <CalendarTab posts={posts} onUpdate={loadData} />}
       {activeTab === 'library' && <LibraryTab media={media} onUpdate={loadData} />}
-      {activeTab === 'drafts' && <DraftsTab posts={posts.filter(p => p.status === 'draft')} onUpdate={loadData} />}
+      {activeTab === 'drafts' && <DraftsTab posts={posts.filter(p => p.status === 'draft')} onUpdate={loadData} onEdit={(draft) => { setEditingDraft(draft); setActiveTab('generator') }} />}
     </div>
   )
 }
@@ -171,7 +172,7 @@ export default function SocialMedia() {
 // ═══════════════════════════════════════════════════════════
 // ONGLET GÉNÉRATEUR IA
 // ═══════════════════════════════════════════════════════════
-function GeneratorTab({ stats, onSave, media }) {
+function GeneratorTab({ stats, onSave, media, editingDraft, onClearDraft }) {
   const [postType, setPostType] = useState('expertise')
   const [selectedPlatforms, setSelectedPlatforms] = useState(['linkedin', 'facebook', 'instagram', 'gmb'])
   const [freeInput, setFreeInput] = useState('')
@@ -183,6 +184,31 @@ function GeneratorTab({ stats, onSave, media }) {
   const [saving, setSaving] = useState(false)
   const [title, setTitle] = useState('')
   const [scheduledAt, setScheduledAt] = useState('')
+  const [editingId, setEditingId] = useState(null) // ID du brouillon en cours d'édition
+
+  // ── Charger un brouillon pour édition ────────────────
+  useEffect(() => {
+    if (editingDraft) {
+      const posts = {}
+      const platforms = editingDraft.platforms || []
+      if (editingDraft.content_linkedin) posts.linkedin = editingDraft.content_linkedin
+      if (editingDraft.content_facebook) posts.facebook = editingDraft.content_facebook
+      if (editingDraft.content_instagram) posts.instagram = editingDraft.content_instagram
+      if (editingDraft.content_gmb) posts.gmb = editingDraft.content_gmb
+
+      setGeneratedPosts(posts)
+      setEditedPosts(posts)
+      setSelectedPlatforms(platforms)
+      setTitle(editingDraft.title || '')
+      setPostType(editingDraft.post_type || 'expertise')
+      setFreeInput(editingDraft.ai_prompt || '')
+      setScheduledAt(editingDraft.scheduled_at ? editingDraft.scheduled_at.slice(0, 16) : '')
+      setPreviewPlatform(platforms[0] || 'linkedin')
+      setEditingId(editingDraft.id)
+      setSelectedMedia((editingDraft.media_urls || []).map(url => ({ file_url: url })))
+      onClearDraft?.()
+    }
+  }, [editingDraft])
 
   const togglePlatform = (id) => {
     setSelectedPlatforms(prev =>
@@ -335,12 +361,23 @@ Réponds UNIQUEMENT en JSON valide (pas de markdown, pas de backticks) avec cett
         source_type: 'ai',
         ai_prompt: freeInput || null,
         created_by: user?.id,
+        updated_at: new Date().toISOString(),
       }
 
-      const { error } = await supabase.from('social_posts').insert(postData)
-      if (error) throw error
+      // Update si on édite un brouillon existant, sinon insert
+      if (editingId) {
+        const { error } = await supabase.from('social_posts').update(postData).eq('id', editingId)
+        if (error) throw error
+      } else {
+        const { error } = await supabase.from('social_posts').insert(postData)
+        if (error) throw error
+      }
 
-      toast.success(status === 'draft' ? 'Brouillon enregistré' : 'Publication planifiée !')
+      toast.success(
+        editingId 
+          ? (status === 'draft' ? 'Brouillon mis à jour' : 'Publication planifiée !') 
+          : (status === 'draft' ? 'Brouillon enregistré' : 'Publication planifiée !')
+      )
 
       // Reset
       setGeneratedPosts(null)
@@ -349,6 +386,7 @@ Réponds UNIQUEMENT en JSON valide (pas de markdown, pas de backticks) avec cett
       setTitle('')
       setScheduledAt('')
       setSelectedMedia([])
+      setEditingId(null)
 
       onSave?.()
     } catch (err) {
@@ -368,6 +406,21 @@ Réponds UNIQUEMENT en JSON valide (pas de markdown, pas de backticks) avec cett
 
   return (
     <div className="space-y-4">
+      {/* Bandeau si on édite un brouillon */}
+      {editingId && (
+        <div className="bg-amber-50 border border-amber-300 rounded-xl p-3 flex items-center justify-between">
+          <span className="text-sm font-medium text-amber-800">✏️ Édition du brouillon : <strong>{title}</strong></span>
+          <button
+            onClick={() => {
+              setEditingId(null); setGeneratedPosts(null); setEditedPosts({}); setTitle(''); setFreeInput(''); setScheduledAt(''); setSelectedMedia([])
+            }}
+            className="text-xs bg-white border border-amber-300 text-amber-700 px-3 py-1 rounded-lg hover:bg-amber-100"
+          >
+            ✕ Annuler l'édition
+          </button>
+        </div>
+      )}
+
       {/* Étape 1 : Type de post + Plateformes */}
       <div className="bg-white rounded-xl border p-4 space-y-4">
         <h2 className="font-bold text-[#0F2D35]">1️⃣ Quel type de contenu ?</h2>
@@ -906,7 +959,7 @@ function LibraryTab({ media, onUpdate }) {
 // ═══════════════════════════════════════════════════════════
 // ONGLET BROUILLONS
 // ═══════════════════════════════════════════════════════════
-function DraftsTab({ posts, onUpdate }) {
+function DraftsTab({ posts, onUpdate, onEdit }) {
   const deleteDraft = async (id) => {
     if (!confirm('Supprimer ce brouillon ?')) return
     await supabase.from('social_posts').delete().eq('id', id)
@@ -955,7 +1008,13 @@ function DraftsTab({ posts, onUpdate }) {
           </div>
 
           {/* Actions */}
-          <div className="flex gap-1 pt-1">
+          <div className="flex items-center gap-1 pt-1">
+            <button
+              onClick={() => onEdit?.(post)}
+              className="text-[10px] bg-[#E9B44C] text-[#0F2D35] font-bold px-3 py-1.5 rounded-md hover:bg-[#d4a43e] transition-colors"
+            >
+              ✏️ Reprendre
+            </button>
             {post.platforms?.map(pl => (
               <button
                 key={pl}
