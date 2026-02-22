@@ -91,6 +91,7 @@ export default function BudgetModule() {
 
   const stats = useMemo(() => {
     const co = transactions.filter(tx => !tx.is_personal)
+    const imports = transactions.filter(tx => !tx.is_manual) // Solde réel = imports bancaires uniquement
     const byMonth = {}, byCat = {}
     co.forEach(tx => {
       if (!byMonth[tx.month]) byMonth[tx.month] = { debit: 0, credit: 0 }
@@ -103,6 +104,7 @@ export default function BudgetModule() {
     return {
       totalDebit: co.reduce((s, t) => s + (t.debit || 0), 0),
       totalCredit: co.reduce((s, t) => s + (t.credit || 0), 0),
+      soldeCompte: imports.reduce((s, t) => s + (t.credit || 0) - (t.debit || 0), 0),
       byMonth, byCat,
       unclassified: co.filter(t => t.category_name === 'Autre / Non classé').length,
       compteHicham: perso.filter(t => t.payer === 'hicham_perso').reduce((s, t) => s + (t.debit || 0) - (t.credit || 0), 0),
@@ -140,7 +142,7 @@ export default function BudgetModule() {
         <div className="grid grid-cols-2 md:grid-cols-8 gap-2">
           <KPI label="Entrées" value={fmt(stats.totalCredit)} color="green" />
           <KPI label="Sorties" value={fmt(stats.totalDebit)} color="red" />
-          <KPI label="Balance" value={fmt(stats.totalCredit - stats.totalDebit)} color={stats.totalCredit > stats.totalDebit ? 'green' : 'red'} />
+          <KPI label="Solde compte" value={fmt(stats.soldeCompte)} color={stats.soldeCompte >= 0 ? 'green' : 'red'} sub={`au ${new Date().toLocaleDateString('fr-FR')}`} />
           <KPI label="Non classés" value={stats.unclassified} color="amber" />
           <KPI label="CCA Hicham" value={fmt(stats.compteHicham)} color="purple" sub="dette gérant" />
           <KPI label="CCA Maxime" value={fmt(stats.compteMaxime)} color="purple" sub="dette gérant" />
