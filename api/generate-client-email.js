@@ -48,7 +48,8 @@ RÈGLES :
 - Court et efficace (5-10 lignes max)
 - Pas de formule pompeuse
 - NE PAS inclure de signature (ajoutée automatiquement)
-- NE PAS inclure de formule de politesse finale (Cordialement, etc.) → ajoutée avec la signature
+- INTERDIT d'inclure une formule de politesse finale : pas de "Cordialement", "Bien cordialement", "À très bientôt", "Au plaisir", "Bonne journée", etc. La formule de clôture + signature sont ajoutées automatiquement après ton texte
+- Le texte doit se terminer par la dernière phrase utile du message, RIEN d'autre
 - Langue : français
 
 Réponds UNIQUEMENT au format JSON suivant, sans backticks ni markdown :
