@@ -5,7 +5,7 @@ import {
   Settings, LogOut, Menu, X, FileText, AlertTriangle, UserCheck, BarChart3, Award,
   Bell, Check, ExternalLink, FolderCheck, CheckCircle, Briefcase, Receipt,
   Phone, Search, Globe, Layers, FolderInput, ChevronDown, Eye, Shield, Target,
-  ClipboardCheck, FileQuestion, CreditCard, Wallet
+  ClipboardCheck, FileQuestion, CreditCard, Wallet, Megaphone
 } from 'lucide-react'
 import { useState, useEffect, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
@@ -67,6 +67,16 @@ const navSections = [
     headerActiveClass: 'text-violet-400',
     items: [
       { to: '/budget', icon: Wallet, label: 'Budget' },
+    ],
+  },
+  {
+    id: 'social',
+    label: 'Communication',
+    emoji: '📱',
+    activeClass: 'bg-cyan-500 text-white font-semibold shadow-md',
+    headerActiveClass: 'text-cyan-400',
+    items: [
+      { to: '/social', icon: Megaphone, label: 'Social & Comm' },
     ],
   },
   {
