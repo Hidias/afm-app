@@ -68,7 +68,7 @@ export default function SocialMedia() {
       // Sessions avec jointures correctes
       const { data: sessions, error: sessErr } = await supabase
         .from('sessions')
-        .select('id, start_date, end_date, location_city, location_name, status, course:courses(title), client:clients(company_name)')
+        .select('id, start_date, end_date, location_city, location_name, status, course:courses(title), client:clients(name)')
         .order('start_date', { ascending: false })
         .limit(20)
 
