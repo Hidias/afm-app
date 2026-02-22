@@ -62,16 +62,43 @@ export default async function handler(req, res) {
 
     const longRes = await fetch(longTokenUrl)
     const longData = await longRes.json()
+    console.log('Long token response:', JSON.stringify(longData).slice(0, 200))
 
     const longToken = longData.access_token || shortToken
     const expiresIn = longData.expires_in || 5184000 // 60 jours par défaut
 
     // ── Étape 4 : Récupérer les Pages Facebook ──────────
-    const pagesUrl = `https://graph.facebook.com/v21.0/me/accounts?access_token=${longToken}`
-    const pagesRes = await fetch(pagesUrl)
-    const pagesData = await pagesRes.json()
+    // D'abord essayer avec le token longue durée
+    let pagesUrl = `https://graph.facebook.com/v21.0/me/accounts?fields=id,name,access_token,category&access_token=${longToken}`
+    let pagesRes = await fetch(pagesUrl)
+    let pagesData = await pagesRes.json()
+    console.log('Pages response (long token):', JSON.stringify(pagesData).slice(0, 500))
+
+    // Si ça ne marche pas, essayer avec le token court
+    if (pagesData.error || !pagesData.data || pagesData.data.length === 0) {
+      console.log('Trying with short token...')
+      pagesUrl = `https://graph.facebook.com/v21.0/me/accounts?fields=id,name,access_token,category&access_token=${shortToken}`
+      pagesRes = await fetch(pagesUrl)
+      pagesData = await pagesRes.json()
+      console.log('Pages response (short token):', JSON.stringify(pagesData).slice(0, 500))
+    }
+
+    if (pagesData.error) {
+      console.error('Pages API error:', pagesData.error)
+      return res.redirect(`${APP_URL}/#/social?meta=error&reason=pages_api_${encodeURIComponent(pagesData.error.message?.slice(0, 50))}`)
+    }
 
     if (!pagesData.data || pagesData.data.length === 0) {
+      // Stocker quand même le user token pour debug
+      console.log('No pages found. Storing user token for debug.')
+      await supabase.from('social_tokens').upsert({
+        platform: 'facebook',
+        access_token: longToken,
+        refresh_token: longToken,
+        token_expires_at: new Date(Date.now() + expiresIn * 1000).toISOString(),
+        metadata: { error: 'no_pages_found', user_token: longToken },
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'platform' })
       return res.redirect(`${APP_URL}/#/social?meta=error&reason=no_pages`)
     }
 
