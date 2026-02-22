@@ -1,18 +1,17 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Mic, MicOff, Loader2 } from 'lucide-react'
+import { Mic, Square } from 'lucide-react'
 
 /**
  * Bouton micro pour dictée vocale (Speech-to-Text)
  * Utilise l'API Web Speech native du navigateur (gratuit, pas d'API externe)
  * 
+ * v2 : arrêt MANUEL uniquement (plus d'auto-coupure)
+ *      - Clic 1 = démarrer l'écoute (micro rouge pulsant)
+ *      - Clic 2 = stopper (⏹ Stop)
+ *      - Si le navigateur coupe tout seul → relance auto
+ * 
  * Usage :
  *   <SpeechToTextButton onTranscript={(text) => setNotes(prev => prev ? prev + ' ' + text : text)} />
- * 
- * Props :
- *   onTranscript(text)  — appelé quand du texte est reconnu (résultat final)
- *   lang                — langue (défaut: 'fr-FR')
- *   compact             — bouton petit (défaut: false)
- *   className           — classes additionnelles
  */
 export default function SpeechToTextButton({ 
   onTranscript, 
@@ -24,10 +23,9 @@ export default function SpeechToTextButton({
   const [isSupported, setIsSupported] = useState(true)
   const [interim, setInterim] = useState('')
   const recognitionRef = useRef(null)
-  const timeoutRef = useRef(null)
+  const wantListeningRef = useRef(false)
 
   useEffect(() => {
-    // Vérifier la compatibilité du navigateur
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
     if (!SpeechRecognition) {
       setIsSupported(false)
@@ -58,70 +56,67 @@ export default function SpeechToTextButton({
       } else {
         setInterim(interimText)
       }
-
-      // Reset le timeout d'inactivité à chaque résultat
-      if (timeoutRef.current) clearTimeout(timeoutRef.current)
-      timeoutRef.current = setTimeout(() => {
-        stopListening()
-      }, 8000) // Arrêt auto après 8s de silence
     }
 
     recognition.onerror = (event) => {
       console.warn('Speech recognition error:', event.error)
       if (event.error === 'not-allowed') {
         setIsSupported(false)
+        wantListeningRef.current = false
+        setIsListening(false)
+        setInterim('')
       }
-      setIsListening(false)
-      setInterim('')
+      // no-speech et network : onend gère le restart
     }
 
+    // Le navigateur coupe parfois la reconnaissance tout seul
+    // Si l'utilisateur n'a pas cliqué Stop → relancer automatiquement
     recognition.onend = () => {
-      setIsListening(false)
-      setInterim('')
-      if (timeoutRef.current) clearTimeout(timeoutRef.current)
+      if (wantListeningRef.current) {
+        try {
+          setTimeout(() => {
+            if (wantListeningRef.current) recognition.start()
+          }, 100)
+        } catch (e) {
+          wantListeningRef.current = false
+          setIsListening(false)
+          setInterim('')
+        }
+      } else {
+        setIsListening(false)
+        setInterim('')
+      }
     }
 
     recognitionRef.current = recognition
 
     return () => {
-      if (recognitionRef.current) {
-        try { recognitionRef.current.stop() } catch (e) {}
-      }
-      if (timeoutRef.current) clearTimeout(timeoutRef.current)
+      wantListeningRef.current = false
+      try { recognitionRef.current?.stop() } catch (e) {}
     }
   }, [lang, onTranscript])
 
   const startListening = useCallback(() => {
     if (!recognitionRef.current) return
     try {
+      wantListeningRef.current = true
       recognitionRef.current.start()
       setIsListening(true)
-      // Timeout de sécurité : arrêt après 60s max
-      timeoutRef.current = setTimeout(() => stopListening(), 60000)
     } catch (e) {
       console.warn('Could not start speech recognition:', e)
+      wantListeningRef.current = false
     }
   }, [])
 
   const stopListening = useCallback(() => {
-    if (!recognitionRef.current) return
-    try {
-      recognitionRef.current.stop()
-    } catch (e) {}
+    wantListeningRef.current = false
+    try { recognitionRef.current?.stop() } catch (e) {}
     setIsListening(false)
     setInterim('')
-    if (timeoutRef.current) clearTimeout(timeoutRef.current)
   }, [])
 
-  const toggle = () => {
-    if (isListening) {
-      stopListening()
-    } else {
-      startListening()
-    }
-  }
+  const toggle = () => isListening ? stopListening() : startListening()
 
-  // Navigateur non compatible
   if (!isSupported) return null
 
   return (
@@ -141,7 +136,7 @@ export default function SpeechToTextButton({
       >
         {isListening ? (
           <>
-            <MicOff className={compact ? 'w-4 h-4' : 'w-3.5 h-3.5'} />
+            <Square className={compact ? 'w-3.5 h-3.5' : 'w-3 h-3'} fill="currentColor" />
             {!compact && 'Stop'}
           </>
         ) : (
@@ -151,10 +146,9 @@ export default function SpeechToTextButton({
           </>
         )}
       </button>
-      {/* Texte en cours de reconnaissance (interim) */}
-      {isListening && interim && (
-        <div className="mt-1 px-2 py-1 bg-red-50 border border-red-200 rounded text-xs text-red-700 max-w-[200px] truncate">
-          {interim}...
+      {isListening && (
+        <div className={`mt-1 px-2 py-1 rounded text-xs max-w-[220px] ${interim ? 'bg-red-50 border border-red-200 text-red-700' : 'bg-red-50 text-red-400'}`}>
+          {interim ? `${interim}...` : '🎙️ Parlez...'}
         </div>
       )}
     </div>
