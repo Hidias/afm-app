@@ -58,11 +58,11 @@ async function publishFacebook(content, mediaUrl, token) {
   let endpoint, body
   if (mediaUrl) {
     // Post avec photo
-    endpoint = `https://graph.facebook.com/v21.0/${pageId}/photos`
+    endpoint = `https://graph.facebook.com/v25.0/${pageId}/photos`
     body = { url: mediaUrl, message: content, access_token: accessToken }
   } else {
     // Post texte seul
-    endpoint = `https://graph.facebook.com/v21.0/${pageId}/feed`
+    endpoint = `https://graph.facebook.com/v25.0/${pageId}/feed`
     body = { message: content, access_token: accessToken }
   }
 
@@ -85,7 +85,7 @@ async function publishInstagram(content, mediaUrl, token) {
   const accessToken = token.access_token
 
   // Étape 1 : Créer le conteneur média
-  const createRes = await fetch(`https://graph.facebook.com/v21.0/${igAccountId}/media`, {
+  const createRes = await fetch(`https://graph.facebook.com/v25.0/${igAccountId}/media`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -103,7 +103,7 @@ async function publishInstagram(content, mediaUrl, token) {
   let ready = false
   for (let i = 0; i < 10; i++) {
     await new Promise(r => setTimeout(r, 2000))
-    const statusRes = await fetch(`https://graph.facebook.com/v21.0/${containerId}?fields=status_code&access_token=${accessToken}`)
+    const statusRes = await fetch(`https://graph.facebook.com/v25.0/${containerId}?fields=status_code&access_token=${accessToken}`)
     const statusData = await statusRes.json()
     if (statusData.status_code === 'FINISHED') {
       ready = true
@@ -117,7 +117,7 @@ async function publishInstagram(content, mediaUrl, token) {
   if (!ready) throw new Error('Instagram: timeout waiting for media processing')
 
   // Étape 2 : Publier
-  const publishRes = await fetch(`https://graph.facebook.com/v21.0/${igAccountId}/media_publish`, {
+  const publishRes = await fetch(`https://graph.facebook.com/v25.0/${igAccountId}/media_publish`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
