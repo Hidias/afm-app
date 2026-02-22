@@ -68,7 +68,7 @@ export default function SocialMedia() {
       // Sessions avec jointures correctes
       const { data: sessions, error: sessErr } = await supabase
         .from('sessions')
-        .select('id, start_date, end_date, location_city, location_name, status, course:courses(name), client:clients(company_name)')
+        .select('id, start_date, end_date, location_city, location_name, status, course:courses(title), client:clients(company_name)')
         .order('start_date', { ascending: false })
         .limit(20)
 
@@ -210,7 +210,7 @@ function GeneratorTab({ stats, onSave, media }) {
         if (stats.recentSessions?.length > 0) {
           const recent = stats.recentSessions.slice(0, 3)
           recent.forEach(s => {
-            const courseName = s.course?.name || 'Formation'
+            const courseName = s.course?.title || 'Formation'
             const location = s.location_city || s.location_name || 'Bretagne'
             contextParts.push(`- Session "${courseName}" à ${location} (client confidentiel)`)
           })
