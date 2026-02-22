@@ -1,0 +1,941 @@
+import { useState, useEffect, useCallback } from 'react'
+import { supabase } from '../lib/supabase'
+import toast from 'react-hot-toast'
+
+// ═══════════════════════════════════════════════════════════
+// MODULE SOCIAL MEDIA — Access Campus
+// Phase 1 : Générateur IA + Calendrier + Médiathèque
+// ═══════════════════════════════════════════════════════════
+
+const PLATFORMS = [
+  { id: 'linkedin', label: 'LinkedIn', icon: '💼', color: 'blue', maxChars: 3000 },
+  { id: 'facebook', label: 'Facebook', icon: '📘', color: 'indigo', maxChars: 5000 },
+  { id: 'instagram', label: 'Instagram', icon: '📸', color: 'pink', maxChars: 2200 },
+  { id: 'gmb', label: 'Google', icon: '📍', color: 'green', maxChars: 1500 },
+]
+
+const POST_TYPES = [
+  { id: 'expertise', label: '🎓 Expertise terrain', desc: 'Partager un savoir-faire, une anecdote formation' },
+  { id: 'stat', label: '📊 Statistique / Résultat', desc: 'Taux de réussite, satisfaction, certifications' },
+  { id: 'storytelling', label: '📖 Storytelling', desc: 'Histoire vécue en formation, retour terrain' },
+  { id: 'promo', label: '📢 Promotion', desc: 'Nouvelle formation, offre, événement' },
+  { id: 'educatif', label: '📚 Éducatif', desc: 'Conseil prévention, réglementation, bonnes pratiques' },
+  { id: 'qualiopi', label: '✅ Qualiopi / Qualité', desc: 'Démarche qualité, certification, processus' },
+  { id: 'campus', label: '💻 Access Campus', desc: 'Fonctionnalités de la plateforme, innovation' },
+]
+
+const HASHTAGS = {
+  linkedin: ['#AccessFormation', '#FormationProfessionnelle', '#PréventionDesRisques', '#SécuritéAuTravail', '#SST'],
+  facebook: ['#AccessFormation', '#PréventionDesRisques', '#SécuritéAuTravail'],
+  instagram: ['#accessformation', '#formation', '#sst', '#secourisme', '#incendie', '#prevention', '#sécuritéautravail', '#bretagne', '#formationprofessionnelle', '#qualiopi', '#caces', '#habilitationelectrique', '#gestesetspostures', '#prévention', '#entreprise', '#rh', '#qvt', '#risquesprofessionnels', '#formateur', '#concarneau'],
+  gmb: [],
+}
+
+// ─── COMPOSANT PRINCIPAL ─────────────────────────────────
+export default function SocialMedia() {
+  const [activeTab, setActiveTab] = useState('generator')
+  const [posts, setPosts] = useState([])
+  const [media, setMedia] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [stats, setStats] = useState(null)
+
+  // Charger les données au montage
+  useEffect(() => {
+    loadData()
+  }, [])
+
+  const loadData = async () => {
+    setLoading(true)
+    try {
+      const [postsRes, mediaRes, statsRes] = await Promise.all([
+        supabase.from('social_posts').select('*').order('created_at', { ascending: false }).limit(50),
+        supabase.from('social_media_library').select('*').order('created_at', { ascending: false }).limit(100),
+        loadStats(),
+      ])
+      if (postsRes.data) setPosts(postsRes.data)
+      if (mediaRes.data) setMedia(mediaRes.data)
+    } catch (err) {
+      console.error('Erreur chargement social:', err)
+    }
+    setLoading(false)
+  }
+
+  // Stats depuis les sessions pour alimenter l'IA
+  const loadStats = async () => {
+    try {
+      const [sessionsRes, evalsRes] = await Promise.all([
+        supabase.from('sessions').select('id, start_date, end_date, location, status, course:courses(name, type), client:clients(company_name)').order('start_date', { ascending: false }).limit(20),
+        supabase.from('evaluations').select('overall_rating, created_at').order('created_at', { ascending: false }).limit(100),
+      ])
+
+      const sessions = sessionsRes.data || []
+      const evals = evalsRes.data || []
+
+      // Calculer les stats
+      const completedSessions = sessions.filter(s => s.status === 'completed')
+      const avgRating = evals.length > 0
+        ? (evals.reduce((sum, e) => sum + (e.overall_rating || 0), 0) / evals.length).toFixed(2)
+        : '4.96'
+      const totalTrainees = completedSessions.length * 8 // estimation moyenne
+
+      const s = {
+        recentSessions: sessions.slice(0, 5),
+        completedCount: completedSessions.length,
+        avgRating,
+        totalTrainees,
+        successRate: '100',
+      }
+      setStats(s)
+      return s
+    } catch (err) {
+      console.error('Erreur stats:', err)
+      return null
+    }
+  }
+
+  const tabs = [
+    { id: 'generator', label: '✨ Générateur', count: null },
+    { id: 'calendar', label: '📅 Calendrier', count: posts.filter(p => p.status === 'scheduled').length },
+    { id: 'library', label: '🖼️ Médiathèque', count: media.length },
+    { id: 'drafts', label: '📝 Brouillons', count: posts.filter(p => p.status === 'draft').length },
+  ]
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-[#0F2D35]">📱 Social & Communication</h1>
+          <p className="text-sm text-gray-500 mt-1">Générez et planifiez vos publications sur tous vos réseaux</p>
+        </div>
+        <div className="flex items-center gap-2">
+          {PLATFORMS.map(p => (
+            <span key={p.id} className="text-lg" title={p.label}>{p.icon}</span>
+          ))}
+        </div>
+      </div>
+
+      {/* Onglets */}
+      <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
+        {tabs.map(t => (
+          <button
+            key={t.id}
+            onClick={() => setActiveTab(t.id)}
+            className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all ${
+              activeTab === t.id
+                ? 'bg-white text-[#0F2D35] shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            {t.label}
+            {t.count > 0 && (
+              <span className="ml-1.5 bg-[#E9B44C] text-[#0F2D35] text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                {t.count}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {/* Contenu */}
+      {activeTab === 'generator' && <GeneratorTab stats={stats} onSave={loadData} media={media} />}
+      {activeTab === 'calendar' && <CalendarTab posts={posts} onUpdate={loadData} />}
+      {activeTab === 'library' && <LibraryTab media={media} onUpdate={loadData} />}
+      {activeTab === 'drafts' && <DraftsTab posts={posts.filter(p => p.status === 'draft')} onUpdate={loadData} />}
+    </div>
+  )
+}
+
+
+// ═══════════════════════════════════════════════════════════
+// ONGLET GÉNÉRATEUR IA
+// ═══════════════════════════════════════════════════════════
+function GeneratorTab({ stats, onSave, media }) {
+  const [postType, setPostType] = useState('expertise')
+  const [selectedPlatforms, setSelectedPlatforms] = useState(['linkedin', 'facebook', 'instagram', 'gmb'])
+  const [freeInput, setFreeInput] = useState('')
+  const [generating, setGenerating] = useState(false)
+  const [generatedPosts, setGeneratedPosts] = useState(null) // { linkedin: '...', facebook: '...', ... }
+  const [editedPosts, setEditedPosts] = useState({})
+  const [previewPlatform, setPreviewPlatform] = useState('linkedin')
+  const [selectedMedia, setSelectedMedia] = useState([])
+  const [saving, setSaving] = useState(false)
+  const [title, setTitle] = useState('')
+  const [scheduledAt, setScheduledAt] = useState('')
+
+  const togglePlatform = (id) => {
+    setSelectedPlatforms(prev =>
+      prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]
+    )
+  }
+
+  // ── Génération IA ────────────────────────────────────
+  const generateContent = async () => {
+    if (selectedPlatforms.length === 0) {
+      toast.error('Sélectionnez au moins une plateforme')
+      return
+    }
+    setGenerating(true)
+    try {
+      const typeInfo = POST_TYPES.find(t => t.id === postType)
+
+      // Contexte enrichi depuis les données Campus
+      const contextParts = []
+      if (stats) {
+        contextParts.push(`Statistiques Access Formation :`)
+        contextParts.push(`- Note satisfaction moyenne : ${stats.avgRating}/5`)
+        contextParts.push(`- Taux de réussite : ${stats.successRate}%`)
+        contextParts.push(`- Sessions terminées récemment : ${stats.completedCount}`)
+        if (stats.recentSessions?.length > 0) {
+          const recent = stats.recentSessions.slice(0, 3)
+          recent.forEach(s => {
+            const courseName = s.course?.name || 'Formation'
+            const clientName = s.client?.company_name ? '(client confidentiel)' : ''
+            const location = s.location || 'Bretagne'
+            contextParts.push(`- Session "${courseName}" à ${location} ${clientName}`)
+          })
+        }
+      }
+      contextParts.push(`Certification Qualiopi obtenue en février 2026`)
+      contextParts.push(`Habilitation INRS : H37007/2025/SST-1/O/13`)
+      contextParts.push(`Zone : Bretagne (22,29,35,56) et Pays de la Loire (44,49,53,72,85)`)
+      contextParts.push(`Spécialités : SST, incendie, habilitation électrique, PRAP, gestes & postures, DUERP`)
+      contextParts.push(`Approche : ludopédagogie, formations en entreprise, matériel fourni`)
+
+      const systemPrompt = `Tu es un community manager expert pour Access Formation, un organisme de formation professionnelle à la prévention des risques basé à Concarneau en Bretagne.
+
+RÈGLES ABSOLUES :
+- JAMAIS mentionner de noms de clients ou d'entreprises clientes
+- Ton professionnel mais humain, pas corporate
+- Pas de formules creuses type "n'hésitez pas à nous contacter"
+- Utiliser des emojis avec parcimonie (2-3 max par post)
+- Chaque plateforme a son propre style
+
+STYLES PAR PLATEFORME :
+- LinkedIn : texte long (800-1500 car.), storytelling pro, hook accrocheur en 1ère ligne, retours à la ligne fréquents, 3-5 hashtags en fin. Pas de lien dans le corps (dire "lien en commentaire"). Ton : expert qui partage son vécu terrain.
+- Facebook : texte moyen (300-600 car.), plus décontracté, question ouverte en fin pour engagement, photo mentionnée, 3-4 hashtags.
+- Instagram : texte court (200-400 car.) + 15-20 hashtags séparés par une ligne de points. Mention "lien en bio". Ton visuel et inspirant.
+- Google My Business : très court (100-250 car.), informatif, CTA direct avec téléphone ou email. Pas de hashtags.
+
+${contextParts.join('\n')}
+
+Coordonnées : 02 46 56 57 54 | contact@accessformation.pro | www.accessformation.pro`
+
+      const userPrompt = `Génère un post de type "${typeInfo.label}" pour les plateformes : ${selectedPlatforms.join(', ')}.
+
+${freeInput ? `Idée/contexte spécifique : ${freeInput}` : `Choisis un angle pertinent et original basé sur les données ci-dessus.`}
+
+Réponds UNIQUEMENT en JSON valide (pas de markdown, pas de backticks) avec cette structure :
+{
+  "title": "titre interne court (3-5 mots)",
+  ${selectedPlatforms.map(p => `"${p}": "texte du post pour ${p}"`).join(',\n  ')}
+}`
+
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': import.meta.env.VITE_ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 2000,
+          system: systemPrompt,
+          messages: [{ role: 'user', content: userPrompt }],
+        }),
+      })
+
+      if (!response.ok) {
+        const err = await response.text()
+        throw new Error(`API ${response.status}: ${err}`)
+      }
+
+      const data = await response.json()
+      const text = data.content?.[0]?.text || ''
+
+      // Parser le JSON (enlever les backticks si présents)
+      const cleanJson = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim()
+      const parsed = JSON.parse(cleanJson)
+
+      setGeneratedPosts(parsed)
+      setEditedPosts(parsed)
+      setTitle(parsed.title || '')
+
+      // Mettre le preview sur la première plateforme sélectionnée
+      if (selectedPlatforms.length > 0) {
+        setPreviewPlatform(selectedPlatforms[0])
+      }
+
+      toast.success('Posts générés !')
+    } catch (err) {
+      console.error('Erreur génération:', err)
+      toast.error('Erreur de génération : ' + err.message)
+    }
+    setGenerating(false)
+  }
+
+  // ── Régénérer une plateforme ─────────────────────────
+  const regeneratePlatform = async (platform) => {
+    // TODO: appel IA pour régénérer uniquement cette plateforme
+    toast('Régénération à venir', { icon: '🔄' })
+  }
+
+  // ── Sauvegarder le post ──────────────────────────────
+  const savePost = async (status = 'draft') => {
+    if (!editedPosts || selectedPlatforms.length === 0) return
+    setSaving(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+
+      const postData = {
+        title: title || 'Sans titre',
+        content_linkedin: editedPosts.linkedin || null,
+        content_facebook: editedPosts.facebook || null,
+        content_instagram: editedPosts.instagram || null,
+        content_gmb: editedPosts.gmb || null,
+        media_urls: selectedMedia.map(m => m.file_url),
+        platforms: selectedPlatforms,
+        status,
+        scheduled_at: scheduledAt || null,
+        post_type: postType,
+        source_type: 'ai',
+        ai_prompt: freeInput || null,
+        created_by: user?.id,
+      }
+
+      const { error } = await supabase.from('social_posts').insert(postData)
+      if (error) throw error
+
+      toast.success(status === 'draft' ? 'Brouillon enregistré' : 'Publication planifiée !')
+
+      // Reset
+      setGeneratedPosts(null)
+      setEditedPosts({})
+      setFreeInput('')
+      setTitle('')
+      setScheduledAt('')
+      setSelectedMedia([])
+
+      onSave?.()
+    } catch (err) {
+      console.error('Erreur sauvegarde:', err)
+      toast.error('Erreur : ' + err.message)
+    }
+    setSaving(false)
+  }
+
+  // ── Copier le texte dans le presse-papier ────────────
+  const copyToClipboard = (platform) => {
+    const text = editedPosts[platform]
+    if (!text) return
+    navigator.clipboard.writeText(text)
+    toast.success(`Copié pour ${PLATFORMS.find(p => p.id === platform)?.label} !`)
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Étape 1 : Type de post + Plateformes */}
+      <div className="bg-white rounded-xl border p-4 space-y-4">
+        <h2 className="font-bold text-[#0F2D35]">1️⃣ Quel type de contenu ?</h2>
+
+        {/* Types de post */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {POST_TYPES.map(type => (
+            <button
+              key={type.id}
+              onClick={() => setPostType(type.id)}
+              className={`p-2.5 rounded-lg border text-left transition-all ${
+                postType === type.id
+                  ? 'border-[#E9B44C] bg-amber-50 ring-2 ring-[#E9B44C]/30'
+                  : 'border-gray-200 hover:border-gray-300'
+              }`}
+            >
+              <div className="text-sm font-medium">{type.label}</div>
+              <div className="text-[10px] text-gray-500 mt-0.5 line-clamp-1">{type.desc}</div>
+            </button>
+          ))}
+        </div>
+
+        {/* Plateformes */}
+        <div>
+          <h3 className="text-sm font-medium text-gray-600 mb-2">Publier sur :</h3>
+          <div className="flex gap-2">
+            {PLATFORMS.map(p => (
+              <button
+                key={p.id}
+                onClick={() => togglePlatform(p.id)}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm font-medium transition-all ${
+                  selectedPlatforms.includes(p.id)
+                    ? `border-${p.color}-400 bg-${p.color}-50 text-${p.color}-700 ring-1 ring-${p.color}-200`
+                    : 'border-gray-200 text-gray-400 hover:border-gray-300'
+                }`}
+              >
+                <span>{p.icon}</span>
+                {p.label}
+                {selectedPlatforms.includes(p.id) && <span className="text-green-500">✓</span>}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Input libre */}
+        <div>
+          <label className="text-sm font-medium text-gray-600">Idée ou contexte (optionnel) :</label>
+          <textarea
+            value={freeInput}
+            onChange={e => setFreeInput(e.target.value)}
+            placeholder="Ex: Session SST très dynamique hier à Lorient, les stagiaires ont adoré la mise en situation accident..."
+            className="w-full mt-1 border rounded-lg p-3 text-sm resize-none focus:ring-2 focus:ring-[#E9B44C] focus:border-transparent"
+            rows={3}
+          />
+        </div>
+
+        {/* Stats Campus détectées */}
+        {stats && (
+          <div className="bg-gray-50 rounded-lg p-3 text-xs text-gray-600">
+            <span className="font-medium text-gray-700">📊 Données Campus disponibles :</span>
+            <span className="ml-2">
+              {stats.avgRating}/5 satisfaction • {stats.successRate}% réussite • {stats.completedCount} sessions récentes
+            </span>
+          </div>
+        )}
+
+        {/* Bouton Générer */}
+        <button
+          onClick={generateContent}
+          disabled={generating || selectedPlatforms.length === 0}
+          className="w-full py-3 bg-gradient-to-r from-[#0F2D35] to-[#1a4a56] text-white rounded-xl font-medium text-sm hover:opacity-90 disabled:opacity-50 transition-all flex items-center justify-center gap-2"
+        >
+          {generating ? (
+            <>
+              <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent" />
+              Génération en cours...
+            </>
+          ) : (
+            <>✨ Générer les posts</>
+          )}
+        </button>
+      </div>
+
+      {/* Étape 2 : Aperçu et édition */}
+      {generatedPosts && (
+        <div className="bg-white rounded-xl border p-4 space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="font-bold text-[#0F2D35]">2️⃣ Aperçu et édition</h2>
+            <input
+              type="text"
+              value={title}
+              onChange={e => setTitle(e.target.value)}
+              placeholder="Titre interne..."
+              className="text-sm border rounded-lg px-3 py-1.5 w-64 focus:ring-2 focus:ring-[#E9B44C]"
+            />
+          </div>
+
+          {/* Sélecteur de plateforme pour preview */}
+          <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+            {selectedPlatforms.map(pId => {
+              const p = PLATFORMS.find(x => x.id === pId)
+              return (
+                <button
+                  key={pId}
+                  onClick={() => setPreviewPlatform(pId)}
+                  className={`flex-1 py-1.5 px-2 rounded-md text-xs font-medium transition-all flex items-center justify-center gap-1 ${
+                    previewPlatform === pId
+                      ? 'bg-white shadow-sm text-[#0F2D35]'
+                      : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  {p?.icon} {p?.label}
+                  {editedPosts[pId] && (
+                    <span className="text-[10px] text-gray-400">({editedPosts[pId].length})</span>
+                  )}
+                </button>
+              )
+            })}
+          </div>
+
+          {/* Zone d'édition */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* Éditeur */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium text-gray-700">
+                  {PLATFORMS.find(p => p.id === previewPlatform)?.icon}{' '}
+                  {PLATFORMS.find(p => p.id === previewPlatform)?.label}
+                </label>
+                <div className="flex gap-1">
+                  <button
+                    onClick={() => copyToClipboard(previewPlatform)}
+                    className="text-xs bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded-md transition-colors"
+                    title="Copier"
+                  >
+                    📋 Copier
+                  </button>
+                  <button
+                    onClick={() => regeneratePlatform(previewPlatform)}
+                    className="text-xs bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded-md transition-colors"
+                    title="Régénérer"
+                  >
+                    🔄
+                  </button>
+                </div>
+              </div>
+              <textarea
+                value={editedPosts[previewPlatform] || ''}
+                onChange={e => setEditedPosts(prev => ({ ...prev, [previewPlatform]: e.target.value }))}
+                className="w-full border rounded-lg p-3 text-sm resize-none focus:ring-2 focus:ring-[#E9B44C] focus:border-transparent font-mono"
+                rows={12}
+              />
+              <div className="flex justify-between text-[10px] text-gray-400">
+                <span>
+                  {(editedPosts[previewPlatform] || '').length} / {PLATFORMS.find(p => p.id === previewPlatform)?.maxChars} caractères
+                </span>
+                <span>
+                  Hashtags suggérés : {HASHTAGS[previewPlatform]?.slice(0, 3).join(' ')}...
+                </span>
+              </div>
+            </div>
+
+            {/* Preview visuel */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-700">👁️ Aperçu</label>
+              <PostPreview
+                platform={previewPlatform}
+                content={editedPosts[previewPlatform] || ''}
+                media={selectedMedia}
+              />
+            </div>
+          </div>
+
+          {/* Médias */}
+          <div>
+            <h3 className="text-sm font-medium text-gray-600 mb-2">📷 Photos / Médias</h3>
+            <div className="flex gap-2 flex-wrap">
+              {selectedMedia.map((m, i) => (
+                <div key={i} className="relative w-16 h-16 rounded-lg overflow-hidden border">
+                  <img src={m.file_url} alt="" className="w-full h-full object-cover" />
+                  <button
+                    onClick={() => setSelectedMedia(prev => prev.filter((_, idx) => idx !== i))}
+                    className="absolute top-0 right-0 bg-red-500 text-white text-[10px] w-4 h-4 flex items-center justify-center rounded-bl-md"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+              <MediaPicker
+                media={media}
+                selected={selectedMedia}
+                onSelect={(m) => setSelectedMedia(prev => [...prev, m])}
+              />
+            </div>
+          </div>
+
+          {/* Planification + Actions */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 pt-2 border-t">
+            <div className="flex-1">
+              <label className="text-xs text-gray-500">📅 Planifier pour :</label>
+              <input
+                type="datetime-local"
+                value={scheduledAt}
+                onChange={e => setScheduledAt(e.target.value)}
+                className="w-full mt-1 border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#E9B44C]"
+              />
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => savePost('draft')}
+                disabled={saving}
+                className="px-5 py-2.5 bg-gray-200 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-300 disabled:opacity-50 transition-colors"
+              >
+                📝 Brouillon
+              </button>
+              <button
+                onClick={() => savePost(scheduledAt ? 'scheduled' : 'draft')}
+                disabled={saving || !scheduledAt}
+                className="px-5 py-2.5 bg-[#E9B44C] text-[#0F2D35] rounded-xl text-sm font-bold hover:bg-[#d4a43e] disabled:opacity-50 transition-colors"
+              >
+                {saving ? '⏳...' : '📅 Planifier'}
+              </button>
+              {/* Bouton copier tout */}
+              <button
+                onClick={() => {
+                  const allTexts = selectedPlatforms
+                    .map(pId => `=== ${PLATFORMS.find(p => p.id === pId)?.label?.toUpperCase()} ===\n${editedPosts[pId] || ''}`)
+                    .join('\n\n')
+                  navigator.clipboard.writeText(allTexts)
+                  toast.success('Tous les posts copiés !')
+                }}
+                className="px-5 py-2.5 bg-[#0F2D35] text-white rounded-xl text-sm font-medium hover:opacity-90 transition-colors"
+              >
+                📋 Tout copier
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+
+// ═══════════════════════════════════════════════════════════
+// PREVIEW DE POST
+// ═══════════════════════════════════════════════════════════
+function PostPreview({ platform, content, media }) {
+  if (!content) return <div className="text-sm text-gray-400 italic p-4">Aucun contenu</div>
+
+  const platformStyles = {
+    linkedin: { bg: 'bg-white', border: 'border-gray-200', accent: '#0a66c2', name: 'Access Formation', subtitle: 'Organisme de formation • Concarneau' },
+    facebook: { bg: 'bg-white', border: 'border-gray-200', accent: '#1877f2', name: 'Access Formation', subtitle: 'Organisme de formation' },
+    instagram: { bg: 'bg-white', border: 'border-gray-200', accent: '#e4405f', name: 'accessformation', subtitle: '' },
+    gmb: { bg: 'bg-white', border: 'border-gray-200', accent: '#4285f4', name: 'Access Formation', subtitle: 'Concarneau, Bretagne' },
+  }
+
+  const style = platformStyles[platform] || platformStyles.linkedin
+
+  return (
+    <div className={`${style.bg} border ${style.border} rounded-xl overflow-hidden shadow-sm`}>
+      {/* Header */}
+      <div className="flex items-center gap-3 p-3 border-b border-gray-100">
+        <div className="w-10 h-10 rounded-full flex items-center justify-center text-white text-xs font-bold" style={{ backgroundColor: style.accent }}>
+          AF
+        </div>
+        <div>
+          <div className="font-semibold text-sm">{style.name}</div>
+          <div className="text-[10px] text-gray-500">{style.subtitle}</div>
+        </div>
+      </div>
+
+      {/* Image si présente */}
+      {media?.length > 0 && (
+        <div className="aspect-video bg-gray-100 flex items-center justify-center overflow-hidden">
+          <img src={media[0].file_url} alt="" className="w-full h-full object-cover" />
+        </div>
+      )}
+
+      {/* Contenu */}
+      <div className="p-3">
+        <p className="text-sm whitespace-pre-wrap leading-relaxed" style={{ maxHeight: '200px', overflow: 'auto' }}>
+          {content}
+        </p>
+      </div>
+
+      {/* Footer mock */}
+      <div className="px-3 pb-3 flex items-center gap-4 text-[10px] text-gray-400">
+        {platform === 'linkedin' && <><span>👍 J'aime</span><span>💬 Commenter</span><span>🔄 Partager</span></>}
+        {platform === 'facebook' && <><span>👍 J'aime</span><span>💬 Commenter</span><span>↗️ Partager</span></>}
+        {platform === 'instagram' && <><span>❤️</span><span>💬</span><span>📤</span><span>🔖</span></>}
+        {platform === 'gmb' && <><span>📞 Appeler</span><span>🗺️ Itinéraire</span><span>🌐 Site web</span></>}
+      </div>
+    </div>
+  )
+}
+
+
+// ═══════════════════════════════════════════════════════════
+// SÉLECTEUR DE MÉDIAS
+// ═══════════════════════════════════════════════════════════
+function MediaPicker({ media, selected, onSelect }) {
+  const [showPicker, setShowPicker] = useState(false)
+  const [uploading, setUploading] = useState(false)
+
+  const handleFileUpload = async (e) => {
+    const files = Array.from(e.target.files)
+    if (files.length === 0) return
+
+    setUploading(true)
+    for (const file of files) {
+      try {
+        const fileName = `social/${Date.now()}_${file.name}`
+        const { data, error } = await supabase.storage.from('media').upload(fileName, file)
+        if (error) throw error
+
+        const { data: urlData } = supabase.storage.from('media').getPublicUrl(fileName)
+        const fileUrl = urlData.publicUrl
+
+        // Sauvegarder dans la médiathèque
+        const { data: mediaData, error: mediaError } = await supabase.from('social_media_library').insert({
+          file_url: fileUrl,
+          file_name: file.name,
+          file_type: file.type.startsWith('video') ? 'video' : 'image',
+          file_size: file.size,
+        }).select().single()
+
+        if (mediaError) throw mediaError
+        onSelect(mediaData)
+        toast.success(`${file.name} uploadé !`)
+      } catch (err) {
+        console.error('Erreur upload:', err)
+        toast.error(`Erreur upload ${file.name}`)
+      }
+    }
+    setUploading(false)
+  }
+
+  return (
+    <div className="relative">
+      <label className="w-16 h-16 rounded-lg border-2 border-dashed border-gray-300 flex flex-col items-center justify-center cursor-pointer hover:border-[#E9B44C] hover:bg-amber-50 transition-all">
+        {uploading ? (
+          <div className="animate-spin rounded-full h-4 w-4 border-2 border-gray-400 border-t-transparent" />
+        ) : (
+          <>
+            <span className="text-lg">➕</span>
+            <span className="text-[8px] text-gray-400">Photo</span>
+          </>
+        )}
+        <input
+          type="file"
+          accept="image/*,video/*"
+          multiple
+          onChange={handleFileUpload}
+          className="hidden"
+        />
+      </label>
+    </div>
+  )
+}
+
+
+// ═══════════════════════════════════════════════════════════
+// ONGLET CALENDRIER
+// ═══════════════════════════════════════════════════════════
+function CalendarTab({ posts, onUpdate }) {
+  const scheduledPosts = posts.filter(p => p.status === 'scheduled' || p.status === 'published')
+
+  // Grouper par semaine
+  const now = new Date()
+  const weekStart = new Date(now)
+  weekStart.setDate(now.getDate() - now.getDay() + 1) // Lundi
+  weekStart.setHours(0, 0, 0, 0)
+
+  const days = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(weekStart)
+    d.setDate(weekStart.getDate() + i)
+    return d
+  })
+
+  const dayNames = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim']
+
+  const getPostsForDay = (day) => {
+    return scheduledPosts.filter(p => {
+      if (!p.scheduled_at) return false
+      const postDate = new Date(p.scheduled_at)
+      return postDate.toDateString() === day.toDateString()
+    })
+  }
+
+  return (
+    <div className="bg-white rounded-xl border p-4 space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="font-bold text-[#0F2D35]">📅 Semaine du {weekStart.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}</h2>
+        <div className="flex gap-1">
+          <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">✅ Publié</span>
+          <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">📅 Planifié</span>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-7 gap-2">
+        {days.map((day, i) => {
+          const dayPosts = getPostsForDay(day)
+          const isToday = day.toDateString() === now.toDateString()
+          return (
+            <div key={i} className={`border rounded-lg p-2 min-h-[120px] ${isToday ? 'border-[#E9B44C] bg-amber-50/50' : 'border-gray-200'}`}>
+              <div className={`text-xs font-medium mb-1 ${isToday ? 'text-[#E9B44C]' : 'text-gray-500'}`}>
+                {dayNames[i]} {day.getDate()}
+              </div>
+              <div className="space-y-1">
+                {dayPosts.map(p => (
+                  <div
+                    key={p.id}
+                    className={`text-[10px] p-1.5 rounded-md cursor-pointer hover:opacity-80 ${
+                      p.status === 'published' ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'
+                    }`}
+                    title={p.title}
+                  >
+                    <div className="font-medium truncate">{p.title || 'Sans titre'}</div>
+                    <div className="flex gap-0.5 mt-0.5">
+                      {p.platforms?.map(pl => (
+                        <span key={pl}>{PLATFORMS.find(x => x.id === pl)?.icon}</span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                {dayPosts.length === 0 && (
+                  <div className="text-[10px] text-gray-300 italic">—</div>
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {scheduledPosts.length === 0 && (
+        <div className="text-center py-8 text-gray-400">
+          <div className="text-3xl mb-2">📭</div>
+          <p className="text-sm">Aucune publication planifiée</p>
+          <p className="text-xs">Utilisez le générateur pour créer vos premiers posts !</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+
+// ═══════════════════════════════════════════════════════════
+// ONGLET MÉDIATHÈQUE
+// ═══════════════════════════════════════════════════════════
+function LibraryTab({ media, onUpdate }) {
+  const [uploading, setUploading] = useState(false)
+
+  const handleUpload = async (e) => {
+    const files = Array.from(e.target.files)
+    if (files.length === 0) return
+
+    setUploading(true)
+    let count = 0
+    for (const file of files) {
+      try {
+        const fileName = `social/${Date.now()}_${file.name}`
+        const { error: upErr } = await supabase.storage.from('media').upload(fileName, file)
+        if (upErr) throw upErr
+
+        const { data: urlData } = supabase.storage.from('media').getPublicUrl(fileName)
+
+        await supabase.from('social_media_library').insert({
+          file_url: urlData.publicUrl,
+          file_name: file.name,
+          file_type: file.type.startsWith('video') ? 'video' : 'image',
+          file_size: file.size,
+        })
+        count++
+      } catch (err) {
+        console.error('Erreur upload:', err)
+      }
+    }
+    toast.success(`${count} fichier(s) uploadé(s)`)
+    setUploading(false)
+    onUpdate?.()
+  }
+
+  const deleteMedia = async (id, fileUrl) => {
+    if (!confirm('Supprimer cette image ?')) return
+    try {
+      await supabase.from('social_media_library').delete().eq('id', id)
+      toast.success('Supprimé')
+      onUpdate?.()
+    } catch (err) {
+      toast.error('Erreur suppression')
+    }
+  }
+
+  return (
+    <div className="bg-white rounded-xl border p-4 space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="font-bold text-[#0F2D35]">🖼️ Médiathèque</h2>
+        <label className="bg-[#0F2D35] text-white text-sm px-4 py-2 rounded-lg cursor-pointer hover:opacity-90 transition-colors">
+          {uploading ? '⏳ Upload...' : '➕ Ajouter des photos'}
+          <input type="file" accept="image/*,video/*" multiple onChange={handleUpload} className="hidden" />
+        </label>
+      </div>
+
+      {media.length === 0 ? (
+        <div className="text-center py-12 text-gray-400">
+          <div className="text-4xl mb-3">📷</div>
+          <p className="text-sm font-medium">Pas encore de médias</p>
+          <p className="text-xs mt-1">Uploadez vos photos de formations, logos, visuels pour les réutiliser dans vos posts</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2">
+          {media.map(m => (
+            <div key={m.id} className="relative group aspect-square rounded-lg overflow-hidden border border-gray-200 cursor-pointer">
+              <img src={m.file_url} alt={m.file_name} className="w-full h-full object-cover" />
+              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all flex items-center justify-center">
+                <button
+                  onClick={() => deleteMedia(m.id, m.file_url)}
+                  className="opacity-0 group-hover:opacity-100 bg-red-500 text-white text-xs px-2 py-1 rounded-md transition-all"
+                >
+                  🗑️
+                </button>
+              </div>
+              <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-[8px] p-1 truncate opacity-0 group-hover:opacity-100 transition-all">
+                {m.file_name}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+
+// ═══════════════════════════════════════════════════════════
+// ONGLET BROUILLONS
+// ═══════════════════════════════════════════════════════════
+function DraftsTab({ posts, onUpdate }) {
+  const deleteDraft = async (id) => {
+    if (!confirm('Supprimer ce brouillon ?')) return
+    await supabase.from('social_posts').delete().eq('id', id)
+    toast.success('Brouillon supprimé')
+    onUpdate?.()
+  }
+
+  const copyPost = (post, platform) => {
+    const content = post[`content_${platform}`]
+    if (!content) return
+    navigator.clipboard.writeText(content)
+    toast.success(`Copié pour ${PLATFORMS.find(p => p.id === platform)?.label} !`)
+  }
+
+  if (posts.length === 0) {
+    return (
+      <div className="bg-white rounded-xl border p-8 text-center text-gray-400">
+        <div className="text-3xl mb-2">📝</div>
+        <p className="text-sm">Aucun brouillon</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-3">
+      {posts.map(post => (
+        <div key={post.id} className="bg-white rounded-xl border p-4 space-y-2">
+          <div className="flex items-center justify-between">
+            <div>
+              <span className="font-medium text-sm">{post.title || 'Sans titre'}</span>
+              <span className="text-[10px] text-gray-400 ml-2">
+                {new Date(post.created_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+              </span>
+            </div>
+            <div className="flex items-center gap-1">
+              {post.platforms?.map(pl => (
+                <span key={pl}>{PLATFORMS.find(x => x.id === pl)?.icon}</span>
+              ))}
+              <button onClick={() => deleteDraft(post.id)} className="ml-2 text-red-400 hover:text-red-600 text-sm">🗑️</button>
+            </div>
+          </div>
+
+          {/* Preview du contenu */}
+          <div className="text-xs text-gray-600 line-clamp-3">
+            {post.content_linkedin || post.content_facebook || post.content_instagram || post.content_gmb || 'Aucun contenu'}
+          </div>
+
+          {/* Actions */}
+          <div className="flex gap-1 pt-1">
+            {post.platforms?.map(pl => (
+              <button
+                key={pl}
+                onClick={() => copyPost(post, pl)}
+                className="text-[10px] bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded-md transition-colors"
+              >
+                📋 {PLATFORMS.find(x => x.id === pl)?.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
