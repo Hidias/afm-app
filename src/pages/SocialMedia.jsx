@@ -1197,76 +1197,199 @@ function MediaPicker({ media, selected, onSelect }) {
 // ONGLET CALENDRIER
 // ═══════════════════════════════════════════════════════════
 function CalendarTab({ posts, onUpdate }) {
-  const scheduledPosts = posts.filter(p => p.status === 'scheduled' || p.status === 'published')
+  const [currentMonth, setCurrentMonth] = useState(new Date())
+  const [selectedDay, setSelectedDay] = useState(null)
 
-  // Grouper par semaine
-  const now = new Date()
-  const weekStart = new Date(now)
-  weekStart.setDate(now.getDate() - now.getDay() + 1) // Lundi
-  weekStart.setHours(0, 0, 0, 0)
+  const allPosts = posts.filter(p => ['scheduled', 'published', 'publishing', 'failed'].includes(p.status))
 
-  const days = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(weekStart)
-    d.setDate(weekStart.getDate() + i)
-    return d
-  })
+  const year = currentMonth.getFullYear()
+  const month = currentMonth.getMonth()
+
+  // Premier jour du mois et nombre de jours
+  const firstDay = new Date(year, month, 1)
+  const lastDay = new Date(year, month + 1, 0)
+  const daysInMonth = lastDay.getDate()
+
+  // Jour de la semaine du 1er (lundi = 0)
+  let startDay = firstDay.getDay() - 1
+  if (startDay < 0) startDay = 6
 
   const dayNames = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim']
+  const monthNames = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre']
 
-  const getPostsForDay = (day) => {
-    return scheduledPosts.filter(p => {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+
+  // Posts par jour
+  const getPostsForDay = (dayNum) => {
+    return allPosts.filter(p => {
       if (!p.scheduled_at) return false
-      const postDate = new Date(p.scheduled_at)
-      return postDate.toDateString() === day.toDateString()
+      const d = new Date(p.scheduled_at)
+      return d.getFullYear() === year && d.getMonth() === month && d.getDate() === dayNum
     })
+  }
+
+  // Navigation
+  const prevMonth = () => setCurrentMonth(new Date(year, month - 1, 1))
+  const nextMonth = () => setCurrentMonth(new Date(year, month + 1, 1))
+  const goToday = () => setCurrentMonth(new Date())
+
+  // Grille du calendrier (6 lignes max x 7 colonnes)
+  const cells = []
+  for (let i = 0; i < startDay; i++) cells.push(null) // Jours vides avant le 1er
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d)
+  while (cells.length % 7 !== 0) cells.push(null) // Compléter la dernière ligne
+
+  // Posts du jour sélectionné
+  const selectedPosts = selectedDay ? getPostsForDay(selectedDay) : []
+
+  // Compter les posts planifiés à venir
+  const upcomingCount = allPosts.filter(p => p.status === 'scheduled' && new Date(p.scheduled_at) > new Date()).length
+
+  const statusConfig = {
+    scheduled: { label: '📅 Planifié', bg: 'bg-amber-100 text-amber-800', dot: 'bg-amber-400' },
+    published: { label: '✅ Publié', bg: 'bg-green-100 text-green-800', dot: 'bg-green-400' },
+    publishing: { label: '⏳ En cours', bg: 'bg-blue-100 text-blue-800', dot: 'bg-blue-400' },
+    failed: { label: '❌ Échec', bg: 'bg-red-100 text-red-800', dot: 'bg-red-400' },
   }
 
   return (
     <div className="bg-white rounded-xl border p-4 space-y-4">
+      {/* Header avec navigation */}
       <div className="flex items-center justify-between">
-        <h2 className="font-bold text-[#0F2D35]">📅 Semaine du {weekStart.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}</h2>
-        <div className="flex gap-1">
-          <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">✅ Publié</span>
-          <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">📅 Planifié</span>
+        <div className="flex items-center gap-3">
+          <button onClick={prevMonth} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500">◀</button>
+          <h2 className="font-bold text-[#0F2D35] text-lg min-w-[200px] text-center">
+            {monthNames[month]} {year}
+          </h2>
+          <button onClick={nextMonth} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500">▶</button>
+          <button
+            onClick={goToday}
+            className="text-xs bg-gray-100 text-gray-600 px-2.5 py-1 rounded-lg hover:bg-gray-200 transition-colors"
+          >
+            Aujourd'hui
+          </button>
+        </div>
+        <div className="flex gap-2">
+          {upcomingCount > 0 && (
+            <span className="text-xs bg-amber-100 text-amber-700 px-2.5 py-1 rounded-full font-medium">
+              📅 {upcomingCount} planifié{upcomingCount > 1 ? 's' : ''}
+            </span>
+          )}
+          <div className="flex gap-1">
+            {Object.entries(statusConfig).map(([key, cfg]) => (
+              <span key={key} className={`w-2.5 h-2.5 rounded-full ${cfg.dot}`} title={cfg.label} />
+            ))}
+          </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-7 gap-2">
-        {days.map((day, i) => {
-          const dayPosts = getPostsForDay(day)
-          const isToday = day.toDateString() === now.toDateString()
+      {/* Jours de la semaine */}
+      <div className="grid grid-cols-7 gap-1">
+        {dayNames.map(d => (
+          <div key={d} className="text-center text-xs font-semibold text-gray-400 py-1">{d}</div>
+        ))}
+      </div>
+
+      {/* Grille du mois */}
+      <div className="grid grid-cols-7 gap-1">
+        {cells.map((dayNum, i) => {
+          if (dayNum === null) return <div key={`empty-${i}`} className="aspect-square" />
+
+          const dayPosts = getPostsForDay(dayNum)
+          const cellDate = new Date(year, month, dayNum)
+          const isToday = cellDate.getTime() === today.getTime()
+          const isSelected = selectedDay === dayNum
+          const isPast = cellDate < today
+          const hasPosts = dayPosts.length > 0
+
           return (
-            <div key={i} className={`border rounded-lg p-2 min-h-[120px] ${isToday ? 'border-[#E9B44C] bg-amber-50/50' : 'border-gray-200'}`}>
-              <div className={`text-xs font-medium mb-1 ${isToday ? 'text-[#E9B44C]' : 'text-gray-500'}`}>
-                {dayNames[i]} {day.getDate()}
-              </div>
-              <div className="space-y-1">
-                {dayPosts.map(p => (
-                  <div
-                    key={p.id}
-                    className={`text-[10px] p-1.5 rounded-md cursor-pointer hover:opacity-80 ${
-                      p.status === 'published' ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'
-                    }`}
-                    title={p.title}
-                  >
-                    <div className="font-medium truncate">{p.title || 'Sans titre'}</div>
-                    <div className="flex gap-0.5 mt-0.5">
-                      {p.platforms?.map(pl => (
-                        <span key={pl}>{PLATFORMS.find(x => x.id === pl)?.icon}</span>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-                {dayPosts.length === 0 && (
-                  <div className="text-[10px] text-gray-300 italic">—</div>
-                )}
-              </div>
-            </div>
+            <button
+              key={dayNum}
+              onClick={() => setSelectedDay(isSelected ? null : dayNum)}
+              className={`aspect-square rounded-lg border relative flex flex-col items-center justify-start pt-1 transition-all ${
+                isSelected
+                  ? 'border-[#E9B44C] bg-amber-50 ring-2 ring-[#E9B44C]/30'
+                  : isToday
+                    ? 'border-[#E9B44C] bg-amber-50/50'
+                    : hasPosts
+                      ? 'border-gray-200 hover:border-[#E9B44C] hover:bg-amber-50/30'
+                      : isPast
+                        ? 'border-gray-100 text-gray-300'
+                        : 'border-gray-100 hover:border-gray-200'
+              }`}
+            >
+              <span className={`text-xs font-medium ${isToday ? 'text-[#E9B44C] font-bold' : isPast && !hasPosts ? 'text-gray-300' : 'text-gray-600'}`}>
+                {dayNum}
+              </span>
+
+              {/* Points colorés pour les posts */}
+              {hasPosts && (
+                <div className="flex gap-0.5 mt-1 flex-wrap justify-center">
+                  {dayPosts.slice(0, 4).map((p, idx) => (
+                    <span
+                      key={idx}
+                      className={`w-2 h-2 rounded-full ${statusConfig[p.status]?.dot || 'bg-gray-300'}`}
+                      title={`${p.title} — ${statusConfig[p.status]?.label}`}
+                    />
+                  ))}
+                  {dayPosts.length > 4 && (
+                    <span className="text-[8px] text-gray-400 font-medium">+{dayPosts.length - 4}</span>
+                  )}
+                </div>
+              )}
+            </button>
           )
         })}
       </div>
 
-      {scheduledPosts.length === 0 && (
+      {/* Détail du jour sélectionné */}
+      {selectedDay && (
+        <div className="border-t pt-4">
+          <h3 className="text-sm font-semibold text-[#0F2D35] mb-3">
+            📋 {selectedDay} {monthNames[month]} {year}
+            <span className="text-gray-400 font-normal ml-2">{selectedPosts.length} publication{selectedPosts.length > 1 ? 's' : ''}</span>
+          </h3>
+
+          {selectedPosts.length > 0 ? (
+            <div className="space-y-2">
+              {selectedPosts.map(p => (
+                <div key={p.id} className={`rounded-lg p-3 ${statusConfig[p.status]?.bg || 'bg-gray-100'}`}>
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-xs font-semibold">{p.title || 'Sans titre'}</span>
+                        <span className="text-[10px] opacity-70">{statusConfig[p.status]?.label}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-[10px] opacity-70">
+                        <span>🕐 {new Date(p.scheduled_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</span>
+                        <span className="flex gap-0.5">
+                          {p.platforms?.map(pl => (
+                            <span key={pl}>{PLATFORMS.find(x => x.id === pl)?.icon}</span>
+                          ))}
+                        </span>
+                      </div>
+                      {/* Aperçu du contenu */}
+                      {(p.content_facebook || p.content_linkedin) && (
+                        <p className="text-[10px] opacity-60 mt-1 line-clamp-2">
+                          {(p.content_facebook || p.content_linkedin).slice(0, 120)}...
+                        </p>
+                      )}
+                    </div>
+                    {p.media_urls?.[0] && (
+                      <img src={p.media_urls[0]} alt="" className="w-10 h-10 rounded-md object-cover ml-2 flex-shrink-0" />
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-gray-400 text-center py-4">Aucune publication ce jour</p>
+          )}
+        </div>
+      )}
+
+      {allPosts.length === 0 && !selectedDay && (
         <div className="text-center py-8 text-gray-400">
           <div className="text-3xl mb-2">📭</div>
           <p className="text-sm">Aucune publication planifiée</p>
