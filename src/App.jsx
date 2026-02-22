@@ -49,6 +49,8 @@ const DuerpProjects = lazy(() => import('./pages/DuerpProjects'))
 const DuerpDetail = lazy(() => import('./pages/DuerpDetail'))
 // Budget
 const BudgetModule = lazy(() => import('./pages/BudgetModule'))
+// Social Media
+const SocialMedia = lazy(() => import('./pages/SocialMedia'))
 
 // Pages publiques (lazy aussi — les stagiaires n'accèdent qu'à une seule)
 const PublicAttendance = lazy(() => import('./pages/public/Attendance'))
@@ -175,6 +177,8 @@ export default function App() {
             <Route path="duerp/:id" element={<DuerpDetail />} />
             {/* ========== NOUVEAU : Module Budget ========== */}
             <Route path="budget" element={<BudgetModule />} />
+            {/* ========== NOUVEAU : Module Social Media ========== */}
+            <Route path="social" element={<SocialMedia />} />
             {/* ================================================== */}
             <Route path="formations" element={<Courses />} />
             <Route path="formateurs" element={<Trainers />} />
