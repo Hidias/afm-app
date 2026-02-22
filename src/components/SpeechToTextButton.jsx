@@ -3,15 +3,9 @@ import { Mic, Square } from 'lucide-react'
 
 /**
  * Bouton micro pour dictée vocale (Speech-to-Text)
- * Utilise l'API Web Speech native du navigateur (gratuit, pas d'API externe)
- * 
- * v2 : arrêt MANUEL uniquement (plus d'auto-coupure)
- *      - Clic 1 = démarrer l'écoute (micro rouge pulsant)
- *      - Clic 2 = stopper (⏹ Stop)
- *      - Si le navigateur coupe tout seul → relance auto
- * 
- * Usage :
- *   <SpeechToTextButton onTranscript={(text) => setNotes(prev => prev ? prev + ' ' + text : text)} />
+ * v3 : ne s'arrête JAMAIS tant que l'utilisateur n'a pas cliqué Stop
+ *      Chrome coupe la reconnaissance après quelques secondes de silence,
+ *      on relance automatiquement en boucle.
  */
 export default function SpeechToTextButton({ 
   onTranscript, 
@@ -22,94 +16,122 @@ export default function SpeechToTextButton({
   const [isListening, setIsListening] = useState(false)
   const [isSupported, setIsSupported] = useState(true)
   const [interim, setInterim] = useState('')
-  const recognitionRef = useRef(null)
   const wantListeningRef = useRef(false)
+  const recognitionRef = useRef(null)
+  const restartTimerRef = useRef(null)
+  const onTranscriptRef = useRef(onTranscript)
 
-  useEffect(() => {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
-    if (!SpeechRecognition) {
-      setIsSupported(false)
-      return
-    }
+  // Garder la ref à jour sans recréer l'instance
+  useEffect(() => { onTranscriptRef.current = onTranscript }, [onTranscript])
 
-    const recognition = new SpeechRecognition()
-    recognition.lang = lang
-    recognition.continuous = true
-    recognition.interimResults = true
+  // Créer une instance de reconnaissance
+  const createRecognition = useCallback(() => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (!SR) { setIsSupported(false); return null }
 
-    recognition.onresult = (event) => {
+    const r = new SR()
+    r.lang = lang
+    r.continuous = true
+    r.interimResults = true
+    r.maxAlternatives = 1
+
+    r.onresult = (event) => {
       let finalText = ''
       let interimText = ''
-
       for (let i = event.resultIndex; i < event.results.length; i++) {
-        const transcript = event.results[i][0].transcript
         if (event.results[i].isFinal) {
-          finalText += transcript
+          finalText += event.results[i][0].transcript
         } else {
-          interimText += transcript
+          interimText += event.results[i][0].transcript
         }
       }
-
       if (finalText) {
-        onTranscript(finalText.trim())
+        onTranscriptRef.current(finalText.trim())
         setInterim('')
       } else {
         setInterim(interimText)
       }
     }
 
-    recognition.onerror = (event) => {
-      console.warn('Speech recognition error:', event.error)
-      if (event.error === 'not-allowed') {
+    r.onerror = (event) => {
+      console.warn('Speech error:', event.error)
+      // Seule erreur fatale = permission refusée
+      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
         setIsSupported(false)
         wantListeningRef.current = false
         setIsListening(false)
         setInterim('')
+        return
       }
-      // no-speech et network : onend gère le restart
+      // Toutes les autres erreurs (no-speech, network, aborted) → on laisse onend relancer
     }
 
-    // Le navigateur coupe parfois la reconnaissance tout seul
-    // Si l'utilisateur n'a pas cliqué Stop → relancer automatiquement
-    recognition.onend = () => {
+    r.onend = () => {
+      // Chrome a coupé la reconnaissance (silence, timeout interne, etc.)
+      // Si l'utilisateur veut encore écouter → RELANCER
       if (wantListeningRef.current) {
-        try {
-          setTimeout(() => {
-            if (wantListeningRef.current) recognition.start()
-          }, 100)
-        } catch (e) {
-          wantListeningRef.current = false
-          setIsListening(false)
-          setInterim('')
-        }
+        if (restartTimerRef.current) clearTimeout(restartTimerRef.current)
+        restartTimerRef.current = setTimeout(() => {
+          if (!wantListeningRef.current) return
+          try {
+            // Créer une nouvelle instance (plus fiable que réutiliser l'ancienne)
+            const newR = createRecognition()
+            if (newR) {
+              recognitionRef.current = newR
+              newR.start()
+            }
+          } catch (e) {
+            console.warn('Restart failed:', e)
+            // Retry encore une fois après 500ms
+            restartTimerRef.current = setTimeout(() => {
+              if (!wantListeningRef.current) return
+              try {
+                const retry = createRecognition()
+                if (retry) { recognitionRef.current = retry; retry.start() }
+              } catch (e2) {
+                wantListeningRef.current = false
+                setIsListening(false)
+                setInterim('')
+              }
+            }, 500)
+          }
+        }, 200)
       } else {
         setIsListening(false)
         setInterim('')
       }
     }
 
-    recognitionRef.current = recognition
+    return r
+  }, [lang])
 
+  // Cleanup au démontage
+  useEffect(() => {
     return () => {
       wantListeningRef.current = false
+      if (restartTimerRef.current) clearTimeout(restartTimerRef.current)
       try { recognitionRef.current?.stop() } catch (e) {}
-    }
-  }, [lang, onTranscript])
-
-  const startListening = useCallback(() => {
-    if (!recognitionRef.current) return
-    try {
-      wantListeningRef.current = true
-      recognitionRef.current.start()
-      setIsListening(true)
-    } catch (e) {
-      console.warn('Could not start speech recognition:', e)
-      wantListeningRef.current = false
     }
   }, [])
 
+  const startListening = useCallback(() => {
+    const r = createRecognition()
+    if (!r) return
+    recognitionRef.current = r
+    wantListeningRef.current = true
+    try {
+      r.start()
+      setIsListening(true)
+      setInterim('')
+    } catch (e) {
+      console.warn('Start failed:', e)
+      wantListeningRef.current = false
+    }
+  }, [createRecognition])
+
   const stopListening = useCallback(() => {
     wantListeningRef.current = false
+    if (restartTimerRef.current) clearTimeout(restartTimerRef.current)
     try { recognitionRef.current?.stop() } catch (e) {}
     setIsListening(false)
     setInterim('')
