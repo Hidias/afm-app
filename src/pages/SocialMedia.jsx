@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import toast from 'react-hot-toast'
 
@@ -1050,6 +1050,19 @@ function PostPreview({ platform, content, media }) {
 function MediaPicker({ media, selected, onSelect }) {
   const [showPicker, setShowPicker] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [searchTerm, setSearchTerm] = useState('')
+  const pickerRef = useRef(null)
+
+  // Fermer le picker si on clique en dehors
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (pickerRef.current && !pickerRef.current.contains(e.target)) {
+        setShowPicker(false)
+      }
+    }
+    if (showPicker) document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [showPicker])
 
   const handleFileUpload = async (e) => {
     const files = Array.from(e.target.files)
@@ -1065,7 +1078,6 @@ function MediaPicker({ media, selected, onSelect }) {
         const { data: urlData } = supabase.storage.from('media').getPublicUrl(fileName)
         const fileUrl = urlData.publicUrl
 
-        // Sauvegarder dans la médiathèque
         const { data: mediaData, error: mediaError } = await supabase.from('social_media_library').insert({
           file_url: fileUrl,
           file_name: file.name,
@@ -1084,9 +1096,22 @@ function MediaPicker({ media, selected, onSelect }) {
     setUploading(false)
   }
 
+  // Filtrer les images non déjà sélectionnées
+  const selectedIds = (selected || []).map(s => s.id || s.file_url)
+  const availableMedia = (media || []).filter(m => {
+    const isSelected = selectedIds.includes(m.id) || selectedIds.includes(m.file_url)
+    const matchesSearch = !searchTerm || m.file_name?.toLowerCase().includes(searchTerm.toLowerCase())
+    return !isSelected && matchesSearch && m.file_type !== 'video'
+  })
+
   return (
-    <div className="relative">
-      <label className="w-16 h-16 rounded-lg border-2 border-dashed border-gray-300 flex flex-col items-center justify-center cursor-pointer hover:border-[#E9B44C] hover:bg-amber-50 transition-all">
+    <div className="relative" ref={pickerRef}>
+      {/* Bouton principal */}
+      <button
+        type="button"
+        onClick={() => setShowPicker(!showPicker)}
+        className="w-16 h-16 rounded-lg border-2 border-dashed border-gray-300 flex flex-col items-center justify-center cursor-pointer hover:border-[#E9B44C] hover:bg-amber-50 transition-all"
+      >
         {uploading ? (
           <div className="animate-spin rounded-full h-4 w-4 border-2 border-gray-400 border-t-transparent" />
         ) : (
@@ -1095,14 +1120,74 @@ function MediaPicker({ media, selected, onSelect }) {
             <span className="text-[8px] text-gray-400">Photo</span>
           </>
         )}
-        <input
-          type="file"
-          accept="image/*,video/*"
-          multiple
-          onChange={handleFileUpload}
-          className="hidden"
-        />
-      </label>
+      </button>
+
+      {/* Panneau de sélection */}
+      {showPicker && (
+        <div className="absolute bottom-full left-0 mb-2 bg-white rounded-xl shadow-xl border z-50 w-80 max-h-96 overflow-hidden flex flex-col">
+          {/* Header */}
+          <div className="p-3 border-b bg-gray-50">
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="text-sm font-semibold text-[#0F2D35]">📷 Choisir une photo</h4>
+              <button onClick={() => setShowPicker(false)} className="text-gray-400 hover:text-gray-600 text-lg">✕</button>
+            </div>
+            {/* Upload rapide */}
+            <label className="flex items-center gap-2 px-3 py-2 bg-[#E9B44C] text-[#0F2D35] rounded-lg cursor-pointer hover:bg-[#d4a43e] transition-colors text-xs font-medium w-full justify-center">
+              📤 Uploader une nouvelle image
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={(e) => { handleFileUpload(e); }}
+                className="hidden"
+              />
+            </label>
+          </div>
+
+          {/* Recherche */}
+          {(media || []).length > 6 && (
+            <div className="px-3 pt-2">
+              <input
+                type="text"
+                placeholder="🔍 Rechercher..."
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                className="w-full border rounded-lg px-2 py-1.5 text-xs focus:ring-1 focus:ring-[#E9B44C]"
+              />
+            </div>
+          )}
+
+          {/* Grille médiathèque */}
+          <div className="p-3 overflow-y-auto flex-1">
+            {availableMedia.length > 0 ? (
+              <>
+                <p className="text-[10px] text-gray-400 mb-2">📂 Médiathèque ({availableMedia.length} disponibles)</p>
+                <div className="grid grid-cols-4 gap-2">
+                  {availableMedia.map(m => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => { onSelect(m); setShowPicker(false); }}
+                      className="relative aspect-square rounded-lg overflow-hidden border-2 border-transparent hover:border-[#E9B44C] transition-all group"
+                    >
+                      <img src={m.file_url} alt={m.file_name} className="w-full h-full object-cover" />
+                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all flex items-center justify-center">
+                        <span className="opacity-0 group-hover:opacity-100 text-white text-lg transition-opacity">✓</span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <div className="text-center py-6 text-gray-400">
+                <span className="text-2xl block mb-1">📂</span>
+                <p className="text-xs">{searchTerm ? 'Aucun résultat' : 'Médiathèque vide'}</p>
+                <p className="text-[10px]">Uploadez votre première image ci-dessus</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
