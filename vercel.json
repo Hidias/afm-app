@@ -21,6 +21,9 @@
     },
     "api/social/publish.js": {
       "maxDuration": 60
+    },
+    "api/social/cron-publish.js": {
+      "maxDuration": 60
     }
   },
   "crons": [
@@ -39,6 +42,10 @@
     {
       "path": "/api/send-phoning-report",
       "schedule": "0 17 * * 1-5"
+    },
+    {
+      "path": "/api/social/cron-publish",
+      "schedule": "*/5 * * * *"
     }
   ]
 }
