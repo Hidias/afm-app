@@ -34,7 +34,7 @@ export default async function handler(req, res) {
         'pages_read_engagement',
       ].join(',')
 
-      const authUrl = `https://www.facebook.com/v21.0/dialog/oauth?client_id=${META_APP_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=${scope}&response_type=code`
+      const authUrl = `https://www.facebook.com/v25.0/dialog/oauth?client_id=${META_APP_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=${scope}&response_type=code`
 
       return res.redirect(authUrl)
     }
@@ -45,7 +45,7 @@ export default async function handler(req, res) {
     }
 
     // Échanger le code
-    const tokenUrl = `https://graph.facebook.com/v21.0/oauth/access_token?client_id=${META_APP_ID}&client_secret=${META_APP_SECRET}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&code=${code}`
+    const tokenUrl = `https://graph.facebook.com/v25.0/oauth/access_token?client_id=${META_APP_ID}&client_secret=${META_APP_SECRET}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&code=${code}`
 
     const tokenRes = await fetch(tokenUrl)
     const tokenData = await tokenRes.json()
@@ -58,7 +58,7 @@ export default async function handler(req, res) {
     const shortToken = tokenData.access_token
 
     // ── Étape 3 : Convertir en token longue durée ───────
-    const longTokenUrl = `https://graph.facebook.com/v21.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${META_APP_ID}&client_secret=${META_APP_SECRET}&fb_exchange_token=${shortToken}`
+    const longTokenUrl = `https://graph.facebook.com/v25.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${META_APP_ID}&client_secret=${META_APP_SECRET}&fb_exchange_token=${shortToken}`
 
     const longRes = await fetch(longTokenUrl)
     const longData = await longRes.json()
@@ -69,7 +69,7 @@ export default async function handler(req, res) {
 
     // ── Étape 4 : Récupérer les Pages Facebook ──────────
     // D'abord essayer avec le token longue durée
-    let pagesUrl = `https://graph.facebook.com/v21.0/me/accounts?fields=id,name,access_token,category&access_token=${longToken}`
+    let pagesUrl = `https://graph.facebook.com/v25.0/me/accounts?fields=id,name,access_token,category&access_token=${longToken}`
     let pagesRes = await fetch(pagesUrl)
     let pagesData = await pagesRes.json()
     console.log('Pages response (long token):', JSON.stringify(pagesData).slice(0, 500))
@@ -77,7 +77,7 @@ export default async function handler(req, res) {
     // Si ça ne marche pas, essayer avec le token court
     if (pagesData.error || !pagesData.data || pagesData.data.length === 0) {
       console.log('Trying with short token...')
-      pagesUrl = `https://graph.facebook.com/v21.0/me/accounts?fields=id,name,access_token,category&access_token=${shortToken}`
+      pagesUrl = `https://graph.facebook.com/v25.0/me/accounts?fields=id,name,access_token,category&access_token=${shortToken}`
       pagesRes = await fetch(pagesUrl)
       pagesData = await pagesRes.json()
       console.log('Pages response (short token):', JSON.stringify(pagesData).slice(0, 500))
@@ -123,7 +123,7 @@ export default async function handler(req, res) {
     let igAccountId = null
     let igUsername = null
     try {
-      const igUrl = `https://graph.facebook.com/v21.0/${pageId}?fields=instagram_business_account&access_token=${pageAccessToken}`
+      const igUrl = `https://graph.facebook.com/v25.0/${pageId}?fields=instagram_business_account&access_token=${pageAccessToken}`
       const igRes = await fetch(igUrl)
       const igData = await igRes.json()
 
@@ -131,7 +131,7 @@ export default async function handler(req, res) {
         igAccountId = igData.instagram_business_account.id
 
         // Récupérer le username
-        const igInfoUrl = `https://graph.facebook.com/v21.0/${igAccountId}?fields=username&access_token=${pageAccessToken}`
+        const igInfoUrl = `https://graph.facebook.com/v25.0/${igAccountId}?fields=username&access_token=${pageAccessToken}`
         const igInfoRes = await fetch(igInfoUrl)
         const igInfoData = await igInfoRes.json()
         igUsername = igInfoData.username
