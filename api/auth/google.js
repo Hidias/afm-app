@@ -76,16 +76,19 @@ export default async function handler(req, res) {
         headers: { Authorization: `Bearer ${accessToken}` },
       })
       const accountsData = await accountsRes.json()
+      console.log('GMB accounts response:', JSON.stringify(accountsData).slice(0, 500))
 
       if (accountsData.accounts && accountsData.accounts.length > 0) {
         const account = accountsData.accounts[0]
         accountName = account.name // format: accounts/123456
+        console.log('GMB account found:', accountName)
 
         // Lister les fiches (locations)
         const locationsRes = await fetch(`https://mybusinessbusinessinformation.googleapis.com/v1/${accountName}/locations?readMask=name,title,storefrontAddress`, {
           headers: { Authorization: `Bearer ${accessToken}` },
         })
         const locationsData = await locationsRes.json()
+        console.log('GMB locations response:', JSON.stringify(locationsData).slice(0, 500))
 
         if (locationsData.locations && locationsData.locations.length > 0) {
           const location = locationsData.locations.find(l =>
@@ -94,10 +97,21 @@ export default async function handler(req, res) {
 
           locationName = location.title
           locationId = location.name // format: locations/123456
+          console.log('GMB location found:', locationName, locationId)
+        } else {
+          console.log('No locations found, trying alternative endpoint...')
+          // Essayer l'endpoint alternatif
+          const altRes = await fetch(`https://mybusinessbusinessinformation.googleapis.com/v1/${accountName}/locations`, {
+            headers: { Authorization: `Bearer ${accessToken}` },
+          })
+          const altData = await altRes.json()
+          console.log('GMB alt locations response:', JSON.stringify(altData).slice(0, 500))
         }
+      } else {
+        console.log('No GMB accounts found. Error details:', JSON.stringify(accountsData))
       }
     } catch (gmbErr) {
-      console.warn('GMB account lookup error:', gmbErr.message)
+      console.error('GMB account lookup error:', gmbErr.message)
     }
 
     // ── Étape 4 : Stocker dans Supabase ─────────────────
