@@ -47,49 +47,70 @@ export default function SocialMedia() {
   const loadData = async () => {
     setLoading(true)
     try {
-      const [postsRes, mediaRes, statsRes] = await Promise.all([
-        supabase.from('social_posts').select('*').order('created_at', { ascending: false }).limit(50),
-        supabase.from('social_media_library').select('*').order('created_at', { ascending: false }).limit(100),
-        loadStats(),
-      ])
-      if (postsRes.data) setPosts(postsRes.data)
-      if (mediaRes.data) setMedia(mediaRes.data)
+      const { data: postsData } = await supabase.from('social_posts').select('*').order('created_at', { ascending: false }).limit(50)
+      if (postsData) setPosts(postsData)
     } catch (err) {
-      console.error('Erreur chargement social:', err)
+      console.warn('Erreur chargement posts:', err)
     }
+    try {
+      const { data: mediaData } = await supabase.from('social_media_library').select('*').order('created_at', { ascending: false }).limit(100)
+      if (mediaData) setMedia(mediaData)
+    } catch (err) {
+      console.warn('Erreur chargement media:', err)
+    }
+    await loadStats()
     setLoading(false)
   }
 
   // Stats depuis les sessions pour alimenter l'IA
   const loadStats = async () => {
     try {
-      const [sessionsRes, evalsRes] = await Promise.all([
-        supabase.from('sessions').select('id, start_date, end_date, location, status, course:courses(name, type), client:clients(company_name)').order('start_date', { ascending: false }).limit(20),
-        supabase.from('evaluations').select('overall_rating, created_at').order('created_at', { ascending: false }).limit(100),
-      ])
+      // Sessions avec jointures correctes
+      const { data: sessions, error: sessErr } = await supabase
+        .from('sessions')
+        .select('id, start_date, end_date, location_city, location_name, status, course:courses(name), client:clients(company_name)')
+        .order('start_date', { ascending: false })
+        .limit(20)
 
-      const sessions = sessionsRes.data || []
-      const evals = evalsRes.data || []
+      if (sessErr) console.warn('Stats sessions:', sessErr.message)
 
-      // Calculer les stats
-      const completedSessions = sessions.filter(s => s.status === 'completed')
-      const avgRating = evals.length > 0
-        ? (evals.reduce((sum, e) => sum + (e.overall_rating || 0), 0) / evals.length).toFixed(2)
-        : '4.96'
-      const totalTrainees = completedSessions.length * 8 // estimation moyenne
+      // Évaluations à chaud pour la note moyenne (moyenne des 6 questions)
+      const { data: evals, error: evalErr } = await supabase
+        .from('evaluations_hot')
+        .select('q1_objectives, q2_content, q3_pedagogy, q4_trainer, q5_organization, q6_materials, submitted_at')
+        .not('q1_objectives', 'is', null)
+        .order('submitted_at', { ascending: false })
+        .limit(100)
+
+      if (evalErr) console.warn('Stats évaluations:', evalErr.message)
+
+      const completedSessions = (sessions || []).filter(s => s.status === 'completed' || s.status === 'terminée' || s.status === 'Terminée')
+      
+      // Calculer la note moyenne sur 5 (moyenne des 6 critères par éval, puis moyenne générale)
+      const validEvals = (evals || []).filter(e => e.q1_objectives)
+      let avgRating = '4.96'
+      if (validEvals.length > 0) {
+        const totalAvg = validEvals.reduce((sum, e) => {
+          const avg = (e.q1_objectives + e.q2_content + e.q3_pedagogy + e.q4_trainer + e.q5_organization + e.q6_materials) / 6
+          return sum + avg
+        }, 0) / validEvals.length
+        avgRating = totalAvg.toFixed(2)
+      }
 
       const s = {
-        recentSessions: sessions.slice(0, 5),
+        recentSessions: (sessions || []).slice(0, 5),
         completedCount: completedSessions.length,
         avgRating,
-        totalTrainees,
+        totalTrainees: completedSessions.length * 8,
         successRate: '100',
       }
       setStats(s)
       return s
     } catch (err) {
-      console.error('Erreur stats:', err)
-      return null
+      console.warn('Erreur stats (non bloquant):', err)
+      const fallback = { recentSessions: [], completedCount: 0, avgRating: '4.96', totalTrainees: 0, successRate: '100' }
+      setStats(fallback)
+      return fallback
     }
   }
 
@@ -190,9 +211,8 @@ function GeneratorTab({ stats, onSave, media }) {
           const recent = stats.recentSessions.slice(0, 3)
           recent.forEach(s => {
             const courseName = s.course?.name || 'Formation'
-            const clientName = s.client?.company_name ? '(client confidentiel)' : ''
-            const location = s.location || 'Bretagne'
-            contextParts.push(`- Session "${courseName}" à ${location} ${clientName}`)
+            const location = s.location_city || s.location_name || 'Bretagne'
+            contextParts.push(`- Session "${courseName}" à ${location} (client confidentiel)`)
           })
         }
       }
@@ -241,7 +261,7 @@ Réponds UNIQUEMENT en JSON valide (pas de markdown, pas de backticks) avec cett
         },
         body: JSON.stringify({
           model: 'claude-sonnet-4-20250514',
-          max_tokens: 2000,
+          max_tokens: 4096,
           system: systemPrompt,
           messages: [{ role: 'user', content: userPrompt }],
         }),
@@ -253,11 +273,23 @@ Réponds UNIQUEMENT en JSON valide (pas de markdown, pas de backticks) avec cett
       }
 
       const data = await response.json()
+      
+      // Vérifier si la réponse a été tronquée
+      if (data.stop_reason === 'max_tokens') {
+        throw new Error('Réponse tronquée — réessayez avec moins de plateformes')
+      }
+      
       const text = data.content?.[0]?.text || ''
 
       // Parser le JSON (enlever les backticks si présents)
       const cleanJson = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim()
-      const parsed = JSON.parse(cleanJson)
+      let parsed
+      try {
+        parsed = JSON.parse(cleanJson)
+      } catch (jsonErr) {
+        console.error('JSON brut reçu:', text)
+        throw new Error('L\'IA a renvoyé un JSON invalide — réessayez')
+      }
 
       setGeneratedPosts(parsed)
       setEditedPosts(parsed)
