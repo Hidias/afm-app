@@ -370,7 +370,14 @@ function GeneratorTab({ stats, onSave, media, editingDraft, onClearDraft, connec
       setTitle(editingDraft.title || '')
       setPostType(editingDraft.post_type || 'expertise')
       setFreeInput(editingDraft.ai_prompt || '')
-      setScheduledAt(editingDraft.scheduled_at ? editingDraft.scheduled_at.slice(0, 16) : '')
+      // Convertir UTC → heure locale pour le champ datetime-local
+      if (editingDraft.scheduled_at) {
+        const d = new Date(editingDraft.scheduled_at)
+        const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000)
+        setScheduledAt(local.toISOString().slice(0, 16))
+      } else {
+        setScheduledAt('')
+      }
       setPreviewPlatform(platforms[0] || 'linkedin')
       setEditingId(editingDraft.id)
       setSelectedMedia((editingDraft.media_urls || []).map(url => ({ file_url: url })))
@@ -589,7 +596,7 @@ Réponds UNIQUEMENT en JSON valide (pas de markdown, pas de backticks) avec cett
         media_urls: selectedMedia.map(m => m.file_url),
         platforms: selectedPlatforms,
         status,
-        scheduled_at: scheduledAt || null,
+        scheduled_at: scheduledAt ? new Date(scheduledAt).toISOString() : null,
         post_type: postType,
         source_type: 'ai',
         ai_prompt: freeInput || null,
@@ -864,7 +871,7 @@ Réponds UNIQUEMENT en JSON valide (pas de markdown, pas de backticks) avec cett
           {/* Planification + Actions */}
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 pt-2 border-t">
             <div className="flex-1">
-              <label className="text-xs text-gray-500">📅 Planifier pour :</label>
+              <label className="text-xs text-gray-500">📅 Planifier pour : <span className="text-[10px] text-gray-400">(heure de Paris)</span></label>
               <input
                 type="datetime-local"
                 value={scheduledAt}
@@ -1199,18 +1206,27 @@ function MediaPicker({ media, selected, onSelect }) {
 function CalendarTab({ posts, onUpdate }) {
   const [currentMonth, setCurrentMonth] = useState(new Date())
   const [selectedDay, setSelectedDay] = useState(null)
+  const [viewMode, setViewMode] = useState('calendar') // 'calendar' | 'list'
 
   const allPosts = posts.filter(p => ['scheduled', 'published', 'publishing', 'failed'].includes(p.status))
+
+  // Posts à venir triés par date
+  const upcomingPosts = allPosts
+    .filter(p => p.status === 'scheduled')
+    .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at))
+
+  // Historique (publiés + échoués) triés du plus récent
+  const pastPosts = allPosts
+    .filter(p => p.status !== 'scheduled')
+    .sort((a, b) => new Date(b.scheduled_at || b.created_at) - new Date(a.scheduled_at || a.created_at))
 
   const year = currentMonth.getFullYear()
   const month = currentMonth.getMonth()
 
-  // Premier jour du mois et nombre de jours
   const firstDay = new Date(year, month, 1)
   const lastDay = new Date(year, month + 1, 0)
   const daysInMonth = lastDay.getDate()
 
-  // Jour de la semaine du 1er (lundi = 0)
   let startDay = firstDay.getDay() - 1
   if (startDay < 0) startDay = 6
 
@@ -1220,31 +1236,25 @@ function CalendarTab({ posts, onUpdate }) {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
 
-  // Posts par jour
   const getPostsForDay = (dayNum) => {
     return allPosts.filter(p => {
-      if (!p.scheduled_at) return false
-      const d = new Date(p.scheduled_at)
+      const dateField = p.scheduled_at || p.created_at
+      if (!dateField) return false
+      const d = new Date(dateField)
       return d.getFullYear() === year && d.getMonth() === month && d.getDate() === dayNum
     })
   }
 
-  // Navigation
   const prevMonth = () => setCurrentMonth(new Date(year, month - 1, 1))
   const nextMonth = () => setCurrentMonth(new Date(year, month + 1, 1))
   const goToday = () => setCurrentMonth(new Date())
 
-  // Grille du calendrier (6 lignes max x 7 colonnes)
   const cells = []
-  for (let i = 0; i < startDay; i++) cells.push(null) // Jours vides avant le 1er
+  for (let i = 0; i < startDay; i++) cells.push(null)
   for (let d = 1; d <= daysInMonth; d++) cells.push(d)
-  while (cells.length % 7 !== 0) cells.push(null) // Compléter la dernière ligne
+  while (cells.length % 7 !== 0) cells.push(null)
 
-  // Posts du jour sélectionné
   const selectedPosts = selectedDay ? getPostsForDay(selectedDay) : []
-
-  // Compter les posts planifiés à venir
-  const upcomingCount = allPosts.filter(p => p.status === 'scheduled' && new Date(p.scheduled_at) > new Date()).length
 
   const statusConfig = {
     scheduled: { label: '📅 Planifié', bg: 'bg-amber-100 text-amber-800', dot: 'bg-amber-400' },
@@ -1253,147 +1263,228 @@ function CalendarTab({ posts, onUpdate }) {
     failed: { label: '❌ Échec', bg: 'bg-red-100 text-red-800', dot: 'bg-red-400' },
   }
 
-  return (
-    <div className="bg-white rounded-xl border p-4 space-y-4">
-      {/* Header avec navigation */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <button onClick={prevMonth} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500">◀</button>
-          <h2 className="font-bold text-[#0F2D35] text-lg min-w-[200px] text-center">
-            {monthNames[month]} {year}
-          </h2>
-          <button onClick={nextMonth} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500">▶</button>
-          <button
-            onClick={goToday}
-            className="text-xs bg-gray-100 text-gray-600 px-2.5 py-1 rounded-lg hover:bg-gray-200 transition-colors"
-          >
-            Aujourd'hui
-          </button>
-        </div>
-        <div className="flex gap-2">
-          {upcomingCount > 0 && (
-            <span className="text-xs bg-amber-100 text-amber-700 px-2.5 py-1 rounded-full font-medium">
-              📅 {upcomingCount} planifié{upcomingCount > 1 ? 's' : ''}
+  // Actions sur les posts
+  const cancelPost = async (postId) => {
+    if (!confirm('Annuler cette publication planifiée ?')) return
+    await supabase.from('social_posts').update({ status: 'draft' }).eq('id', postId)
+    toast.success('Publication annulée → remise en brouillon')
+    onUpdate?.()
+  }
+
+  const deletePost = async (postId) => {
+    if (!confirm('Supprimer définitivement cette publication ?')) return
+    await supabase.from('social_posts').delete().eq('id', postId)
+    toast.success('Publication supprimée')
+    onUpdate?.()
+  }
+
+  const publishNow = async (postId) => {
+    if (!confirm('Publier maintenant ?')) return
+    try {
+      const pubRes = await fetch('/api/social/publish', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ post_id: postId }),
+      })
+      const pubData = await pubRes.json()
+      if (pubData.success) {
+        toast.success('✅ Publication réussie !')
+      } else {
+        toast.error('Erreur publication')
+      }
+      onUpdate?.()
+    } catch (err) {
+      toast.error('Erreur : ' + err.message)
+    }
+  }
+
+  // Carte de post réutilisable
+  const PostCard = ({ p, showDate = false }) => (
+    <div className={`rounded-lg p-3 ${statusConfig[p.status]?.bg || 'bg-gray-100'}`}>
+      <div className="flex items-start justify-between">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
+            <span className="text-xs font-semibold">{p.title || 'Sans titre'}</span>
+            <span className="text-[10px] opacity-70">{statusConfig[p.status]?.label}</span>
+          </div>
+          <div className="flex items-center gap-2 text-[10px] opacity-70 flex-wrap">
+            {showDate && p.scheduled_at && (
+              <span>📅 {new Date(p.scheduled_at).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' })}</span>
+            )}
+            {p.scheduled_at && (
+              <span>🕐 {new Date(p.scheduled_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</span>
+            )}
+            <span className="flex gap-0.5">
+              {p.platforms?.map(pl => (
+                <span key={pl}>{PLATFORMS.find(x => x.id === pl)?.icon}</span>
+              ))}
             </span>
+          </div>
+          {(p.content_facebook || p.content_linkedin) && (
+            <p className="text-[10px] opacity-60 mt-1 line-clamp-2">
+              {(p.content_facebook || p.content_linkedin).slice(0, 120)}...
+            </p>
           )}
-          <div className="flex gap-1">
-            {Object.entries(statusConfig).map(([key, cfg]) => (
-              <span key={key} className={`w-2.5 h-2.5 rounded-full ${cfg.dot}`} title={cfg.label} />
+        </div>
+        <div className="flex flex-col items-end gap-1 ml-2 flex-shrink-0">
+          {p.media_urls?.[0] && (
+            <img src={p.media_urls[0]} alt="" className="w-10 h-10 rounded-md object-cover" />
+          )}
+          {p.status === 'scheduled' && (
+            <div className="flex gap-1 mt-1">
+              <button onClick={() => publishNow(p.id)} className="text-[9px] bg-green-600 text-white px-1.5 py-0.5 rounded hover:bg-green-700" title="Publier maintenant">🚀</button>
+              <button onClick={() => cancelPost(p.id)} className="text-[9px] bg-gray-500 text-white px-1.5 py-0.5 rounded hover:bg-gray-600" title="Remettre en brouillon">✏️</button>
+              <button onClick={() => deletePost(p.id)} className="text-[9px] bg-red-500 text-white px-1.5 py-0.5 rounded hover:bg-red-600" title="Supprimer">🗑️</button>
+            </div>
+          )}
+          {p.status === 'failed' && (
+            <div className="flex gap-1 mt-1">
+              <button onClick={() => publishNow(p.id)} className="text-[9px] bg-amber-500 text-white px-1.5 py-0.5 rounded hover:bg-amber-600" title="Réessayer">🔄</button>
+              <button onClick={() => deletePost(p.id)} className="text-[9px] bg-red-500 text-white px-1.5 py-0.5 rounded hover:bg-red-600" title="Supprimer">🗑️</button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+
+  return (
+    <div className="space-y-4">
+      {/* Toggle vue */}
+      <div className="flex gap-2">
+        <button
+          onClick={() => setViewMode('calendar')}
+          className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${viewMode === 'calendar' ? 'bg-white shadow-sm border text-[#0F2D35]' : 'text-gray-500 hover:text-gray-700'}`}
+        >
+          📅 Calendrier
+        </button>
+        <button
+          onClick={() => setViewMode('list')}
+          className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${viewMode === 'list' ? 'bg-white shadow-sm border text-[#0F2D35]' : 'text-gray-500 hover:text-gray-700'}`}
+        >
+          📋 Liste ({upcomingPosts.length} planifié{upcomingPosts.length > 1 ? 's' : ''})
+        </button>
+      </div>
+
+      {viewMode === 'list' ? (
+        <div className="bg-white rounded-xl border p-4 space-y-4">
+          {/* Prochaines publications */}
+          {upcomingPosts.length > 0 && (
+            <div>
+              <h3 className="text-sm font-bold text-[#0F2D35] mb-3">⏰ Prochaines publications</h3>
+              <div className="space-y-2">
+                {upcomingPosts.map(p => <PostCard key={p.id} p={p} showDate />)}
+              </div>
+            </div>
+          )}
+
+          {/* Historique */}
+          {pastPosts.length > 0 && (
+            <div className={upcomingPosts.length > 0 ? 'border-t pt-4' : ''}>
+              <h3 className="text-sm font-bold text-[#0F2D35] mb-3">📜 Historique</h3>
+              <div className="space-y-2">
+                {pastPosts.slice(0, 20).map(p => <PostCard key={p.id} p={p} showDate />)}
+              </div>
+            </div>
+          )}
+
+          {upcomingPosts.length === 0 && pastPosts.length === 0 && (
+            <div className="text-center py-8 text-gray-400">
+              <div className="text-3xl mb-2">📭</div>
+              <p className="text-sm">Aucune publication</p>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="bg-white rounded-xl border p-4 space-y-4">
+          {/* Header navigation */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <button onClick={prevMonth} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500">◀</button>
+              <h2 className="font-bold text-[#0F2D35] text-lg min-w-[200px] text-center">
+                {monthNames[month]} {year}
+              </h2>
+              <button onClick={nextMonth} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500">▶</button>
+              <button onClick={goToday} className="text-xs bg-gray-100 text-gray-600 px-2.5 py-1 rounded-lg hover:bg-gray-200 transition-colors">
+                Aujourd'hui
+              </button>
+            </div>
+            <div className="flex gap-1 items-center">
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-400" /> <span className="text-[10px] text-gray-500 mr-2">Planifié</span>
+              <span className="w-2.5 h-2.5 rounded-full bg-green-400" /> <span className="text-[10px] text-gray-500 mr-2">Publié</span>
+              <span className="w-2.5 h-2.5 rounded-full bg-red-400" /> <span className="text-[10px] text-gray-500">Échec</span>
+            </div>
+          </div>
+
+          {/* Jours de la semaine */}
+          <div className="grid grid-cols-7 gap-1">
+            {dayNames.map(d => (
+              <div key={d} className="text-center text-xs font-semibold text-gray-400 py-1">{d}</div>
             ))}
           </div>
-        </div>
-      </div>
 
-      {/* Jours de la semaine */}
-      <div className="grid grid-cols-7 gap-1">
-        {dayNames.map(d => (
-          <div key={d} className="text-center text-xs font-semibold text-gray-400 py-1">{d}</div>
-        ))}
-      </div>
-
-      {/* Grille du mois */}
-      <div className="grid grid-cols-7 gap-1">
-        {cells.map((dayNum, i) => {
-          if (dayNum === null) return <div key={`empty-${i}`} className="aspect-square" />
-
-          const dayPosts = getPostsForDay(dayNum)
-          const cellDate = new Date(year, month, dayNum)
-          const isToday = cellDate.getTime() === today.getTime()
-          const isSelected = selectedDay === dayNum
-          const isPast = cellDate < today
-          const hasPosts = dayPosts.length > 0
-
-          return (
-            <button
-              key={dayNum}
-              onClick={() => setSelectedDay(isSelected ? null : dayNum)}
-              className={`aspect-square rounded-lg border relative flex flex-col items-center justify-start pt-1 transition-all ${
-                isSelected
-                  ? 'border-[#E9B44C] bg-amber-50 ring-2 ring-[#E9B44C]/30'
-                  : isToday
-                    ? 'border-[#E9B44C] bg-amber-50/50'
-                    : hasPosts
-                      ? 'border-gray-200 hover:border-[#E9B44C] hover:bg-amber-50/30'
-                      : isPast
-                        ? 'border-gray-100 text-gray-300'
-                        : 'border-gray-100 hover:border-gray-200'
-              }`}
-            >
-              <span className={`text-xs font-medium ${isToday ? 'text-[#E9B44C] font-bold' : isPast && !hasPosts ? 'text-gray-300' : 'text-gray-600'}`}>
-                {dayNum}
-              </span>
-
-              {/* Points colorés pour les posts */}
-              {hasPosts && (
-                <div className="flex gap-0.5 mt-1 flex-wrap justify-center">
-                  {dayPosts.slice(0, 4).map((p, idx) => (
-                    <span
-                      key={idx}
-                      className={`w-2 h-2 rounded-full ${statusConfig[p.status]?.dot || 'bg-gray-300'}`}
-                      title={`${p.title} — ${statusConfig[p.status]?.label}`}
-                    />
-                  ))}
-                  {dayPosts.length > 4 && (
-                    <span className="text-[8px] text-gray-400 font-medium">+{dayPosts.length - 4}</span>
-                  )}
-                </div>
-              )}
-            </button>
-          )
-        })}
-      </div>
-
-      {/* Détail du jour sélectionné */}
-      {selectedDay && (
-        <div className="border-t pt-4">
-          <h3 className="text-sm font-semibold text-[#0F2D35] mb-3">
-            📋 {selectedDay} {monthNames[month]} {year}
-            <span className="text-gray-400 font-normal ml-2">{selectedPosts.length} publication{selectedPosts.length > 1 ? 's' : ''}</span>
-          </h3>
-
-          {selectedPosts.length > 0 ? (
-            <div className="space-y-2">
-              {selectedPosts.map(p => (
-                <div key={p.id} className={`rounded-lg p-3 ${statusConfig[p.status]?.bg || 'bg-gray-100'}`}>
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-xs font-semibold">{p.title || 'Sans titre'}</span>
-                        <span className="text-[10px] opacity-70">{statusConfig[p.status]?.label}</span>
-                      </div>
-                      <div className="flex items-center gap-2 text-[10px] opacity-70">
-                        <span>🕐 {new Date(p.scheduled_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</span>
-                        <span className="flex gap-0.5">
-                          {p.platforms?.map(pl => (
-                            <span key={pl}>{PLATFORMS.find(x => x.id === pl)?.icon}</span>
-                          ))}
-                        </span>
-                      </div>
-                      {/* Aperçu du contenu */}
-                      {(p.content_facebook || p.content_linkedin) && (
-                        <p className="text-[10px] opacity-60 mt-1 line-clamp-2">
-                          {(p.content_facebook || p.content_linkedin).slice(0, 120)}...
-                        </p>
-                      )}
+          {/* Grille du mois */}
+          <div className="grid grid-cols-7 gap-1">
+            {cells.map((dayNum, i) => {
+              if (dayNum === null) return <div key={`empty-${i}`} className="aspect-square" />
+              const dayPosts = getPostsForDay(dayNum)
+              const cellDate = new Date(year, month, dayNum)
+              const isToday = cellDate.getTime() === today.getTime()
+              const isSelected = selectedDay === dayNum
+              const isPast = cellDate < today
+              const hasPosts = dayPosts.length > 0
+              return (
+                <button
+                  key={dayNum}
+                  onClick={() => setSelectedDay(isSelected ? null : dayNum)}
+                  className={`aspect-square rounded-lg border relative flex flex-col items-center justify-start pt-1 transition-all ${
+                    isSelected ? 'border-[#E9B44C] bg-amber-50 ring-2 ring-[#E9B44C]/30'
+                    : isToday ? 'border-[#E9B44C] bg-amber-50/50'
+                    : hasPosts ? 'border-gray-200 hover:border-[#E9B44C] hover:bg-amber-50/30'
+                    : isPast ? 'border-gray-100 text-gray-300'
+                    : 'border-gray-100 hover:border-gray-200'
+                  }`}
+                >
+                  <span className={`text-xs font-medium ${isToday ? 'text-[#E9B44C] font-bold' : isPast && !hasPosts ? 'text-gray-300' : 'text-gray-600'}`}>
+                    {dayNum}
+                  </span>
+                  {hasPosts && (
+                    <div className="flex gap-0.5 mt-1 flex-wrap justify-center">
+                      {dayPosts.slice(0, 4).map((p, idx) => (
+                        <span key={idx} className={`w-2 h-2 rounded-full ${statusConfig[p.status]?.dot || 'bg-gray-300'}`} title={`${p.title} — ${statusConfig[p.status]?.label}`} />
+                      ))}
+                      {dayPosts.length > 4 && <span className="text-[8px] text-gray-400">+{dayPosts.length - 4}</span>}
                     </div>
-                    {p.media_urls?.[0] && (
-                      <img src={p.media_urls[0]} alt="" className="w-10 h-10 rounded-md object-cover ml-2 flex-shrink-0" />
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-xs text-gray-400 text-center py-4">Aucune publication ce jour</p>
-          )}
-        </div>
-      )}
+                  )}
+                </button>
+              )
+            })}
+          </div>
 
-      {allPosts.length === 0 && !selectedDay && (
-        <div className="text-center py-8 text-gray-400">
-          <div className="text-3xl mb-2">📭</div>
-          <p className="text-sm">Aucune publication planifiée</p>
-          <p className="text-xs">Utilisez le générateur pour créer vos premiers posts !</p>
+          {/* Détail du jour sélectionné */}
+          {selectedDay && (
+            <div className="border-t pt-4">
+              <h3 className="text-sm font-semibold text-[#0F2D35] mb-3">
+                📋 {selectedDay} {monthNames[month]} {year}
+                <span className="text-gray-400 font-normal ml-2">{selectedPosts.length} publication{selectedPosts.length > 1 ? 's' : ''}</span>
+              </h3>
+              {selectedPosts.length > 0 ? (
+                <div className="space-y-2">
+                  {selectedPosts.map(p => <PostCard key={p.id} p={p} />)}
+                </div>
+              ) : (
+                <p className="text-xs text-gray-400 text-center py-4">Aucune publication ce jour</p>
+              )}
+            </div>
+          )}
+
+          {allPosts.length === 0 && !selectedDay && (
+            <div className="text-center py-8 text-gray-400">
+              <div className="text-3xl mb-2">📭</div>
+              <p className="text-sm">Aucune publication planifiée</p>
+              <p className="text-xs">Utilisez le générateur pour créer vos premiers posts !</p>
+            </div>
+          )}
         </div>
       )}
     </div>
