@@ -3,12 +3,13 @@ import { Link, useLocation } from 'react-router-dom'
 import { useDataStore } from '../lib/store'
 import { supabase } from '../lib/supabase'
 import { 
-  Calendar, Plus, Search, MapPin, Users, Clock, ChevronRight, ChevronDown, X, Trash2, Copy, Building2
+  Calendar, Plus, Search, MapPin, Users, Clock, ChevronRight, ChevronDown, X, Trash2, Copy, Building2, List, LayoutGrid
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import toast from 'react-hot-toast'
 import MultiSiretWizard from '../components/MultiSiretWizard'
+import SessionPlanning from '../components/SessionPlanning'
 
 const statusLabels = {
   draft: { label: 'Brouillon', class: 'badge-gray' },
@@ -32,6 +33,7 @@ export default function Sessions() {
   const [statusFilter, setStatusFilter] = useState('')
   const [showForm, setShowForm] = useState(location.state?.openNew || false)
   const [showMultiSiret, setShowMultiSiret] = useState(false)
+  const [viewMode, setViewMode] = useState('list') // 'list' | 'planning'
   
   // Filtres stagiaires
   const [traineeSearch, setTraineeSearch] = useState('')
@@ -332,6 +334,25 @@ export default function Sessions() {
           <p className="text-gray-500 mt-1">{sessions.length} session(s)</p>
         </div>
         <div className="flex items-center gap-2">
+          {/* Toggle Liste / Planning */}
+          <div className="flex items-center bg-gray-100 rounded-lg p-0.5 mr-2">
+            <button
+              onClick={() => setViewMode('list')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md transition-all
+                ${viewMode === 'list' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              <List className="w-4 h-4" />
+              Liste
+            </button>
+            <button
+              onClick={() => setViewMode('planning')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md transition-all
+                ${viewMode === 'planning' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              <LayoutGrid className="w-4 h-4" />
+              Planning
+            </button>
+          </div>
           <button onClick={() => setShowMultiSiret(true)} className="btn btn-secondary flex items-center gap-2">
             <Building2 className="w-4 h-4" />
             Multi-SIRET
@@ -343,6 +364,13 @@ export default function Sessions() {
         </div>
       </div>
       
+      {/* Vue Planning */}
+      {viewMode === 'planning' && (
+        <SessionPlanning sessions={sessions} trainers={trainers} />
+      )}
+      
+      {/* Vue Liste */}
+      {viewMode === 'list' && <>
       {/* Filtres */}
       <div className="flex flex-col sm:flex-row gap-4">
         <div className="relative flex-1">
@@ -573,6 +601,7 @@ export default function Sessions() {
           })
         )}
       </div>
+      </>}
       
       {/* Modal création */}
       {showForm && (
