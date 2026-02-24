@@ -62,7 +62,7 @@ export default async function handler(req, res) {
       // Si testConnection = true, on teste juste la connexion
       if (testConnection) {
         const transporter = nodemailer.createTransport({
-          host: 'smtp.exchange.ionos.eu',
+          host: 'smtp.ionos.fr',
           port: 587,
           secure: false,
           auth: { user: email, pass: password },
@@ -112,7 +112,7 @@ export default async function handler(req, res) {
             email,
             smtp_password_encrypted: encryptedPassword,
             signature_image: signatureImage || null,
-            smtp_host: 'smtp.exchange.ionos.eu',
+            smtp_host: 'smtp.ionos.fr',
             smtp_port: 587,
             smtp_secure: false,
             is_active: true,
