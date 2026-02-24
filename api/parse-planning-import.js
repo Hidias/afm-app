@@ -54,11 +54,11 @@ FORMAT DE SORTIE (JSON strict) :
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-20250514',
-        max_tokens: 4000,
+        max_tokens: 8000,
         system: systemPrompt,
         messages: [{
           role: 'user',
-          content: `Analyse ce planning copié-collé et retourne le JSON structuré :\n\n${rawText.substring(0, 15000)}`
+          content: `Analyse ce planning copié-collé et retourne le JSON structuré :\n\n${rawText.substring(0, 50000)}`
         }]
       })
     })
