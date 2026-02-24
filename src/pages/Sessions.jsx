@@ -71,6 +71,10 @@ export default function Sessions() {
     subcontract_nb_trainees: '',
     subcontract_daily_rate: '',
   })
+  const [batchMode, setBatchMode] = useState(false)
+  const [batchLines, setBatchLines] = useState([
+    { title: '', start_date: '', end_date: '', nb_trainees: '', client_ref: '', daily_rate: '' }
+  ])
   
   useEffect(() => {
     fetchSessions()
@@ -245,6 +249,8 @@ export default function Sessions() {
       subcontract_nb_trainees: '',
       subcontract_daily_rate: '',
     })
+    setBatchMode(false)
+    setBatchLines([{ title: '', start_date: '', end_date: '', nb_trainees: '', client_ref: '', daily_rate: '' }])
     setClientContacts([])
     setTraineeSearch('')
     setTraineeClientFilter('')
@@ -256,6 +262,57 @@ export default function Sessions() {
     
     const isSub = formData.session_type === 'subcontract'
     
+    // ═══ MODE BATCH SOUS-TRAITANCE ═══
+    if (isSub && batchMode) {
+      if (!formData.client_id) { toast.error('Sélectionnez un client'); return }
+      const validLines = batchLines.filter(l => l.title && l.start_date && l.end_date)
+      if (validLines.length === 0) { toast.error('Ajoutez au moins une session avec intitulé et dates'); return }
+      
+      // Vérifier les dates
+      for (const line of validLines) {
+        if (new Date(line.end_date) < new Date(line.start_date)) {
+          toast.error(`"${line.title}" : la date de fin est avant la date de début`); return
+        }
+      }
+      
+      let created = 0, errors = 0
+      for (const line of validLines) {
+        const sessionData = {
+          session_type: 'subcontract',
+          course_id: null,
+          client_id: formData.client_id,
+          contact_id: formData.contact_id || null,
+          start_date: line.start_date,
+          end_date: line.end_date,
+          start_time: formData.start_time,
+          end_time: formData.end_time,
+          day_type: 'full',
+          location: formData.location,
+          room: '',
+          status: formData.status,
+          is_intra: true,
+          trainer_ids: formData.trainer_ids,
+          trainee_ids: [],
+          funding_type: 'none',
+          funding_details: null,
+          subcontract_course_title: line.title,
+          subcontract_client_ref: line.client_ref || formData.subcontract_client_ref || null,
+          subcontract_nb_trainees: parseInt(line.nb_trainees) || 0,
+          subcontract_daily_rate: parseFloat(line.daily_rate || formData.subcontract_daily_rate) || null,
+        }
+        const { error } = await createSession(sessionData)
+        if (error) { errors++; console.error(error) } else { created++ }
+      }
+      
+      if (errors > 0) toast.error(`${errors} erreur(s) sur ${validLines.length}`)
+      if (created > 0) {
+        toast.success(`${created} session${created > 1 ? 's' : ''} créée${created > 1 ? 's' : ''} avec succès`)
+        resetForm()
+      }
+      return
+    }
+    
+    // ═══ MODE SIMPLE ═══
     if (isSub) {
       if (!formData.client_id || !formData.start_date || !formData.end_date || !formData.subcontract_course_title) {
         toast.error('Remplissez le client, les dates et l\'intitulé de la formation')
@@ -655,7 +712,7 @@ export default function Sessions() {
       {/* Modal création */}
       {showForm && (
         <div className="fixed inset-0 bg-black/50 flex items-start justify-center z-50 p-4 overflow-y-auto">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl my-8">
+          <div className={`bg-white rounded-xl shadow-xl w-full my-8 ${formData.session_type === 'subcontract' && batchMode ? 'max-w-4xl' : 'max-w-2xl'}`}>
             <div className="flex items-center justify-between p-4 border-b sticky top-0 bg-white rounded-t-xl z-10">
               <h2 className="text-xl font-semibold">Nouvelle session</h2>
               <button onClick={resetForm} className="p-2 hover:bg-gray-100 rounded-lg">
@@ -687,11 +744,15 @@ export default function Sessions() {
               {/* ═══ FORMULAIRE SOUS-TRAITANCE ═══ */}
               {formData.session_type === 'subcontract' && (
                 <>
-                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
-                    <Briefcase className="w-4 h-4 inline mr-1.5" />
-                    Session en tant que sous-traitant — formulaire simplifié
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800 flex items-center justify-between">
+                    <span><Briefcase className="w-4 h-4 inline mr-1.5" />Sous-traitance — {batchMode ? 'création par lot' : 'session unique'}</span>
+                    <button type="button" onClick={() => setBatchMode(!batchMode)}
+                      className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${batchMode ? 'bg-amber-600 text-white' : 'bg-white text-amber-700 border border-amber-300 hover:bg-amber-100'}`}>
+                      {batchMode ? '← Session unique' : 'Créer par lot →'}
+                    </button>
                   </div>
                   
+                  {/* En-tête partagé (client, formateur, lieu, horaires, tarif par défaut) */}
                   <div className="grid md:grid-cols-2 gap-4">
                     <div>
                       <label className="label">Donneur d'ordre (OF) *</label>
@@ -710,24 +771,27 @@ export default function Sessions() {
                       </select>
                     </div>
                     <div>
-                      <label className="label">Leur référence</label>
-                      <input type="text" value={formData.subcontract_client_ref} onChange={(e) => setFormData({ ...formData, subcontract_client_ref: e.target.value })} className="input" placeholder="Réf. du donneur d'ordre" />
+                      <label className="label">Formateur</label>
+                      <select value={formData.trainer_ids[0] || ''} onChange={(e) => setFormData({ ...formData, trainer_ids: e.target.value ? [e.target.value] : [] })} className="input">
+                        <option value="">Sélectionner...</option>
+                        {trainers.map(trainer => (
+                          <option key={trainer.id} value={trainer.id}>{trainer.first_name} {trainer.last_name}</option>
+                        ))}
+                      </select>
                     </div>
                   </div>
 
-                  <div>
-                    <label className="label">Intitulé de la formation *</label>
-                    <input type="text" value={formData.subcontract_course_title} onChange={(e) => setFormData({ ...formData, subcontract_course_title: e.target.value })} className="input" required placeholder="Ex: Formation SST - Initiale" />
-                  </div>
-                  
                   <div className="grid md:grid-cols-2 gap-4">
                     <div>
-                      <label className="label">Date de début *</label>
-                      <input type="date" value={formData.start_date} required onChange={(e) => { const d = e.target.value; setFormData({ ...formData, start_date: d, end_date: formData.end_date && formData.end_date < d ? d : (formData.end_date || d) }) }} className="input" />
+                      <label className="label">Lieu par défaut</label>
+                      <input type="text" value={formData.location} onChange={(e) => setFormData({ ...formData, location: e.target.value })} className="input" placeholder="Adresse de la formation" />
                     </div>
                     <div>
-                      <label className="label">Date de fin *</label>
-                      <input type="date" value={formData.end_date} min={formData.start_date} required onChange={(e) => setFormData({ ...formData, end_date: e.target.value })} className="input" />
+                      <label className="label">Tarif journalier HT par défaut (€)</label>
+                      <div className="relative">
+                        <input type="number" min="0" step="0.01" value={formData.subcontract_daily_rate} onChange={(e) => setFormData({ ...formData, subcontract_daily_rate: e.target.value })} className="input pr-8" placeholder="0.00" />
+                        <Euro className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                      </div>
                     </div>
                   </div>
 
@@ -736,47 +800,119 @@ export default function Sessions() {
                     <div><label className="label">Heure fin</label><input type="time" value={formData.end_time} onChange={(e) => setFormData({ ...formData, end_time: e.target.value })} className="input" /></div>
                   </div>
 
-                  <div>
-                    <label className="label">Lieu</label>
-                    <input type="text" value={formData.location} onChange={(e) => setFormData({ ...formData, location: e.target.value })} className="input" placeholder="Adresse de la formation" />
-                  </div>
-
-                  <div>
-                    <label className="label">Formateur</label>
-                    <select value={formData.trainer_ids[0] || ''} onChange={(e) => setFormData({ ...formData, trainer_ids: e.target.value ? [e.target.value] : [] })} className="input">
-                      <option value="">Sélectionner...</option>
-                      {trainers.map(trainer => (
-                        <option key={trainer.id} value={trainer.id}>{trainer.first_name} {trainer.last_name}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="grid md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="label">Nombre de stagiaires</label>
-                      <input type="number" min="0" value={formData.subcontract_nb_trainees} onChange={(e) => setFormData({ ...formData, subcontract_nb_trainees: e.target.value })} className="input" placeholder="0" />
-                    </div>
-                    <div>
-                      <label className="label">Tarif journalier HT (€)</label>
-                      <div className="relative">
-                        <input type="number" min="0" step="0.01" value={formData.subcontract_daily_rate} onChange={(e) => setFormData({ ...formData, subcontract_daily_rate: e.target.value })} className="input pr-8" placeholder="0.00" />
-                        <Euro className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  {/* ═══ MODE UNIQUE ═══ */}
+                  {!batchMode && (
+                    <>
+                      <div className="grid md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="label">Réf. donneur d'ordre</label>
+                          <input type="text" value={formData.subcontract_client_ref} onChange={(e) => setFormData({ ...formData, subcontract_client_ref: e.target.value })} className="input" placeholder="Réf. client" />
+                        </div>
+                        <div>
+                          <label className="label">Nombre de stagiaires</label>
+                          <input type="number" min="0" value={formData.subcontract_nb_trainees} onChange={(e) => setFormData({ ...formData, subcontract_nb_trainees: e.target.value })} className="input" placeholder="0" />
+                        </div>
                       </div>
-                    </div>
-                  </div>
+                      <div>
+                        <label className="label">Intitulé de la formation *</label>
+                        <input type="text" value={formData.subcontract_course_title} onChange={(e) => setFormData({ ...formData, subcontract_course_title: e.target.value })} className="input" required placeholder="Ex: Formation SST - Initiale" />
+                      </div>
+                      <div className="grid md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="label">Date de début *</label>
+                          <input type="date" value={formData.start_date} required onChange={(e) => { const d = e.target.value; setFormData({ ...formData, start_date: d, end_date: formData.end_date && formData.end_date < d ? d : (formData.end_date || d) }) }} className="input" />
+                        </div>
+                        <div>
+                          <label className="label">Date de fin *</label>
+                          <input type="date" value={formData.end_date} min={formData.start_date} required onChange={(e) => setFormData({ ...formData, end_date: e.target.value })} className="input" />
+                        </div>
+                      </div>
+                      {formData.subcontract_daily_rate && formData.start_date && formData.end_date && (
+                        <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-sm">
+                          {(() => {
+                            const days = Math.max(1, Math.round((new Date(formData.end_date) - new Date(formData.start_date)) / 86400000) + 1)
+                            const total = days * parseFloat(formData.subcontract_daily_rate || 0)
+                            return (
+                              <div className="flex justify-between items-center">
+                                <span className="text-green-800">{days} jour{days > 1 ? 's' : ''} × {parseFloat(formData.subcontract_daily_rate).toFixed(2)} €</span>
+                                <span className="font-bold text-green-900 text-lg">{total.toFixed(2)} € HT</span>
+                              </div>
+                            )
+                          })()}
+                        </div>
+                      )}
+                    </>
+                  )}
 
-                  {formData.subcontract_daily_rate && formData.start_date && formData.end_date && (
-                    <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-sm">
-                      {(() => {
-                        const days = Math.max(1, Math.round((new Date(formData.end_date) - new Date(formData.start_date)) / 86400000) + 1)
-                        const total = days * parseFloat(formData.subcontract_daily_rate || 0)
+                  {/* ═══ MODE BATCH ═══ */}
+                  {batchMode && (
+                    <div className="space-y-2">
+                      <div className="grid grid-cols-[1fr_100px_100px_60px_90px_32px] gap-2 text-xs font-medium text-gray-500 px-1">
+                        <span>Intitulé *</span>
+                        <span>Début *</span>
+                        <span>Fin *</span>
+                        <span>Stag.</span>
+                        <span>Réf client</span>
+                        <span></span>
+                      </div>
+                      {batchLines.map((line, idx) => {
+                        const days = line.start_date && line.end_date ? Math.max(1, Math.round((new Date(line.end_date) - new Date(line.start_date)) / 86400000) + 1) : 0
+                        const rate = parseFloat(line.daily_rate || formData.subcontract_daily_rate) || 0
+                        const lineTotal = days * rate
                         return (
-                          <div className="flex justify-between items-center">
-                            <span className="text-green-800">{days} jour{days > 1 ? 's' : ''} × {parseFloat(formData.subcontract_daily_rate).toFixed(2)} €</span>
-                            <span className="font-bold text-green-900 text-lg">{total.toFixed(2)} € HT</span>
+                          <div key={idx} className="grid grid-cols-[1fr_100px_100px_60px_90px_32px] gap-2 items-center">
+                            <input type="text" value={line.title} placeholder="Formation..."
+                              onChange={(e) => { const u = [...batchLines]; u[idx].title = e.target.value; setBatchLines(u) }}
+                              className="px-2 py-1.5 border rounded text-sm" />
+                            <input type="date" value={line.start_date}
+                              onChange={(e) => { const u = [...batchLines]; u[idx].start_date = e.target.value; if (!u[idx].end_date || u[idx].end_date < e.target.value) u[idx].end_date = e.target.value; setBatchLines(u) }}
+                              className="px-1.5 py-1.5 border rounded text-sm" />
+                            <input type="date" value={line.end_date} min={line.start_date}
+                              onChange={(e) => { const u = [...batchLines]; u[idx].end_date = e.target.value; setBatchLines(u) }}
+                              className="px-1.5 py-1.5 border rounded text-sm" />
+                            <input type="number" min="0" value={line.nb_trainees} placeholder="0"
+                              onChange={(e) => { const u = [...batchLines]; u[idx].nb_trainees = e.target.value; setBatchLines(u) }}
+                              className="px-1.5 py-1.5 border rounded text-sm text-center" />
+                            <input type="text" value={line.client_ref} placeholder="Réf."
+                              onChange={(e) => { const u = [...batchLines]; u[idx].client_ref = e.target.value; setBatchLines(u) }}
+                              className="px-1.5 py-1.5 border rounded text-sm" />
+                            <button type="button" onClick={() => { if (batchLines.length > 1) setBatchLines(batchLines.filter((_, i) => i !== idx)) }}
+                              disabled={batchLines.length <= 1}
+                              className="p-1 text-red-400 hover:text-red-600 disabled:opacity-30">
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                            {lineTotal > 0 && (
+                              <div className="col-span-full text-right text-xs text-gray-400 -mt-1 pr-10">
+                                {days}j × {rate.toFixed(0)}€ = <span className="text-green-700 font-medium">{lineTotal.toFixed(2)}€</span>
+                              </div>
+                            )}
                           </div>
                         )
-                      })()}
+                      })}
+                      <div className="flex items-center justify-between pt-1">
+                        <button type="button"
+                          onClick={() => setBatchLines([...batchLines, { title: '', start_date: '', end_date: '', nb_trainees: '', client_ref: '', daily_rate: '' }])}
+                          className="text-sm text-amber-700 hover:text-amber-900 flex items-center gap-1">
+                          <Plus className="w-4 h-4" /> Ajouter une ligne
+                        </button>
+                        {batchLines.filter(l => l.title && l.start_date).length > 0 && (
+                          <div className="bg-green-50 border border-green-200 rounded-lg px-3 py-2 text-sm">
+                            {(() => {
+                              const validLines = batchLines.filter(l => l.title && l.start_date && l.end_date)
+                              const totalDays = validLines.reduce((s, l) => s + Math.max(1, Math.round((new Date(l.end_date) - new Date(l.start_date)) / 86400000) + 1), 0)
+                              const totalAmount = validLines.reduce((s, l) => {
+                                const d = Math.max(1, Math.round((new Date(l.end_date) - new Date(l.start_date)) / 86400000) + 1)
+                                return s + d * (parseFloat(l.daily_rate || formData.subcontract_daily_rate) || 0)
+                              }, 0)
+                              return (
+                                <span className="text-green-800">
+                                  <strong>{validLines.length}</strong> session{validLines.length > 1 ? 's' : ''} · {totalDays}j · <strong className="text-green-900">{totalAmount.toFixed(2)} € HT</strong>
+                                </span>
+                              )
+                            })()}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
                 </>
@@ -1119,7 +1255,10 @@ export default function Sessions() {
                   Annuler
                 </button>
                 <button type="submit" className="btn btn-primary">
-                  Créer la session
+                  {formData.session_type === 'subcontract' && batchMode
+                    ? `Créer ${batchLines.filter(l => l.title && l.start_date).length} session${batchLines.filter(l => l.title && l.start_date).length > 1 ? 's' : ''}`
+                    : 'Créer la session'
+                  }
                 </button>
               </div>
             </form>
