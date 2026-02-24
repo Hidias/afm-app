@@ -45,13 +45,17 @@ export default function Invoices() {
   const [quoteSearch, setQuoteSearch] = useState('')
   const [sortField, setSortField] = useState('invoice_date')
   const [sortDir, setSortDir] = useState('desc')
+  const [showGroupedModal, setShowGroupedModal] = useState(false)
+  const [groupedSessions, setGroupedSessions] = useState([])
+  const [groupedClientId, setGroupedClientId] = useState('')
+  const [groupedMonth, setGroupedMonth] = useState(format(new Date(), 'yyyy-MM'))
 
   // ─── Load ───
   const loadAll = useCallback(async () => {
     setLoading(true)
     const [invR,cliR,courseR,quoteR] = await Promise.all([
       supabase.from('invoices').select('*, clients(name,siret,address,postal_code,city), client_contacts(name,email,civilite,first_name,last_name)').order('invoice_date',{ascending:false}),
-      supabase.from('clients').select('id,name,siret,address,postal_code,city,contact_name,contact_email,status').order('name'),
+      supabase.from('clients').select('id,name,siret,address,postal_code,city,contact_name,contact_email,status,billing_mode,default_payment_terms,client_type').order('name'),
       supabase.from('courses').select('id,title,code,price_ht,duration_hours,description').order('title'),
       supabase.from('quotes').select('id,reference,client_id,contact_id,object,client_reference,discount_percent,discount_label,tva_applicable,tva_rate,payment_method,payment_terms,session_id,status,total_ht,total_ttc').order('quote_date',{ascending:false}),
     ])
@@ -126,39 +130,149 @@ export default function Invoices() {
 
   // ─── From session (après formation) ───
   const handleFromSession = async (sessionId) => {
-    const { data: sess } = await supabase.from('sessions').select('*, clients(id,name,siret,address,postal_code,city,contact_name,contact_email), courses(title,code,price_ht,duration_hours)').eq('id', sessionId).single()
+    const { data: sess } = await supabase.from('sessions').select('*, clients(id,name,siret,address,postal_code,city,contact_name,contact_email,billing_mode,default_payment_terms,billing_email), courses(title,code,price_ht,duration_hours)').eq('id', sessionId).single()
     if (!sess) { toast.error('Session introuvable'); return }
-    const ref = await generateReference('invoice'), dd = format(addDays(new Date(), 30), 'yyyy-MM-dd')
+    
+    const isSubcontract = sess.session_type === 'subcontract'
+    
+    // Vérifier si déjà facturée (sous-traitance)
+    if (isSubcontract && sess.subcontract_invoiced) {
+      toast.error('⚠️ Cette session a déjà été facturée')
+      return
+    }
+    
+    // Alerte si client préfère facturation groupée
+    if (sess.clients?.billing_mode === 'monthly') {
+      if (!confirm(`Ce client préfère la facturation groupée (fin de mois).\n\nCréer quand même une facture individuelle ?`)) return
+    }
+    
+    const ref = await generateReference('invoice')
+    // Délai de paiement : préférence client ou 30 jours par défaut
+    const clientPaymentTerms = sess.clients?.default_payment_terms || 'à 30 jours'
+    const daysMap = { 'À réception de facture': 0, 'à 30 jours': 30, 'à 45 jours': 45, 'à 60 jours': 60 }
+    const delayDays = daysMap[clientPaymentTerms] ?? 30
+    const dd = format(addDays(new Date(), delayDays), 'yyyy-MM-dd')
+    
     const { data: ccs } = await supabase.from('client_contacts').select('*').eq('client_id', sess.client_id)
     const bc = ccs?.find(c => c.is_billing) || ccs?.find(c => c.is_primary)
     setContacts(ccs || [])
-    // Si la session a un devis, récupérer les items du devis
+    
     let invoiceItems = []
-    if (sess.quote_id) {
-      const { data: qItems } = await supabase.from('quote_items').select('*').eq('quote_id', sess.quote_id).order('position')
-      invoiceItems = (qItems || []).map((it, i) => ({ ...it, id: undefined, quote_id: undefined, invoice_id: undefined, position: i }))
-    }
-    // Sinon, créer une ligne depuis la formation
-    if (invoiceItems.length === 0 && sess.courses) {
-      const price = sess.use_custom_price ? sess.custom_price_ht : (sess.courses.price_ht || 0)
+    
+    if (isSubcontract) {
+      // Sous-traitance : ligne(s) basée(s) sur le tarif journalier
+      const days = Math.max(1, Math.round((new Date(sess.end_date) - new Date(sess.start_date)) / 86400000) + 1)
+      const rate = parseFloat(sess.subcontract_daily_rate) || 0
+      const courseTitle = sess.subcontract_course_title || 'Formation'
       invoiceItems = [{
-        code: sess.courses.code || '', description_title: sess.courses.title || '',
-        description_detail: `Formation ${sess.is_intra ? 'intra' : 'inter'} du ${fmtDateShort(sess.start_date)}${sess.end_date !== sess.start_date ? ' au ' + fmtDateShort(sess.end_date) : ''}`,
-        quantity: 1, unit: 'forfait', unit_price_ht: price, tva_rate: 20, course_id: sess.course_id, position: 0
+        code: '', description_title: `Prestation de formation — ${courseTitle}`,
+        description_detail: `Formation du ${fmtDateShort(sess.start_date)}${sess.end_date !== sess.start_date ? ' au ' + fmtDateShort(sess.end_date) : ''}${sess.subcontract_nb_trainees ? ` — ${sess.subcontract_nb_trainees} stagiaire(s)` : ''}${sess.location_name ? ` — ${sess.location_name}` : ''}`,
+        quantity: days, unit: 'jour', unit_price_ht: rate, tva_rate: 20, course_id: null, position: 0
       }]
+    } else {
+      // Formation directe : logique existante
+      if (sess.quote_id) {
+        const { data: qItems } = await supabase.from('quote_items').select('*').eq('quote_id', sess.quote_id).order('position')
+        invoiceItems = (qItems || []).map((it, i) => ({ ...it, id: undefined, quote_id: undefined, invoice_id: undefined, position: i }))
+      }
+      if (invoiceItems.length === 0 && sess.courses) {
+        const price = sess.use_custom_price ? sess.custom_price_ht : (sess.courses.price_ht || 0)
+        invoiceItems = [{
+          code: sess.courses.code || '', description_title: sess.courses.title || '',
+          description_detail: `Formation ${sess.is_intra ? 'intra' : 'inter'} du ${fmtDateShort(sess.start_date)}${sess.end_date !== sess.start_date ? ' au ' + fmtDateShort(sess.end_date) : ''}`,
+          quantity: 1, unit: 'forfait', unit_price_ht: price, tva_rate: 20, course_id: sess.course_id, position: 0
+        }]
+      }
     }
+    
+    const objectTitle = isSubcontract 
+      ? (sess.subcontract_course_title || 'Prestation de formation')
+      : (sess.courses?.title || '')
+    const clientRef = isSubcontract ? (sess.subcontract_client_ref || '') : ''
+    
     setCurrent({
       reference: ref, type: 'invoice', client_id: sess.client_id, contact_id: bc?.id || sess.contact_id || '',
-      quote_id: sess.quote_id || '', session_id: sess.id, sellsy_reference: '', client_reference: '',
+      quote_id: isSubcontract ? '' : (sess.quote_id || ''), session_id: sess.id, sellsy_reference: '', client_reference: clientRef,
       invoice_date: format(new Date(), 'yyyy-MM-dd'), service_start_date: sess.start_date || '', service_end_date: sess.end_date || '', due_date: dd,
-      object: sess.courses?.title || '', payment_method: 'virement bancaire', payment_terms: 'à 30 jours',
+      object: objectTitle, payment_method: 'virement bancaire', payment_terms: clientPaymentTerms,
       discount_percent: 0, discount_label: '', tva_applicable: true,
       notes: '', created_by: 'Hicham Saidi', status: 'draft', parent_reference: '', parent_invoice_id: null, amount_paid: 0, is_formation_pro: true,
       is_subrogation: false, billing_client_id: ''
     })
     setItems(invoiceItems.length > 0 ? invoiceItems : [emptyItem()])
     setPayments([]); setMode('create')
-    toast.success(`Facture pré-remplie depuis la session ${sess.courses?.title || ''}`)
+    toast.success(`Facture pré-remplie depuis ${isSubcontract ? 'sous-traitance' : 'la session'} ${objectTitle}`)
+  }
+
+  // ─── Facture groupée sous-traitance ───
+  const loadGroupedSessions = async (clientId, month) => {
+    if (!clientId || !month) { setGroupedSessions([]); return }
+    const [year, m] = month.split('-')
+    const startOfMonth = `${year}-${m}-01`
+    const endOfMonth = new Date(parseInt(year), parseInt(m), 0).toISOString().split('T')[0]
+    const { data } = await supabase.from('sessions')
+      .select('id, reference, start_date, end_date, start_time, end_time, subcontract_course_title, subcontract_daily_rate, subcontract_nb_trainees, subcontract_client_ref, subcontract_invoiced, location_name, session_type')
+      .eq('client_id', clientId)
+      .eq('session_type', 'subcontract')
+      .gte('start_date', startOfMonth)
+      .lte('start_date', endOfMonth)
+      .neq('status', 'cancelled')
+      .order('start_date')
+    setGroupedSessions(data || [])
+  }
+
+  const handleGroupedInvoice = async () => {
+    const toInvoice = groupedSessions.filter(s => !s.subcontract_invoiced)
+    if (toInvoice.length === 0) { toast.error('Aucune session à facturer'); return }
+    
+    const { data: clientData } = await supabase.from('clients').select('id, name, siret, address, postal_code, city, contact_name, contact_email, default_payment_terms').eq('id', groupedClientId).single()
+    if (!clientData) { toast.error('Client introuvable'); return }
+    
+    const ref = await generateReference('invoice')
+    const clientPaymentTerms = clientData.default_payment_terms || 'à 30 jours'
+    const daysMap = { 'À réception de facture': 0, 'à 30 jours': 30, 'à 45 jours': 45, 'à 60 jours': 60 }
+    const delayDays = daysMap[clientPaymentTerms] ?? 30
+    const dd = format(addDays(new Date(), delayDays), 'yyyy-MM-dd')
+    
+    const { data: ccs } = await supabase.from('client_contacts').select('*').eq('client_id', groupedClientId)
+    const bc = ccs?.find(c => c.is_billing) || ccs?.find(c => c.is_primary)
+    setContacts(ccs || [])
+    
+    const invoiceItems = toInvoice.map((sess, i) => {
+      const days = Math.max(1, Math.round((new Date(sess.end_date) - new Date(sess.start_date)) / 86400000) + 1)
+      const rate = parseFloat(sess.subcontract_daily_rate) || 0
+      const courseTitle = sess.subcontract_course_title || 'Formation'
+      return {
+        code: '', description_title: courseTitle,
+        description_detail: `${fmtDateShort(sess.start_date)}${sess.end_date !== sess.start_date ? ' au ' + fmtDateShort(sess.end_date) : ''}${sess.subcontract_nb_trainees ? ` — ${sess.subcontract_nb_trainees} stagiaire(s)` : ''}${sess.location_name ? ` — ${sess.location_name}` : ''}${sess.subcontract_client_ref ? ` — Réf: ${sess.subcontract_client_ref}` : ''}`,
+        quantity: days, unit: 'jour', unit_price_ht: rate, tva_rate: 20, course_id: null, position: i
+      }
+    })
+    
+    const allDates = toInvoice.flatMap(s => [s.start_date, s.end_date]).sort()
+    const [ym, mm] = groupedMonth.split('-')
+    const monthLabel = format(new Date(parseInt(ym), parseInt(mm) - 1), 'MMMM yyyy', { locale: fr })
+    
+    setCurrent({
+      reference: ref, type: 'invoice', client_id: groupedClientId,
+      contact_id: bc?.id || '', quote_id: '', session_id: '',
+      _grouped_session_ids: toInvoice.map(s => s.id),
+      sellsy_reference: '', client_reference: '',
+      invoice_date: format(new Date(), 'yyyy-MM-dd'),
+      service_start_date: allDates[0] || '', service_end_date: allDates[allDates.length - 1] || '',
+      due_date: dd,
+      object: `Prestations de formation — ${monthLabel} (${toInvoice.length} session${toInvoice.length > 1 ? 's' : ''})`,
+      payment_method: 'virement bancaire', payment_terms: clientPaymentTerms,
+      discount_percent: 0, discount_label: '', tva_applicable: true,
+      notes: '', created_by: 'Hicham Saidi', status: 'draft',
+      parent_reference: '', parent_invoice_id: null, amount_paid: 0,
+      is_formation_pro: true, is_subrogation: false, billing_client_id: ''
+    })
+    setItems(invoiceItems)
+    setPayments([])
+    setShowGroupedModal(false)
+    setMode('create')
+    toast.success(`Facture groupée pré-remplie : ${toInvoice.length} session(s) de ${monthLabel}`)
   }
 
   // ─── Credit note ───
@@ -216,6 +330,23 @@ export default function Invoices() {
       if(toIns.length>0){const{error:ie}=await supabase.from('invoice_items').insert(toIns);if(ie)throw ie}
       // Update quote status if from quote
       if(current.quote_id && mode==='create'){await supabase.from('quotes').update({status:'invoiced'}).eq('id',current.quote_id)}
+      // Marquer session sous-traitance comme facturée (individuelle)
+      if(mode==='create' && current.session_id) {
+        const { data: sessCheck } = await supabase.from('sessions').select('session_type').eq('id', current.session_id).single()
+        if (sessCheck?.session_type === 'subcontract') {
+          await supabase.from('sessions').update({
+            subcontract_invoiced: true, subcontract_invoice_id: iid, updated_at: new Date().toISOString()
+          }).eq('id', current.session_id)
+        }
+      }
+      // Marquer sessions groupées comme facturées
+      if(mode==='create' && current._grouped_session_ids?.length > 0) {
+        await Promise.all(current._grouped_session_ids.map(sid =>
+          supabase.from('sessions').update({
+            subcontract_invoiced: true, subcontract_invoice_id: iid, updated_at: new Date().toISOString()
+          }).eq('id', sid)
+        ))
+      }
       toast.success(mode==='create'?(current.type==='credit_note'?'Avoir créé':'Facture créée'):'Mise à jour')
       setMode('list'); loadAll()
     }catch(err){toast.error('Erreur: '+err.message)}
@@ -350,6 +481,7 @@ export default function Invoices() {
         <div className="flex gap-2">
           <button onClick={()=>setShowQuoteSelector(true)} className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2 text-sm"><Receipt size={16}/>Depuis un devis</button>
           <button onClick={()=>handleNew('invoice')} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2 text-sm"><Plus size={16}/>Facture libre</button>
+          <button onClick={()=>setShowGroupedModal(true)} className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 flex items-center gap-2 text-sm"><Receipt size={16}/>Sous-traitance groupée</button>
           <button onClick={()=>handleNew('credit_note')} className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 flex items-center gap-2 text-sm"><Plus size={16}/>Avoir</button>
         </div>
       </div>
@@ -592,5 +724,92 @@ export default function Invoices() {
         </div>}
       </div>
     </div>
+
+    {/* ─── Modal facture groupée sous-traitance ─── */}
+    {showGroupedModal && (
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div className="bg-white rounded-xl shadow-xl w-full max-w-lg">
+          <div className="flex items-center justify-between p-4 border-b">
+            <h2 className="text-lg font-semibold flex items-center gap-2"><Receipt size={18} className="text-amber-600" />Facture groupée sous-traitance</h2>
+            <button onClick={()=>setShowGroupedModal(false)} className="p-1 hover:bg-gray-100 rounded"><X size={18}/></button>
+          </div>
+          <div className="p-4 space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">Client (OF)</label>
+                <select value={groupedClientId} onChange={e=>{setGroupedClientId(e.target.value); loadGroupedSessions(e.target.value, groupedMonth)}} className="w-full border rounded-lg px-3 py-2 text-sm">
+                  <option value="">Sélectionner...</option>
+                  {clients.filter(c=>c.status!=='inactif').map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">Mois</label>
+                <input type="month" value={groupedMonth} onChange={e=>{setGroupedMonth(e.target.value); loadGroupedSessions(groupedClientId, e.target.value)}} className="w-full border rounded-lg px-3 py-2 text-sm"/>
+              </div>
+            </div>
+
+            {groupedSessions.length > 0 ? (
+              <div className="border rounded-lg overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-3 py-2 text-left">Date</th>
+                      <th className="px-3 py-2 text-left">Formation</th>
+                      <th className="px-3 py-2 text-right">Montant</th>
+                      <th className="px-3 py-2 text-center">Statut</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {groupedSessions.map(s => {
+                      const days = Math.max(1, Math.round((new Date(s.end_date) - new Date(s.start_date)) / 86400000) + 1)
+                      const total = days * (parseFloat(s.subcontract_daily_rate) || 0)
+                      return (
+                        <tr key={s.id} className={`border-t ${s.subcontract_invoiced ? 'bg-green-50 opacity-60' : ''}`}>
+                          <td className="px-3 py-2 whitespace-nowrap">{fmtDateShort(s.start_date)}</td>
+                          <td className="px-3 py-2 truncate max-w-[180px]">{s.subcontract_course_title || 'Formation'}</td>
+                          <td className="px-3 py-2 text-right font-mono">{total.toFixed(2)} €</td>
+                          <td className="px-3 py-2 text-center">
+                            {s.subcontract_invoiced 
+                              ? <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Facturée</span>
+                              : <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">À facturer</span>
+                            }
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                  <tfoot className="bg-gray-50 font-semibold">
+                    <tr className="border-t">
+                      <td colSpan={2} className="px-3 py-2">
+                        {groupedSessions.filter(s=>!s.subcontract_invoiced).length} session(s) à facturer
+                      </td>
+                      <td className="px-3 py-2 text-right font-mono">
+                        {groupedSessions.filter(s=>!s.subcontract_invoiced).reduce((sum, s) => {
+                          const days = Math.max(1, Math.round((new Date(s.end_date) - new Date(s.start_date)) / 86400000) + 1)
+                          return sum + days * (parseFloat(s.subcontract_daily_rate) || 0)
+                        }, 0).toFixed(2)} € HT
+                      </td>
+                      <td></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            ) : groupedClientId ? (
+              <p className="text-sm text-gray-500 text-center py-4">Aucune session sous-traitance pour ce client sur ce mois</p>
+            ) : null}
+          </div>
+          <div className="flex justify-end gap-3 p-4 border-t">
+            <button onClick={()=>setShowGroupedModal(false)} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Annuler</button>
+            <button 
+              onClick={handleGroupedInvoice} 
+              disabled={!groupedSessions.some(s=>!s.subcontract_invoiced)}
+              className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            >
+              <Receipt size={16}/>Générer la facture
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
   )
 }
