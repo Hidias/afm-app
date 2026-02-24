@@ -4,7 +4,7 @@ import { useAuthStore } from '../lib/store'
 import { 
   Phone, CheckCircle, RefreshCw, SkipForward,
   Building2, MapPin, Mail, List, Search, Sparkles, Loader2, Map as MapIcon, Navigation, AlertTriangle,
-  Clock, PhoneOff, XCircle, Snowflake, Bell, Plus, Edit2, Briefcase, Send, ArrowLeft, MessageSquare, BarChart3, ChevronRight, X, Paperclip, Trash2
+  Clock, PhoneOff, XCircle, Snowflake, Bell, Plus, Edit2, Briefcase, Send, ArrowLeft, MessageSquare, BarChart3, ChevronRight, X, Paperclip, Trash2, Smartphone, Check
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import SpeechToTextButton from '../components/SpeechToTextButton'
@@ -195,6 +195,7 @@ export default function MarinePhoning() {
   const [contactFunction, setContactFunction] = useState('Dirigeant')
   const [contactEmail, setContactEmail] = useState('')
   const [contactMobile, setContactMobile] = useState('')
+  const [editingMobile, setEditingMobile] = useState(false)
   const [callResult, setCallResult] = useState('chaud')
   const [formationsSelected, setFormationsSelected] = useState([])
   const [notes, setNotes] = useState('')
@@ -385,7 +386,8 @@ export default function MarinePhoning() {
     setContactName('')
     setContactFunction('Dirigeant')
     setContactEmail(prospect.email || prospect.contact_email || '')
-    setContactMobile('')
+    setContactMobile(prospect.contact_mobile || '')
+    setEditingMobile(false)
     setFormationsSelected([])
     setNotes('')
     setCreateRdv(false)
@@ -607,6 +609,22 @@ export default function MarinePhoning() {
     } catch (err) {
       console.error('Erreur sauvegarde téléphone:', err)
       toast.error('Erreur: ' + err.message)
+    }
+  }
+
+  async function saveMobileDirect() {
+    if (!current || !contactMobile.trim()) return
+    try {
+      // Sauvegarder dans le dernier call_log si existant
+      if (callHistory.length > 0) {
+        await supabase.from('call_logs').update({ contact_mobile: contactMobile.trim() }).eq('id', callHistory[0].id)
+      }
+      // Sauvegarder aussi sur la fiche prospect
+      await supabase.from('prospection_massive').update({ contact_mobile: contactMobile.trim() }).eq('id', current.id)
+      toast.success('📱 Mobile direct sauvegardé')
+    } catch (err) {
+      console.error('Erreur sauvegarde mobile:', err)
+      // Non bloquant — le champ contact_mobile n'existe peut-être pas encore sur prospection_massive
     }
   }
 
@@ -1722,6 +1740,30 @@ export default function MarinePhoning() {
                 </button>
               )}
 
+              {/* Mobile direct — toujours visible */}
+              <div className="flex items-center gap-2 mt-1">
+                <Smartphone className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                {editingMobile ? (
+                  <div className="flex items-center gap-1 flex-1">
+                    <input type="tel" value={contactMobile} onChange={e => setContactMobile(e.target.value)}
+                      autoFocus onKeyDown={e => { if (e.key === 'Enter') { saveMobileDirect(); setEditingMobile(false) }; if (e.key === 'Escape') setEditingMobile(false) }}
+                      placeholder="06 00 00 00 00" className="flex-1 px-2 py-1 border rounded text-sm" />
+                    <button onClick={() => { saveMobileDirect(); setEditingMobile(false) }} className="p-1 text-green-600 hover:bg-green-50 rounded"><Check className="w-3.5 h-3.5" /></button>
+                    <button onClick={() => setEditingMobile(false)} className="p-1 text-gray-400 hover:bg-gray-100 rounded"><X className="w-3.5 h-3.5" /></button>
+                  </div>
+                ) : contactMobile ? (
+                  <div className="flex items-center gap-1.5 flex-1">
+                    <a href={'tel:' + contactMobile.replace(/\s/g, '')} className="text-sm text-primary-600 font-medium hover:underline">{contactMobile}</a>
+                    <span className="text-xs text-gray-400">mobile</span>
+                    <button onClick={() => setEditingMobile(true)} className="p-0.5 text-gray-300 hover:text-primary-600"><Edit2 className="w-3 h-3" /></button>
+                  </div>
+                ) : (
+                  <button onClick={() => setEditingMobile(true)} className="text-xs text-gray-400 hover:text-primary-600 transition-colors">
+                    + Ajouter mobile direct
+                  </button>
+                )}
+              </div>
+
               {/* Historique compact */}
               {callHistory.length > 0 && (() => {
                 const last = callHistory[0]
@@ -1791,7 +1833,9 @@ export default function MarinePhoning() {
                             { value: 'a_appeler', label: '📞 À appeler' },
                             { value: 'a_rappeler', label: '🟡 À rappeler' },
                             { value: 'rdv_pris', label: '🔥 RDV pris' },
+                            { value: 'redirige', label: '🏢 Redirigé' },
                             { value: 'pas_interesse', label: '❄️ Refus' },
+                            { value: 'numero_errone', label: '❌ N° erroné' },
                           ].map(s => (
                             <button key={s.value} onClick={() => { handleUpdateProspectStatus(s.value); setShowStatusChangeDialog(false) }}
                               className={'px-2 py-1 rounded text-xs font-medium border transition-colors ' + (current?.prospection_status === s.value ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50')}>
