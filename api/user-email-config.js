@@ -61,8 +61,26 @@ export default async function handler(req, res) {
 
       // Si testConnection = true, on teste juste la connexion
       if (testConnection) {
+        // Détecter le bon serveur SMTP : lire la config existante ou déduire du type de compte
+        let smtpHost = 'smtp.ionos.fr' // défaut Mail Basic
+        if (userId) {
+          const { data: existingCfg } = await supabase
+            .from('user_email_configs')
+            .select('smtp_host')
+            .eq('user_id', userId)
+            .eq('email', email)
+            .maybeSingle()
+          if (existingCfg?.smtp_host) smtpHost = existingCfg.smtp_host
+        }
+        // Fallback : entreprise@ = Basic, les autres = Exchange
+        if (!userId || !smtpHost || smtpHost === 'smtp.ionos.fr') {
+          if (email !== 'entreprise@accessformation.pro' && email.endsWith('@accessformation.pro')) {
+            smtpHost = 'smtp.exchange.ionos.eu'
+          }
+        }
+
         const transporter = nodemailer.createTransport({
-          host: 'smtp.ionos.fr',
+          host: smtpHost,
           port: 587,
           secure: false,
           auth: { user: email, pass: password },
@@ -112,7 +130,7 @@ export default async function handler(req, res) {
             email,
             smtp_password_encrypted: encryptedPassword,
             signature_image: signatureImage || null,
-            smtp_host: 'smtp.ionos.fr',
+            smtp_host: (email === 'entreprise@accessformation.pro' || !email.endsWith('@accessformation.pro')) ? 'smtp.ionos.fr' : 'smtp.exchange.ionos.eu',
             smtp_port: 587,
             smtp_secure: false,
             is_active: true,
