@@ -73,7 +73,7 @@ export default function Sessions() {
   })
   const [batchMode, setBatchMode] = useState(false)
   const [batchLines, setBatchLines] = useState([
-    { title: '', start_date: '', end_date: '', nb_trainees: '', client_ref: '', daily_rate: '' }
+    { client_ref: '', start_date: '', duration_days: '1', nb_trainees: '1' }
   ])
   
   useEffect(() => {
@@ -250,7 +250,7 @@ export default function Sessions() {
       subcontract_daily_rate: '',
     })
     setBatchMode(false)
-    setBatchLines([{ title: '', start_date: '', end_date: '', nb_trainees: '', client_ref: '', daily_rate: '' }])
+    setBatchLines([{ client_ref: '', start_date: '', duration_days: '1', nb_trainees: '1' }])
     setClientContacts([])
     setTraineeSearch('')
     setTraineeClientFilter('')
@@ -265,25 +265,28 @@ export default function Sessions() {
     // ═══ MODE BATCH SOUS-TRAITANCE ═══
     if (isSub && batchMode) {
       if (!formData.client_id) { toast.error('Sélectionnez un client'); return }
-      const validLines = batchLines.filter(l => l.title && l.start_date && l.end_date)
-      if (validLines.length === 0) { toast.error('Ajoutez au moins une session avec intitulé et dates'); return }
-      
-      // Vérifier les dates
-      for (const line of validLines) {
-        if (new Date(line.end_date) < new Date(line.start_date)) {
-          toast.error(`"${line.title}" : la date de fin est avant la date de début`); return
-        }
-      }
+      if (!formData.subcontract_course_title) { toast.error('Remplissez l\'intitulé de base'); return }
+      const validLines = batchLines.filter(l => l.client_ref && l.start_date)
+      if (validLines.length === 0) { toast.error('Ajoutez au moins une ligne avec réf. et date'); return }
       
       let created = 0, errors = 0
       for (const line of validLines) {
+        const dur = Math.max(1, parseInt(line.duration_days) || 1)
+        const startD = new Date(line.start_date)
+        const endD = new Date(startD)
+        endD.setDate(endD.getDate() + dur - 1)
+        const endDateStr = endD.toISOString().split('T')[0]
+        
+        // Titre auto: "CACES R.489 — Réf. 2026-02-046"
+        const autoTitle = `${formData.subcontract_course_title} — Réf. ${line.client_ref}`
+        
         const sessionData = {
           session_type: 'subcontract',
           course_id: null,
           client_id: formData.client_id,
           contact_id: formData.contact_id || null,
           start_date: line.start_date,
-          end_date: line.end_date,
+          end_date: endDateStr,
           start_time: formData.start_time,
           end_time: formData.end_time,
           day_type: 'full',
@@ -295,10 +298,10 @@ export default function Sessions() {
           trainee_ids: [],
           funding_type: 'none',
           funding_details: null,
-          subcontract_course_title: line.title,
-          subcontract_client_ref: line.client_ref || formData.subcontract_client_ref || null,
-          subcontract_nb_trainees: parseInt(line.nb_trainees) || 0,
-          subcontract_daily_rate: parseFloat(line.daily_rate || formData.subcontract_daily_rate) || null,
+          subcontract_course_title: autoTitle,
+          subcontract_client_ref: line.client_ref,
+          subcontract_nb_trainees: parseInt(line.nb_trainees) || 1,
+          subcontract_daily_rate: parseFloat(formData.subcontract_daily_rate) || null,
         }
         const { error } = await createSession(sessionData)
         if (error) { errors++; console.error(error) } else { created++ }
@@ -306,7 +309,7 @@ export default function Sessions() {
       
       if (errors > 0) toast.error(`${errors} erreur(s) sur ${validLines.length}`)
       if (created > 0) {
-        toast.success(`${created} session${created > 1 ? 's' : ''} créée${created > 1 ? 's' : ''} avec succès`)
+        toast.success(`${created} session${created > 1 ? 's' : ''} créée${created > 1 ? 's' : ''}`)
         resetForm()
       }
       return
@@ -800,6 +803,14 @@ export default function Sessions() {
                     <div><label className="label">Heure fin</label><input type="time" value={formData.end_time} onChange={(e) => setFormData({ ...formData, end_time: e.target.value })} className="input" /></div>
                   </div>
 
+                  <div>
+                    <label className="label">Intitulé de base de la formation {batchMode ? '*' : ''}</label>
+                    <input type="text" value={formData.subcontract_course_title} onChange={(e) => setFormData({ ...formData, subcontract_course_title: e.target.value })} className="input" placeholder="Ex: CACES R.489" />
+                    {batchMode && formData.subcontract_course_title && (
+                      <p className="text-xs text-gray-400 mt-1">Chaque session sera nommée : <span className="text-gray-600">{formData.subcontract_course_title} — Réf. [numéro]</span></p>
+                    )}
+                  </div>
+
                   {/* ═══ MODE UNIQUE ═══ */}
                   {!batchMode && (
                     <>
@@ -812,10 +823,6 @@ export default function Sessions() {
                           <label className="label">Nombre de stagiaires</label>
                           <input type="number" min="0" value={formData.subcontract_nb_trainees} onChange={(e) => setFormData({ ...formData, subcontract_nb_trainees: e.target.value })} className="input" placeholder="0" />
                         </div>
-                      </div>
-                      <div>
-                        <label className="label">Intitulé de la formation *</label>
-                        <input type="text" value={formData.subcontract_course_title} onChange={(e) => setFormData({ ...formData, subcontract_course_title: e.target.value })} className="input" required placeholder="Ex: Formation SST - Initiale" />
                       </div>
                       <div className="grid md:grid-cols-2 gap-4">
                         <div>
@@ -847,43 +854,44 @@ export default function Sessions() {
                   {/* ═══ MODE BATCH ═══ */}
                   {batchMode && (
                     <div className="space-y-2">
-                      <div className="grid grid-cols-[1fr_100px_100px_60px_90px_32px] gap-2 text-xs font-medium text-gray-500 px-1">
-                        <span>Intitulé *</span>
-                        <span>Début *</span>
-                        <span>Fin *</span>
+                      <div className="grid grid-cols-[1fr_110px_70px_60px_32px] gap-2 text-xs font-medium text-gray-500 px-1">
+                        <span>Réf. client *</span>
+                        <span>Date début *</span>
+                        <span>Durée</span>
                         <span>Stag.</span>
-                        <span>Réf client</span>
                         <span></span>
                       </div>
                       {batchLines.map((line, idx) => {
-                        const days = line.start_date && line.end_date ? Math.max(1, Math.round((new Date(line.end_date) - new Date(line.start_date)) / 86400000) + 1) : 0
-                        const rate = parseFloat(line.daily_rate || formData.subcontract_daily_rate) || 0
-                        const lineTotal = days * rate
+                        const dur = parseInt(line.duration_days) || 1
+                        const rate = parseFloat(formData.subcontract_daily_rate) || 0
+                        const lineTotal = dur * rate
+                        const endDate = line.start_date ? (() => { const d = new Date(line.start_date); d.setDate(d.getDate() + dur - 1); return format(d, 'dd/MM', { locale: fr }) })() : ''
                         return (
-                          <div key={idx} className="grid grid-cols-[1fr_100px_100px_60px_90px_32px] gap-2 items-center">
-                            <input type="text" value={line.title} placeholder="Formation..."
-                              onChange={(e) => { const u = [...batchLines]; u[idx].title = e.target.value; setBatchLines(u) }}
-                              className="px-2 py-1.5 border rounded text-sm" />
+                          <div key={idx} className="grid grid-cols-[1fr_110px_70px_60px_32px] gap-2 items-center">
+                            <input type="text" value={line.client_ref} placeholder="2026-02-046"
+                              onChange={(e) => { const u = [...batchLines]; u[idx].client_ref = e.target.value; setBatchLines(u) }}
+                              className="px-2 py-1.5 border rounded text-sm font-mono" />
                             <input type="date" value={line.start_date}
-                              onChange={(e) => { const u = [...batchLines]; u[idx].start_date = e.target.value; if (!u[idx].end_date || u[idx].end_date < e.target.value) u[idx].end_date = e.target.value; setBatchLines(u) }}
+                              onChange={(e) => { const u = [...batchLines]; u[idx].start_date = e.target.value; setBatchLines(u) }}
                               className="px-1.5 py-1.5 border rounded text-sm" />
-                            <input type="date" value={line.end_date} min={line.start_date}
-                              onChange={(e) => { const u = [...batchLines]; u[idx].end_date = e.target.value; setBatchLines(u) }}
-                              className="px-1.5 py-1.5 border rounded text-sm" />
-                            <input type="number" min="0" value={line.nb_trainees} placeholder="0"
+                            <div className="flex items-center gap-1">
+                              <input type="number" min="1" max="30" value={line.duration_days}
+                                onChange={(e) => { const u = [...batchLines]; u[idx].duration_days = e.target.value; setBatchLines(u) }}
+                                className="w-12 px-1.5 py-1.5 border rounded text-sm text-center" />
+                              <span className="text-xs text-gray-400">j</span>
+                            </div>
+                            <input type="number" min="0" value={line.nb_trainees} placeholder="1"
                               onChange={(e) => { const u = [...batchLines]; u[idx].nb_trainees = e.target.value; setBatchLines(u) }}
                               className="px-1.5 py-1.5 border rounded text-sm text-center" />
-                            <input type="text" value={line.client_ref} placeholder="Réf."
-                              onChange={(e) => { const u = [...batchLines]; u[idx].client_ref = e.target.value; setBatchLines(u) }}
-                              className="px-1.5 py-1.5 border rounded text-sm" />
                             <button type="button" onClick={() => { if (batchLines.length > 1) setBatchLines(batchLines.filter((_, i) => i !== idx)) }}
                               disabled={batchLines.length <= 1}
                               className="p-1 text-red-400 hover:text-red-600 disabled:opacity-30">
                               <Trash2 className="w-4 h-4" />
                             </button>
-                            {lineTotal > 0 && (
-                              <div className="col-span-full text-right text-xs text-gray-400 -mt-1 pr-10">
-                                {days}j × {rate.toFixed(0)}€ = <span className="text-green-700 font-medium">{lineTotal.toFixed(2)}€</span>
+                            {line.start_date && (
+                              <div className="col-span-full flex justify-between text-xs text-gray-400 -mt-1 px-1">
+                                <span>{formData.subcontract_course_title ? `${formData.subcontract_course_title} — Réf. ${line.client_ref || '…'}` : `Réf. ${line.client_ref || '…'}`}{endDate ? ` · → ${endDate}` : ''}</span>
+                                {lineTotal > 0 && <span className="text-green-700 font-medium">{dur}j × {rate.toFixed(0)}€ = {lineTotal.toFixed(2)}€</span>}
                               </div>
                             )}
                           </div>
@@ -891,19 +899,17 @@ export default function Sessions() {
                       })}
                       <div className="flex items-center justify-between pt-1">
                         <button type="button"
-                          onClick={() => setBatchLines([...batchLines, { title: '', start_date: '', end_date: '', nb_trainees: '', client_ref: '', daily_rate: '' }])}
+                          onClick={() => setBatchLines([...batchLines, { client_ref: '', start_date: batchLines[batchLines.length - 1]?.start_date || '', duration_days: '1', nb_trainees: '1' }])}
                           className="text-sm text-amber-700 hover:text-amber-900 flex items-center gap-1">
                           <Plus className="w-4 h-4" /> Ajouter une ligne
                         </button>
-                        {batchLines.filter(l => l.title && l.start_date).length > 0 && (
+                        {batchLines.filter(l => l.client_ref && l.start_date).length > 0 && (
                           <div className="bg-green-50 border border-green-200 rounded-lg px-3 py-2 text-sm">
                             {(() => {
-                              const validLines = batchLines.filter(l => l.title && l.start_date && l.end_date)
-                              const totalDays = validLines.reduce((s, l) => s + Math.max(1, Math.round((new Date(l.end_date) - new Date(l.start_date)) / 86400000) + 1), 0)
-                              const totalAmount = validLines.reduce((s, l) => {
-                                const d = Math.max(1, Math.round((new Date(l.end_date) - new Date(l.start_date)) / 86400000) + 1)
-                                return s + d * (parseFloat(l.daily_rate || formData.subcontract_daily_rate) || 0)
-                              }, 0)
+                              const validLines = batchLines.filter(l => l.client_ref && l.start_date)
+                              const totalDays = validLines.reduce((s, l) => s + Math.max(1, parseInt(l.duration_days) || 1), 0)
+                              const rate = parseFloat(formData.subcontract_daily_rate) || 0
+                              const totalAmount = totalDays * rate
                               return (
                                 <span className="text-green-800">
                                   <strong>{validLines.length}</strong> session{validLines.length > 1 ? 's' : ''} · {totalDays}j · <strong className="text-green-900">{totalAmount.toFixed(2)} € HT</strong>
@@ -1256,7 +1262,7 @@ export default function Sessions() {
                 </button>
                 <button type="submit" className="btn btn-primary">
                   {formData.session_type === 'subcontract' && batchMode
-                    ? `Créer ${batchLines.filter(l => l.title && l.start_date).length} session${batchLines.filter(l => l.title && l.start_date).length > 1 ? 's' : ''}`
+                    ? `Créer ${batchLines.filter(l => l.client_ref && l.start_date).length} session${batchLines.filter(l => l.client_ref && l.start_date).length > 1 ? 's' : ''}`
                     : 'Créer la session'
                   }
                 </button>
