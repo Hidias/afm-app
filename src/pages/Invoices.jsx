@@ -547,6 +547,72 @@ export default function Invoices() {
           })}
         </div>
       </div></div>)}
+
+      {/* ─── Modal facture groupée sous-traitance ─── */}
+      {showGroupedModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg">
+            <div className="flex items-center justify-between p-4 border-b">
+              <h2 className="text-lg font-semibold flex items-center gap-2"><Receipt size={18} className="text-amber-600" />Facture groupée sous-traitance</h2>
+              <button onClick={()=>setShowGroupedModal(false)} className="p-1 hover:bg-gray-100 rounded"><X size={18}/></button>
+            </div>
+            <div className="p-4 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">Client (OF)</label>
+                  <select value={groupedClientId} onChange={e=>{setGroupedClientId(e.target.value); loadGroupedSessions(e.target.value, groupedMonth)}} className="w-full border rounded-lg px-3 py-2 text-sm">
+                    <option value="">Sélectionner...</option>
+                    {clients.filter(c=>c.status!=='inactif').map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">Mois</label>
+                  <input type="month" value={groupedMonth} onChange={e=>{setGroupedMonth(e.target.value); loadGroupedSessions(groupedClientId, e.target.value)}} className="w-full border rounded-lg px-3 py-2 text-sm"/>
+                </div>
+              </div>
+              {groupedSessions.length > 0 ? (
+                <div className="border rounded-lg overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50"><tr><th className="px-3 py-2 text-left">Date</th><th className="px-3 py-2 text-left">Formation</th><th className="px-3 py-2 text-right">Montant</th><th className="px-3 py-2 text-center">Statut</th></tr></thead>
+                    <tbody>
+                      {groupedSessions.map(s => {
+                        const days = Math.max(1, Math.round((new Date(s.end_date) - new Date(s.start_date)) / 86400000) + 1)
+                        const total = days * (parseFloat(s.subcontract_daily_rate) || 0)
+                        return (
+                          <tr key={s.id} className={`border-t ${s.subcontract_invoiced ? 'bg-green-50 opacity-60' : ''}`}>
+                            <td className="px-3 py-2 whitespace-nowrap">{fmtDateShort(s.start_date)}</td>
+                            <td className="px-3 py-2 truncate max-w-[180px]">{s.subcontract_course_title || 'Formation'}</td>
+                            <td className="px-3 py-2 text-right font-mono">{total.toFixed(2)} €</td>
+                            <td className="px-3 py-2 text-center">
+                              {s.subcontract_invoiced 
+                                ? <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Facturée</span>
+                                : <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">À facturer</span>}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                    <tfoot className="bg-gray-50 font-semibold"><tr className="border-t">
+                      <td colSpan={2} className="px-3 py-2">{groupedSessions.filter(s=>!s.subcontract_invoiced).length} session(s) à facturer</td>
+                      <td className="px-3 py-2 text-right font-mono">{groupedSessions.filter(s=>!s.subcontract_invoiced).reduce((sum, s) => { const d = Math.max(1, Math.round((new Date(s.end_date) - new Date(s.start_date)) / 86400000) + 1); return sum + d * (parseFloat(s.subcontract_daily_rate) || 0) }, 0).toFixed(2)} € HT</td>
+                      <td></td>
+                    </tr></tfoot>
+                  </table>
+                </div>
+              ) : groupedClientId ? (
+                <p className="text-sm text-gray-500 text-center py-4">Aucune session sous-traitance pour ce client sur ce mois</p>
+              ) : null}
+            </div>
+            <div className="flex justify-end gap-3 p-4 border-t">
+              <button onClick={()=>setShowGroupedModal(false)} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Annuler</button>
+              <button onClick={handleGroupedInvoice} disabled={!groupedSessions.some(s=>!s.subcontract_invoiced)}
+                className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
+                <Receipt size={16}/>Générer la facture
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 
@@ -724,92 +790,5 @@ export default function Invoices() {
         </div>}
       </div>
     </div>
-
-    {/* ─── Modal facture groupée sous-traitance ─── */}
-    {showGroupedModal && (
-      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-        <div className="bg-white rounded-xl shadow-xl w-full max-w-lg">
-          <div className="flex items-center justify-between p-4 border-b">
-            <h2 className="text-lg font-semibold flex items-center gap-2"><Receipt size={18} className="text-amber-600" />Facture groupée sous-traitance</h2>
-            <button onClick={()=>setShowGroupedModal(false)} className="p-1 hover:bg-gray-100 rounded"><X size={18}/></button>
-          </div>
-          <div className="p-4 space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-xs text-gray-500 block mb-1">Client (OF)</label>
-                <select value={groupedClientId} onChange={e=>{setGroupedClientId(e.target.value); loadGroupedSessions(e.target.value, groupedMonth)}} className="w-full border rounded-lg px-3 py-2 text-sm">
-                  <option value="">Sélectionner...</option>
-                  {clients.filter(c=>c.status!=='inactif').map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 block mb-1">Mois</label>
-                <input type="month" value={groupedMonth} onChange={e=>{setGroupedMonth(e.target.value); loadGroupedSessions(groupedClientId, e.target.value)}} className="w-full border rounded-lg px-3 py-2 text-sm"/>
-              </div>
-            </div>
-
-            {groupedSessions.length > 0 ? (
-              <div className="border rounded-lg overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-3 py-2 text-left">Date</th>
-                      <th className="px-3 py-2 text-left">Formation</th>
-                      <th className="px-3 py-2 text-right">Montant</th>
-                      <th className="px-3 py-2 text-center">Statut</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {groupedSessions.map(s => {
-                      const days = Math.max(1, Math.round((new Date(s.end_date) - new Date(s.start_date)) / 86400000) + 1)
-                      const total = days * (parseFloat(s.subcontract_daily_rate) || 0)
-                      return (
-                        <tr key={s.id} className={`border-t ${s.subcontract_invoiced ? 'bg-green-50 opacity-60' : ''}`}>
-                          <td className="px-3 py-2 whitespace-nowrap">{fmtDateShort(s.start_date)}</td>
-                          <td className="px-3 py-2 truncate max-w-[180px]">{s.subcontract_course_title || 'Formation'}</td>
-                          <td className="px-3 py-2 text-right font-mono">{total.toFixed(2)} €</td>
-                          <td className="px-3 py-2 text-center">
-                            {s.subcontract_invoiced 
-                              ? <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Facturée</span>
-                              : <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">À facturer</span>
-                            }
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                  <tfoot className="bg-gray-50 font-semibold">
-                    <tr className="border-t">
-                      <td colSpan={2} className="px-3 py-2">
-                        {groupedSessions.filter(s=>!s.subcontract_invoiced).length} session(s) à facturer
-                      </td>
-                      <td className="px-3 py-2 text-right font-mono">
-                        {groupedSessions.filter(s=>!s.subcontract_invoiced).reduce((sum, s) => {
-                          const days = Math.max(1, Math.round((new Date(s.end_date) - new Date(s.start_date)) / 86400000) + 1)
-                          return sum + days * (parseFloat(s.subcontract_daily_rate) || 0)
-                        }, 0).toFixed(2)} € HT
-                      </td>
-                      <td></td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-            ) : groupedClientId ? (
-              <p className="text-sm text-gray-500 text-center py-4">Aucune session sous-traitance pour ce client sur ce mois</p>
-            ) : null}
-          </div>
-          <div className="flex justify-end gap-3 p-4 border-t">
-            <button onClick={()=>setShowGroupedModal(false)} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Annuler</button>
-            <button 
-              onClick={handleGroupedInvoice} 
-              disabled={!groupedSessions.some(s=>!s.subcontract_invoiced)}
-              className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-            >
-              <Receipt size={16}/>Générer la facture
-            </button>
-          </div>
-        </div>
-      </div>
-    )}
   )
 }
