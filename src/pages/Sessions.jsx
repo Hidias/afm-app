@@ -696,6 +696,64 @@ export default function Sessions() {
             
             // ─── Session solo (classique) ────────────────────────
             const session = item.session
+            
+            // ─── Carte COMPACTE sous-traitance ────────────────────
+            if (session.session_type === 'subcontract') {
+              const refs = (session.subcontract_client_ref || '').split(',').map(r => r.trim()).filter(Boolean)
+              const shortRefs = refs.map(r => r.replace(/^2026-\d{2}-0?/, ''))
+              return (
+                <Link
+                  key={session.id}
+                  to={`/sessions/${session.id}`}
+                  className="block bg-amber-50/60 border border-amber-200 rounded-lg px-4 py-2.5 hover:bg-amber-50 transition-colors group"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3 flex-1 min-w-0 flex-wrap">
+                      {/* Date */}
+                      <span className="text-sm font-medium text-gray-700 whitespace-nowrap w-[75px] shrink-0">
+                        {session.start_date ? format(new Date(session.start_date), 'dd/MM/yyyy', { locale: fr }) : '—'}
+                      </span>
+                      {/* Réfs courtes */}
+                      <div className="flex items-center gap-1 shrink-0">
+                        {shortRefs.slice(0, 4).map((r, i) => (
+                          <span key={i} className="px-1.5 py-0.5 bg-amber-200/60 text-amber-900 text-xs rounded font-mono">{r}</span>
+                        ))}
+                        {shortRefs.length > 4 && <span className="text-xs text-amber-600">+{shortRefs.length - 4}</span>}
+                      </div>
+                      {/* Lieu (tronqué) */}
+                      <span className="text-xs text-gray-500 truncate max-w-[180px] hidden sm:inline">
+                        {(session.location_name || session.location || '').split(',')[0]}
+                      </span>
+                      {/* Stagiaires */}
+                      <span className="text-xs text-gray-500 whitespace-nowrap">
+                        <Users className="w-3 h-3 inline mr-0.5" />{session.subcontract_nb_trainees || 0}
+                      </span>
+                      {/* Tarif */}
+                      <span className="text-xs font-medium text-amber-700 whitespace-nowrap">
+                        {parseFloat(session.subcontract_daily_rate || 0).toFixed(0)}€/j
+                      </span>
+                      {/* Statut */}
+                      <span className={`text-xs px-1.5 py-0.5 rounded-full ${
+                        session.subcontract_invoiced ? 'bg-green-100 text-green-700' :
+                        session.status === 'completed' ? 'bg-blue-100 text-blue-700' :
+                        session.status === 'cancelled' ? 'bg-red-100 text-red-700' :
+                        'bg-gray-100 text-gray-600'
+                      }`}>
+                        {session.subcontract_invoiced ? '✓ Fact.' : statusLabels[session.status]?.label || session.status}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button onClick={(e) => handleDelete(session.id, e)} className="p-1 hover:bg-red-50 rounded opacity-0 group-hover:opacity-100 transition-opacity" title="Supprimer">
+                        <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                      </button>
+                      <ChevronRight className="w-4 h-4 text-amber-400" />
+                    </div>
+                  </div>
+                </Link>
+              )
+            }
+
+            // ─── Carte STANDARD (intra / inter / public) ─────────
             return (
               <Link
                 key={session.id}
@@ -709,31 +767,15 @@ export default function Sessions() {
                       <span className={`badge ${statusLabels[session.status]?.class || 'badge-gray'}`}>
                         {statusLabels[session.status]?.label || session.status}
                       </span>
-                      {session.is_intra && session.session_type !== 'subcontract' && (
+                      {session.is_intra && (
                         <span className="badge bg-purple-100 text-purple-700">Intra</span>
-                      )}
-                      {session.session_type === 'subcontract' && (
-                        <span className="badge bg-amber-100 text-amber-800 flex items-center gap-1">
-                          <Briefcase className="w-3 h-3" />Sous-traitance
-                        </span>
-                      )}
-                      {session.session_type === 'subcontract' && session.subcontract_invoiced && (
-                        <span className="badge bg-green-100 text-green-700">Facturée</span>
                       )}
                     </div>
                     
                     <h3 className="font-semibold text-gray-900 text-lg">
-                      {session.session_type === 'subcontract'
-                        ? (session.subcontract_course_title || 'Formation sous-traitée')
-                        : (session.courses?.title || 'Formation')
-                      }
+                      {session.courses?.title || 'Formation'}
                     </h3>
-                    <p className="text-gray-600">
-                      {session.clients?.name}
-                      {session.session_type === 'subcontract' && session.subcontract_client_ref && (
-                        <span className="text-gray-400 ml-2">Réf: {session.subcontract_client_ref}</span>
-                      )}
-                    </p>
+                    <p className="text-gray-600">{session.clients?.name}</p>
                     
                     <div className="flex flex-wrap items-center gap-4 mt-3 text-sm text-gray-500">
                       <span className="flex items-center gap-1">
@@ -753,18 +795,8 @@ export default function Sessions() {
                       
                       <span className="flex items-center gap-1">
                         <Users className="w-4 h-4" />
-                        {session.session_type === 'subcontract'
-                          ? `${session.subcontract_nb_trainees || 0} stagiaire(s)`
-                          : `${session.session_trainees?.length || 0} stagiaire(s)`
-                        }
+                        {session.session_trainees?.length || 0} stagiaire(s)
                       </span>
-                      
-                      {session.session_type === 'subcontract' && session.subcontract_daily_rate && (
-                        <span className="flex items-center gap-1 text-amber-700 font-medium">
-                          <Euro className="w-4 h-4" />
-                          {parseFloat(session.subcontract_daily_rate).toFixed(0)} €/j HT
-                        </span>
-                      )}
                     </div>
                   </div>
                   
