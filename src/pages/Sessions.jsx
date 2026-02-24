@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom'
 import { useDataStore } from '../lib/store'
 import { supabase } from '../lib/supabase'
 import { 
-  Calendar, Plus, Search, MapPin, Users, Clock, ChevronRight, ChevronDown, X, Trash2, Copy, Building2, List, LayoutGrid
+  Calendar, Plus, Search, MapPin, Users, Clock, ChevronRight, ChevronDown, X, Trash2, Copy, Building2, List, LayoutGrid, Briefcase, Euro
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
@@ -64,6 +64,12 @@ export default function Sessions() {
     trainee_ids: [],
     funding_type: 'none',
     funding_details: '',
+    // Sous-traitance
+    session_type: 'intra',
+    subcontract_course_title: '',
+    subcontract_client_ref: '',
+    subcontract_nb_trainees: '',
+    subcontract_daily_rate: '',
   })
   
   useEffect(() => {
@@ -163,7 +169,7 @@ export default function Sessions() {
   
   const filteredSessions = sessions.filter(session => {
     const trainerName = session.trainers ? `${session.trainers.first_name} ${session.trainers.last_name}` : ''
-    const searchFields = `${session.reference || ''} ${session.courses?.title || ''} ${session.clients?.name || ''} ${trainerName} ${session.location || ''}`.toLowerCase()
+    const searchFields = `${session.reference || ''} ${session.courses?.title || ''} ${session.clients?.name || ''} ${trainerName} ${session.location || ''} ${session.subcontract_course_title || ''} ${session.subcontract_client_ref || ''}`.toLowerCase()
     const matchSearch = !search || searchFields.includes(search.toLowerCase())
     
     const matchStatus = !statusFilter || session.status === statusFilter
@@ -233,6 +239,11 @@ export default function Sessions() {
       is_intra: false,
       trainer_ids: [],
       trainee_ids: [],
+      session_type: 'intra',
+      subcontract_course_title: '',
+      subcontract_client_ref: '',
+      subcontract_nb_trainees: '',
+      subcontract_daily_rate: '',
     })
     setClientContacts([])
     setTraineeSearch('')
@@ -243,41 +254,53 @@ export default function Sessions() {
   const handleSubmit = async (e) => {
     e.preventDefault()
     
-    if (!formData.course_id || !formData.client_id || !formData.start_date || !formData.end_date) {
-      toast.error('Veuillez remplir tous les champs obligatoires')
-      return
+    const isSub = formData.session_type === 'subcontract'
+    
+    if (isSub) {
+      if (!formData.client_id || !formData.start_date || !formData.end_date || !formData.subcontract_course_title) {
+        toast.error('Remplissez le client, les dates et l\'intitulé de la formation')
+        return
+      }
+    } else {
+      if (!formData.course_id || !formData.client_id || !formData.start_date || !formData.end_date) {
+        toast.error('Veuillez remplir tous les champs obligatoires')
+        return
+      }
+      if (!formData.funding_type || formData.funding_type === '') {
+        toast.error('Le type de financement est obligatoire')
+        return
+      }
     }
     
-    if (!formData.funding_type || formData.funding_type === '') {
-      toast.error('Le type de financement est obligatoire')
-      return
-    }
-    
-    // Vérifier que la date de fin n'est pas avant la date de début
     if (new Date(formData.end_date) < new Date(formData.start_date)) {
       toast.error('La date de fin ne peut pas être avant la date de début')
       return
     }
     
     const sessionData = {
-      course_id: formData.course_id,
+      session_type: formData.session_type,
+      course_id: isSub ? null : formData.course_id,
       client_id: formData.client_id,
-      contact_id: formData.contact_id || null, // Contact spécifique (optionnel)
-      signatory_name: formData.signatory_name || null,
-      signatory_role: formData.signatory_role || null,
+      contact_id: formData.contact_id || null,
+      signatory_name: isSub ? null : (formData.signatory_name || null),
+      signatory_role: isSub ? null : (formData.signatory_role || null),
       start_date: formData.start_date,
       end_date: formData.end_date,
       start_time: formData.start_time,
       end_time: formData.end_time,
-      day_type: formData.day_type || 'full', // 'full' ou 'half'
+      day_type: formData.day_type || 'full',
       location: formData.location,
       room: formData.room,
       status: formData.status,
-      is_intra: formData.is_intra,
+      is_intra: isSub ? true : formData.is_intra,
       trainer_ids: formData.trainer_ids,
-      trainee_ids: formData.trainee_ids,
-      funding_type: formData.funding_type || 'none',
-      funding_details: formData.funding_details || null,
+      trainee_ids: isSub ? [] : formData.trainee_ids,
+      funding_type: isSub ? 'none' : (formData.funding_type || 'none'),
+      funding_details: isSub ? null : (formData.funding_details || null),
+      subcontract_course_title: isSub ? formData.subcontract_course_title : null,
+      subcontract_client_ref: isSub ? formData.subcontract_client_ref : null,
+      subcontract_nb_trainees: isSub ? (parseInt(formData.subcontract_nb_trainees) || 0) : 0,
+      subcontract_daily_rate: isSub ? (parseFloat(formData.subcontract_daily_rate) || null) : null,
     }
     
     const { error } = await createSession(sessionData)
@@ -545,15 +568,31 @@ export default function Sessions() {
                       <span className={`badge ${statusLabels[session.status]?.class || 'badge-gray'}`}>
                         {statusLabels[session.status]?.label || session.status}
                       </span>
-                      {session.is_intra && (
+                      {session.is_intra && session.session_type !== 'subcontract' && (
                         <span className="badge bg-purple-100 text-purple-700">Intra</span>
+                      )}
+                      {session.session_type === 'subcontract' && (
+                        <span className="badge bg-amber-100 text-amber-800 flex items-center gap-1">
+                          <Briefcase className="w-3 h-3" />Sous-traitance
+                        </span>
+                      )}
+                      {session.session_type === 'subcontract' && session.subcontract_invoiced && (
+                        <span className="badge bg-green-100 text-green-700">Facturée</span>
                       )}
                     </div>
                     
                     <h3 className="font-semibold text-gray-900 text-lg">
-                      {session.courses?.title || 'Formation'}
+                      {session.session_type === 'subcontract'
+                        ? (session.subcontract_course_title || 'Formation sous-traitée')
+                        : (session.courses?.title || 'Formation')
+                      }
                     </h3>
-                    <p className="text-gray-600">{session.clients?.name}</p>
+                    <p className="text-gray-600">
+                      {session.clients?.name}
+                      {session.session_type === 'subcontract' && session.subcontract_client_ref && (
+                        <span className="text-gray-400 ml-2">Réf: {session.subcontract_client_ref}</span>
+                      )}
+                    </p>
                     
                     <div className="flex flex-wrap items-center gap-4 mt-3 text-sm text-gray-500">
                       <span className="flex items-center gap-1">
@@ -564,17 +603,27 @@ export default function Sessions() {
                         )}
                       </span>
                       
-                      {session.location && (
+                      {(session.location_name || session.location) && (
                         <span className="flex items-center gap-1">
                           <MapPin className="w-4 h-4" />
-                          {session.location}
+                          {session.location_name || session.location}
                         </span>
                       )}
                       
                       <span className="flex items-center gap-1">
                         <Users className="w-4 h-4" />
-                        {session.session_trainees?.length || 0} stagiaire(s)
+                        {session.session_type === 'subcontract'
+                          ? `${session.subcontract_nb_trainees || 0} stagiaire(s)`
+                          : `${session.session_trainees?.length || 0} stagiaire(s)`
+                        }
                       </span>
+                      
+                      {session.session_type === 'subcontract' && session.subcontract_daily_rate && (
+                        <span className="flex items-center gap-1 text-amber-700 font-medium">
+                          <Euro className="w-4 h-4" />
+                          {parseFloat(session.subcontract_daily_rate).toFixed(0)} €/j HT
+                        </span>
+                      )}
                     </div>
                   </div>
                   
@@ -607,7 +656,7 @@ export default function Sessions() {
       {showForm && (
         <div className="fixed inset-0 bg-black/50 flex items-start justify-center z-50 p-4 overflow-y-auto">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl my-8">
-            <div className="flex items-center justify-between p-4 border-b sticky top-0 bg-white rounded-t-xl">
+            <div className="flex items-center justify-between p-4 border-b sticky top-0 bg-white rounded-t-xl z-10">
               <h2 className="text-xl font-semibold">Nouvelle session</h2>
               <button onClick={resetForm} className="p-2 hover:bg-gray-100 rounded-lg">
                 <X className="w-5 h-5" />
@@ -615,6 +664,127 @@ export default function Sessions() {
             </div>
             
             <form onSubmit={handleSubmit} className="p-6 space-y-4">
+              {/* Toggle type de session */}
+              <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+                <button type="button"
+                  onClick={() => setFormData({ ...formData, session_type: 'intra' })}
+                  className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium rounded-md transition-all
+                    ${formData.session_type !== 'subcontract' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                >
+                  <Calendar className="w-4 h-4" />
+                  Formation directe
+                </button>
+                <button type="button"
+                  onClick={() => setFormData({ ...formData, session_type: 'subcontract', funding_type: 'none', course_id: '' })}
+                  className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium rounded-md transition-all
+                    ${formData.session_type === 'subcontract' ? 'bg-amber-50 text-amber-800 shadow-sm border border-amber-200' : 'text-gray-500 hover:text-gray-700'}`}
+                >
+                  <Briefcase className="w-4 h-4" />
+                  Sous-traitance
+                </button>
+              </div>
+
+              {/* ═══ FORMULAIRE SOUS-TRAITANCE ═══ */}
+              {formData.session_type === 'subcontract' && (
+                <>
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
+                    <Briefcase className="w-4 h-4 inline mr-1.5" />
+                    Session en tant que sous-traitant — formulaire simplifié
+                  </div>
+                  
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="label">Donneur d'ordre (OF) *</label>
+                      <select value={formData.client_id} onChange={(e) => setFormData({ ...formData, client_id: e.target.value })} className="input" required>
+                        <option value="">Sélectionner...</option>
+                        <optgroup label="🎓 Organismes de formation">
+                          {clients.filter(c => c.client_type === 'organisme_formation').map(client => (
+                            <option key={client.id} value={client.id}>{client.name}</option>
+                          ))}
+                        </optgroup>
+                        <optgroup label="Autres clients">
+                          {clients.filter(c => c.client_type !== 'organisme_formation').map(client => (
+                            <option key={client.id} value={client.id}>{client.name}</option>
+                          ))}
+                        </optgroup>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="label">Leur référence</label>
+                      <input type="text" value={formData.subcontract_client_ref} onChange={(e) => setFormData({ ...formData, subcontract_client_ref: e.target.value })} className="input" placeholder="Réf. du donneur d'ordre" />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="label">Intitulé de la formation *</label>
+                    <input type="text" value={formData.subcontract_course_title} onChange={(e) => setFormData({ ...formData, subcontract_course_title: e.target.value })} className="input" required placeholder="Ex: Formation SST - Initiale" />
+                  </div>
+                  
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="label">Date de début *</label>
+                      <input type="date" value={formData.start_date} required onChange={(e) => { const d = e.target.value; setFormData({ ...formData, start_date: d, end_date: formData.end_date && formData.end_date < d ? d : (formData.end_date || d) }) }} className="input" />
+                    </div>
+                    <div>
+                      <label className="label">Date de fin *</label>
+                      <input type="date" value={formData.end_date} min={formData.start_date} required onChange={(e) => setFormData({ ...formData, end_date: e.target.value })} className="input" />
+                    </div>
+                  </div>
+
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <div><label className="label">Heure début</label><input type="time" value={formData.start_time} onChange={(e) => setFormData({ ...formData, start_time: e.target.value })} className="input" /></div>
+                    <div><label className="label">Heure fin</label><input type="time" value={formData.end_time} onChange={(e) => setFormData({ ...formData, end_time: e.target.value })} className="input" /></div>
+                  </div>
+
+                  <div>
+                    <label className="label">Lieu</label>
+                    <input type="text" value={formData.location} onChange={(e) => setFormData({ ...formData, location: e.target.value })} className="input" placeholder="Adresse de la formation" />
+                  </div>
+
+                  <div>
+                    <label className="label">Formateur</label>
+                    <select value={formData.trainer_ids[0] || ''} onChange={(e) => setFormData({ ...formData, trainer_ids: e.target.value ? [e.target.value] : [] })} className="input">
+                      <option value="">Sélectionner...</option>
+                      {trainers.map(trainer => (
+                        <option key={trainer.id} value={trainer.id}>{trainer.first_name} {trainer.last_name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="label">Nombre de stagiaires</label>
+                      <input type="number" min="0" value={formData.subcontract_nb_trainees} onChange={(e) => setFormData({ ...formData, subcontract_nb_trainees: e.target.value })} className="input" placeholder="0" />
+                    </div>
+                    <div>
+                      <label className="label">Tarif journalier HT (€)</label>
+                      <div className="relative">
+                        <input type="number" min="0" step="0.01" value={formData.subcontract_daily_rate} onChange={(e) => setFormData({ ...formData, subcontract_daily_rate: e.target.value })} className="input pr-8" placeholder="0.00" />
+                        <Euro className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                      </div>
+                    </div>
+                  </div>
+
+                  {formData.subcontract_daily_rate && formData.start_date && formData.end_date && (
+                    <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-sm">
+                      {(() => {
+                        const days = Math.max(1, Math.round((new Date(formData.end_date) - new Date(formData.start_date)) / 86400000) + 1)
+                        const total = days * parseFloat(formData.subcontract_daily_rate || 0)
+                        return (
+                          <div className="flex justify-between items-center">
+                            <span className="text-green-800">{days} jour{days > 1 ? 's' : ''} × {parseFloat(formData.subcontract_daily_rate).toFixed(2)} €</span>
+                            <span className="font-bold text-green-900 text-lg">{total.toFixed(2)} € HT</span>
+                          </div>
+                        )
+                      })()}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* ═══ FORMULAIRE STANDARD (formation directe) ═══ */}
+              {formData.session_type !== 'subcontract' && (
+                <>
               {/* Formation et Client */}
               <div className="grid md:grid-cols-2 gap-4">
                 <div>
@@ -928,6 +1098,7 @@ export default function Sessions() {
                   {formData.trainee_ids.length} stagiaire(s) sélectionné(s)
                 </p>
               </div>
+              </>)}
               
               {/* Statut */}
               <div>
