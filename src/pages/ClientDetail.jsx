@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { ArrowLeft, Building2, MapPin, Phone, Mail, Globe, Edit, Save, X, Plus, Trash2, User, Clock, MessageSquare, Calendar, FileText, GraduationCap, Star, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Send, StickyNote, Receipt, RefreshCw, Briefcase, FileSignature, Smartphone, Loader2, Search } from 'lucide-react'
+import { ArrowLeft, Building2, MapPin, Phone, Mail, Globe, Edit, Save, X, Plus, Trash2, User, Clock, MessageSquare, Calendar, FileText, GraduationCap, Star, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Send, StickyNote, Receipt, RefreshCw, Briefcase, FileSignature, Smartphone, Loader2, Search, CreditCard } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
@@ -220,6 +220,11 @@ export default function ClientDetail() {
       contact_name: editForm.contact_name, contact_function: editForm.contact_function,
       website: editForm.website, notes: editForm.notes, status: editForm.status,
       opco_name: editForm.opco_name || null,
+      client_type: editForm.client_type || 'entreprise',
+      billing_mode: editForm.billing_mode || 'per_session',
+      default_payment_terms: editForm.default_payment_terms || 'à 30 jours',
+      billing_email: editForm.billing_email || null,
+      satisfaction_mode: editForm.satisfaction_mode || 'after_session',
     }).eq('id', id)
     if (error) return toast.error('Erreur sauvegarde')
     toast.success('Client mis à jour')
@@ -572,6 +577,66 @@ export default function ClientDetail() {
                   )}
                 </select>
               </div>
+              
+              {/* Type de client */}
+              <div className="col-span-2">
+                <label className="text-xs font-medium text-gray-500 mb-2 block">Type de client</label>
+                <div className="flex gap-2 flex-wrap">
+                  {[
+                    { value: 'entreprise', label: '🏢 Entreprise', active: 'bg-blue-500 text-white', inactive: 'bg-blue-50 text-blue-700 hover:bg-blue-100' },
+                    { value: 'organisme_formation', label: '🎓 Organisme de formation', active: 'bg-purple-500 text-white', inactive: 'bg-purple-50 text-purple-700 hover:bg-purple-100' },
+                    { value: 'public', label: '🏛️ Établissement public', active: 'bg-teal-500 text-white', inactive: 'bg-teal-50 text-teal-700 hover:bg-teal-100' },
+                    { value: 'opco', label: '💼 OPCO', active: 'bg-amber-500 text-white', inactive: 'bg-amber-50 text-amber-700 hover:bg-amber-100' },
+                  ].map(s => (
+                    <button key={s.value} type="button" onClick={() => setEditForm({ ...editForm, client_type: s.value })}
+                      className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${editForm.client_type === s.value ? s.active : s.inactive}`}>
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Préférences facturation */}
+              <div className="col-span-2 bg-gray-50 rounded-lg p-4 space-y-3">
+                <h4 className="text-xs font-semibold text-gray-600 uppercase tracking-wide flex items-center gap-1.5">
+                  <CreditCard className="w-3.5 h-3.5" /> Préférences de facturation
+                </h4>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">Mode de facturation</label>
+                    <select value={editForm.billing_mode || 'per_session'} onChange={e => setEditForm({ ...editForm, billing_mode: e.target.value })}
+                      className="w-full px-3 py-2 border rounded-lg text-sm">
+                      <option value="per_session">📄 Après chaque session</option>
+                      <option value="monthly">📅 Fin de mois (groupée)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">Délai de paiement</label>
+                    <select value={editForm.default_payment_terms || 'à 30 jours'} onChange={e => setEditForm({ ...editForm, default_payment_terms: e.target.value })}
+                      className="w-full px-3 py-2 border rounded-lg text-sm">
+                      <option value="À réception de facture">À réception</option>
+                      <option value="à 30 jours">30 jours</option>
+                      <option value="à 45 jours">45 jours</option>
+                      <option value="à 60 jours">60 jours</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">Email facturation <span className="text-gray-400">(si différent)</span></label>
+                    <input type="email" value={editForm.billing_email || ''} onChange={e => setEditForm({ ...editForm, billing_email: e.target.value })}
+                      className="w-full px-3 py-2 border rounded-lg text-sm" placeholder="compta@client.fr" />
+                  </div>
+                  {editForm.client_type === 'organisme_formation' && (
+                    <div>
+                      <label className="text-xs text-gray-500 mb-1 block">Envoi satisfaction donneur d'ordre</label>
+                      <select value={editForm.satisfaction_mode || 'after_session'} onChange={e => setEditForm({ ...editForm, satisfaction_mode: e.target.value })}
+                        className="w-full px-3 py-2 border rounded-lg text-sm">
+                        <option value="after_session">Après chaque session</option>
+                        <option value="monthly">Fin de mois</option>
+                      </select>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-y-3 gap-x-6 text-sm">
@@ -597,6 +662,33 @@ export default function ClientDetail() {
               {client.opco_name && (
                 <div className="flex items-center gap-2"><Briefcase className="w-4 h-4 text-gray-400 shrink-0" />
                   <span className="text-gray-700">OPCO : <strong>{client.opco_name}</strong></span></div>
+              )}
+              {client.client_type && client.client_type !== 'entreprise' && (
+                <div className="flex items-center gap-2">
+                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                    client.client_type === 'organisme_formation' ? 'bg-purple-100 text-purple-700' :
+                    client.client_type === 'public' ? 'bg-teal-100 text-teal-700' :
+                    client.client_type === 'opco' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600'
+                  }`}>
+                    {client.client_type === 'organisme_formation' ? '🎓 Organisme de formation' :
+                     client.client_type === 'public' ? '🏛️ Établissement public' :
+                     client.client_type === 'opco' ? '💼 OPCO' : client.client_type}
+                  </span>
+                </div>
+              )}
+              {/* Préférences facturation — toujours affichées si non par défaut */}
+              {(client.billing_mode === 'monthly' || client.default_payment_terms !== 'à 30 jours' || client.billing_email) && (
+                <div className="col-span-full mt-2 bg-blue-50 rounded-lg p-3 text-sm">
+                  <p className="text-xs font-semibold text-blue-700 mb-1.5 flex items-center gap-1"><CreditCard className="w-3.5 h-3.5" /> Facturation</p>
+                  <div className="flex flex-wrap gap-x-6 gap-y-1 text-blue-800">
+                    <span>{client.billing_mode === 'monthly' ? '📅 Fin de mois (groupée)' : '📄 Après chaque session'}</span>
+                    <span>Délai : {client.default_payment_terms || '30 jours'}</span>
+                    {client.billing_email && <span>Email compta : {client.billing_email}</span>}
+                    {client.client_type === 'organisme_formation' && client.satisfaction_mode === 'monthly' && (
+                      <span>Satisfaction : fin de mois</span>
+                    )}
+                  </div>
+                </div>
               )}
             </div>
           )}
