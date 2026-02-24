@@ -73,7 +73,8 @@ export default async function handler(req, res) {
           await transporter.verify()
           return res.status(200).json({ success: true, message: 'Connexion SMTP réussie !' })
         } catch (error) {
-          return res.status(400).json({ success: false, error: 'Échec de connexion SMTP. Vérifiez vos identifiants.' })
+          console.error('SMTP test error:', error.message)
+          return res.status(400).json({ success: false, error: `SMTP: ${error.message}` })
         }
       }
 
