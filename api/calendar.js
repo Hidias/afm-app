@@ -159,7 +159,9 @@ export default async function handler(req, res) {
       const client = clientsMap.get(session.client_id)
       const sessionTrainer = trainersMap.get(session.trainer_id)
 
-      const courseName = course?.title || 'Formation'
+      const courseName = session.session_type === 'subcontract'
+        ? (session.subcontract_course_title || 'Sous-traitance')
+        : (course?.title || 'Formation')
       const clientName = client?.name || ''
 
       // En mode "all", ajouter le nom du formateur dans le titre
