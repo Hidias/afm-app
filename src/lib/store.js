@@ -604,9 +604,9 @@ export const useDataStore = create((set, get) => ({
     
     // Colonnes exactes de ta table sessions
     const session = {
-      course_id: rest.course_id,
+      course_id: rest.course_id || null,
       client_id: rest.client_id,
-      contact_id: rest.contact_id || null, // Contact spécifique pour cette session
+      contact_id: rest.contact_id || null,
       trainer_id: trainer_ids?.length > 0 ? trainer_ids[0] : (rest.trainer_id || null),
       start_date: rest.start_date,
       end_date: rest.end_date,
@@ -618,13 +618,20 @@ export const useDataStore = create((set, get) => ({
       location_city: rest.location_city || null,
       is_intra: rest.is_intra || false,
       is_remote: rest.is_remote || false,
-      day_type: rest.day_type || 'full', // 'full' ou 'half'
+      day_type: rest.day_type || 'full',
       status: rest.status || 'planned',
       notes: rest.notes || null,
       signatory_name: rest.signatory_name || null,
       signatory_role: rest.signatory_role || null,
       reference,
-      attendance_token: generateHexToken(32), // Token pour QR code portail
+      attendance_token: generateHexToken(32),
+      // Sous-traitance
+      session_type: rest.session_type || 'intra',
+      subcontract_course_title: rest.subcontract_course_title || null,
+      subcontract_client_ref: rest.subcontract_client_ref || null,
+      subcontract_nb_trainees: rest.subcontract_nb_trainees || 0,
+      subcontract_daily_rate: rest.subcontract_daily_rate || null,
+      subcontract_convention_url: rest.subcontract_convention_url || null,
     }
     
     console.log('Creating session with trainer_id:', session.trainer_id)
@@ -693,6 +700,16 @@ export const useDataStore = create((set, get) => ({
     if (rest.signatory_role !== undefined) sessionUpdates.signatory_role = rest.signatory_role || null
     // Ne pas envoyer room si pas défini (colonne peut ne pas exister)
     if (rest.room !== undefined && rest.room !== '') sessionUpdates.room = rest.room
+    // Sous-traitance
+    if (rest.session_type !== undefined) sessionUpdates.session_type = rest.session_type
+    if (rest.subcontract_course_title !== undefined) sessionUpdates.subcontract_course_title = rest.subcontract_course_title || null
+    if (rest.subcontract_client_ref !== undefined) sessionUpdates.subcontract_client_ref = rest.subcontract_client_ref || null
+    if (rest.subcontract_nb_trainees !== undefined) sessionUpdates.subcontract_nb_trainees = rest.subcontract_nb_trainees || 0
+    if (rest.subcontract_daily_rate !== undefined) sessionUpdates.subcontract_daily_rate = rest.subcontract_daily_rate || null
+    if (rest.subcontract_convention_url !== undefined) sessionUpdates.subcontract_convention_url = rest.subcontract_convention_url || null
+    if (rest.subcontract_invoiced !== undefined) sessionUpdates.subcontract_invoiced = rest.subcontract_invoiced
+    if (rest.subcontract_invoice_id !== undefined) sessionUpdates.subcontract_invoice_id = rest.subcontract_invoice_id || null
+    if (rest.subcontract_satisfaction_sent_at !== undefined) sessionUpdates.subcontract_satisfaction_sent_at = rest.subcontract_satisfaction_sent_at
     
     console.log('Updating session:', id, sessionUpdates)
     
