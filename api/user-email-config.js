@@ -45,13 +45,14 @@ export default async function handler(req, res) {
         .from('user_email_configs')
         .select('id, user_id, email, smtp_host, smtp_port, smtp_secure, is_active, last_tested_at')
         .eq('user_id', userId)
-        .single()
+        .order('email')
 
-      if (error && error.code !== 'PGRST116') {
+      if (error) {
         return res.status(500).json({ error: error.message })
       }
 
-      return res.status(200).json({ data })
+      // Rétro-compat : si le frontend attend un seul objet, renvoyer le premier + la liste complète
+      return res.status(200).json({ data: data?.[0] || null, configs: data || [] })
     }
 
     // POST : Créer ou mettre à jour la config
@@ -79,12 +80,13 @@ export default async function handler(req, res) {
       // Sinon, on sauvegarde
       const encryptedPassword = encrypt(password)
 
-      // Vérifier si config existe déjà
+      // Vérifier si config existe déjà pour cet email
       const { data: existing } = await supabase
         .from('user_email_configs')
         .select('id')
         .eq('user_id', userId)
-        .single()
+        .eq('email', email)
+        .maybeSingle()
 
       if (existing) {
         // Update
@@ -97,7 +99,7 @@ export default async function handler(req, res) {
             is_active: true,
             last_tested_at: new Date().toISOString()
           })
-          .eq('user_id', userId)
+          .eq('id', existing.id)
 
         if (error) throw error
       } else {
