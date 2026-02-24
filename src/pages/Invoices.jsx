@@ -54,7 +54,7 @@ export default function Invoices() {
   const loadAll = useCallback(async () => {
     setLoading(true)
     const [invR,cliR,courseR,quoteR] = await Promise.all([
-      supabase.from('invoices').select('*, clients(name,siret,address,postal_code,city), client_contacts(name,email,civilite,first_name,last_name)').order('invoice_date',{ascending:false}),
+      supabase.from('invoices').select('*, clients!client_id(name,siret,address,postal_code,city), client_contacts!contact_id(name,email,civilite,first_name,last_name)').order('invoice_date',{ascending:false}),
       supabase.from('clients').select('id,name,siret,address,postal_code,city,contact_name,contact_email,status,billing_mode,default_payment_terms,client_type').order('name'),
       supabase.from('courses').select('id,title,code,price_ht,duration_hours,description').order('title'),
       supabase.from('quotes').select('id,reference,client_id,contact_id,object,client_reference,discount_percent,discount_label,tva_applicable,tva_rate,payment_method,payment_terms,session_id,status,total_ht,total_ttc').order('quote_date',{ascending:false}),
@@ -64,7 +64,7 @@ export default function Invoices() {
     const toUp = (invR.data||[]).filter(i => (i.status==='sent'||i.status==='due') && i.due_date && new Date(i.due_date)<now)
     if (toUp.length>0) {
       await Promise.all(toUp.map(i => supabase.from('invoices').update({status:'overdue',updated_at:new Date().toISOString()}).eq('id',i.id)))
-      const {data:refreshed} = await supabase.from('invoices').select('*, clients(name,siret,address,postal_code,city), client_contacts(name,email,civilite,first_name,last_name)').order('invoice_date',{ascending:false})
+      const {data:refreshed} = await supabase.from('invoices').select('*, clients!client_id(name,siret,address,postal_code,city), client_contacts!contact_id(name,email,civilite,first_name,last_name)').order('invoice_date',{ascending:false})
       setInvoices(refreshed||[])
     } else { setInvoices(invR.data||[]) }
     setClients(cliR.data||[]); setCourses(courseR.data||[]); setQuotes(quoteR.data||[])
