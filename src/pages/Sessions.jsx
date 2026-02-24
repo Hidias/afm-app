@@ -301,9 +301,8 @@ export default function Sessions() {
     let created = 0, errors = 0
     for (const day of selectedDays) {
       const refs = (day.session_refs || []).join(', ')
-      const title = formData.subcontract_course_title
-        ? `${formData.subcontract_course_title} — ${day.date.split('-').reverse().join('/')} — Réf. ${refs}`
-        : `Formation ${day.date.split('-').reverse().join('/')} — Réf. ${refs}`
+      const baseTitle = formData.subcontract_course_title || importResult.detected_training_type || 'Formation'
+      const title = `${baseTitle} — ${day.date.split('-').reverse().join('/')} — Réf. ${refs}`
 
       const sessionData = {
         session_type: 'subcontract',
@@ -1424,6 +1423,77 @@ export default function Sessions() {
                     </button>
                   </div>
 
+                  {/* Champs obligatoires pour la création */}
+                  <div className="bg-gray-50 rounded-lg p-3 space-y-3">
+                    <p className="text-xs font-medium text-gray-500 uppercase">Paramètres de création</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-xs text-gray-500 block mb-1">Client *</label>
+                        <select value={formData.client_id} onChange={(e) => setFormData({ ...formData, client_id: e.target.value })} className="w-full border rounded-lg px-3 py-1.5 text-sm">
+                          <option value="">Sélectionner...</option>
+                          <optgroup label="🎓 Organismes de formation">
+                            {clients.filter(c => c.client_type === 'organisme_formation').map(c => (
+                              <option key={c.id} value={c.id}>{c.name}</option>
+                            ))}
+                          </optgroup>
+                          <optgroup label="Autres clients">
+                            {clients.filter(c => c.client_type !== 'organisme_formation').map(c => (
+                              <option key={c.id} value={c.id}>{c.name}</option>
+                            ))}
+                          </optgroup>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-500 block mb-1">Formateur</label>
+                        <select value={formData.trainer_ids[0] || ''} onChange={(e) => setFormData({ ...formData, trainer_ids: e.target.value ? [e.target.value] : [] })} className="w-full border rounded-lg px-3 py-1.5 text-sm">
+                          <option value="">Sélectionner...</option>
+                          {trainers.map(t => (
+                            <option key={t.id} value={t.id}>{t.first_name} {t.last_name}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-500 block mb-1">Intitulé de base</label>
+                        <input type="text" value={formData.subcontract_course_title} onChange={(e) => setFormData({ ...formData, subcontract_course_title: e.target.value })} className="w-full border rounded-lg px-3 py-1.5 text-sm" placeholder={importResult.detected_training_type || 'CACES R.489'} />
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-500 block mb-1">Tarif journalier HT (€) *</label>
+                        <input type="number" min="0" step="0.01" value={formData.subcontract_daily_rate} onChange={(e) => setFormData({ ...formData, subcontract_daily_rate: e.target.value })} className="w-full border rounded-lg px-3 py-1.5 text-sm" placeholder="300" />
+                      </div>
+                    </div>
+                    {!formData.client_id && <p className="text-xs text-red-500">⚠ Sélectionnez un client pour pouvoir créer</p>}
+                  </div>
+
+                  {/* Champs essentiels pour la création */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div>
+                      <label className="text-xs text-gray-500 block mb-1">Client *</label>
+                      <select value={formData.client_id} onChange={(e) => setFormData({ ...formData, client_id: e.target.value })} className="w-full border rounded-lg px-2 py-1.5 text-sm">
+                        <option value="">Sélectionner...</option>
+                        {clients.filter(c => c.status !== 'inactif').map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-500 block mb-1">Formateur</label>
+                      <select value={formData.trainer_ids[0] || ''} onChange={(e) => setFormData({ ...formData, trainer_ids: e.target.value ? [e.target.value] : [] })} className="w-full border rounded-lg px-2 py-1.5 text-sm">
+                        <option value="">Sélectionner...</option>
+                        {trainers.map(t => <option key={t.id} value={t.id}>{t.first_name} {t.last_name}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-500 block mb-1">Tarif/jour HT (€)</label>
+                      <input type="number" min="0" step="0.01" value={formData.subcontract_daily_rate}
+                        onChange={(e) => setFormData({ ...formData, subcontract_daily_rate: e.target.value })}
+                        className="w-full border rounded-lg px-2 py-1.5 text-sm" placeholder="300" />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-500 block mb-1">Intitulé de base</label>
+                      <input type="text" value={formData.subcontract_course_title}
+                        onChange={(e) => setFormData({ ...formData, subcontract_course_title: e.target.value })}
+                        className="w-full border rounded-lg px-2 py-1.5 text-sm" placeholder="CACES R.489" />
+                    </div>
+                  </div>
+
                   <div className="border rounded-lg overflow-hidden">
                     <table className="w-full text-sm">
                       <thead className="bg-gray-50">
@@ -1497,9 +1567,9 @@ export default function Sessions() {
               {importResult && (
                 <button type="button" onClick={handleImportCreate}
                   disabled={importChecked.length === 0 || !formData.client_id}
-                  className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 text-sm font-medium disabled:opacity-50 flex items-center gap-2">
+                  className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
                   <Plus className="w-4 h-4" />
-                  Créer {importChecked.length} session{importChecked.length > 1 ? 's' : ''}
+                  {!formData.client_id ? 'Sélectionnez un client' : `Créer ${importChecked.length} session${importChecked.length > 1 ? 's' : ''}`}
                 </button>
               )}
             </div>
