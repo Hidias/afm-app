@@ -248,7 +248,9 @@ export default function SessionPlanning({ sessions, trainers }) {
           const pos = getSessionPosition(session)
           const leftPct = (pos.startCol / totalCols) * 100
           const widthPct = (pos.span / totalCols) * 100
-          const courseName = session.courses?.title || 'Formation'
+          const courseName = session.session_type === 'subcontract'
+            ? (session.subcontract_course_title || 'Sous-traitance')
+            : (session.courses?.title || 'Formation')
           const clientName = session.clients?.name || ''
           const status = STATUS_CONFIG[session.status] || STATUS_CONFIG.planned
           const timeStr = session.start_time ? session.start_time.substring(0, 5) : ''
@@ -539,7 +541,10 @@ export default function SessionPlanning({ sessions, trainers }) {
         >
           <div className="flex items-start justify-between gap-2 mb-2">
             <h4 className="font-semibold text-gray-900 text-sm leading-tight">
-              {hoveredSession.courses?.title || 'Formation'}
+              {hoveredSession.session_type === 'subcontract'
+                ? (hoveredSession.subcontract_course_title || 'Sous-traitance')
+                : (hoveredSession.courses?.title || 'Formation')
+              }
             </h4>
             <span className={`flex-shrink-0 w-2 h-2 rounded-full mt-1 ${STATUS_CONFIG[hoveredSession.status]?.dot || 'bg-gray-400'}`} />
           </div>
