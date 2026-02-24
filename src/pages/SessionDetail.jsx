@@ -6,7 +6,8 @@ import {
   ArrowLeft, Calendar, MapPin, Users, Clock, FileText, QrCode, UserPlus, UserMinus,
   Download, CheckCircle, AlertCircle, Copy, ExternalLink, X, Edit, Trash2, Save,
   FileSignature, Send, Upload, Eye, Star, ThumbsUp, ClipboardCheck, UserCheck, HelpCircle, Home, Target,
-  Sun, Moon, Plus, ChevronDown, Search, LogOut, MessageSquare, CheckCircle2, FileCheck, Mail, Archive, Receipt
+  Sun, Moon, Plus, ChevronDown, Search, LogOut, MessageSquare, CheckCircle2, FileCheck, Mail, Archive, Receipt,
+  Briefcase, Check, User
 } from 'lucide-react'
 import { format, eachDayOfInterval, parseISO, differenceInDays } from 'date-fns'
 import { fr } from 'date-fns/locale'
@@ -496,6 +497,11 @@ export default function SessionDetail() {
         contact_id: found.contact_id || '',
         signatory_name: found.signatory_name || '',
         signatory_role: found.signatory_role || '',
+        // Sous-traitance
+        subcontract_course_title: found.subcontract_course_title || '',
+        subcontract_client_ref: found.subcontract_client_ref || '',
+        subcontract_nb_trainees: found.subcontract_nb_trainees || 0,
+        subcontract_daily_rate: found.subcontract_daily_rate || '',
       })
     }
   }, [sessions, id])
@@ -2591,6 +2597,197 @@ ${trainer ? `${trainer.first_name} ${trainer.last_name}` : 'Access Formation'}`
   
   return (
     <div className="space-y-6">
+      {/* ═══ VUE SIMPLIFIÉE SOUS-TRAITANCE ═══ */}
+      {session.session_type === 'subcontract' ? (
+        <div className="space-y-6">
+          {/* Header */}
+          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+            <div>
+              <Link to="/sessions" className="text-sm text-gray-500 hover:text-gray-700 flex items-center gap-1 mb-2"><ArrowLeft className="w-4 h-4" />Retour</Link>
+              <div className="flex items-center gap-3 flex-wrap">
+                <h1 className="text-2xl font-bold text-gray-900">{session.reference}</h1>
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-700"><Briefcase className="w-3 h-3" />Sous-traitance</span>
+                <span className={`badge ${statusLabels[session.status]?.class}`}>{statusLabels[session.status]?.label}</span>
+                {session.subcontract_invoiced && <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700"><Check className="w-3 h-3" />Facturée</span>}
+              </div>
+              <p className="text-gray-500 text-sm mt-1">{session.clients?.name}</p>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => setShowEdit(true)} className="btn btn-secondary flex items-center gap-2"><Edit className="w-4 h-4" />Modifier</button>
+              <button onClick={handleDelete} className="btn btn-danger"><Trash2 className="w-4 h-4" /></button>
+            </div>
+          </div>
+
+          {/* Carte info principale */}
+          <div className="bg-white border rounded-xl p-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Colonne gauche - Infos session */}
+              <div className="space-y-4">
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">{session.subcontract_course_title || session.courses?.title || 'Formation'}</h3>
+                </div>
+                <div className="flex items-center gap-3 text-sm text-gray-600">
+                  <Calendar className="w-4 h-4 text-gray-400 shrink-0" />
+                  <span className="font-medium">{format(new Date(session.start_date), 'EEEE d MMMM yyyy', { locale: fr })}</span>
+                  {session.start_time && <span className="text-gray-400">· {session.start_time?.substring(0,5)} - {session.end_time?.substring(0,5)}</span>}
+                </div>
+                <div className="flex items-center gap-3 text-sm text-gray-600">
+                  <MapPin className="w-4 h-4 text-gray-400 shrink-0" />
+                  <span>{session.location_name || session.location || '—'}</span>
+                </div>
+                {trainer && (
+                  <div className="flex items-center gap-3 text-sm text-gray-600">
+                    <User className="w-4 h-4 text-gray-400 shrink-0" />
+                    <span>{trainer.first_name} {trainer.last_name}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Colonne droite - Infos sous-traitance */}
+              <div className="space-y-4 border-l pl-6">
+                {session.subcontract_client_ref && (
+                  <div>
+                    <p className="text-xs text-gray-400 uppercase font-medium mb-1">Réf. client</p>
+                    <div className="flex flex-wrap gap-1">
+                      {session.subcontract_client_ref.split(',').map((ref, i) => (
+                        <span key={i} className="px-2 py-0.5 bg-amber-100 text-amber-800 text-sm rounded font-mono">{ref.trim()}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div>
+                  <p className="text-xs text-gray-400 uppercase font-medium mb-1">Stagiaires</p>
+                  <p className="text-lg font-semibold">{session.subcontract_nb_trainees || 0}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-400 uppercase font-medium mb-1">Facturation</p>
+                  <p className="text-lg font-semibold text-green-700">
+                    {(() => {
+                      const days = session.start_date === session.end_date ? 1 : Math.ceil((new Date(session.end_date) - new Date(session.start_date)) / (1000 * 60 * 60 * 24)) + 1
+                      const rate = parseFloat(session.subcontract_daily_rate) || 0
+                      return `${days}j × ${rate.toFixed(0)}€ = ${(days * rate).toFixed(2)}€ HT`
+                    })()}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Statut rapide */}
+          <div className="bg-white border rounded-xl p-4">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-medium text-gray-700">Statut de la session</p>
+              <select 
+                value={session.status} 
+                onChange={async (e) => {
+                  await updateSession(id, { status: e.target.value, status_locked: true })
+                  toast.success('Statut mis à jour')
+                  fetchSessions()
+                }}
+                className="border rounded-lg px-3 py-1.5 text-sm"
+              >
+                <option value="confirmed">Confirmée</option>
+                <option value="completed">Terminée</option>
+                <option value="cancelled">Annulée</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Notes */}
+          {session.notes && (
+            <div className="bg-white border rounded-xl p-4">
+              <p className="text-xs text-gray-400 uppercase font-medium mb-2">Notes</p>
+              <p className="text-sm text-gray-600 whitespace-pre-wrap">{session.notes}</p>
+            </div>
+          )}
+
+          {/* Modal édition sous-traitance */}
+          {showEdit && (
+            <div className="fixed inset-0 z-50 overflow-y-auto">
+              <div className="fixed inset-0 bg-black/50" onClick={() => setShowEdit(false)} />
+              <div className="relative min-h-full flex items-center justify-center p-4">
+                <div className="relative bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+                  <div className="flex items-center justify-between p-4 border-b sticky top-0 bg-white">
+                    <h2 className="text-lg font-semibold">Modifier la session</h2>
+                    <button onClick={() => setShowEdit(false)}><X className="w-5 h-5" /></button>
+                  </div>
+                  <div className="p-4 space-y-4">
+                    <div>
+                      <label className="label">Intitulé</label>
+                      <input type="text" className="input" value={editForm.subcontract_course_title} onChange={(e) => setEditForm({...editForm, subcontract_course_title: e.target.value})} />
+                    </div>
+                    <div>
+                      <label className="label">Réf. client</label>
+                      <input type="text" className="input" value={editForm.subcontract_client_ref} onChange={(e) => setEditForm({...editForm, subcontract_client_ref: e.target.value})} />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="label">Date début</label>
+                        <input type="date" className="input" value={editForm.start_date} onChange={(e) => setEditForm({...editForm, start_date: e.target.value})} />
+                      </div>
+                      <div>
+                        <label className="label">Date fin</label>
+                        <input type="date" className="input" value={editForm.end_date} onChange={(e) => setEditForm({...editForm, end_date: e.target.value})} />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="label">Heure début</label>
+                        <input type="time" className="input" value={editForm.start_time} onChange={(e) => setEditForm({...editForm, start_time: e.target.value})} />
+                      </div>
+                      <div>
+                        <label className="label">Heure fin</label>
+                        <input type="time" className="input" value={editForm.end_time} onChange={(e) => setEditForm({...editForm, end_time: e.target.value})} />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="label">Lieu</label>
+                      <input type="text" className="input" value={editForm.location_name} onChange={(e) => setEditForm({...editForm, location_name: e.target.value})} />
+                    </div>
+                    <div>
+                      <label className="label">Formateur</label>
+                      <select className="input" value={editForm.trainer_id} onChange={(e) => setEditForm({...editForm, trainer_id: e.target.value})}>
+                        <option value="">-- Non assigné --</option>
+                        {trainers.map(t => (
+                          <option key={t.id} value={t.id}>{t.first_name} {t.last_name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="label">Nb stagiaires</label>
+                        <input type="number" min="0" className="input" value={editForm.subcontract_nb_trainees} onChange={(e) => setEditForm({...editForm, subcontract_nb_trainees: parseInt(e.target.value) || 0})} />
+                      </div>
+                      <div>
+                        <label className="label">Tarif journalier HT (€)</label>
+                        <input type="number" min="0" step="0.01" className="input" value={editForm.subcontract_daily_rate} onChange={(e) => setEditForm({...editForm, subcontract_daily_rate: e.target.value})} />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="label">Statut</label>
+                      <select className="input" value={editForm.status} onChange={(e) => setEditForm({...editForm, status: e.target.value})}>
+                        <option value="confirmed">Confirmée</option>
+                        <option value="completed">Terminée</option>
+                        <option value="cancelled">Annulée</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="label">Notes</label>
+                      <textarea className="input" rows={3} value={editForm.notes} onChange={(e) => setEditForm({...editForm, notes: e.target.value})} />
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-3 p-4 border-t sticky bottom-0 bg-white">
+                    <button onClick={() => setShowEdit(false)} className="btn btn-secondary">Annuler</button>
+                    <button onClick={handleSaveEdit} className="btn btn-primary">Enregistrer</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+      /* ═══ VUE STANDARD (INTRA / INTER) ═══ */
+      <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
         <div>
@@ -5707,6 +5904,8 @@ ${trainer ? `${trainer.first_name} ${trainer.last_name}` : 'Access Formation'}`
           onClose={() => setShowStageEmailModal(false)}
         />
       )}
+    </div>
+    )}
     </div>
   )
 }
