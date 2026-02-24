@@ -49,6 +49,8 @@ export default function Invoices() {
   const [groupedSessions, setGroupedSessions] = useState([])
   const [groupedClientId, setGroupedClientId] = useState('')
   const [groupedMonth, setGroupedMonth] = useState(format(new Date(), 'yyyy-MM'))
+  const [groupedClientSearch, setGroupedClientSearch] = useState('')
+  const [groupedClientOpen, setGroupedClientOpen] = useState(false)
 
   // ─── Load ───
   const loadAll = useCallback(async () => {
@@ -481,7 +483,7 @@ export default function Invoices() {
         <div className="flex gap-2">
           <button onClick={()=>setShowQuoteSelector(true)} className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2 text-sm"><Receipt size={16}/>Depuis un devis</button>
           <button onClick={()=>handleNew('invoice')} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2 text-sm"><Plus size={16}/>Facture libre</button>
-          <button onClick={()=>setShowGroupedModal(true)} className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 flex items-center gap-2 text-sm"><Receipt size={16}/>Sous-traitance groupée</button>
+          <button onClick={()=>{setGroupedClientSearch('');setGroupedClientId('');setGroupedClientOpen(false);setShowGroupedModal(true)}} className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 flex items-center gap-2 text-sm"><Receipt size={16}/>Sous-traitance groupée</button>
           <button onClick={()=>handleNew('credit_note')} className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 flex items-center gap-2 text-sm"><Plus size={16}/>Avoir</button>
         </div>
       </div>
@@ -551,19 +553,46 @@ export default function Invoices() {
       {/* ─── Modal facture groupée sous-traitance ─── */}
       {showGroupedModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg">
-            <div className="flex items-center justify-between p-4 border-b">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between p-4 border-b shrink-0">
               <h2 className="text-lg font-semibold flex items-center gap-2"><Receipt size={18} className="text-amber-600" />Facture groupée sous-traitance</h2>
               <button onClick={()=>setShowGroupedModal(false)} className="p-1 hover:bg-gray-100 rounded"><X size={18}/></button>
             </div>
-            <div className="p-4 space-y-4">
+            <div className="p-4 space-y-4 overflow-y-auto flex-1">
               <div className="grid grid-cols-2 gap-4">
-                <div>
+                <div className="relative">
                   <label className="text-xs text-gray-500 block mb-1">Client (OF)</label>
-                  <select value={groupedClientId} onChange={e=>{setGroupedClientId(e.target.value); loadGroupedSessions(e.target.value, groupedMonth)}} className="w-full border rounded-lg px-3 py-2 text-sm">
-                    <option value="">Sélectionner...</option>
-                    {clients.filter(c=>c.status!=='inactif').map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
+                  <div className="relative">
+                    <Search size={14} className="absolute left-3 top-2.5 text-gray-400" />
+                    <input 
+                      type="text" 
+                      value={groupedClientSearch} 
+                      onChange={e => { setGroupedClientSearch(e.target.value); setGroupedClientOpen(true); if (!e.target.value) { setGroupedClientId(''); loadGroupedSessions('', groupedMonth) } }}
+                      onFocus={() => setGroupedClientOpen(true)}
+                      placeholder="Rechercher..."
+                      className="w-full border rounded-lg pl-9 pr-8 py-2 text-sm"
+                    />
+                    {groupedClientId && (
+                      <button onClick={() => { setGroupedClientSearch(''); setGroupedClientId(''); setGroupedClientOpen(false); loadGroupedSessions('', groupedMonth) }} className="absolute right-2 top-2 p-0.5 hover:bg-gray-100 rounded">
+                        <X size={14} className="text-gray-400" />
+                      </button>
+                    )}
+                  </div>
+                  {groupedClientOpen && groupedClientSearch && !groupedClientId && (
+                    <div className="absolute z-10 mt-1 w-full bg-white border rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                      {clients.filter(c => c.status !== 'inactif' && c.name?.toLowerCase().includes(groupedClientSearch.toLowerCase())).length === 0 ? (
+                        <p className="px-3 py-2 text-sm text-gray-400">Aucun résultat</p>
+                      ) : (
+                        clients.filter(c => c.status !== 'inactif' && c.name?.toLowerCase().includes(groupedClientSearch.toLowerCase())).slice(0, 8).map(c => (
+                          <button key={c.id} type="button" onClick={() => { setGroupedClientId(c.id); setGroupedClientSearch(c.name); setGroupedClientOpen(false); loadGroupedSessions(c.id, groupedMonth) }}
+                            className="w-full text-left px-3 py-2 text-sm hover:bg-amber-50 flex items-center justify-between border-b last:border-0">
+                            <span className="font-medium">{c.name}</span>
+                            {c.client_type === 'organisme_formation' && <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">OF</span>}
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label className="text-xs text-gray-500 block mb-1">Mois</label>
@@ -603,7 +632,7 @@ export default function Invoices() {
                 <p className="text-sm text-gray-500 text-center py-4">Aucune session sous-traitance pour ce client sur ce mois</p>
               ) : null}
             </div>
-            <div className="flex justify-end gap-3 p-4 border-t">
+            <div className="flex justify-end gap-3 p-4 border-t shrink-0">
               <button onClick={()=>setShowGroupedModal(false)} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Annuler</button>
               <button onClick={handleGroupedInvoice} disabled={!groupedSessions.some(s=>!s.subcontract_invoiced)}
                 className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
