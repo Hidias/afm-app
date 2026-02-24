@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom'
 import { useDataStore } from '../lib/store'
 import { supabase } from '../lib/supabase'
 import { 
-  Calendar, Plus, Search, MapPin, Users, Clock, ChevronRight, ChevronDown, X, Trash2, Copy, Building2, List, LayoutGrid, Briefcase, Euro
+  Calendar, Plus, Search, MapPin, Users, Clock, ChevronRight, ChevronDown, X, Trash2, Copy, Building2, List, LayoutGrid, Briefcase, Euro, ClipboardPaste, Loader2, Check
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
@@ -75,6 +75,12 @@ export default function Sessions() {
   const [batchLines, setBatchLines] = useState([
     { client_ref: '', start_date: '', duration_days: '1', nb_trainees: '1' }
   ])
+  // Import planning
+  const [showImportModal, setShowImportModal] = useState(false)
+  const [importText, setImportText] = useState('')
+  const [importParsing, setImportParsing] = useState(false)
+  const [importResult, setImportResult] = useState(null) // parsed days
+  const [importChecked, setImportChecked] = useState([]) // indices of checked days
   
   useEffect(() => {
     fetchSessions()
@@ -251,12 +257,88 @@ export default function Sessions() {
     })
     setBatchMode(false)
     setBatchLines([{ client_ref: '', start_date: '', duration_days: '1', nb_trainees: '1' }])
+    setShowImportModal(false); setImportText(''); setImportResult(null); setImportChecked([])
     setClientContacts([])
     setTraineeSearch('')
     setTraineeClientFilter('')
     setShowForm(false)
   }
   
+  // ═══ IMPORT PLANNING ═══
+  const parseImportText = async () => {
+    if (!importText.trim()) { toast.error('Collez le planning dans la zone de texte'); return }
+    setImportParsing(true)
+    try {
+      const res = await fetch('/api/parse-planning-import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rawText: importText, baseTitle: formData.subcontract_course_title })
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Erreur parsing')
+      if (!data.days || data.days.length === 0) { toast.error('Aucune journée détectée'); return }
+      setImportResult(data)
+      setImportChecked(data.days.map((_, i) => i)) // tout coché par défaut
+      // Pré-remplir le titre si détecté
+      if (data.detected_training_type && !formData.subcontract_course_title) {
+        setFormData(f => ({ ...f, subcontract_course_title: data.detected_training_type }))
+      }
+      toast.success(`${data.days.length} jour(s) détecté(s) — ${data.total_unique_trainees || '?'} stagiaire(s) uniques`)
+    } catch (err) {
+      toast.error('Erreur: ' + err.message)
+      console.error(err)
+    } finally {
+      setImportParsing(false)
+    }
+  }
+
+  const handleImportCreate = async () => {
+    if (!formData.client_id) { toast.error('Sélectionnez un client'); return }
+    if (!importResult?.days) return
+    const selectedDays = importResult.days.filter((_, i) => importChecked.includes(i))
+    if (selectedDays.length === 0) { toast.error('Sélectionnez au moins un jour'); return }
+
+    let created = 0, errors = 0
+    for (const day of selectedDays) {
+      const refs = (day.session_refs || []).join(', ')
+      const title = formData.subcontract_course_title
+        ? `${formData.subcontract_course_title} — ${day.date.split('-').reverse().join('/')} — Réf. ${refs}`
+        : `Formation ${day.date.split('-').reverse().join('/')} — Réf. ${refs}`
+
+      const sessionData = {
+        session_type: 'subcontract',
+        course_id: null,
+        client_id: formData.client_id,
+        contact_id: formData.contact_id || null,
+        start_date: day.date,
+        end_date: day.date, // 1 jour = même date
+        start_time: day.start_time || formData.start_time,
+        end_time: day.end_time || formData.end_time,
+        day_type: 'full',
+        location: day.location || formData.location,
+        room: '',
+        status: formData.status,
+        is_intra: true,
+        trainer_ids: formData.trainer_ids,
+        trainee_ids: [],
+        funding_type: 'none',
+        funding_details: null,
+        subcontract_course_title: title,
+        subcontract_client_ref: refs,
+        subcontract_nb_trainees: day.nb_trainees || 1,
+        subcontract_daily_rate: parseFloat(formData.subcontract_daily_rate) || null,
+      }
+      const { error } = await createSession(sessionData)
+      if (error) { errors++; console.error(error) } else { created++ }
+    }
+
+    if (errors > 0) toast.error(`${errors} erreur(s) sur ${selectedDays.length}`)
+    if (created > 0) {
+      toast.success(`${created} session${created > 1 ? 's' : ''} créée${created > 1 ? 's' : ''}`)
+      resetForm()
+    }
+  }
+
   const handleSubmit = async (e) => {
     e.preventDefault()
     
@@ -747,12 +829,18 @@ export default function Sessions() {
               {/* ═══ FORMULAIRE SOUS-TRAITANCE ═══ */}
               {formData.session_type === 'subcontract' && (
                 <>
-                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800 flex items-center justify-between">
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800 flex items-center justify-between gap-2 flex-wrap">
                     <span><Briefcase className="w-4 h-4 inline mr-1.5" />Sous-traitance — {batchMode ? 'création par lot' : 'session unique'}</span>
-                    <button type="button" onClick={() => setBatchMode(!batchMode)}
-                      className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${batchMode ? 'bg-amber-600 text-white' : 'bg-white text-amber-700 border border-amber-300 hover:bg-amber-100'}`}>
-                      {batchMode ? '← Session unique' : 'Créer par lot →'}
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button type="button" onClick={() => setShowImportModal(true)}
+                        className="px-3 py-1 rounded-full text-xs font-medium bg-white text-amber-700 border border-amber-300 hover:bg-amber-100 flex items-center gap-1">
+                        <ClipboardPaste className="w-3 h-3" /> Importer planning
+                      </button>
+                      <button type="button" onClick={() => setBatchMode(!batchMode)}
+                        className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${batchMode ? 'bg-amber-600 text-white' : 'bg-white text-amber-700 border border-amber-300 hover:bg-amber-100'}`}>
+                        {batchMode ? '← Session unique' : 'Créer par lot →'}
+                      </button>
+                    </div>
                   </div>
                   
                   {/* En-tête partagé (client, formateur, lieu, horaires, tarif par défaut) */}
@@ -1277,6 +1365,146 @@ export default function Sessions() {
           onClose={() => setShowMultiSiret(false)}
           onCreated={() => setShowMultiSiret(false)}
         />
+      )}
+
+      {/* ═══ MODAL IMPORT PLANNING ═══ */}
+      {showImportModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-start justify-center z-[60] p-4 overflow-y-auto">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl my-8">
+            <div className="flex items-center justify-between p-4 border-b sticky top-0 bg-white rounded-t-xl z-10">
+              <h2 className="text-lg font-semibold flex items-center gap-2">
+                <ClipboardPaste className="w-5 h-5 text-amber-600" /> Importer un planning
+              </h2>
+              <button onClick={() => { setShowImportModal(false); setImportResult(null); setImportText('') }} className="p-2 hover:bg-gray-100 rounded-lg">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-4 space-y-4">
+              {/* Étape 1: Coller */}
+              {!importResult && (
+                <>
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800">
+                    <strong>1.</strong> Allez sur le planning du donneur d'ordre (Pilocap, AFPI…)<br />
+                    <strong>2.</strong> Sélectionnez tout le texte (<kbd className="px-1 py-0.5 bg-blue-100 rounded text-xs">Cmd+A</kbd>) puis copiez (<kbd className="px-1 py-0.5 bg-blue-100 rounded text-xs">Cmd+C</kbd>)<br />
+                    <strong>3.</strong> Collez ci-dessous (<kbd className="px-1 py-0.5 bg-blue-100 rounded text-xs">Cmd+V</kbd>)
+                  </div>
+                  <textarea
+                    value={importText}
+                    onChange={(e) => setImportText(e.target.value)}
+                    rows={12}
+                    className="w-full border rounded-lg px-3 py-2 text-sm font-mono resize-y"
+                    placeholder="Collez ici le planning copié..."
+                  />
+                  <div className="flex justify-between items-center">
+                    <p className="text-xs text-gray-400">{importText.length > 0 ? `${importText.length} caractères` : ''}</p>
+                    <button
+                      type="button"
+                      onClick={parseImportText}
+                      disabled={importParsing || importText.trim().length < 20}
+                      className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 text-sm font-medium disabled:opacity-50 flex items-center gap-2"
+                    >
+                      {importParsing ? <><Loader2 className="w-4 h-4 animate-spin" /> Analyse en cours...</> : <><Search className="w-4 h-4" /> Analyser le planning</>}
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {/* Étape 2: Preview */}
+              {importResult && (
+                <>
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-sm text-green-800 flex items-center justify-between">
+                    <span>
+                      <Check className="w-4 h-4 inline mr-1" />
+                      <strong>{importResult.days.length}</strong> jour(s) détecté(s) — <strong>{importResult.total_unique_trainees}</strong> stagiaire(s) uniques
+                      {importResult.detected_training_type && <span className="ml-2 text-green-600">({importResult.detected_training_type})</span>}
+                    </span>
+                    <button type="button" onClick={() => { setImportResult(null) }} className="text-xs text-green-700 hover:text-green-900 underline">
+                      ← Recoller
+                    </button>
+                  </div>
+
+                  <div className="border rounded-lg overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-3 py-2 w-10 text-center">
+                            <input type="checkbox"
+                              checked={importChecked.length === importResult.days.length}
+                              onChange={(e) => setImportChecked(e.target.checked ? importResult.days.map((_, i) => i) : [])}
+                              className="rounded" />
+                          </th>
+                          <th className="px-3 py-2 text-left">Date</th>
+                          <th className="px-3 py-2 text-left">Réfs sessions</th>
+                          <th className="px-3 py-2 text-center">Stag.</th>
+                          <th className="px-3 py-2 text-left">Lieu</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {importResult.days.map((day, idx) => (
+                          <tr key={idx} className={`border-t ${importChecked.includes(idx) ? '' : 'opacity-40'}`}>
+                            <td className="px-3 py-2 text-center">
+                              <input type="checkbox"
+                                checked={importChecked.includes(idx)}
+                                onChange={(e) => {
+                                  setImportChecked(prev => e.target.checked ? [...prev, idx] : prev.filter(i => i !== idx))
+                                }}
+                                className="rounded" />
+                            </td>
+                            <td className="px-3 py-2 whitespace-nowrap font-medium">
+                              {day.date ? format(new Date(day.date), 'EEE dd/MM', { locale: fr }) : '?'}
+                            </td>
+                            <td className="px-3 py-2">
+                              <div className="flex flex-wrap gap-1">
+                                {(day.session_refs || []).map((ref, ri) => (
+                                  <span key={ri} className="px-1.5 py-0.5 bg-amber-100 text-amber-800 text-xs rounded font-mono">{ref}</span>
+                                ))}
+                              </div>
+                            </td>
+                            <td className="px-3 py-2 text-center font-semibold">{day.nb_trainees || 0}</td>
+                            <td className="px-3 py-2 text-xs text-gray-500 max-w-[200px] truncate">{day.location || '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot className="bg-gray-50 font-semibold">
+                        <tr className="border-t">
+                          <td></td>
+                          <td className="px-3 py-2">{importChecked.length} jour(s)</td>
+                          <td></td>
+                          <td className="px-3 py-2 text-center">{importResult.total_unique_trainees || '?'}</td>
+                          <td className="px-3 py-2 text-right">
+                            {formData.subcontract_daily_rate && (
+                              <span className="text-green-700">
+                                {importChecked.length} × {parseFloat(formData.subcontract_daily_rate).toFixed(0)}€ = <strong>{(importChecked.length * parseFloat(formData.subcontract_daily_rate)).toFixed(2)}€ HT</strong>
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+
+                  {importResult.notes && (
+                    <p className="text-xs text-gray-500 italic">{importResult.notes}</p>
+                  )}
+                </>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-3 p-4 border-t">
+              <button type="button" onClick={() => { setShowImportModal(false); setImportResult(null); setImportText('') }}
+                className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Annuler</button>
+              {importResult && (
+                <button type="button" onClick={handleImportCreate}
+                  disabled={importChecked.length === 0 || !formData.client_id}
+                  className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 text-sm font-medium disabled:opacity-50 flex items-center gap-2">
+                  <Plus className="w-4 h-4" />
+                  Créer {importChecked.length} session{importChecked.length > 1 ? 's' : ''}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
