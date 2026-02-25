@@ -258,6 +258,8 @@ export default function MarinePhoning() {
   const [showDoNotCallModal, setShowDoNotCallModal] = useState(false)
   const [doNotCallReason, setDoNotCallReason] = useState('')
   const [doNotCallCustom, setDoNotCallCustom] = useState('')
+  const [doNotCallScope, setDoNotCallScope] = useState('single')
+  const [doNotCallScope, setDoNotCallScope] = useState('siren')
   // Filters for "À rappeler" tab
   const [rappelFilterBy, setRappelFilterBy] = useState('')
   const [rappelFilterDate, setRappelFilterDate] = useState('all')
@@ -1262,19 +1264,31 @@ export default function MarinePhoning() {
     const reason = doNotCallReason === 'autre' ? doNotCallCustom.trim() : doNotCallReason
     if (!reason) { toast.error('Motif obligatoire'); return }
     try {
-      await supabase.from('prospection_massive').update({
+      const updateData = {
         do_not_call: true,
         do_not_call_reason: reason,
         do_not_call_by: callerName,
         do_not_call_at: new Date().toISOString(),
         prospection_status: 'ne_pas_rappeler',
         updated_at: new Date().toISOString(),
-      }).eq('id', current.id)
-      setProspects(prev => prev.filter(p => p.id !== current.id))
+      }
+      if (doNotCallScope === 'all' && current.siren) {
+        // Appliquer à tous les établissements du même SIREN
+        await supabase.from('prospection_massive').update(updateData).eq('siren', current.siren)
+        setProspects(prev => prev.filter(p => p.siren !== current.siren))
+        const sibCount = duplicates.filter(d => d.reason?.includes('SIREN')).length + 1
+        toast.success(`🚫 ${sibCount} établissement(s) marqué(s) "ne pas rappeler"`)
+      } else {
+        // Cet établissement uniquement
+        await supabase.from('prospection_massive').update(updateData).eq('id', current.id)
+        setProspects(prev => prev.filter(p => p.id !== current.id))
+        toast.success('🚫 Marqué "ne pas rappeler"')
+      }
       setShowDoNotCallModal(false)
       setDoNotCallReason('')
       setDoNotCallCustom('')
-      toast.success('🚫 Marqué "ne pas rappeler"')
+      setDoNotCallScope('single')
+      loadDoNotCallCount()
       goNext()
     } catch (error) { toast.error('Erreur: ' + error.message) }
   }
@@ -2708,7 +2722,10 @@ export default function MarinePhoning() {
       )}
 
       {/* ═══ MODALE NE PAS RAPPELER ═══ */}
-      {showDoNotCallModal && (
+      {showDoNotCallModal && (() => {
+        const sirenSiblings = duplicates.filter(d => d.reason?.includes('SIREN'))
+        const hasSiblings = sirenSiblings.length > 0
+        return (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
             <div className="p-6">
@@ -2733,21 +2750,43 @@ export default function MarinePhoning() {
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg mb-3 text-sm" autoFocus />
               )}
 
+              {hasSiblings && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-3">
+                  <p className="text-sm font-medium text-amber-800 mb-2">Appliquer à :</p>
+                  <label className="flex items-center gap-2 cursor-pointer mb-1.5">
+                    <input type="radio" name="dnc_scope" checked={doNotCallScope === 'single'} onChange={() => setDoNotCallScope('single')}
+                      className="text-red-600" />
+                    <span className="text-sm text-gray-700">Cet établissement uniquement ({current?.city})</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="radio" name="dnc_scope" checked={doNotCallScope === 'all'} onChange={() => setDoNotCallScope('all')}
+                      className="text-red-600" />
+                    <span className="text-sm text-gray-700">Tous les établissements ({sirenSiblings.length + 1})</span>
+                  </label>
+                  {doNotCallScope === 'all' && (
+                    <div className="mt-2 ml-6 text-xs text-amber-600">
+                      {sirenSiblings.map((d, i) => <span key={i} className="block">• {d.name} — {d.city}</span>)}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="flex gap-3 mt-4">
-                <button onClick={() => { setShowDoNotCallModal(false); setDoNotCallReason(''); setDoNotCallCustom('') }}
+                <button onClick={() => { setShowDoNotCallModal(false); setDoNotCallReason(''); setDoNotCallCustom(''); setDoNotCallScope('single') }}
                   className="flex-1 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-medium text-gray-700">
                   Annuler
                 </button>
                 <button onClick={handleDoNotCall}
                   disabled={!doNotCallReason || (doNotCallReason === 'autre' && !doNotCallCustom.trim())}
                   className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed">
-                  🚫 Confirmer
+                  🚫 Confirmer{doNotCallScope === 'all' ? ` (${sirenSiblings.length + 1})` : ''}
                 </button>
               </div>
             </div>
           </div>
         </div>
-      )}
+        )
+      })()}
     </div>
   )
 }
