@@ -259,7 +259,6 @@ export default function MarinePhoning() {
   const [doNotCallReason, setDoNotCallReason] = useState('')
   const [doNotCallCustom, setDoNotCallCustom] = useState('')
   const [doNotCallScope, setDoNotCallScope] = useState('single')
-  const [doNotCallScope, setDoNotCallScope] = useState('siren')
   // Filters for "À rappeler" tab
   const [rappelFilterBy, setRappelFilterBy] = useState('')
   const [rappelFilterDate, setRappelFilterDate] = useState('all')
