@@ -2095,9 +2095,24 @@ export default function MarinePhoning() {
 
               {/* Status reset pour prospects déjà marqués */}
               {current.prospection_status && !['a_appeler', null].includes(current.prospection_status) && (
-                <button onClick={handleResetStatus} disabled={saving}
-                  className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm text-gray-600 border border-gray-300">
-                  <ArrowLeft className="w-4 h-4" /> ↩️ Remettre dans la file
+                <div className="flex gap-2">
+                  <button onClick={handleResetStatus} disabled={saving}
+                    className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm text-gray-600 border border-gray-300">
+                    <ArrowLeft className="w-4 h-4" /> ↩️ Remettre dans la file
+                  </button>
+                  {(callerName === 'Hicham' || callerName === 'Maxime') && (
+                    <button onClick={() => setShowDoNotCallModal(true)}
+                      className="px-3 py-2 bg-red-50 hover:bg-red-100 rounded-lg text-sm text-red-600 border border-red-300" title="Ne pas rappeler">
+                      🚫
+                    </button>
+                  )}
+                </div>
+              )}
+              {/* Bouton ne pas rappeler quand prospect est à_appeler */}
+              {(callerName === 'Hicham' || callerName === 'Maxime') && (!current.prospection_status || current.prospection_status === 'a_appeler') && (
+                <button onClick={() => setShowDoNotCallModal(true)}
+                  className="w-full flex items-center justify-center gap-2 px-3 py-1.5 bg-red-50 hover:bg-red-100 rounded-lg text-xs text-red-600 border border-red-200">
+                  🚫 Ne pas rappeler
                 </button>
               )}
 
