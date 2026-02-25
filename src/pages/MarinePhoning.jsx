@@ -4,7 +4,7 @@ import { useAuthStore } from '../lib/store'
 import { 
   Phone, CheckCircle, RefreshCw, SkipForward,
   Building2, MapPin, Mail, List, Search, Sparkles, Loader2, Map as MapIcon, Navigation, AlertTriangle,
-  Clock, PhoneOff, XCircle, Snowflake, Bell, Plus, Edit2, Briefcase, Send, ArrowLeft, MessageSquare, BarChart3, ChevronRight, X, Paperclip, Trash2, Smartphone, Check
+  Clock, PhoneOff, XCircle, Snowflake, Bell, Plus, Edit2, Briefcase, Send, ArrowLeft, MessageSquare, BarChart3, ChevronRight, X, Paperclip, Trash2, Smartphone, Check, User
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import SpeechToTextButton from '../components/SpeechToTextButton'
@@ -1935,6 +1935,9 @@ export default function MarinePhoning() {
                 {current.email && <div className="bg-gray-50 rounded px-2 py-1.5 truncate"><Mail className="w-3 h-3 inline text-gray-400" /> <span className="font-medium text-xs">{current.email}</span></div>}
                 {current.site_web && <div className="col-span-2 bg-gray-50 rounded px-2 py-1.5 truncate">🌐 <a href={current.site_web.startsWith('http') ? current.site_web : 'https://'+current.site_web} target="_blank" rel="noreferrer" className="text-primary-600 hover:underline text-xs">{current.site_web}</a></div>}
                 {current.opco_name && <div className="col-span-2 bg-indigo-50 rounded px-2 py-1.5 flex items-center gap-1.5"><Briefcase className="w-3 h-3 text-indigo-500" /><span className="text-indigo-700 font-medium text-xs">{current.opco_name}</span></div>}
+                {current.enrichment_notes && <div className="col-span-2 bg-amber-50 rounded px-2 py-1.5 flex items-center gap-1.5"><span className="text-amber-600 text-xs">📝</span><span className="text-amber-800 text-xs italic">{current.enrichment_notes}</span></div>}
+                {current.dirigeant_nom && <div className="col-span-2 bg-gray-50 rounded px-2 py-1.5 flex items-center gap-1.5"><User className="w-3 h-3 text-gray-400" /><span className="font-medium text-xs">{current.dirigeant_prenom} {current.dirigeant_nom}</span>{current.dirigeant_fonction && <span className="text-gray-400 text-xs">({current.dirigeant_fonction})</span>}</div>}
+                {current.groupe && <div className="col-span-2 bg-purple-50 rounded px-2 py-1.5 flex items-center gap-1.5"><span className="text-purple-600 text-xs">🏷️</span><span className="text-purple-700 font-medium text-xs">{current.groupe}</span></div>}
               </div>
 
               {/* Email — éditable + bouton envoyer */}
@@ -2105,6 +2108,12 @@ export default function MarinePhoning() {
                 {current.city && <span className="text-xs text-primary-600">— {current.city}</span>}
                 <span className="ml-auto text-xs text-primary-400">{filtered.findIndex(p => p.id === current.id) + 1}/{filtered.length}</span>
               </div>
+              {current.enrichment_notes && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5 flex items-center gap-1.5">
+                  <span className="text-amber-600 text-xs">📝</span>
+                  <span className="text-amber-800 text-xs italic">{current.enrichment_notes}</span>
+                </div>
+              )}
 
               {/* Status reset pour prospects déjà marqués */}
               {current.prospection_status && !['a_appeler', null].includes(current.prospection_status) && (
