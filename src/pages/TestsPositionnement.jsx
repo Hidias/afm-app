@@ -16,6 +16,7 @@ const PREDEFINED_THEMES = [
   { id: 'ERGO-GP-PRAPIBC-INI', name: 'Ergonomie - Gestes & postures + PRAP (initial)', category: 'Ergonomie' },
   { id: 'COND-R485-INI', name: 'Conduite - R485 Gerbeurs accompagnant (initial)', category: 'Conduite' },
   { id: 'COND-R489-INI', name: 'Conduite - R489 Chariots portés (initial)', category: 'Conduite' },
+  { id: 'PREV-DUERP-INI', name: 'Prévention - DUERP (initial)', category: 'Prévention' },
 ]
 
 export default function TestsPositionnement() {
