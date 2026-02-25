@@ -191,6 +191,8 @@ export default function MarinePhoning() {
   const [isServerSearching, setIsServerSearching] = useState(false)
   const searchTimerRef = useRef(null)
   const [totalCount, setTotalCount] = useState(0)
+  const [doNotCallList, setDoNotCallList] = useState([])
+  const [doNotCallCount, setDoNotCallCount] = useState(0)
   const [contactName, setContactName] = useState('')
   const [contactFunction, setContactFunction] = useState('Dirigeant')
   const [contactEmail, setContactEmail] = useState('')
@@ -253,6 +255,9 @@ export default function MarinePhoning() {
   const [editingCallNotes, setEditingCallNotes] = useState('')
   const [editingCallResult, setEditingCallResult] = useState('')
   const [showStatusChangeDialog, setShowStatusChangeDialog] = useState(false)
+  const [showDoNotCallModal, setShowDoNotCallModal] = useState(false)
+  const [doNotCallReason, setDoNotCallReason] = useState('')
+  const [doNotCallCustom, setDoNotCallCustom] = useState('')
   // Filters for "À rappeler" tab
   const [rappelFilterBy, setRappelFilterBy] = useState('')
   const [rappelFilterDate, setRappelFilterDate] = useState('all')
@@ -279,7 +284,7 @@ export default function MarinePhoning() {
   const listRef = useRef(null)
   const departements = [...new Set(prospects.map(p => p.departement))].filter(Boolean).sort()
 
-  useEffect(() => { loadProspects(); loadDailyStats(); loadTodayCallbacks() }, [])
+  useEffect(() => { loadProspects(); loadDailyStats(); loadTodayCallbacks(); loadDoNotCallCount() }, [])
 
   // Scroll en haut quand on change de filtre
   useEffect(() => {
@@ -322,6 +327,24 @@ export default function MarinePhoning() {
     } finally {
       setLoading(false)
     }
+  }
+
+  async function loadDoNotCallCount() {
+    try {
+      const { count } = await supabase.from('prospection_massive').select('id', { count: 'exact', head: true }).eq('do_not_call', true)
+      setDoNotCallCount(count || 0)
+    } catch (err) { console.error('Erreur count DNC:', err) }
+  }
+
+  async function loadDoNotCallList() {
+    try {
+      const { data } = await supabase.from('prospection_massive')
+        .select('*')
+        .eq('do_not_call', true)
+        .order('do_not_call_at', { ascending: false })
+        .limit(200)
+      setDoNotCallList(data || [])
+    } catch (err) { console.error('Erreur liste DNC:', err) }
   }
 
   async function loadDailyStats() {
@@ -1234,6 +1257,28 @@ export default function MarinePhoning() {
     } catch (error) { toast.error('Erreur: ' + error.message) }
   }
 
+  async function handleDoNotCall() {
+    if (!current) return
+    const reason = doNotCallReason === 'autre' ? doNotCallCustom.trim() : doNotCallReason
+    if (!reason) { toast.error('Motif obligatoire'); return }
+    try {
+      await supabase.from('prospection_massive').update({
+        do_not_call: true,
+        do_not_call_reason: reason,
+        do_not_call_by: callerName,
+        do_not_call_at: new Date().toISOString(),
+        prospection_status: 'ne_pas_rappeler',
+        updated_at: new Date().toISOString(),
+      }).eq('id', current.id)
+      setProspects(prev => prev.filter(p => p.id !== current.id))
+      setShowDoNotCallModal(false)
+      setDoNotCallReason('')
+      setDoNotCallCustom('')
+      toast.success('🚫 Marqué "ne pas rappeler"')
+      goNext()
+    } catch (error) { toast.error('Erreur: ' + error.message) }
+  }
+
   // === FILTRES & TRI ===
   const rappelsCount = prospects.filter(p => p.siren && todayCallbackSirens.has(p.siren)).length
 
@@ -1245,11 +1290,20 @@ export default function MarinePhoning() {
     { id: 'redirige', label: '🏢 Redirigé', count: prospects.filter(p => p.prospection_status === 'redirige' || p.gere_par_id).length },
     { id: 'pas_interesse', label: '❄️ Refus', count: prospects.filter(p => p.prospection_status === 'pas_interesse').length },
     { id: 'numero_errone', label: '❌ Erroné', count: prospects.filter(p => p.prospection_status === 'numero_errone').length },
+    { id: 'ne_pas_rappeler', label: '🚫 Ne pas rappeler', count: doNotCallCount },
     { id: 'tous', label: '📋 Tous', count: prospects.length },
   ]
 
   const filtered = useMemo(() => {
     const base = BASES[mapBase]
+
+    // Onglet "Ne pas rappeler" → liste séparée (pas dans le RPC)
+    if (statusFilter === 'ne_pas_rappeler') {
+      return doNotCallList.map(p => ({
+        ...p,
+        distance: (p.latitude && p.longitude) ? distanceKm(base.lat, base.lng, p.latitude, p.longitude) : 9999
+      }))
+    }
 
     // Si recherche serveur active → utiliser les résultats serveur (tous établissements)
     if (searchResults !== null && searchTerm && searchTerm.trim().length >= 2) {
@@ -1338,7 +1392,7 @@ export default function MarinePhoning() {
       return a.distance - b.distance
     })
     return list
-  }, [prospects, statusFilter, departementFilter, effectifFilter, formeFilter, searchTerm, searchResults, todayCallbackSirens, callbackDetails, rappelCallerMap, rappelFilterBy, rappelFilterDate, mapBase, mapRadius])
+  }, [prospects, statusFilter, departementFilter, effectifFilter, formeFilter, searchTerm, searchResults, todayCallbackSirens, callbackDetails, rappelCallerMap, rappelFilterBy, rappelFilterDate, mapBase, mapRadius, doNotCallList])
 
   // En mode file, sélectionner le premier prospect du filtre actif
   // MAIS PAS si le modal email est ouvert (le prospect a été capturé dans emailProspectRef)
@@ -1467,7 +1521,7 @@ export default function MarinePhoning() {
       {/* Filtres statut */}
       <div className="flex gap-2 flex-wrap">
         {STATUS_FILTERS.map(s => (
-          <button key={s.id} onClick={() => setStatusFilter(s.id)}
+          <button key={s.id} onClick={() => { setStatusFilter(s.id); if (s.id === 'ne_pas_rappeler') loadDoNotCallList() }}
             className={'px-3 py-1.5 rounded-full text-sm font-medium border transition-colors ' +
               (statusFilter === s.id ? (s.id === 'rappels' ? 'bg-amber-500 text-white border-amber-500' : 'bg-primary-600 text-white border-primary-600')
                 : (s.id === 'rappels' && s.count > 0 ? 'bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-100 animate-pulse' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'))}>
@@ -1530,7 +1584,7 @@ export default function MarinePhoning() {
         <select value={formeFilter} onChange={(e) => setFormeFilter(e.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm">
           <option value="">Forme jur.</option><option value="SAS/SASU">SAS/SASU</option><option value="SARL/EURL">SARL/EURL</option><option value="SA/SCA">SA/SCA</option><option value="EI">EI</option><option value="Association">Association</option><option value="Public">Public</option><option value="Autre">Autre</option>
         </select>
-        <button onClick={() => { loadProspects(); loadDailyStats(); loadTodayCallbacks() }} className="px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg"><RefreshCw className="w-4 h-4" /></button>
+        <button onClick={() => { loadProspects(); loadDailyStats(); loadTodayCallbacks(); loadDoNotCallCount() }} className="px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg"><RefreshCw className="w-4 h-4" /></button>
         <button onClick={exportCSV} className="px-3 py-2 bg-green-100 text-green-700 hover:bg-green-200 rounded-lg text-sm font-medium">📥 CSV</button>
         {isAdmin && <button onClick={handleSendReport} disabled={sendingReport} className="px-3 py-2 bg-indigo-100 text-indigo-700 hover:bg-indigo-200 rounded-lg text-sm font-medium flex items-center gap-1 disabled:opacity-50">{sendingReport ? <Loader2 className="w-4 h-4 animate-spin" /> : <BarChart3 className="w-4 h-4" />} Rapport</button>}
         <button onClick={() => setShowAddModal(true)} className="px-3 py-2 bg-primary-100 text-primary-700 hover:bg-primary-200 rounded-lg text-sm font-medium flex items-center gap-1"><Plus className="w-4 h-4" /> Ajouter</button>
@@ -1584,8 +1638,12 @@ export default function MarinePhoning() {
                   p.prospection_status === 'rdv_pris' ? 'bg-green-100 text-green-700' :
                   p.prospection_status === 'a_rappeler' ? 'bg-amber-100 text-amber-700' :
                   p.prospection_status === 'pas_interesse' ? 'bg-gray-100 text-gray-500' :
-                  p.prospection_status === 'numero_errone' ? 'bg-red-100 text-red-700' : 'bg-blue-50 text-blue-700'
-                )}>{p.prospection_status === 'rdv_pris' ? '🔥 RDV' : p.prospection_status === 'a_rappeler' ? '🟡' : p.prospection_status === 'pas_interesse' ? '❄️' : p.prospection_status === 'numero_errone' ? '❌' : '📞'}</span>
+                  p.prospection_status === 'numero_errone' ? 'bg-red-100 text-red-700' :
+                  p.do_not_call ? 'bg-red-100 text-red-700' : 'bg-blue-50 text-blue-700'
+                )}>{p.prospection_status === 'rdv_pris' ? '🔥 RDV' : p.prospection_status === 'a_rappeler' ? '🟡' : p.prospection_status === 'pas_interesse' ? '❄️' : p.prospection_status === 'numero_errone' ? '❌' : p.do_not_call ? '🚫' : '📞'}</span>
+                {p.do_not_call && p.do_not_call_reason && statusFilter === 'ne_pas_rappeler' && (
+                  <span className="text-[10px] text-red-500 truncate max-w-[150px]">{p.do_not_call_reason} — {p.do_not_call_by}</span>
+                )}
               </div>
             </div>
           ))}
@@ -1843,6 +1901,12 @@ export default function MarinePhoning() {
                             </button>
                           ))}
                           <button onClick={() => setShowStatusChangeDialog(false)} className="px-2 py-1 text-xs text-gray-400 hover:text-gray-600">Garder tel quel</button>
+                          {(callerName === 'Hicham' || callerName === 'Maxime') && (
+                            <button onClick={() => { setShowStatusChangeDialog(false); setShowDoNotCallModal(true) }}
+                              className="px-2 py-1 rounded text-xs font-medium border border-red-300 bg-red-50 text-red-700 hover:bg-red-100">
+                              🚫 Ne pas rappeler
+                            </button>
+                          )}
                         </div>
                       </div>
                     )}
@@ -2621,6 +2685,48 @@ export default function MarinePhoning() {
                   className="flex items-center gap-2 px-5 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
                   {emailSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                   {emailSending ? 'Envoi...' : 'Envoyer'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══ MODALE NE PAS RAPPELER ═══ */}
+      {showDoNotCallModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
+            <div className="p-6">
+              <h3 className="text-lg font-bold text-gray-900 mb-1">🚫 Ne pas rappeler</h3>
+              <p className="text-sm text-gray-500 mb-4">{current?.name} — {current?.city}</p>
+
+              <label className="block text-sm font-medium text-gray-700 mb-2">Motif (obligatoire)</label>
+              <select value={doNotCallReason} onChange={e => setDoNotCallReason(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg mb-3 text-sm">
+                <option value="">— Choisir un motif —</option>
+                <option value="Demande explicite du prospect">Demande explicite du prospect</option>
+                <option value="Entreprise fermée / en liquidation">Entreprise fermée / en liquidation</option>
+                <option value="Hors cible (secteur/taille/zone)">Hors cible (secteur/taille/zone)</option>
+                <option value="Doublon confirmé">Doublon confirmé</option>
+                <option value="Interlocuteur agressif / hostile">Interlocuteur agressif / hostile</option>
+                <option value="autre">Autre (préciser)</option>
+              </select>
+
+              {doNotCallReason === 'autre' && (
+                <input type="text" value={doNotCallCustom} onChange={e => setDoNotCallCustom(e.target.value)}
+                  placeholder="Précisez le motif..."
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg mb-3 text-sm" autoFocus />
+              )}
+
+              <div className="flex gap-3 mt-4">
+                <button onClick={() => { setShowDoNotCallModal(false); setDoNotCallReason(''); setDoNotCallCustom('') }}
+                  className="flex-1 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-medium text-gray-700">
+                  Annuler
+                </button>
+                <button onClick={handleDoNotCall}
+                  disabled={!doNotCallReason || (doNotCallReason === 'autre' && !doNotCallCustom.trim())}
+                  className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed">
+                  🚫 Confirmer
                 </button>
               </div>
             </div>
