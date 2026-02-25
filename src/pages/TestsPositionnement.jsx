@@ -302,6 +302,7 @@ export default function TestsPositionnement() {
     if (name.includes('ergo') || name.includes('prap') || name.includes('gestes')) return 'ERGO-GP-PRAPIBC-INI'
     if (name.includes('r485') || name.includes('gerbeur')) return 'COND-R485-INI'
     if (name.includes('r489') || name.includes('chariot')) return 'COND-R489-INI'
+    if (name.includes('prévention') || name.includes('prevention') || name.includes('duerp')) return 'PREV-DUERP-INI'
     
     return null
   }
