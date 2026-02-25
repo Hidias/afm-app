@@ -188,6 +188,13 @@ export default function EnrichissementRapide() {
   const [showEditModal, setShowEditModal] = useState(false)
   const isManualProspect = (p) => !p || p.siren?.startsWith('MANUAL_') || !p.city || !p.postal_code
 
+  // Multi-SIRET siblings
+  const [siblings, setSiblings] = useState([])
+  const [siblingsLoading, setSiblingsLoading] = useState(false)
+  const [siblingEdits, setSiblingEdits] = useState({}) // {id: {phone, email, notes}}
+  const [showSiblings, setShowSiblings] = useState(false)
+  const [enrichmentNotes, setEnrichmentNotes] = useState('')
+
   const phoneRef = useRef(null)
   const departements = ['22', '29', '35', '44', '49', '53', '56', '72', '85']
 
@@ -366,6 +373,10 @@ export default function EnrichissementRapide() {
     setEditPostalCode('')
     setEditAddress('')
     setShowEditModal(false)
+    setSiblings([])
+    setSiblingEdits({})
+    setShowSiblings(false)
+    setEnrichmentNotes('')
   }
 
   // ─── Mini-Lusha : Auto-enrichissement API ───────────────────────────────
@@ -415,6 +426,33 @@ export default function EnrichissementRapide() {
       setLushaLoading(false)
     }
   }
+
+  // ─── Charger les établissements frères (même SIREN) ──────────────────────
+  async function loadSiblings(siren) {
+    if (!siren || siren.startsWith('MANUAL_')) { setSiblings([]); return }
+    setSiblingsLoading(true)
+    try {
+      const { data } = await supabase
+        .from('prospection_massive')
+        .select('id, siret, name, city, departement, phone, email, site_web, enrichment_status, enrichment_notes, is_siege, address')
+        .eq('siren', siren)
+        .order('is_siege', { ascending: false })
+        .order('city')
+      const others = (data || []).filter(d => d.id !== current?.id)
+      setSiblings(others)
+      // Pré-remplir les edits avec les valeurs actuelles
+      const edits = {}
+      others.forEach(s => { edits[s.id] = { phone: s.phone || '', email: s.email || '', notes: s.enrichment_notes || '' } })
+      setSiblingEdits(edits)
+      if (others.length > 0) setShowSiblings(true)
+    } catch (err) { console.error('Erreur chargement siblings:', err) }
+    finally { setSiblingsLoading(false) }
+  }
+
+  useEffect(() => {
+    if (current?.siren) loadSiblings(current.siren)
+    setEnrichmentNotes(current?.enrichment_notes || '')
+  }, [current?.id])
 
   // Charger les signaux recrutement
   async function loadSignaux() {
@@ -509,6 +547,24 @@ export default function EnrichissementRapide() {
     }
   }
 
+  // ─── Siblings : Appliquer à tous ─────────────────────────────────────────
+  function applyToAllSiblings(field, value) {
+    if (!value) return
+    const newEdits = { ...siblingEdits }
+    siblings.forEach(s => {
+      if (!newEdits[s.id]) newEdits[s.id] = { phone: s.phone || '', email: s.email || '', notes: s.enrichment_notes || '' }
+      newEdits[s.id][field] = value
+    })
+    setSiblingEdits(newEdits)
+  }
+
+  function updateSiblingEdit(id, field, value) {
+    setSiblingEdits(prev => ({
+      ...prev,
+      [id]: { ...(prev[id] || {}), [field]: value }
+    }))
+  }
+
   // 🔍 Recherche coordonnées : tente Google → scrape
   async function rechercherCoordonnees() {
     if (!current) return
@@ -565,6 +621,9 @@ export default function EnrichissementRapide() {
 
     if (siteWeb) update.site_web = siteWeb.trim()
 
+    // Notes d'enrichissement
+    if (enrichmentNotes.trim()) update.enrichment_notes = enrichmentNotes.trim()
+
     // Champs identité (si modifiés)
     if (editName && editName !== current.name) update.name = editName.trim().toUpperCase()
     if (editCity && editCity !== current.city) update.city = editCity.trim()
@@ -603,6 +662,31 @@ export default function EnrichissementRapide() {
     }
 
     if (!error) {
+      // Sauvegarder les modifications des établissements frères
+      const siblingUpdates = Object.entries(siblingEdits).filter(([id, edit]) => {
+        const orig = siblings.find(s => s.id === id)
+        if (!orig) return false
+        return (edit.phone && edit.phone !== (orig.phone || '')) ||
+               (edit.email && edit.email !== (orig.email || '')) ||
+               (edit.notes && edit.notes !== (orig.enrichment_notes || ''))
+      })
+      for (const [id, edit] of siblingUpdates) {
+        const sibUpdate = { updated_at: new Date().toISOString() }
+        if (edit.phone) {
+          let cp = edit.phone.replace(/[\s.\-()]/g, '')
+          if (cp.startsWith('+33')) cp = '0' + cp.slice(3)
+          if (cp.startsWith('0033')) cp = '0' + cp.slice(4)
+          sibUpdate.phone = /^0[1-9]\d{8}$/.test(cp) ? cp.replace(/(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/, '$1 $2 $3 $4 $5') : edit.phone.trim()
+          sibUpdate.phone_source = 'manual_pj'
+          sibUpdate.enrichment_status = 'done'
+          sibUpdate.enrichment_last_attempt = new Date().toISOString()
+        }
+        if (edit.email) { sibUpdate.email = edit.email.trim().toLowerCase(); sibUpdate.email_source = 'manual_pj' }
+        if (edit.notes) sibUpdate.enrichment_notes = edit.notes.trim()
+        if (siteWeb && !siblings.find(s => s.id === id)?.site_web) sibUpdate.site_web = siteWeb.trim()
+        await supabase.from('prospection_massive').update(sibUpdate).eq('id', id)
+      }
+
       setSessionStats(prev => ({
         done: prev.done + 1,
         phones: prev.phones + (phone ? 1 : 0),
@@ -1109,6 +1193,98 @@ export default function EnrichissementRapide() {
                   </div>
                 </div>
               </div>
+
+              {/* ─── Notes d'enrichissement ─────────────────────────── */}
+              <div className="mt-4">
+                <label className="text-sm font-medium text-gray-700 mb-1 block">📝 Notes enrichissement</label>
+                <textarea value={enrichmentNotes} onChange={e => setEnrichmentNotes(e.target.value)}
+                  placeholder="Infos utiles : contact, horaires, particularités..."
+                  rows={2}
+                  className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 resize-none" />
+              </div>
+
+              {/* ─── Panneau Multi-SIRET (établissements frères) ────── */}
+              {siblings.length > 0 && (
+                <div className="mt-4 border border-purple-200 rounded-lg overflow-hidden">
+                  <button onClick={() => setShowSiblings(!showSiblings)}
+                    className="w-full flex items-center justify-between px-4 py-2.5 bg-purple-50 hover:bg-purple-100 transition-colors">
+                    <span className="flex items-center gap-2 text-sm font-medium text-purple-800">
+                      <Building2 className="w-4 h-4" />
+                      {siblings.length} autre(s) établissement(s)
+                      <span className="text-xs bg-purple-200 text-purple-700 px-1.5 py-0.5 rounded-full">même SIREN</span>
+                    </span>
+                    {showSiblings ? <ChevronUp className="w-4 h-4 text-purple-500" /> : <ChevronDown className="w-4 h-4 text-purple-500" />}
+                  </button>
+
+                  {showSiblings && (
+                    <div className="p-3 bg-purple-50/30">
+                      {/* Boutons appliquer à tous */}
+                      <div className="flex flex-wrap gap-2 mb-3">
+                        {phone && (
+                          <button onClick={() => applyToAllSiblings('phone', phone)}
+                            className="text-xs px-2.5 py-1 bg-purple-100 text-purple-700 rounded-md hover:bg-purple-200 transition-colors font-medium">
+                            📞 Appliquer tél à tous
+                          </button>
+                        )}
+                        {email && (
+                          <button onClick={() => applyToAllSiblings('email', email)}
+                            className="text-xs px-2.5 py-1 bg-purple-100 text-purple-700 rounded-md hover:bg-purple-200 transition-colors font-medium">
+                            📧 Appliquer email à tous
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Liste des établissements frères */}
+                      <div className="space-y-2 max-h-80 overflow-y-auto">
+                        {siblings.map(s => {
+                          const edit = siblingEdits[s.id] || { phone: s.phone || '', email: s.email || '', notes: s.enrichment_notes || '' }
+                          const hasPhone = s.phone || edit.phone
+                          const hasEmail = s.email || edit.email
+                          return (
+                            <div key={s.id} className={`bg-white rounded-lg border p-3 ${s.is_siege ? 'border-purple-300' : 'border-gray-200'}`}>
+                              <div className="flex items-center justify-between mb-2">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-medium text-sm text-gray-900 truncate max-w-[200px]">{s.name}</span>
+                                  {s.is_siege && <span className="text-xs bg-purple-100 text-purple-600 px-1.5 py-0.5 rounded">Siège</span>}
+                                  {s.enrichment_status === 'done' && <span className="text-xs text-green-600">✓</span>}
+                                </div>
+                                <span className="text-xs text-gray-400">{s.city} ({s.departement})</span>
+                              </div>
+                              <div className="grid grid-cols-3 gap-2">
+                                <div>
+                                  <input type="tel" value={edit.phone}
+                                    onChange={e => updateSiblingEdit(s.id, 'phone', e.target.value)}
+                                    placeholder="Téléphone"
+                                    className={`w-full text-xs px-2 py-1.5 border rounded-md ${hasPhone ? 'border-green-300 bg-green-50' : 'border-gray-200'}`} />
+                                </div>
+                                <div>
+                                  <input type="email" value={edit.email}
+                                    onChange={e => updateSiblingEdit(s.id, 'email', e.target.value)}
+                                    placeholder="Email"
+                                    className={`w-full text-xs px-2 py-1.5 border rounded-md ${hasEmail ? 'border-blue-300 bg-blue-50' : 'border-gray-200'}`} />
+                                </div>
+                                <div>
+                                  <input type="text" value={edit.notes}
+                                    onChange={e => updateSiblingEdit(s.id, 'notes', e.target.value)}
+                                    placeholder="Notes"
+                                    className="w-full text-xs px-2 py-1.5 border border-gray-200 rounded-md" />
+                                </div>
+                              </div>
+                              {s.site_web && <p className="text-xs text-gray-400 mt-1 truncate">🌐 {s.site_web}</p>}
+                              {s.address && <p className="text-xs text-gray-400 mt-0.5 truncate">📍 {s.address}</p>}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+              {siblingsLoading && (
+                <div className="mt-3 text-xs text-gray-400 flex items-center gap-2">
+                  <Loader className="w-3.5 h-3.5 animate-spin" /> Chargement des établissements frères...
+                </div>
+              )}
             </div>
 
             {/* ─── Actions ──────────────────────────────────────────── */}
