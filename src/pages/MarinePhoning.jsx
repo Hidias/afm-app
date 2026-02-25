@@ -219,6 +219,7 @@ export default function MarinePhoning() {
   const [duplicates, setDuplicates] = useState([])
   const [showDuplicates, setShowDuplicates] = useState(false)
   const [siblingSelections, setSiblingSelections] = useState(new Set()) // IDs cochés pour "géré par"
+  const [existingClient, setExistingClient] = useState(null) // Client match by SIREN
   const [showHistory, setShowHistory] = useState(false)
   const [editingPhone, setEditingPhone] = useState(false)
   const [editPhoneValue, setEditPhoneValue] = useState('')
@@ -438,6 +439,12 @@ export default function MarinePhoning() {
     loadAiSummary(prospect)
     loadCallHistory(prospect)
     loadDuplicates(prospect)
+    // Check if already a client
+    setExistingClient(null)
+    if (prospect.siren) {
+      supabase.from('clients').select('id, name, status, city').eq('siren', prospect.siren).limit(1)
+        .then(({ data }) => setExistingClient(data?.[0] || null))
+    }
   }
 
   async function loadDuplicates(prospect) {
@@ -448,8 +455,42 @@ export default function MarinePhoning() {
       const found = []
       const myId = prospect.id
       if (prospect.siren) {
-        const { data } = await supabase.from('prospection_massive').select('id, name, city, departement, phone, siret, prospection_status, contacted, contacted_at, prospection_notes, gere_par_id, gere_par_city').eq('siren', prospect.siren).neq('id', myId).limit(20)
+        const { data } = await supabase.from('prospection_massive').select('id, name, city, departement, phone, email, siret, prospection_status, contacted, contacted_at, prospection_notes, enrichment_notes, is_siege, gere_par_id, gere_par_city, dirigeant_nom, dirigeant_prenom, groupe').eq('siren', prospect.siren).neq('id', myId).limit(20)
         if (data) data.forEach(d => found.push({ ...d, reason: 'Même SIREN (groupe)' }))
+      }
+      // Cross-SIREN : même dirigeant
+      if (prospect.dirigeant_nom) {
+        let q = supabase.from('prospection_massive')
+          .select('id, name, city, departement, phone, prospection_status, contacted, siren, dirigeant_nom, dirigeant_prenom, groupe, enrichment_notes')
+          .eq('dirigeant_nom', prospect.dirigeant_nom)
+          .neq('siren', prospect.siren || '---')
+          .limit(15)
+        if (prospect.dirigeant_prenom) q = q.eq('dirigeant_prenom', prospect.dirigeant_prenom)
+        const { data } = await q
+        if (data) {
+          const seenSiren = new Set()
+          data.forEach(d => {
+            if (seenSiren.has(d.siren)) return
+            seenSiren.add(d.siren)
+            if (!found.some(f => f.id === d.id)) found.push({ ...d, reason: '👤 Même dirigeant' })
+          })
+        }
+      }
+      // Cross-SIREN : même groupe
+      if (prospect.groupe) {
+        const { data } = await supabase.from('prospection_massive')
+          .select('id, name, city, departement, phone, prospection_status, contacted, siren, dirigeant_nom, dirigeant_prenom, groupe, enrichment_notes')
+          .eq('groupe', prospect.groupe)
+          .neq('siren', prospect.siren || '---')
+          .limit(15)
+        if (data) {
+          const seenSiren = new Set()
+          data.forEach(d => {
+            if (seenSiren.has(d.siren)) return
+            seenSiren.add(d.siren)
+            if (!found.some(f => f.id === d.id)) found.push({ ...d, reason: '🏷️ Même groupe' })
+          })
+        }
       }
       if (prospect.phone) {
         const { data } = await supabase.from('prospection_massive').select('id, name, city, departement, phone, prospection_status, contacted, contacted_at, prospection_notes').eq('phone', prospect.phone).neq('id', myId).limit(10)
@@ -1638,6 +1679,9 @@ export default function MarinePhoning() {
                     </span>
                   })()}
                   {p.gere_par_city && <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700">Géré par {p.gere_par_city}</span>}
+                  {p.enrichment_notes && <span className="text-[10px] text-amber-500" title={p.enrichment_notes}>📝</span>}
+                  {p.dirigeant_nom && <span className="text-[10px] text-gray-400" title={`${p.dirigeant_prenom || ''} ${p.dirigeant_nom}`}>👤</span>}
+                  {p.groupe && <span className="text-[10px] text-purple-400" title={p.groupe}>🏷️</span>}
                 </div>
               </div>
               <div className="flex items-center gap-3 ml-3">
@@ -1708,6 +1752,7 @@ export default function MarinePhoning() {
               <div>
                 <div className="flex items-center justify-between">
                   <h2 className="text-lg font-bold text-gray-900 leading-tight">{current.name}</h2>
+                  {existingClient && <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium whitespace-nowrap">🟢 Client ({existingClient.status})</span>}
                   <span className="text-xs text-gray-400 whitespace-nowrap ml-2">{filtered.findIndex(p => p.id === current.id) + 1}/{filtered.length}</span>
                 </div>
                 <div className="flex items-center gap-2 mt-1">
@@ -1761,6 +1806,7 @@ export default function MarinePhoning() {
                       <p key={i} className="text-xs text-green-700">
                         <span className="font-semibold">{d.name}</span> ({d.city}) — {statusIcons[d.prospection_status] || d.prospection_status}
                         {d.contacted_at && <span className="text-green-600"> le {new Date(d.contacted_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}</span>}
+                        {d.enrichment_notes && <span className="text-green-600 italic"> — 📝 {d.enrichment_notes.substring(0, 60)}</span>}
                         {d.prospection_notes && <span className="text-green-600 italic"> — {d.prospection_notes.substring(0, 80)}</span>}
                       </p>
                     ))}
@@ -1779,6 +1825,27 @@ export default function MarinePhoning() {
                       {cold[0].contacted_at && <span> le {new Date(cold[0].contacted_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}</span>}
                       {cold.length > 1 && <span> (+{cold.length - 1} autre{cold.length > 2 ? 's' : ''})</span>}
                     </p>
+                  </div>
+                )
+              })()}
+              {/* ═══ ALERTE ENTREPRISES LIÉES (même dirigeant/groupe) ═══ */}
+              {(() => {
+                const crossLinks = duplicates.filter(d => d.reason?.includes('dirigeant') || d.reason?.includes('groupe'))
+                if (crossLinks.length === 0) return null
+                const hot = crossLinks.filter(d => ['rdv_pris','a_rappeler'].includes(d.prospection_status))
+                return (
+                  <div className="bg-purple-50 border border-purple-300 rounded-lg px-3 py-2">
+                    <p className="text-xs font-bold text-purple-800 mb-1">
+                      👤 {current.dirigeant_nom ? `${current.dirigeant_prenom || ''} ${current.dirigeant_nom}` : `Groupe "${current.groupe}"`} — {crossLinks.length} autre(s) entreprise(s)
+                    </p>
+                    {hot.length > 0 ? hot.map((d, i) => (
+                      <p key={i} className="text-xs text-purple-700">
+                        <span className="font-semibold">{d.name}</span> ({d.city}) — {d.prospection_status === 'rdv_pris' ? '✅ RDV pris' : '🔄 À rappeler'}
+                        {d.phone && <span className="text-green-600"> 📞 {d.phone}</span>}
+                      </p>
+                    )) : (
+                      <p className="text-xs text-purple-600">{crossLinks.map(d => `${d.name} (${d.city})`).join(' • ')}</p>
+                    )}
                   </div>
                 )
               })()}
@@ -1991,14 +2058,15 @@ export default function MarinePhoning() {
               {/* Doublons toggle + Gestion multi-établissements */}
               {duplicates.length > 0 && (() => {
                 const sirenSiblings = duplicates.filter(d => d.reason?.includes('SIREN'))
-                const otherDups = duplicates.filter(d => !d.reason?.includes('SIREN'))
+                const crossSiren = duplicates.filter(d => d.reason?.includes('dirigeant') || d.reason?.includes('groupe'))
+                const otherDups = duplicates.filter(d => !d.reason?.includes('SIREN') && !d.reason?.includes('dirigeant') && !d.reason?.includes('groupe'))
                 const manageable = sirenSiblings.filter(d => !d.gere_par_id)
                 const managed = sirenSiblings.filter(d => d.gere_par_id)
                 return (
                 <div className="bg-amber-50 border border-amber-300 rounded-lg px-3 py-2">
                   <button type="button" onClick={() => setShowDuplicates(!showDuplicates)} className="flex items-center gap-2 text-amber-700 font-medium text-sm w-full">
                     <AlertTriangle className="w-4 h-4" />
-                    <span>Établissements du groupe ({sirenSiblings.length}){otherDups.length > 0 ? ` + ${otherDups.length} similaire(s)` : ''}</span>
+                    <span>Établissements du groupe ({sirenSiblings.length}){crossSiren.length > 0 ? ` + ${crossSiren.length} lié(s)` : ''}{otherDups.length > 0 ? ` + ${otherDups.length} similaire(s)` : ''}</span>
                     <span className="ml-auto text-amber-500">{showDuplicates ? '▲' : '▼'}</span>
                   </button>
                   {showDuplicates && (
@@ -2025,36 +2093,69 @@ export default function MarinePhoning() {
                               const st = sl[d.prospection_status] || { icon: d.contacted ? '📞' : '⬜', cls: 'bg-gray-100 text-gray-600' }
                               const isManaged = !!d.gere_par_id
                               return (
-                                <div key={i} className={`text-xs flex items-center gap-1.5 py-1 px-1.5 rounded ${isManaged ? 'bg-indigo-50' : 'hover:bg-amber-100'}`}>
-                                  {!isManaged && manageable.length > 1 && (
-                                    <input type="checkbox" checked={siblingSelections.has(d.id)}
-                                      onChange={() => toggleSiblingSelection(d.id)}
-                                      className="w-3.5 h-3.5 rounded text-indigo-600 cursor-pointer" />
-                                  )}
-                                  <span className="font-semibold text-gray-900 truncate max-w-[180px]">{d.name}</span>
-                                  <span className="text-gray-500">({d.city})</span>
-                                  {d.siret && <span className="text-[10px] text-gray-400 font-mono">{d.siret.slice(-5)}</span>}
-                                  <span className={'px-1 py-0.5 rounded text-[10px] font-medium ' + st.cls}>{st.icon}</span>
-                                  {isManaged ? (
-                                    <span className="flex items-center gap-1">
-                                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700">Géré par {d.gere_par_city}</span>
-                                      <button onClick={() => unmarkGerePar(d.id)} className="text-[10px] text-red-400 hover:text-red-600" title="Remettre dans la file">✕</button>
-                                    </span>
-                                  ) : (
-                                    <>
-                                      {d.contacted_at && <span className="text-amber-500">{new Date(d.contacted_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}</span>}
-                                      {d.prospection_notes && <span className="text-amber-500 italic truncate max-w-[100px]">{d.prospection_notes}</span>}
+                                <div key={i} className={`text-xs py-1.5 px-1.5 rounded ${isManaged ? 'bg-indigo-50' : 'hover:bg-amber-100'}`}>
+                                  <div className="flex items-center gap-1.5">
+                                    {!isManaged && manageable.length > 1 && (
+                                      <input type="checkbox" checked={siblingSelections.has(d.id)}
+                                        onChange={() => toggleSiblingSelection(d.id)}
+                                        className="w-3.5 h-3.5 rounded text-indigo-600 cursor-pointer" />
+                                    )}
+                                    {d.is_siege && <span className="text-[10px] bg-purple-100 text-purple-600 px-1 rounded">Siège</span>}
+                                    <span className="font-semibold text-gray-900 truncate max-w-[150px]">{d.name}</span>
+                                    <span className="text-gray-500">({d.city})</span>
+                                    <span className={'px-1 py-0.5 rounded text-[10px] font-medium ' + st.cls}>{st.icon}</span>
+                                    {d.phone && (
+                                      <a href={`tel:${d.phone.replace(/\s/g, '')}`} className="text-green-600 hover:text-green-800 font-mono whitespace-nowrap">
+                                        📞 {d.phone}
+                                      </a>
+                                    )}
+                                    {!d.phone && <span className="text-gray-300 text-[10px]">pas de tél</span>}
+                                    {isManaged ? (
+                                      <span className="flex items-center gap-1 ml-auto">
+                                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700">Géré par {d.gere_par_city}</span>
+                                        <button onClick={() => unmarkGerePar(d.id)} className="text-[10px] text-red-400 hover:text-red-600" title="Remettre dans la file">✕</button>
+                                      </span>
+                                    ) : (
                                       <button onClick={() => { if (window.confirm(`Désigner ${d.city || d.name} comme agence centrale ?\n\nToutes les autres agences seront marquées "géré par ${d.city || d.name}".`)) designateCentralOffice(d) }}
                                         className="ml-auto text-[10px] px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 whitespace-nowrap flex-shrink-0"
                                         title={`Désigner ${d.city || d.name} comme agence qui centralise`}>
                                         🏢 C'est eux
                                       </button>
-                                    </>
+                                    )}
+                                  </div>
+                                  {(d.enrichment_notes || d.prospection_notes) && (
+                                    <div className="mt-0.5 ml-5 text-[10px] italic text-amber-600 truncate">
+                                      {d.enrichment_notes && <span>📝 {d.enrichment_notes}</span>}
+                                      {d.enrichment_notes && d.prospection_notes && <span> • </span>}
+                                      {d.prospection_notes && <span>{d.prospection_notes}</span>}
+                                    </div>
                                   )}
                                 </div>
                               )
                             })}
                           </div>
+                        </div>
+                      )}
+                      {/* Entreprises liées (même dirigeant / même groupe) */}
+                      {crossSiren.length > 0 && (
+                        <div className="pt-1 border-t border-purple-200">
+                          <p className="text-[10px] text-purple-700 font-medium mb-1">
+                            Entreprises liées ({current.dirigeant_nom ? `${current.dirigeant_prenom || ''} ${current.dirigeant_nom}` : current.groupe}) :
+                          </p>
+                          {crossSiren.map((d, i) => {
+                            const sl = { rdv_pris: { icon: '✅ RDV', cls: 'bg-green-100 text-green-700' }, a_rappeler: { icon: '🔄', cls: 'bg-orange-100 text-orange-700' }, pas_interesse: { icon: '❄️', cls: 'bg-gray-100 text-gray-500' } }
+                            const st = sl[d.prospection_status] || { icon: d.contacted ? '📞' : '⬜', cls: 'bg-gray-100 text-gray-600' }
+                            return (
+                              <div key={`cross-${i}`} className="text-xs py-1.5 px-1.5 rounded hover:bg-purple-50 flex items-center gap-1.5 flex-wrap">
+                                <span className="text-[10px] bg-purple-100 text-purple-600 px-1 rounded">{d.reason}</span>
+                                <span className="font-semibold text-gray-900 truncate max-w-[150px]">{d.name}</span>
+                                <span className="text-gray-500">({d.city})</span>
+                                <span className={'px-1 py-0.5 rounded text-[10px] font-medium ' + st.cls}>{st.icon}</span>
+                                {d.phone && <a href={`tel:${d.phone.replace(/\s/g, '')}`} className="text-green-600 hover:text-green-800 font-mono whitespace-nowrap">📞 {d.phone}</a>}
+                                {d.enrichment_notes && <span className="text-[10px] italic text-amber-600 truncate max-w-[200px]">📝 {d.enrichment_notes}</span>}
+                              </div>
+                            )
+                          })}
                         </div>
                       )}
                       {/* Autres similaires (même tel, email, site) */}
