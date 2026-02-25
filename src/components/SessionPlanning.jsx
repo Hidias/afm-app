@@ -171,10 +171,12 @@ export default function SessionPlanning({ sessions, trainers }) {
   // ─── Tooltip ──────────────────────────────────────────────────────
   const handleMouseEnter = (e, session) => {
     const rect = e.currentTarget.getBoundingClientRect()
-    const gridRect = gridRef.current?.getBoundingClientRect() || { left: 0, top: 0 }
+    const spaceAbove = rect.top
+    const showBelow = spaceAbove < 200 // pas assez de place au-dessus → afficher en dessous
     setTooltipPos({
-      x: rect.left - gridRect.left + rect.width / 2,
-      y: rect.top - gridRect.top - 8
+      x: rect.left + rect.width / 2,
+      y: showBelow ? rect.bottom + 8 : rect.top - 8,
+      below: showBelow,
     })
     setHoveredSession(session)
   }
@@ -254,19 +256,23 @@ export default function SessionPlanning({ sessions, trainers }) {
           const clientName = session.clients?.name || ''
           const status = STATUS_CONFIG[session.status] || STATUS_CONFIG.planned
           const timeStr = session.start_time ? session.start_time.substring(0, 5) : ''
+          const isSubcontract = session.session_type === 'subcontract'
+          const cellBorder = isSubcontract ? 'border-amber-400' : colors.border
+          const cellBg = isSubcontract ? '#fef3c7' : colors.light
+          const cellText = isSubcontract ? 'text-amber-800' : colors.text
 
           return (
             <Link
               key={session.id}
               to={`/sessions/${session.id}`}
-              className={`absolute top-0 rounded-md border-l-[3px] ${colors.border} cursor-pointer
+              className={`absolute top-0 rounded-md border-l-[3px] ${cellBorder} cursor-pointer
                 transition-all duration-150 hover:shadow-lg hover:scale-[1.02] hover:z-30 z-10
-                flex items-center gap-1 px-1.5 overflow-hidden`}
+                flex items-center gap-1 px-1.5 overflow-hidden ${isSubcontract ? 'border-dashed' : ''}`}
               style={{
                 left: `${leftPct}%`,
                 width: `calc(${widthPct}% - 2px)`,
                 height: `${blockHeight}px`,
-                backgroundColor: colors.light,
+                backgroundColor: cellBg,
               }}
               onMouseEnter={(e) => handleMouseEnter(e, session)}
               onMouseLeave={() => setHoveredSession(null)}
@@ -275,7 +281,7 @@ export default function SessionPlanning({ sessions, trainers }) {
               {view !== 'year' && timeStr && (
                 <span className="text-[10px] text-gray-400 flex-shrink-0 font-mono">{timeStr}</span>
               )}
-              <span className={`text-xs font-medium ${colors.text} truncate`}>
+              <span className={`text-xs font-medium ${cellText} truncate`}>
                 {view === 'year'
                   ? courseName.length > 12 ? courseName.substring(0, 12) + '…' : courseName
                   : `${courseName}${clientName ? ` · ${clientName}` : ''}`
@@ -532,11 +538,11 @@ export default function SessionPlanning({ sessions, trainers }) {
       {/* ─── Tooltip ──────────────────────────────────────────── */}
       {hoveredSession && (
         <div
-          className="absolute z-50 bg-white rounded-xl shadow-xl border border-gray-200 p-3 w-72 pointer-events-none"
+          className="fixed z-[9999] bg-white rounded-xl shadow-xl border border-gray-200 p-3 w-72 pointer-events-none"
           style={{
-            left: `${Math.max(16, Math.min(tooltipPos.x, (gridRef.current?.offsetWidth || 500) - 290))}px`,
+            left: `${Math.max(16, Math.min(tooltipPos.x, window.innerWidth - 300))}px`,
             top: `${tooltipPos.y}px`,
-            transform: 'translate(-50%, -100%)',
+            transform: tooltipPos.below ? 'translateX(-50%)' : 'translate(-50%, -100%)',
           }}
         >
           <div className="flex items-start justify-between gap-2 mb-2">
@@ -546,7 +552,12 @@ export default function SessionPlanning({ sessions, trainers }) {
                 : (hoveredSession.courses?.title || 'Formation')
               }
             </h4>
-            <span className={`flex-shrink-0 w-2 h-2 rounded-full mt-1 ${STATUS_CONFIG[hoveredSession.status]?.dot || 'bg-gray-400'}`} />
+            <div className="flex items-center gap-1.5 shrink-0">
+              {hoveredSession.session_type === 'subcontract' && (
+                <span className="text-[9px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-medium">ST</span>
+              )}
+              <span className={`w-2 h-2 rounded-full mt-0.5 ${STATUS_CONFIG[hoveredSession.status]?.dot || 'bg-gray-400'}`} />
+            </div>
           </div>
 
           {hoveredSession.clients?.name && (
@@ -578,7 +589,12 @@ export default function SessionPlanning({ sessions, trainers }) {
             </div>
           )}
 
-          {hoveredSession.session_trainees?.length > 0 && (
+          {hoveredSession.session_type === 'subcontract' ? (
+            <div className="text-[10px] text-amber-700 mt-1.5 pt-1.5 border-t border-gray-100 flex items-center gap-2">
+              <span>{hoveredSession.subcontract_nb_trainees || 0} stagiaire{(hoveredSession.subcontract_nb_trainees || 0) > 1 ? 's' : ''}</span>
+              {hoveredSession.subcontract_daily_rate && <span>· {parseFloat(hoveredSession.subcontract_daily_rate).toFixed(0)}€/j</span>}
+            </div>
+          ) : hoveredSession.session_trainees?.length > 0 && (
             <div className="text-[10px] text-gray-400 mt-1.5 pt-1.5 border-t border-gray-100">
               {hoveredSession.session_trainees.length} stagiaire{hoveredSession.session_trainees.length > 1 ? 's' : ''} inscrit{hoveredSession.session_trainees.length > 1 ? 's' : ''}
             </div>
