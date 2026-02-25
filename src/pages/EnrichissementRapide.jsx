@@ -194,6 +194,8 @@ export default function EnrichissementRapide() {
   const [siblingEdits, setSiblingEdits] = useState({}) // {id: {phone, email, notes}}
   const [showSiblings, setShowSiblings] = useState(false)
   const [enrichmentNotes, setEnrichmentNotes] = useState('')
+  const [groupe, setGroupe] = useState('')
+  const [linkedCompanies, setLinkedCompanies] = useState([]) // Same dirigeant, different SIREN
 
   const phoneRef = useRef(null)
   const departements = ['22', '29', '35', '44', '49', '53', '56', '72', '85']
@@ -232,7 +234,7 @@ export default function EnrichissementRapide() {
       const isNumeric = /^\d+$/.test(term.replace(/\s/g, ''))
       let query = supabase
         .from('prospection_massive')
-        .select('id, siret, siren, name, city, postal_code, address, naf, phone, email, site_web, departement, effectif, quality_score, enrichment_status, latitude, longitude, forme_juridique')
+        .select('id, siret, siren, name, city, postal_code, address, naf, phone, email, site_web, departement, effectif, quality_score, enrichment_status, latitude, longitude, forme_juridique, groupe, dirigeant_nom, dirigeant_prenom, enrichment_notes')
         .order('quality_score', { ascending: false })
         .limit(500)
       if (isNumeric) {
@@ -277,7 +279,7 @@ export default function EnrichissementRapide() {
 
     let query = supabase
       .from('prospection_massive')
-      .select('id, siret, siren, name, city, postal_code, address, naf, phone, email, site_web, departement, effectif, quality_score, latitude, longitude, forme_juridique')
+      .select('id, siret, siren, name, city, postal_code, address, naf, phone, email, site_web, departement, effectif, quality_score, latitude, longitude, forme_juridique, groupe, dirigeant_nom, dirigeant_prenom, enrichment_notes')
       .is('phone', null)
       .or('enrichment_status.is.null,enrichment_status.eq.pending,enrichment_status.eq.enriching')
       .order('quality_score', { ascending: false })
@@ -377,6 +379,8 @@ export default function EnrichissementRapide() {
     setSiblingEdits({})
     setShowSiblings(false)
     setEnrichmentNotes('')
+    setGroupe('')
+    setLinkedCompanies([])
   }
 
   // ─── Mini-Lusha : Auto-enrichissement API ───────────────────────────────
@@ -452,7 +456,45 @@ export default function EnrichissementRapide() {
   useEffect(() => {
     if (current?.siren) loadSiblings(current.siren)
     setEnrichmentNotes(current?.enrichment_notes || '')
+    setGroupe(current?.groupe || '')
+    // Détecter entreprises liées par même dirigeant (SIRENs différents)
+    if (current?.dirigeant_nom) {
+      loadLinkedByDirigeant(current.dirigeant_nom, current.dirigeant_prenom, current.siren)
+    } else if (current?.groupe) {
+      loadLinkedByGroupe(current.groupe, current.siren)
+    } else {
+      setLinkedCompanies([])
+    }
   }, [current?.id])
+
+  async function loadLinkedByDirigeant(nom, prenom, currentSiren) {
+    try {
+      let query = supabase.from('prospection_massive')
+        .select('id, siren, name, city, departement, phone, dirigeant_nom, dirigeant_prenom, prospection_status, groupe')
+        .eq('dirigeant_nom', nom)
+        .neq('siren', currentSiren)
+        .limit(20)
+      if (prenom) query = query.eq('dirigeant_prenom', prenom)
+      const { data } = await query
+      // Dédupliquer par SIREN
+      const seen = new Set()
+      const unique = (data || []).filter(d => { if (seen.has(d.siren)) return false; seen.add(d.siren); return true })
+      setLinkedCompanies(unique)
+    } catch (err) { console.error('Erreur linked dirigeant:', err) }
+  }
+
+  async function loadLinkedByGroupe(grp, currentSiren) {
+    try {
+      const { data } = await supabase.from('prospection_massive')
+        .select('id, siren, name, city, departement, phone, dirigeant_nom, dirigeant_prenom, prospection_status, groupe')
+        .eq('groupe', grp)
+        .neq('siren', currentSiren)
+        .limit(20)
+      const seen = new Set()
+      const unique = (data || []).filter(d => { if (seen.has(d.siren)) return false; seen.add(d.siren); return true })
+      setLinkedCompanies(unique)
+    } catch (err) { console.error('Erreur linked groupe:', err) }
+  }
 
   // Charger les signaux recrutement
   async function loadSignaux() {
@@ -623,6 +665,10 @@ export default function EnrichissementRapide() {
 
     // Notes d'enrichissement
     if (enrichmentNotes.trim()) update.enrichment_notes = enrichmentNotes.trim()
+
+    // Groupe (liaison multi-SIREN manuelle)
+    if (groupe.trim()) update.groupe = groupe.trim()
+    else if (current.groupe && !groupe.trim()) update.groupe = null
 
     // Champs identité (si modifiés)
     if (editName && editName !== current.name) update.name = editName.trim().toUpperCase()
@@ -1202,6 +1248,45 @@ export default function EnrichissementRapide() {
                   rows={2}
                   className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 resize-none" />
               </div>
+
+              {/* ─── Groupe + Entreprises liées ─────────────────────── */}
+              <div className="mt-3 flex items-center gap-3">
+                <div className="flex-1">
+                  <label className="text-xs font-medium text-gray-500 mb-0.5 block">🏷️ Groupe (multi-SIREN)</label>
+                  <input type="text" value={groupe} onChange={e => setGroupe(e.target.value)}
+                    placeholder="Ex: Groupe Dupont, Westerly/KeraS..."
+                    className="w-full border rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500" />
+                </div>
+                {current?.dirigeant_nom && (
+                  <div className="text-xs text-gray-500 pt-4">
+                    <User className="w-3 h-3 inline" /> {current.dirigeant_prenom} {current.dirigeant_nom}
+                  </div>
+                )}
+              </div>
+
+              {linkedCompanies.length > 0 && (
+                <div className="mt-2 bg-purple-50 border border-purple-200 rounded-lg p-3">
+                  <p className="text-xs font-medium text-purple-800 mb-2">
+                    👤 {current.dirigeant_nom ? `Même dirigeant (${current.dirigeant_prenom || ''} ${current.dirigeant_nom})` : `Même groupe "${current.groupe}"`} — {linkedCompanies.length} autre(s) entreprise(s) :
+                  </p>
+                  <div className="space-y-1.5">
+                    {linkedCompanies.map(lc => (
+                      <div key={lc.id} className="flex items-center justify-between bg-white rounded px-2.5 py-1.5 border border-purple-100 text-xs">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-gray-900">{lc.name}</span>
+                          <span className="text-gray-400">{lc.city} ({lc.departement})</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {lc.phone && <span className="text-green-600">📞 {lc.phone}</span>}
+                          {lc.prospection_status === 'rdv_pris' && <span className="bg-green-100 text-green-700 px-1.5 py-0.5 rounded">🔥 RDV</span>}
+                          {lc.prospection_status === 'a_rappeler' && <span className="bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">🟡</span>}
+                          {lc.prospection_status === 'pas_interesse' && <span className="bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">❄️</span>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* ─── Panneau Multi-SIRET (établissements frères) ────── */}
               {siblings.length > 0 && (
