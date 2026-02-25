@@ -19,6 +19,9 @@
     "api/send-phoning-report.js": {
       "maxDuration": 60
     },
+    "api/send-phoning-summary.js": {
+      "maxDuration": 30
+    },
     "api/social/publish.js": {
       "maxDuration": 60
     },
@@ -42,6 +45,14 @@
     {
       "path": "/api/send-phoning-report",
       "schedule": "0 17 * * 1-5"
+    },
+    {
+      "path": "/api/send-phoning-summary?period=morning",
+      "schedule": "0 11 * * 1-5"
+    },
+    {
+      "path": "/api/send-phoning-summary?period=noreply",
+      "schedule": "0 6 * * 2,4"
     },
     {
       "path": "/api/social/cron-publish",
