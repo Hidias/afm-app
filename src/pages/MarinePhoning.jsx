@@ -1401,7 +1401,14 @@ export default function MarinePhoning() {
   }
 
   // === FILTRES & TRI ===
-  const rappelsCount = prospects.filter(p => p.siren && todayCallbackSirens.has(p.siren)).length
+  const rappelsCount = prospects.filter(p => {
+    if (!p.siren || !todayCallbackSirens.has(p.siren)) return false
+    if (rappelFilterBy) {
+      const cb = callbackDetails.get(p.siren)
+      if (cb?.called_by !== rappelFilterBy) return false
+    }
+    return true
+  }).length
 
   const STATUS_FILTERS = [
     { id: 'a_appeler', label: '📞 À appeler', count: prospects.filter(p => (!p.prospection_status || p.prospection_status === 'a_appeler') && !p.gere_par_id).length },
