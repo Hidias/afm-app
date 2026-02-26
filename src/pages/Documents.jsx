@@ -347,12 +347,12 @@ export default function Documents() {
                 className="input pl-10"
               />
             </div>
-            <div className="flex gap-2 overflow-x-auto pb-2">
+            <nav className="flex gap-2 overflow-x-auto pb-2">
               {categories.map(cat => (
                 <button
                   key={cat.id}
                   onClick={() => setCategoryFilter(cat.id)}
-                  className={`px-3 py-1.5 rounded-lg text-sm whitespace-nowrap transition-colors ${
+                  className={`px-3 py-1.5 rounded-lg text-sm whitespace-nowrap shrink-0 transition-colors ${
                     categoryFilter === cat.id
                       ? 'bg-primary-600 text-white'
                       : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
@@ -361,7 +361,7 @@ export default function Documents() {
                   {cat.name}
                 </button>
               ))}
-            </div>
+            </nav>
           </div>
       
           {/* Liste des fichiers */}
