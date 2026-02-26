@@ -1,7 +1,7 @@
-// api/send-prospect-email.js
-// Envoie un email de prospection au prospect (suite echange / NRP / relance)
-// Signature HTML selon l'expediteur (Hicham / Maxime / Marine)
-// Log dans prospect_email_logs + BCC sender + contact@
+// api/send-callback-reminder.js
+// Envoie un email interne de notification phoning
+// Utilisé pour : alertes prospect chaud, rappels programmés, transferts "passer la main"
+// Destinataire par défaut : hicham.saidi@accessformation.pro
 
 import nodemailer from 'nodemailer'
 import { createClient } from '@supabase/supabase-js'
@@ -23,65 +23,6 @@ function decrypt(encryptedText) {
   return decrypted
 }
 
-// Signatures HTML par expediteur
-// senderEmail = adresse FROM réelle pour l'envoi SMTP
-const SIGNATURES = {
-  Hicham: {
-    name: 'Hicham',
-    title: 'Dirigeant associé',
-    phone: '06.35.20.04.28',
-    email: 'hicham.saidi@accessformation.pro',
-    senderEmail: 'hicham.saidi@accessformation.pro',
-  },
-  Maxime: {
-    name: 'Maxime',
-    title: 'Dirigeant associé',
-    phone: '07.83.51.17.95',
-    email: 'maxime.langlais@accessformation.pro',
-    senderEmail: 'maxime.langlais@accessformation.pro',
-  },
-  Marine: {
-    name: 'Marine',
-    title: '',
-    phone: '02 46 56 57 54',
-    email: 'entreprise@accessformation.pro',
-    senderEmail: 'entreprise@accessformation.pro',
-  },
-}
-
-function buildSignatureHTML(caller) {
-  const sig = SIGNATURES[caller] || SIGNATURES.Marine
-  return `
-    <table cellpadding="0" cellspacing="0" style="font-family: Arial, sans-serif; margin-top: 20px; border-collapse: collapse;">
-      <tr>
-        <td style="padding-right: 15px; border-right: 3px solid #d4a84b; vertical-align: top;">
-          <div style="background: linear-gradient(135deg, #1a3a4a 0%, #2d5a6b 100%); padding: 16px 20px; border-radius: 8px; min-width: 160px;">
-            <p style="margin: 0; font-family: 'Georgia', serif; font-size: 16px; color: #d4a84b; font-style: italic; letter-spacing: 1px;">${sig.name}</p>
-            ${sig.title ? `<p style="margin: 4px 0 0 0; font-size: 11px; color: rgba(255,255,255,0.8);">${sig.title}</p>` : ''}
-          </div>
-        </td>
-        <td style="padding-left: 15px; vertical-align: top;">
-          <p style="margin: 0 0 3px 0; font-weight: bold; font-size: 13px; color: #1a3a4a;">ACCESS FORMATION</p>
-          <p style="margin: 0 0 2px 0; font-size: 12px; color: #555;">&#9742; ${sig.phone}</p>
-          <p style="margin: 0 0 2px 0; font-size: 12px; color: #555;">&#9993; <a href="mailto:${sig.email}" style="color: #2563eb; text-decoration: none;">${sig.email}</a></p>
-          <p style="margin: 0; font-size: 12px; color: #555;">&#127760; <a href="https://www.accessformation.pro" style="color: #2563eb; text-decoration: none;">www.accessformation.pro</a></p>
-        </td>
-      </tr>
-    </table>
-  `
-}
-
-function wrapEmailHTML(body, caller) {
-  const signature = buildSignatureHTML(caller)
-  return `
-    <div style="font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #333; max-width: 650px;">
-      ${body}
-      ${signature}
-    </div>
-  `
-}
-
-// Trouver la config SMTP pour un email donné, avec fallback intelligent
 async function findSmtpConfig(senderEmail) {
   const { data: configs } = await supabase
     .from('user_email_configs')
@@ -89,21 +30,64 @@ async function findSmtpConfig(senderEmail) {
     .eq('is_active', true)
 
   if (!configs || configs.length === 0) return null
-
-  // 1. Config exacte pour le senderEmail
   let config = configs.find(c => c.email === senderEmail)
   if (config) return config
-
-  // 2. Fallback : entreprise@ (compte générique)
   config = configs.find(c => c.email === 'entreprise@accessformation.pro')
   if (config) return config
-
-  // 3. Fallback : contact@
   config = configs.find(c => c.email === 'contact@accessformation.pro')
   if (config) return config
-
-  // 4. Dernier recours : n'importe quelle config active
   return configs[0]
+}
+
+function buildNotificationHTML({ prospectName, prospectPhone, contactName, contactFunction, callbackDate, callbackTime, callbackReason, callerName, notes }) {
+  const dateStr = callbackDate ? new Date(callbackDate + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' }) : null
+  const timeStr = callbackTime || null
+
+  let title = '📞 Notification phoning'
+  if (callbackReason?.includes('🔥')) title = '🔥 Prospect chaud'
+  else if (callbackReason?.includes('PASSER LA MAIN') || callbackReason?.includes('👋')) title = '👋 Passer la main'
+  else if (callbackReason?.includes('RDV')) title = '📅 Nouveau RDV'
+  else if (callbackDate) title = '🔔 Rappel programmé'
+
+  return `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <div style="background: linear-gradient(135deg, #1a3a4a 0%, #2d5a6b 100%); padding: 16px 24px; border-radius: 12px 12px 0 0;">
+        <h2 style="margin: 0; color: #d4a84b; font-size: 18px;">${title}</h2>
+        <p style="margin: 4px 0 0; color: rgba(255,255,255,0.8); font-size: 13px;">Par ${callerName || 'Équipe'} — ${new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p>
+      </div>
+      <div style="background: #f8f9fa; padding: 20px 24px; border: 1px solid #e5e7eb; border-top: none;">
+        <table cellpadding="0" cellspacing="0" style="width: 100%; font-size: 14px; line-height: 1.6;">
+          <tr>
+            <td style="padding: 6px 0; color: #6b7280; width: 120px;">Entreprise</td>
+            <td style="padding: 6px 0; font-weight: bold; color: #111827;">${prospectName || '—'}</td>
+          </tr>
+          ${prospectPhone ? `<tr>
+            <td style="padding: 6px 0; color: #6b7280;">Téléphone</td>
+            <td style="padding: 6px 0;"><a href="tel:${prospectPhone.replace(/\s/g, '')}" style="color: #2563eb; text-decoration: none; font-weight: 500;">${prospectPhone}</a></td>
+          </tr>` : ''}
+          ${contactName ? `<tr>
+            <td style="padding: 6px 0; color: #6b7280;">Contact</td>
+            <td style="padding: 6px 0; font-weight: 500;">${contactName}${contactFunction ? ' <span style="color: #6b7280; font-weight: normal;">(' + contactFunction + ')</span>' : ''}</td>
+          </tr>` : ''}
+          ${callbackReason ? `<tr>
+            <td style="padding: 6px 0; color: #6b7280;">Motif</td>
+            <td style="padding: 6px 0;">${callbackReason}</td>
+          </tr>` : ''}
+          ${dateStr ? `<tr>
+            <td style="padding: 6px 0; color: #6b7280;">Rappel</td>
+            <td style="padding: 6px 0; font-weight: bold; color: #d97706;">${dateStr}${timeStr ? ' à ' + timeStr : ''}</td>
+          </tr>` : ''}
+          ${notes ? `<tr>
+            <td style="padding: 6px 0; color: #6b7280; vertical-align: top;">Notes</td>
+            <td style="padding: 6px 0; white-space: pre-line;">${notes}</td>
+          </tr>` : ''}
+        </table>
+      </div>
+      <div style="background: #fff; padding: 12px 24px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 12px 12px; text-align: center;">
+        <a href="https://campus.accessformation.pro/prospection-massive" style="display: inline-block; padding: 8px 24px; background: #1a3a4a; color: #d4a84b; text-decoration: none; border-radius: 6px; font-size: 13px; font-weight: bold;">Ouvrir le phoning</a>
+      </div>
+    </div>
+  `
 }
 
 export default async function handler(req, res) {
@@ -115,24 +99,40 @@ export default async function handler(req, res) {
 
   try {
     const {
-      to, subject, body, caller,
-      prospectSiren, clientId, prospectName, templateType,
-      attachments
+      prospectName, prospectPhone, contactName, contactFunction,
+      callbackDate, callbackTime, callbackReason,
+      callerName, notes, to
     } = req.body
 
-    if (!to || !subject || !body) {
-      return res.status(400).json({ error: 'Parametres manquants: to, subject, body requis' })
+    if (!prospectName && !callbackReason) {
+      return res.status(400).json({ error: 'prospectName ou callbackReason requis' })
     }
 
-    const callerInfo = SIGNATURES[caller] || SIGNATURES.Marine
-    const senderEmail = callerInfo.senderEmail
-    const html = wrapEmailHTML(body, caller)
+    // Destinataire : param 'to' ou Hicham par défaut
+    const recipient = to || 'hicham.saidi@accessformation.pro'
 
-    // Chercher la config SMTP correspondant au sender
+    // Expéditeur : entreprise@ (compte générique)
+    const senderEmail = 'entreprise@accessformation.pro'
+
+    // Sujet
+    let subject = '📞 '
+    if (callbackReason?.includes('🔥') || callbackReason?.includes('INTÉRESSÉ')) {
+      subject = '🔥 Prospect chaud — ' + prospectName
+    } else if (callbackReason?.includes('PASSER LA MAIN') || callbackReason?.includes('👋')) {
+      subject = '👋 Passer la main — ' + prospectName
+    } else if (callbackReason?.includes('RDV')) {
+      subject = '📅 RDV — ' + prospectName
+    } else if (callbackDate) {
+      subject = '🔔 Rappel — ' + prospectName
+    } else {
+      subject = '📞 Phoning — ' + prospectName
+    }
+
+    const html = buildNotificationHTML(req.body)
+
     const emailConfig = await findSmtpConfig(senderEmail)
-
     if (!emailConfig) {
-      return res.status(400).json({ error: 'Aucune configuration email active trouvee' })
+      return res.status(400).json({ error: 'Aucune configuration email active' })
     }
 
     const smtpPassword = decrypt(emailConfig.smtp_password_encrypted)
@@ -141,86 +141,35 @@ export default async function handler(req, res) {
       host: emailConfig.smtp_host,
       port: emailConfig.smtp_port,
       secure: emailConfig.smtp_secure,
+      pool: false,
       auth: { user: emailConfig.email, pass: smtpPassword },
       tls: { rejectUnauthorized: false },
-      connectionTimeout: 10000,
-      greetingTimeout: 10000,
+      connectionTimeout: 15000,
+      greetingTimeout: 15000,
       socketTimeout: 30000,
     })
 
     await transporter.verify()
 
-    // BCC : toujours l'adresse d'envoi + contact@ (dédupliqué)
-    const bccSet = new Set([senderEmail, 'contact@accessformation.pro'])
-    // Ne pas se mettre en BCC si on envoie déjà à cette adresse
-    bccSet.delete(to)
-
     const mailOptions = {
-      from: `"Access Formation - ${callerInfo.name}" <${senderEmail}>`,
+      from: `"Access Formation — Phoning" <${senderEmail}>`,
       sender: emailConfig.email,
       replyTo: `"Access Formation" <${senderEmail}>`,
-      to: to,
-      bcc: [...bccSet].join(', '),
+      to: recipient,
+      bcc: 'contact@accessformation.pro',
       subject: subject,
       html: html,
-      attachments: [],
-    }
-
-    // Ajouter les pièces jointes si présentes
-    if (attachments && Array.isArray(attachments)) {
-      for (const att of attachments) {
-        if (att.base64 && att.filename) {
-          mailOptions.attachments.push({
-            filename: att.filename,
-            content: Buffer.from(att.base64, 'base64'),
-            contentType: att.contentType || 'application/pdf',
-          })
-        }
-      }
     }
 
     await transporter.sendMail(mailOptions)
-    if (transporter) transporter.close()
+    if (transporter) try { transporter.close() } catch (e) {}
 
-    // Log dans prospect_email_logs
-    try {
-      await supabase.from('prospect_email_logs').insert({
-        prospect_siren: prospectSiren || null,
-        client_id: clientId || null,
-        prospect_name: prospectName || null,
-        to_email: to,
-        from_email: senderEmail,
-        subject: subject,
-        template_type: templateType || 'custom',
-        body_preview: body.replace(/<[^>]*>/g, '').substring(0, 500),
-        sent_by: caller || 'Marine',
-        status: 'sent',
-      })
-    } catch (logErr) {
-      console.error('Erreur log email (non bloquant):', logErr)
-    }
-
+    console.log(`✅ Notification phoning envoyée à ${recipient} — ${subject}`)
     return res.status(200).json({ success: true })
 
   } catch (error) {
-    console.error('Erreur envoi email prospect:', error)
+    console.error('Erreur envoi notification phoning:', error)
     if (transporter) try { transporter.close() } catch (e) {}
-
-    // Log erreur
-    try {
-      await supabase.from('prospect_email_logs').insert({
-        prospect_siren: req.body?.prospectSiren || null,
-        prospect_name: req.body?.prospectName || null,
-        to_email: req.body?.to || '',
-        from_email: '',
-        subject: req.body?.subject || '',
-        template_type: req.body?.templateType || 'custom',
-        sent_by: req.body?.caller || 'Marine',
-        status: 'error',
-        error_message: error.message,
-      })
-    } catch (logErr) {}
-
     return res.status(500).json({ error: error.message })
   }
 }
