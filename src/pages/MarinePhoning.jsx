@@ -1707,8 +1707,8 @@ export default function MarinePhoning() {
       )}
 
       {/* Barre de recherche + filtres */}
-      <div className="flex gap-2">
-        <div className="relative flex-1">
+      <div className="flex gap-2 flex-wrap">
+        <div className="relative flex-1 min-w-[200px]">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input type="text" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Rechercher nom, ville, SIRET..." className="w-full pl-10 pr-10 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent text-sm" />
           {isServerSearching && <Loader2 className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-primary-500 animate-spin" />}
@@ -1804,8 +1804,8 @@ export default function MarinePhoning() {
 
       ) : viewMode === 'carte' ? (
         /* CARTE */
-        <div className="grid grid-cols-3 gap-4" style={{ height: 'calc(100vh - 260px)' }}>
-          <div className="col-span-2 bg-white rounded-xl border overflow-hidden relative">
+        <div className="flex flex-col lg:grid lg:grid-cols-3 gap-4" style={{ height: 'calc(100vh - 260px)' }}>
+          <div className="lg:col-span-2 bg-white rounded-xl border overflow-hidden relative min-h-[300px] lg:min-h-0">
             <div className="absolute top-3 left-3 z-[1000] bg-white rounded-lg shadow-lg p-2">
               <button onClick={() => setShowCircles(!showCircles)} className={'text-sm px-2 py-1 rounded ' + (showCircles ? 'bg-primary-100 text-primary-700' : 'bg-gray-100')}>Zones</button>
             </div>
@@ -1840,9 +1840,9 @@ export default function MarinePhoning() {
 
       ) : (
         /* === FILE : 2 COLONNES === */
-        <div className="grid grid-cols-5 gap-4" style={{ height: 'calc(100vh - 260px)' }}>
+        <div className="flex flex-col lg:grid lg:grid-cols-5 gap-4" style={{ minHeight: 'min(600px, calc(100vh - 260px))' }}>
           {/* GAUCHE : Info prospect */}
-          <div className="col-span-2 bg-white rounded-xl border overflow-y-auto">
+          <div className="lg:col-span-2 bg-white rounded-xl border overflow-y-auto">
             {current && <div className="p-4 space-y-3">
               {/* Nom + ville */}
               <div>
@@ -2322,7 +2322,7 @@ export default function MarinePhoning() {
           </div>
 
           {/* DROITE : Formulaire stepped */}
-          <div className="col-span-3 bg-white rounded-xl border overflow-y-auto">
+          <div className="lg:col-span-3 bg-white rounded-xl border overflow-y-auto">
             {current && <div className="p-4 space-y-4">
 
               {/* Bandeau fiche active — toujours visible */}
