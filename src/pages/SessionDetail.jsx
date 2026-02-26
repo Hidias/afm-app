@@ -3020,7 +3020,7 @@ ${trainer ? `${trainer.first_name} ${trainer.last_name}` : 'Access Formation'}`
             { id: 'scans', label: 'Scans uploadés' },
             { id: 'attendance', label: 'QR Émargement' },
           ].map(tab => (
-            <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`pb-3 pt-2 px-2 text-sm font-medium border-b-2 whitespace-nowrap ${activeTab === tab.id ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>{tab.label}</button>
+            <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`pb-3 pt-2 px-2 text-sm font-medium border-b-2 whitespace-nowrap shrink-0 ${activeTab === tab.id ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>{tab.label}</button>
           ))}
         </nav>
       </div>
