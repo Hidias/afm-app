@@ -151,14 +151,14 @@ export default function BudgetModule() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 overflow-x-auto mb-4 pb-1">{TABS.map(t => (
-          <button key={t.key} onClick={() => setTab(t.key)} className={`px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap transition
+      <nav className="flex gap-1 overflow-x-auto mb-4 pb-1 -mx-1 px-1">{TABS.map(t => (
+          <button key={t.key} onClick={() => setTab(t.key)} className={`px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap shrink-0 transition
               ${tab === t.key ? 'bg-white shadow text-blue-700' : 'text-gray-500 hover:text-gray-700'}`}>
             {t.label}
             {t.key === 'comptable' && stats.notSent > 0 && <span className="ml-1 bg-blue-500 text-white text-xs rounded-full px-1.5">{stats.notSent}</span>}
             {t.key === 'categorisation' && stats.unclassified > 0 && <span className="ml-1 bg-amber-500 text-white text-xs rounded-full px-1.5">{stats.unclassified}</span>}
           </button>
-        ))}</div>
+        ))}</nav>
 
       {tab === 'transactions' && <TransactionsTab {...{ filtered, categories, months, filterMonth, setFilterMonth, filterCat, setFilterCat, filterDir, setFilterDir, filterSearch, setFilterSearch, showPerso, setShowPerso, editingTx, setEditingTx, changeCategory, deleteTx, receipts, onMealGuest: setMealGuestTxId }} />}
       {tab === 'saisie' && <SaisieTab categories={categories} rules={rules} loadAll={loadAll} clients={clientsList} />}
