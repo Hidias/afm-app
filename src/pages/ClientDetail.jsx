@@ -78,8 +78,10 @@ export default function ClientDetail() {
   const [rdvs, setRdvs] = useState([])
 
   // Prospection enrichment
-  const [prospectionData, setProspectionData] = useState(null) // données prospection_massive liées
+  const [prospectionData, setProspectionData] = useState(null) // best prospect for import
   const [prospectionLoading, setProspectionLoading] = useState(false)
+  const [clientLinks, setClientLinks] = useState(null) // résultat detect_client_links RPC
+  const [linksExpanded, setLinksExpanded] = useState(false) // détails dépliés
   // Sections dépliées
   const [sections, setSections] = useState({ contacts: true, timeline: true, formations: true })
 
@@ -130,32 +132,31 @@ export default function ClientDetail() {
     setLoading(false)
   }
 
-  // Lookup prospection_massive après loadClient
+  // Lookup liens prospect multi-sources après loadClient
   useEffect(() => {
-    if (client) lookupProspection(client)
-  }, [client?.id, client?.siret])
+    if (client?.id) loadClientLinks(client)
+  }, [client?.id, client?.siret, client?.group_name])
 
-  async function lookupProspection(c) {
-    if (!c) return
-    const siren = c.siren || (c.siret ? c.siret.slice(0, 9) : null)
-    if (!siren || siren.startsWith('MANUAL_')) { setProspectionData(null); return }
+  async function loadClientLinks(c) {
+    if (!c?.id) return
     setProspectionLoading(true)
     try {
-      const { data } = await supabase
-        .from('prospection_massive')
-        .select('id, name, siren, siret, phone, email, site_web, naf, effectif, dirigeant_nom, dirigeant_prenom, dirigeant_fonction, opco_name, forme_juridique, enrichment_notes, ai_summary, prospection_status, city, postal_code, contacted, contacted_at, prospection_notes')
-        .eq('siren', siren)
-        .order('contacted', { ascending: false })
-        .limit(5)
-      if (data && data.length > 0) {
-        // Prendre le prospect le plus riche (le premier contacté, ou le premier)
-        const best = data.find(d => d.contacted) || data[0]
-        setProspectionData({ ...best, totalSiblings: data.length, allProspects: data })
+      // Appel RPC multi-sources
+      const { data: linksResult, error } = await supabase.rpc('detect_client_links', { p_client_id: c.id })
+      if (error) throw error
+      setClientLinks(linksResult)
+
+      // Pour compatibilité import/markDejaClient : extraire le meilleur prospect SIREN
+      const sirenMatches = linksResult?.siren_matches || []
+      if (sirenMatches.length > 0) {
+        const best = sirenMatches.find(d => d.contacted) || sirenMatches[0]
+        setProspectionData({ ...best, totalSiblings: sirenMatches.length, allProspects: sirenMatches })
       } else {
         setProspectionData(null)
       }
     } catch (err) {
-      console.error('Lookup prospection error:', err)
+      console.error('Erreur detect_client_links:', err)
+      setClientLinks(null)
       setProspectionData(null)
     } finally {
       setProspectionLoading(false)
@@ -241,18 +242,37 @@ export default function ClientDetail() {
     }
   }
 
-  // Marquer tous les prospects du même SIREN comme "deja_client"
-  async function markDejaClient() {
-    if (!prospectionData) return
-    const siren = prospectionData.siren
-    if (!siren) return
+  // Marquer tous les prospects liés (tous SIREN détectés) comme "deja_client"
+  async function markDejaClient(specificSirens) {
+    // Collecter tous les SIREN à marquer
+    const sirens = new Set()
+    if (specificSirens) {
+      specificSirens.forEach(s => sirens.add(s))
+    } else if (clientLinks) {
+      // Tous les SIREN de toutes les sources
+      const allMatches = [
+        ...(clientLinks.siren_matches || []),
+        ...(clientLinks.domain_matches || []),
+        ...(clientLinks.dirigeant_matches || []),
+        ...(clientLinks.group_prospect_matches || []),
+      ]
+      allMatches.forEach(m => { if (m.siren) sirens.add(m.siren) })
+      // Ajouter le SIREN du client lui-même
+      if (clientLinks.client_siren) sirens.add(clientLinks.client_siren)
+    } else if (prospectionData?.siren) {
+      sirens.add(prospectionData.siren)
+    }
+    if (sirens.size === 0) return
     try {
-      await supabase.from('prospection_massive').update({
-        prospection_status: 'deja_client',
-        updated_at: new Date().toISOString(),
-      }).eq('siren', siren)
-      // Rafraîchir le lookup
-      setProspectionData(prev => prev ? { ...prev, prospection_status: 'deja_client' } : null)
+      for (const siren of sirens) {
+        await supabase.from('prospection_massive').update({
+          prospection_status: 'deja_client',
+          updated_at: new Date().toISOString(),
+        }).eq('siren', siren)
+      }
+      // Rafraîchir les liens
+      if (client) loadClientLinks(client)
+      toast.success(`✅ ${sirens.size} SIREN marqué(s) "déjà client"`)
     } catch (err) {
       console.error('Erreur marquage deja_client:', err)
     }
@@ -317,6 +337,7 @@ export default function ClientDetail() {
       website: editForm.website, notes: editForm.notes, status: editForm.status,
       opco_name: editForm.opco_name || null,
       client_type: editForm.client_type || 'entreprise',
+      group_name: editForm.group_name || null,
       billing_mode: editForm.billing_mode || 'per_session',
       default_payment_terms: editForm.default_payment_terms || 'à 30 jours',
       billing_email: editForm.billing_email || null,
@@ -324,9 +345,15 @@ export default function ClientDetail() {
     }).eq('id', id)
     if (error) return toast.error('Erreur sauvegarde')
     toast.success('Client mis à jour')
-    // Marquer prospect deja_client si SIREN trouvé dans prospection_massive
-    if (sirenVal && prospectionData && prospectionData.prospection_status !== 'deja_client') {
-      await markDejaClient()
+    // Marquer prospect deja_client si des liens détectés
+    if (sirenVal && clientLinks) {
+      const hasUnmarked = [
+        ...(clientLinks.siren_matches || []),
+        ...(clientLinks.domain_matches || []),
+        ...(clientLinks.dirigeant_matches || []),
+        ...(clientLinks.group_prospect_matches || []),
+      ].some(m => m.prospection_status !== 'deja_client')
+      if (hasUnmarked) await markDejaClient([sirenVal])
     }
     // Recharger les données fraîches mais rester en mode édition
     const { data: fresh } = await supabase.from('clients').select('*').eq('id', id).single()
@@ -641,73 +668,147 @@ export default function ClientDetail() {
         </div>
 
         <div className="p-6">
-          {/* ══════ BANDEAU ENRICHISSEMENT PROSPECTION ══════ */}
-          {prospectionData && prospectionData.prospection_status !== 'deja_client' && (() => {
-            const p = prospectionData
-            // Calculer les champs importables (vides côté client, remplis côté prospect)
+          {/* ══════ BANDEAU DÉTECTION LIENS MULTI-SOURCES ══════ */}
+          {clientLinks && (() => {
+            const siren = clientLinks.siren_matches || []
+            const domain = clientLinks.domain_matches || []
+            const dirigeant = clientLinks.dirigeant_matches || []
+            const groupClients = clientLinks.group_clients || []
+            const groupProspects = clientLinks.group_prospect_matches || []
+            const totalLinks = siren.length + domain.length + dirigeant.length + groupProspects.length
+            const hasGroupClients = groupClients.length > 0
+            const allDejaMark = totalLinks === 0 // rien à marquer
+            const hasSomethingToShow = totalLinks > 0 || hasGroupClients
+
+            if (!hasSomethingToShow && !prospectionLoading) return null
+
+            // Collecter les SIREN uniques non-marqués
+            const allProspects = [...siren, ...domain, ...dirigeant, ...groupProspects]
+            const uniqueSirens = [...new Set(allProspects.map(p => p.siren).filter(Boolean))]
+
+            // Champs importables depuis le meilleur prospect SIREN
             const importable = []
-            if (!client.contact_phone && p.phone) importable.push({ label: 'Téléphone', value: p.phone })
-            if (!client.contact_email && p.email) importable.push({ label: 'Email', value: p.email })
-            if (!client.website && p.site_web) importable.push({ label: 'Site web', value: p.site_web })
-            if (!client.opco_name && p.opco_name) importable.push({ label: 'OPCO', value: p.opco_name })
-            if (!client.taille_entreprise && p.effectif) importable.push({ label: 'Effectif', value: String(p.effectif) })
-            if (!client.contact_name && p.dirigeant_nom) importable.push({ label: 'Dirigeant', value: [p.dirigeant_prenom, p.dirigeant_nom].filter(Boolean).join(' ') })
-            if (p.enrichment_notes) importable.push({ label: 'Notes', value: p.enrichment_notes.substring(0, 80) + (p.enrichment_notes.length > 80 ? '…' : '') })
+            if (prospectionData) {
+              const p = prospectionData
+              if (!client.contact_phone && p.phone) importable.push({ label: 'Téléphone', value: p.phone })
+              if (!client.contact_email && p.email) importable.push({ label: 'Email', value: p.email })
+              if (!client.website && p.site_web) importable.push({ label: 'Site web', value: p.site_web })
+              if (!client.opco_name && p.opco_name) importable.push({ label: 'OPCO', value: p.opco_name })
+              if (!client.taille_entreprise && p.effectif) importable.push({ label: 'Effectif', value: String(p.effectif) })
+              if (!client.contact_name && p.dirigeant_nom) importable.push({ label: 'Dirigeant', value: [p.dirigeant_prenom, p.dirigeant_nom].filter(Boolean).join(' ') })
+            }
+
+            // Sources à afficher
+            const sources = [
+              siren.length > 0 && { icon: '🏢', label: 'SIREN', detail: `${siren.length} établissement(s)`, count: siren.length, color: 'blue', items: siren },
+              domain.length > 0 && { icon: '🌐', label: 'Domaine', detail: `${clientLinks.client_domain}`, count: domain.length, color: 'cyan', items: domain },
+              dirigeant.length > 0 && { icon: '👤', label: 'Dirigeant', detail: `${clientLinks.client_dirigeant}`, count: dirigeant.length, color: 'purple', items: dirigeant },
+              groupProspects.length > 0 && { icon: '🏷️', label: 'Groupe', detail: `"${clientLinks.client_group}"`, count: groupProspects.length, color: 'amber', items: groupProspects },
+              groupClients.length > 0 && { icon: '🔗', label: 'Clients liés', detail: `${groupClients.length} client(s)`, count: groupClients.length, color: 'green', items: groupClients, isClients: true },
+            ].filter(Boolean)
 
             return (
-              <div className="mb-4 bg-blue-50 border-2 border-blue-300 rounded-lg p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <span className="text-lg">📊</span>
-                    <h3 className="font-semibold text-blue-900 text-sm">Données de prospection disponibles</h3>
-                    <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
-                      {p.contacted ? '📞 Contacté' : 'Non contacté'}{p.totalSiblings > 1 ? ` · ${p.totalSiblings} établissements` : ''}
-                    </span>
-                    {p.prospection_notes && (
-                      <span className="text-xs text-blue-600 italic truncate max-w-[200px]" title={p.prospection_notes}>
-                        💬 {p.prospection_notes.substring(0, 50)}{p.prospection_notes.length > 50 ? '…' : ''}
+              <div className="mb-4 bg-blue-50 border-2 border-blue-300 rounded-xl p-4">
+                {/* Header */}
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-lg">🔍</span>
+                    <h3 className="font-bold text-blue-900 text-sm">Liens détectés</h3>
+                    {sources.map((s, i) => (
+                      <span key={i} className={`text-xs bg-${s.color}-100 text-${s.color}-700 px-2 py-0.5 rounded-full font-medium`}>
+                        {s.icon} {s.label}: {s.count}
                       </span>
-                    )}
+                    ))}
                   </div>
                   <div className="flex items-center gap-2">
-                    <button onClick={importFromProspection}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-xs font-medium transition-colors">
-                      <Save className="w-3.5 h-3.5" /> Importer & lier
-                    </button>
-                    <button onClick={markDejaClient}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 text-xs font-medium transition-colors"
-                      title="Marquer comme déjà client sans importer">
-                      Lier sans importer
+                    {totalLinks > 0 && (
+                      <>
+                        {importable.length > 0 && (
+                          <button onClick={importFromProspection}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-xs font-medium transition-colors">
+                            <Save className="w-3.5 h-3.5" /> Importer & lier tout
+                          </button>
+                        )}
+                        <button onClick={() => markDejaClient()}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 text-xs font-medium transition-colors">
+                          ✓ Marquer {uniqueSirens.length} SIREN
+                        </button>
+                      </>
+                    )}
+                    <button onClick={() => setLinksExpanded(!linksExpanded)}
+                      className="p-1.5 hover:bg-blue-100 rounded-lg transition-colors text-blue-600">
+                      {linksExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                     </button>
                   </div>
                 </div>
-                {importable.length > 0 ? (
-                  <div className="flex flex-wrap gap-2">
+
+                {/* Champs importables (SIREN) */}
+                {importable.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mb-3">
                     {importable.map((item, i) => (
                       <span key={i} className="inline-flex items-center gap-1 text-xs bg-white border border-blue-200 rounded-full px-2.5 py-1 text-blue-800">
                         <span className="font-medium text-blue-500">{item.label}:</span> {item.value}
                       </span>
                     ))}
                   </div>
-                ) : (
-                  <p className="text-xs text-blue-600">Aucun nouveau champ à importer — cliquez "Lier sans importer" pour retirer le prospect de la file Marine</p>
+                )}
+
+                {/* Détails dépliés */}
+                {linksExpanded && (
+                  <div className="space-y-3 pt-2 border-t border-blue-200">
+                    {sources.map((source, si) => (
+                      <div key={si}>
+                        <p className="text-xs font-bold text-gray-700 mb-1.5">
+                          {source.icon} {source.label} — {source.detail}
+                        </p>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
+                          {source.items.slice(0, 10).map((item, ii) => (
+                            <div key={ii} className={`flex items-center justify-between bg-white rounded-lg px-3 py-1.5 border border-${source.color}-200 text-xs`}>
+                              <div className="min-w-0 flex-1">
+                                <span className="font-medium text-gray-900 truncate block">
+                                  {source.isClients ? (
+                                    <Link to={`/clients/${item.id}`} className="text-primary-600 hover:underline">{item.name}</Link>
+                                  ) : item.name}
+                                </span>
+                                <span className="text-gray-400">{item.city || item.postal_code || ''}{item.siren ? ` · ${item.siren}` : ''}</span>
+                              </div>
+                              {!source.isClients && item.phone && (
+                                <span className="text-gray-500 ml-2">{item.phone}</span>
+                              )}
+                              {!source.isClients && (
+                                <button onClick={() => markDejaClient([item.siren])}
+                                  className="ml-2 text-green-600 hover:text-green-800 font-medium whitespace-nowrap">
+                                  ✓
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                          {source.items.length > 10 && (
+                            <p className="text-xs text-gray-400 col-span-full">+{source.items.length - 10} autre(s)</p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
             )
           })()}
 
-          {/* ══════ BANDEAU DÉJÀ LIÉ ══════ */}
-          {prospectionData && prospectionData.prospection_status === 'deja_client' && (
-            <div className="mb-4 bg-green-50 border border-green-200 rounded-lg px-4 py-2 flex items-center gap-2">
-              <span className="text-sm">✅</span>
-              <span className="text-xs text-green-700 font-medium">Prospect lié — retiré de la file Marine</span>
-              {prospectionData.contacted_at && (
-                <span className="text-xs text-green-500">
-                  Dernier contact : {new Date(prospectionData.contacted_at).toLocaleDateString('fr-FR')}
-                </span>
-              )}
-            </div>
-          )}
+          {/* ══════ BANDEAU DÉJÀ LIÉ (si aucun lien restant) ══════ */}
+          {clientLinks && !prospectionLoading && (() => {
+            const total = (clientLinks.siren_matches?.length || 0) + (clientLinks.domain_matches?.length || 0) +
+              (clientLinks.dirigeant_matches?.length || 0) + (clientLinks.group_prospect_matches?.length || 0)
+            if (total > 0) return null // le bandeau ci-dessus gère
+            const siren = clientLinks.client_siren
+            if (!siren) return null
+            return (
+              <div className="mb-4 bg-green-50 border border-green-200 rounded-lg px-4 py-2 flex items-center gap-2">
+                <span className="text-sm">✅</span>
+                <span className="text-xs text-green-700 font-medium">Tous les prospects liés sont marqués — file Marine à jour</span>
+              </div>
+            )
+          })()}
 
           {editing ? (
             <div className="grid grid-cols-2 gap-4">
@@ -746,6 +847,22 @@ export default function ClientDetail() {
                 </select>
               </div>
               
+              {/* Groupe */}
+              <div className="col-span-2">
+                <label className="text-xs font-medium text-gray-500 mb-1 block">🏷️ Groupe (pour lier des sociétés distinctes)</label>
+                <div className="flex gap-2">
+                  <input value={editForm.group_name || ''} onChange={e => setEditForm({ ...editForm, group_name: e.target.value || null })}
+                    className="flex-1 px-3 py-2 border rounded-lg text-sm" placeholder="Ex: Groupe Vert, Westerly Sport Group..." />
+                  {editForm.group_name && (
+                    <button onClick={() => setEditForm({ ...editForm, group_name: null })}
+                      className="px-2 py-1 text-red-400 hover:text-red-600 transition-colors">
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+                <p className="text-xs text-gray-400 mt-0.5">Clients avec le même nom de groupe sont liés automatiquement. Les prospects contenant ce nom dans prospection_massive sont aussi détectés.</p>
+              </div>
+
               {/* Type de client */}
               <div className="col-span-2">
                 <label className="text-xs font-medium text-gray-500 mb-2 block">Type de client</label>
@@ -830,6 +947,11 @@ export default function ClientDetail() {
               {client.opco_name && (
                 <div className="flex items-center gap-2"><Briefcase className="w-4 h-4 text-gray-400 shrink-0" />
                   <span className="text-gray-700">OPCO : <strong>{client.opco_name}</strong></span></div>
+              )}
+              {client.group_name && (
+                <div className="flex items-center gap-2">
+                  <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700">🏷️ {client.group_name}</span>
+                </div>
               )}
               {client.client_type && client.client_type !== 'entreprise' && (
                 <div className="flex items-center gap-2">
