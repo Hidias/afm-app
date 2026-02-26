@@ -822,6 +822,20 @@ export default function Quotes() {
     })
   }, [quotes, search, statusFilter])
 
+  // Devis envoyés > 7j sans réponse
+  const quotesRelance = useMemo(() => {
+    const now = Date.now()
+    return quotes
+      .filter(q => q.status === 'sent' || q.status === 'pending')
+      .map(q => {
+        const sentDate = q.updated_at || q.quote_date || q.created_at
+        const days = sentDate ? Math.floor((now - new Date(sentDate).getTime()) / 86400000) : 0
+        return { ...q, daysSinceSent: days }
+      })
+      .filter(q => q.daysSinceSent >= 7)
+      .sort((a, b) => b.daysSinceSent - a.daysSinceSent)
+  }, [quotes])
+
   // money() → importé depuis ../lib/utils
 
   // ==================== RENDER ====================
@@ -881,6 +895,36 @@ export default function Quotes() {
             )
           })}
         </div>
+        {/* Bandeau relance devis > 7j */}
+        {quotesRelance.length > 0 && (
+          <div className="bg-orange-50 border-2 border-orange-300 rounded-xl px-4 py-3 mb-4">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-sm font-bold text-orange-800">⏰ {quotesRelance.length} devis envoyé{quotesRelance.length > 1 ? 's' : ''} sans réponse depuis plus de 7 jours</h3>
+              <button onClick={() => setStatusFilter('sent')} className="text-xs text-orange-600 hover:text-orange-800 underline">Voir tous les envoyés</button>
+            </div>
+            <div className="space-y-1.5">
+              {quotesRelance.slice(0, 5).map(q => (
+                <div key={q.id} className="flex items-center justify-between bg-white rounded-lg px-3 py-2 border border-orange-200">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="text-xs font-mono text-gray-400">{q.reference}</span>
+                    <span className="font-medium text-gray-900 text-sm truncate">{q.clients?.name || '?'}</span>
+                    <span className="text-sm font-semibold text-gray-700">{money(q.total_ht)} HT</span>
+                  </div>
+                  <div className="flex items-center gap-3 flex-shrink-0">
+                    <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${q.daysSinceSent >= 15 ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'}`}>
+                      {q.daysSinceSent}j
+                    </span>
+                    <button onClick={(e) => { e.stopPropagation(); openSendWizard(q) }}
+                      className="text-xs px-3 py-1.5 bg-orange-600 text-white rounded-lg hover:bg-orange-700 font-medium flex items-center gap-1">
+                      <Send size={12} /> Relancer
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {quotesRelance.length > 5 && <p className="text-xs text-orange-500 text-center">+{quotesRelance.length - 5} autre(s)</p>}
+            </div>
+          </div>
+        )}
         {loading ? (
           <div className="text-center py-12 text-gray-400">Chargement...</div>
         ) : filteredQuotes.length === 0 ? (
@@ -899,6 +943,13 @@ export default function Quotes() {
                       <span className={`px-2 py-0.5 rounded text-xs font-medium ${STATUS_CONFIG[q.status]?.class || 'bg-gray-100'}`}>
                         {STATUS_CONFIG[q.status]?.icon} {STATUS_CONFIG[q.status]?.label || q.status}
                       </span>
+                      {(() => {
+                        if (q.status !== 'sent' && q.status !== 'pending') return null
+                        const sentDate = q.updated_at || q.quote_date || q.created_at
+                        const days = sentDate ? Math.floor((Date.now() - new Date(sentDate).getTime()) / 86400000) : 0
+                        if (days < 7) return null
+                        return <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${days >= 15 ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'}`}>⏰ {days}j sans réponse</span>
+                      })()}
                     </div>
                     <h3 className="font-semibold text-gray-900">{q.clients?.name || 'Client inconnu'}</h3>
                     {q.object && <p className="text-sm text-gray-500 truncate mt-0.5">{q.object}</p>}
