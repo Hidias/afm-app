@@ -1877,6 +1877,33 @@ export default function MarinePhoning() {
               </div>
 
 
+              {/* ═══ ALERTE DÉJÀ CLIENT ═══ */}
+              {existingClient && (
+                <div className="bg-green-50 border-2 border-green-400 rounded-lg px-3 py-2">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-bold text-green-800">
+                        🏷️ Déjà client : <a href={`/clients/${existingClient.id}`} className="underline hover:text-green-900">{existingClient.name}</a> ({existingClient.status || 'prospect'}{existingClient.city ? ' — ' + existingClient.city : ''})
+                      </p>
+                      <p className="text-[10px] text-green-600 mt-0.5">Inutile d'appeler — marque-le pour le retirer de la file</p>
+                    </div>
+                    <button onClick={async () => {
+                      if (!current?.siren) return
+                      try {
+                        await supabase.from('prospection_massive').update({
+                          prospection_status: 'deja_client', updated_at: new Date().toISOString()
+                        }).eq('siren', current.siren)
+                        toast.success('✅ Marqué "déjà client" — retiré de la file')
+                        goNext()
+                        await loadProspects()
+                      } catch (err) { toast.error('Erreur: ' + err.message) }
+                    }} className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 text-xs font-medium whitespace-nowrap">
+                      ✓ Marquer & passer
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* ═══ ALERTE SITE GÉRÉ PAR UN AUTRE ═══ */}
               {current?.gere_par_city && (
                 <div className="bg-indigo-50 border-2 border-indigo-400 rounded-lg px-3 py-2">
