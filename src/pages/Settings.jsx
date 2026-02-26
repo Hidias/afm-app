@@ -417,7 +417,7 @@ export default function Settings() {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 px-4 py-3 border-b-2 transition-colors whitespace-nowrap ${
+              className={`flex items-center gap-2 px-4 py-3 border-b-2 transition-colors whitespace-nowrap shrink-0 ${
                 activeTab === tab.id
                   ? 'border-primary-600 text-primary-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700'
