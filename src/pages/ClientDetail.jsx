@@ -583,26 +583,24 @@ export default function ClientDetail() {
   const billingContact = contacts.find(c => c.is_billing)
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-6">
+    <div className="p-3 sm:p-6 max-w-7xl mx-auto space-y-4 sm:space-y-6">
 
       {/* ══════ HEADER ══════ */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <Link to="/clients" className="text-sm text-gray-500 hover:text-gray-700 flex items-center gap-1">
-          <ArrowLeft className="w-4 h-4" /> Retour aux clients
+          <ArrowLeft className="w-4 h-4" /> <span className="hidden sm:inline">Retour aux clients</span><span className="sm:hidden">Retour</span>
         </Link>
         <div className="flex items-center gap-2">
           {/* Navigation précédent/suivant */}
-          <div className="flex items-center gap-1 mr-2">
+          <div className="flex items-center gap-1 mr-1 sm:mr-2">
             <button onClick={() => navigateToClient(prevClientId)} disabled={!prevClientId}
               className="p-2 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
               title="Client précédent (Alt+←)">
               <ChevronLeft className="w-4 h-4" />
             </button>
-            {allClientIds.length > 0 && (
-              <span className="text-xs text-gray-400 tabular-nums min-w-[4rem] text-center">
-                {currentIndex + 1} / {allClientIds.length}
-              </span>
-            )}
+            <span className="text-xs text-gray-400 tabular-nums min-w-[3rem] sm:min-w-[4rem] text-center hidden sm:inline">
+              {currentIndex >= 0 ? `${currentIndex + 1} / ${allClientIds.length}` : ''}
+            </span>
             <button onClick={() => navigateToClient(nextClientId)} disabled={!nextClientId}
               className="p-2 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
               title="Client suivant (Alt+→)">
@@ -610,14 +608,14 @@ export default function ClientDetail() {
             </button>
           </div>
           {!editing ? (
-            <button onClick={() => setEditing(true)} className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm">
-              <Edit className="w-4 h-4" /> Modifier
+            <button onClick={() => setEditing(true)} className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm">
+              <Edit className="w-4 h-4" /> <span className="hidden sm:inline">Modifier</span>
             </button>
           ) : (
             <>
-              <button onClick={() => { setEditing(false); setEditForm(client) }} className="px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50">Annuler</button>
-              <button onClick={saveClient} className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm">
-                <Save className="w-4 h-4" /> Enregistrer
+              <button onClick={() => { setEditing(false); setEditForm(client) }} className="px-3 sm:px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50">Annuler</button>
+              <button onClick={saveClient} className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm">
+                <Save className="w-4 h-4" /> <span className="hidden sm:inline">Enregistrer</span><span className="sm:hidden">OK</span>
               </button>
             </>
           )}
@@ -626,31 +624,31 @@ export default function ClientDetail() {
 
       {/* ══════ FICHE CLIENT ══════ */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div className="bg-gradient-to-r from-primary-50 to-primary-100/50 px-6 py-4 border-b">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 bg-primary-600 rounded-lg flex items-center justify-center shadow-sm">
-                <Building2 className="w-6 h-6 text-white" />
+        <div className="bg-gradient-to-r from-primary-50 to-primary-100/50 px-4 sm:px-6 py-4 border-b">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-10 h-10 sm:w-12 sm:h-12 bg-primary-600 rounded-lg flex items-center justify-center shadow-sm flex-shrink-0">
+                <Building2 className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
               </div>
-              <div>
+              <div className="min-w-0 flex-1">
                 {editing ? (
                   <input value={editForm.name || ''} onChange={e => setEditForm({ ...editForm, name: e.target.value.toUpperCase() })}
-                    className="text-xl font-bold bg-white border rounded px-2 py-1 w-80" />
+                    className="text-lg sm:text-xl font-bold bg-white border rounded px-2 py-1 w-full sm:w-80" />
                 ) : (
-                  <h1 className="text-xl font-bold text-gray-900">{client.name}</h1>
+                  <h1 className="text-lg sm:text-xl font-bold text-gray-900 truncate">{client.name}</h1>
                 )}
-                {client.siret && <p className="text-sm text-gray-500 font-mono mt-0.5">SIRET {client.siret}</p>}
+                {client.siret && <p className="text-xs sm:text-sm text-gray-500 font-mono mt-0.5">SIRET {client.siret}</p>}
               </div>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
               {docContact && !editing && (
-                <div className="text-right hidden md:block">
+                <div className="text-right hidden lg:block">
                   <p className="text-xs text-gray-400">Contact documents</p>
                   <p className="text-sm font-medium text-gray-700">{docContact.name}{docContact.role ? ' — ' + docContact.role : ''}</p>
                 </div>
               )}
               {billingContact && !editing && (
-                <div className="text-right hidden md:block">
+                <div className="text-right hidden lg:block">
                   <p className="text-xs text-gray-400">💰 Facturation</p>
                   <p className="text-sm font-medium text-gray-700">{billingContact.name}{billingContact.email ? ' — ' + billingContact.email : ''}</p>
                 </div>
@@ -667,7 +665,7 @@ export default function ClientDetail() {
           </div>
         </div>
 
-        <div className="p-6">
+        <div className="p-4 sm:p-6">
           {/* ══════ BANDEAU DÉTECTION LIENS MULTI-SOURCES ══════ */}
           {clientLinks && (() => {
             const siren = clientLinks.siren_matches || []
@@ -708,9 +706,9 @@ export default function ClientDetail() {
             ].filter(Boolean)
 
             return (
-              <div className="mb-4 bg-blue-50 border-2 border-blue-300 rounded-xl p-4">
+              <div className="mb-4 bg-blue-50 border-2 border-blue-300 rounded-xl p-3 sm:p-4">
                 {/* Header */}
-                <div className="flex items-center justify-between mb-3">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-lg">🔍</span>
                     <h3 className="font-bold text-blue-900 text-sm">Liens détectés</h3>
@@ -720,18 +718,18 @@ export default function ClientDetail() {
                       </span>
                     ))}
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     {totalLinks > 0 && (
                       <>
                         {importable.length > 0 && (
                           <button onClick={importFromProspection}
                             className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-xs font-medium transition-colors">
-                            <Save className="w-3.5 h-3.5" /> Importer & lier tout
+                            <Save className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Importer & lier tout</span><span className="sm:hidden">Importer</span>
                           </button>
                         )}
                         <button onClick={() => markDejaClient()}
                           className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 text-xs font-medium transition-colors">
-                          ✓ Marquer {uniqueSirens.length} SIREN
+                          ✓ Marquer {uniqueSirens.length}
                         </button>
                       </>
                     )}
@@ -761,7 +759,7 @@ export default function ClientDetail() {
                         <p className="text-xs font-bold text-gray-700 mb-1.5">
                           {source.icon} {source.label} — {source.detail}
                         </p>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                           {source.items.slice(0, 10).map((item, ii) => (
                             <div key={ii} className={`flex items-center justify-between bg-white rounded-lg px-3 py-1.5 border border-${source.color}-200 text-xs`}>
                               <div className="min-w-0 flex-1">
@@ -811,7 +809,7 @@ export default function ClientDetail() {
           })()}
 
           {editing ? (
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div><label className="text-xs font-medium text-gray-500 mb-1 block">SIRET</label>
                 <div className="flex gap-2">
                   <input value={editForm.siret || ''} onChange={e => setEditForm({ ...editForm, siret: e.target.value })} className="flex-1 px-3 py-2 border rounded-lg text-sm" placeholder="SIRET" />
@@ -886,7 +884,7 @@ export default function ClientDetail() {
                 <h4 className="text-xs font-semibold text-gray-600 uppercase tracking-wide flex items-center gap-1.5">
                   <CreditCard className="w-3.5 h-3.5" /> Préférences de facturation
                 </h4>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="text-xs text-gray-500 mb-1 block">Mode de facturation</label>
                     <select value={editForm.billing_mode || 'per_session'} onChange={e => setEditForm({ ...editForm, billing_mode: e.target.value })}
@@ -924,7 +922,7 @@ export default function ClientDetail() {
               </div>
             </div>
           ) : (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-y-3 gap-x-6 text-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-y-3 gap-x-6 text-sm">
               {client.address && (
                 <div className="flex items-start gap-2"><MapPin className="w-4 h-4 text-gray-400 mt-0.5 shrink-0" />
                   <span className="text-gray-700">{client.address}{(client.postal_code || client.city) ? ', ' + [client.postal_code, client.city].filter(Boolean).join(' ') : ''}</span></div>
@@ -984,7 +982,7 @@ export default function ClientDetail() {
           )}
         </div>
 
-        <div className="border-t bg-gray-50/50 px-6 py-3 grid grid-cols-4 gap-4 text-center text-sm">
+        <div className="border-t bg-gray-50/50 px-4 sm:px-6 py-3 grid grid-cols-2 sm:grid-cols-4 gap-4 text-center text-sm">
           <div><span className="text-2xl font-bold text-primary-600">{contacts.length}</span><p className="text-gray-500">Contacts</p></div>
           <div><span className="text-2xl font-bold text-blue-600">{timeline.length}</span><p className="text-gray-500">Échanges</p></div>
           <div><span className="text-2xl font-bold text-green-600">{formations.length}</span><p className="text-gray-500">Formations</p></div>
@@ -993,7 +991,7 @@ export default function ClientDetail() {
       </div>
 
       {/* ══════ 2 COLONNES ══════ */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
 
         {/* ──── GAUCHE : Contacts + RDV ──── */}
         <div className="lg:col-span-1 space-y-6">
@@ -1365,7 +1363,7 @@ export default function ClientDetail() {
       {showContactForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="fixed inset-0 bg-black/40" onClick={closeContactForm} />
-          <div className="relative bg-white rounded-xl shadow-xl w-full max-w-md p-6 mx-4">
+          <div className="relative bg-white rounded-xl shadow-xl w-full max-w-md p-4 sm:p-6 mx-4">
             <div className="flex items-center justify-between mb-5">
               <h3 className="text-lg font-semibold">{editingContact ? 'Modifier le contact' : 'Nouveau contact'}</h3>
               <button onClick={closeContactForm} className="p-1 hover:bg-gray-100 rounded"><X className="w-5 h-5" /></button>
@@ -1381,7 +1379,7 @@ export default function ClientDetail() {
                 <input value={contactForm.role} onChange={e => setContactForm(f => ({ ...f, role: e.target.value }))}
                   className="w-full px-3 py-2 border rounded-lg text-sm" placeholder="RH, Dirigeant, QSE, Comptable, Resp. formation..." />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-medium text-gray-500 mb-1 block">Email</label>
                   <input type="email" value={contactForm.email} onChange={e => setContactForm(f => ({ ...f, email: e.target.value }))}
