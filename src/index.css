@@ -219,3 +219,32 @@ button, a, nav {
     min-width: 32px;
   }
 }
+
+/* ============================================
+   MOBILE-SPECIFIC LAYOUT IMPROVEMENTS
+   ============================================ */
+
+/* Cards: tighter padding on small screens */
+@media (max-width: 639px) {
+  .card {
+    padding: 1rem;
+  }
+  
+  /* Reduce heavy headings on mobile */
+  h1 { font-size: 1.25rem; }
+  h2 { font-size: 1.1rem; }
+  
+  /* Table cells: tighter on mobile */
+  th { padding: 0.5rem 0.75rem; font-size: 0.7rem; }
+  td { padding: 0.5rem 0.75rem; }
+  
+  /* Modals: full width on mobile */
+  .fixed .max-w-md,
+  .fixed .max-w-lg,
+  .fixed .max-w-xl,
+  .fixed .max-w-2xl {
+    max-width: calc(100vw - 1rem);
+    margin-left: 0.5rem;
+    margin-right: 0.5rem;
+  }
+}
