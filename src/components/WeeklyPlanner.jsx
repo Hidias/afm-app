@@ -10,9 +10,10 @@ import { Link } from 'react-router-dom'
 import {
   ChevronLeft, ChevronRight, Plus, X, Phone,
   Calendar, Clock, AlertTriangle, Ban, FileText,
-  Loader2, Flame, Check, Send, UserPlus, MessageSquare
+  Loader2, Flame, Check, Send, UserPlus, MessageSquare,
+  TrendingUp, Zap, Info
 } from 'lucide-react'
-import { format, startOfWeek, addDays, addWeeks, isToday } from 'date-fns'
+import { format, startOfWeek, addDays, addWeeks, isToday, isSameDay, getDay } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import toast from 'react-hot-toast'
 
@@ -71,6 +72,13 @@ const overlap = (aStart, aEnd, bStart, bEnd) => {
 const normalizeClientName = (name) => (name || '').replace(/\s*\(.*?\)\s*/g, '').trim().toUpperCase()
 const futureDate = (days) => { const d = new Date(); d.setDate(d.getDate() + days); return format(d, 'yyyy-MM-dd') }
 
+// Trouver le prochain jour ouvré (lun-ven) après une date
+const nextWorkday = (dateStr) => {
+  let d = new Date(dateStr)
+  do { d.setDate(d.getDate() + 1) } while (d.getDay() === 0 || d.getDay() === 6)
+  return format(d, 'yyyy-MM-dd')
+}
+
 // ═══════════════════════════════════════════════════════════
 // COMPOSANT PRINCIPAL
 // ═══════════════════════════════════════════════════════════
@@ -87,11 +95,17 @@ export default function WeeklyPlanner() {
   const [planningEvents, setPlanningEvents] = useState([])
   const [suggestedProspects, setSuggestedProspects] = useState([])
 
+  // ✅ NOUVEAU : Compteur appels + stats semaine
+  const [todayCallCount, setTodayCallCount] = useState(0)
+  const [weekCallStats, setWeekCallStats] = useState({ total: 0, chaud: 0, tiede: 0, rdv: 0 })
+
   // UI states
   const [showAddModal, setShowAddModal] = useState(false)
   const [addDate, setAddDate] = useState(null)
   const [addForm, setAddForm] = useState({ event_type: 'indispo', title: '', start_time: '09:00', end_time: '12:00', description: '' })
+  const [addConflicts, setAddConflicts] = useState([]) // RDV/sessions en conflit avec l'indispo
   const [relanceSending, setRelanceSending] = useState(null)
+  const [hoveredProspect, setHoveredProspect] = useState(null) // tooltip prospect
 
   // ✅ NOUVEAU : Mini formulaire appel
   const [callModal, setCallModal] = useState(null) // prospect object
@@ -177,11 +191,45 @@ export default function WeeklyPlanner() {
       })))
 
       await loadSmartProspects()
+      await loadCallStats()
     } catch (err) { console.error('WeeklyPlanner load error:', err) }
     finally { setLoading(false) }
   }, [weekStart, user?.id])
 
   useEffect(() => { if (user?.id) loadWeekData() }, [loadWeekData, user?.id])
+
+  // ─── Compteur appels + stats semaine ────────────────────
+  const loadCallStats = async () => {
+    try {
+      const todayStr = format(new Date(), 'yyyy-MM-dd')
+      const weekStartStr = format(weekStart, 'yyyy-MM-dd')
+      const weekEndStr = format(addDays(weekStart, 5), 'yyyy-MM-dd')
+
+      // Appels aujourd'hui
+      const { count: todayCount } = await supabase.from('prospect_calls')
+        .select('id', { count: 'exact', head: true })
+        .eq('called_by', 'Hicham')
+        .gte('called_at', todayStr + 'T00:00:00')
+        .lte('called_at', todayStr + 'T23:59:59')
+      setTodayCallCount(todayCount || 0)
+
+      // Stats semaine
+      const { data: weekCalls } = await supabase.from('prospect_calls')
+        .select('call_result, rdv_created')
+        .eq('called_by', 'Hicham')
+        .gte('called_at', weekStartStr + 'T00:00:00')
+        .lte('called_at', weekEndStr + 'T23:59:59')
+
+      if (weekCalls) {
+        setWeekCallStats({
+          total: weekCalls.length,
+          chaud: weekCalls.filter(c => c.call_result === 'chaud').length,
+          tiede: weekCalls.filter(c => c.call_result === 'tiede').length,
+          rdv: weekCalls.filter(c => c.rdv_created).length,
+        })
+      }
+    } catch (err) { console.error('Call stats error:', err) }
+  }
 
   // ─── Prospects intelligents ─────────────────────────────
   const loadSmartProspects = async () => {
@@ -285,17 +333,57 @@ export default function WeeklyPlanner() {
   // ACTIONS
   // ═══════════════════════════════════════════════════════════
 
+  // ─── Détection conflits quand on ouvre la modal ajout ───
+  useEffect(() => {
+    if (!showAddModal || !addDate || addForm.event_type !== 'indispo') { setAddConflicts([]); return }
+    const dateStr = format(addDate, 'yyyy-MM-dd')
+    const events = dayEvents[dateStr] || []
+    const startMin = timeToMin(addForm.start_time)
+    const endMin = timeToMin(addForm.end_time)
+    const conflicts = events.filter(e =>
+      ['session', 'rdv', 'callback'].includes(e.type) &&
+      overlap(addForm.start_time, addForm.end_time, e.startTime, e.endTime)
+    )
+    setAddConflicts(conflicts)
+  }, [showAddModal, addDate, addForm.event_type, addForm.start_time, addForm.end_time, dayEvents])
+
   const handleAddEvent = async () => {
     if (!addForm.title.trim()) { toast.error('Titre requis'); return }
     if (timeToMin(addForm.start_time) >= timeToMin(addForm.end_time)) { toast.error('Heure de fin invalide'); return }
+
+    // ✅ Si indispo : repousser les callbacks en conflit
+    const dateStr = format(addDate, 'yyyy-MM-dd')
+    let rescheduledCount = 0
+
+    if (addForm.event_type === 'indispo') {
+      const conflictCallbacks = (dayEvents[dateStr] || []).filter(e =>
+        e.type === 'callback' && e.callId &&
+        overlap(addForm.start_time, addForm.end_time, e.startTime, e.endTime)
+      )
+
+      if (conflictCallbacks.length > 0) {
+        const nextDay = nextWorkday(dateStr)
+        for (const cb of conflictCallbacks) {
+          await supabase.from('prospect_calls').update({
+            callback_date: nextDay,
+          }).eq('id', cb.callId)
+          rescheduledCount++
+        }
+      }
+    }
+
     try {
       await supabase.from('user_planning_events').insert({
-        user_id: user.id, event_type: addForm.event_type, event_date: format(addDate, 'yyyy-MM-dd'),
+        user_id: user.id, event_type: addForm.event_type, event_date: dateStr,
         start_time: addForm.start_time, end_time: addForm.end_time, title: addForm.title.trim(),
         description: addForm.description.trim() || null,
       })
-      toast.success('Événement ajouté')
+
+      let msg = 'Événement ajouté'
+      if (rescheduledCount > 0) msg += ` · ${rescheduledCount} rappel${rescheduledCount > 1 ? 's' : ''} repoussé${rescheduledCount > 1 ? 's' : ''} au prochain jour ouvré`
+      toast.success(msg)
       setShowAddModal(false)
+      setAddConflicts([])
       setAddForm({ event_type: 'indispo', title: '', start_time: '09:00', end_time: '12:00', description: '' })
       loadWeekData()
     } catch (err) { toast.error('Erreur: ' + err.message) }
@@ -445,6 +533,14 @@ export default function WeeklyPlanner() {
 
       // ✅ ROTATION : Retirer le prospect de la liste locale
       setSuggestedProspects(prev => prev.filter(p => p.id !== prospect.id))
+      // ✅ Incrémenter compteur appels
+      setTodayCallCount(prev => prev + 1)
+      setWeekCallStats(prev => ({
+        ...prev, total: prev.total + 1,
+        chaud: prev.chaud + (callForm.result === 'chaud' ? 1 : 0),
+        tiede: prev.tiede + (callForm.result === 'tiede' ? 1 : 0),
+        rdv: prev.rdv + (callForm.createRdv || callForm.result === 'chaud' ? 1 : 0),
+      }))
 
       let msg = '✅ Appel enregistré'
       if (callForm.createRdv || callForm.result === 'chaud') msg += ' • RDV créé'
@@ -501,20 +597,35 @@ export default function WeeklyPlanner() {
     )
   }
 
-  // ✅ Prospect cliquable → ouvre le mini formulaire
+  // ✅ Prospect cliquable → ouvre le mini formulaire + tooltip au survol
   const ProspectSuggestion = ({ prospect, rank }) => (
-    <button onClick={() => openCallModal(prospect)}
-      className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded bg-purple-50 border border-purple-200 text-[10px] hover:bg-purple-100 hover:border-purple-300 transition-colors text-left">
-      <span className="text-purple-400 font-bold w-3 text-center">{rank}</span>
-      <div className="flex-1 min-w-0">
-        <p className="font-medium text-purple-800 truncate">{prospect.name}</p>
-        <p className="text-purple-500 truncate">{prospect.city} · {prospect.departement} {prospect.phone ? `· ${prospect.phone}` : ''}</p>
-      </div>
-      {prospect.prospection_status === 'a_rappeler' && (
-        <span className="text-[9px] bg-amber-200 text-amber-800 px-1 rounded flex-shrink-0">Rappel</span>
+    <div className="relative" onMouseEnter={() => setHoveredProspect(prospect.id)} onMouseLeave={() => setHoveredProspect(null)}>
+      <button onClick={() => openCallModal(prospect)}
+        className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded bg-purple-50 border border-purple-200 text-[10px] hover:bg-purple-100 hover:border-purple-300 transition-colors text-left">
+        <span className="text-purple-400 font-bold w-3 text-center">{rank}</span>
+        <div className="flex-1 min-w-0">
+          <p className="font-medium text-purple-800 truncate">{prospect.name}</p>
+          <p className="text-purple-500 truncate">{prospect.city} · {prospect.departement}</p>
+        </div>
+        {prospect.prospection_status === 'a_rappeler' && (
+          <span className="text-[9px] bg-amber-200 text-amber-800 px-1 rounded flex-shrink-0">Rappel</span>
+        )}
+        <Phone className="w-3 h-3 text-purple-400 flex-shrink-0" />
+      </button>
+      {/* Tooltip enrichi */}
+      {hoveredProspect === prospect.id && (
+        <div className="absolute left-0 bottom-full mb-1 z-30 bg-gray-900 text-white text-[10px] rounded-lg px-3 py-2 shadow-lg whitespace-nowrap max-w-[250px]">
+          <p className="font-semibold">{prospect.name}</p>
+          <p className="opacity-70">{prospect.city} ({prospect.departement}) · {prospect.effectif || '?'} sal.</p>
+          {prospect.naf && <p className="opacity-70">NAF: {prospect.naf}</p>}
+          {prospect.phone && <p className="opacity-80">📞 {prospect.phone}</p>}
+          {prospect.email && <p className="opacity-80">📧 {prospect.email}</p>}
+          {prospect.dirigeant_nom && <p className="opacity-80">👤 {prospect.dirigeant_nom}</p>}
+          <p className="opacity-60 mt-1">Score: {prospect._score} · Clic pour appeler</p>
+          <div className="absolute left-4 top-full w-2 h-2 bg-gray-900 rotate-45 -mt-1" />
+        </div>
       )}
-      <Phone className="w-3 h-3 text-purple-400 flex-shrink-0" />
-    </button>
+    </div>
   )
 
   // ─── DayColumn ──────────────────────────────────────────
@@ -527,6 +638,8 @@ export default function WeeklyPlanner() {
     const isFormationDay = events.some(e => e.type === 'session' && (timeToMin(e.endTime) - timeToMin(e.startTime)) >= 300)
     const rdvCount = events.filter(e => e.type === 'rdv').length
     const cbCount = events.filter(e => e.type === 'callback').length
+    // ✅ Jour vide = 0 session, 0 rdv, 0 callback, pas samedi
+    const isEmptyDay = !isSat && !isFormationDay && rdvCount === 0 && cbCount === 0 && !events.some(e => e.type === 'indispo' && (timeToMin(e.endTime) - timeToMin(e.startTime)) >= 300)
     let prospectIdx = 0
 
     return (
@@ -538,6 +651,7 @@ export default function WeeklyPlanner() {
             {isFormationDay && <span className="text-[8px] bg-blue-500 text-white px-1 rounded-full">🎓</span>}
             {rdvCount > 0 && <span className="text-[8px] bg-green-500 text-white px-1 rounded-full">🤝 {rdvCount}</span>}
             {cbCount > 0 && <span className="text-[8px] bg-amber-500 text-white px-1 rounded-full">📞 {cbCount}</span>}
+            {isEmptyDay && <span className="text-[8px] bg-purple-500 text-white px-1 rounded-full">⚡ 4h phoning</span>}
           </div>
         </div>
 
@@ -630,6 +744,20 @@ export default function WeeklyPlanner() {
           <span className="text-sm font-semibold text-gray-700">{weekLabel}</span>
         </div>
         <div className="flex items-center gap-2 text-xs flex-wrap">
+          {/* ✅ Compteur appels live */}
+          {todayCallCount > 0 && (
+            <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded-full font-bold flex items-center gap-1">
+              <Zap className="w-3 h-3" /> {todayCallCount} appel{todayCallCount > 1 ? 's' : ''} today
+            </span>
+          )}
+          {/* ✅ Conversion semaine */}
+          {weekCallStats.total > 0 && (
+            <span className="px-2 py-1 bg-gray-100 text-gray-600 rounded-full flex items-center gap-1" title={`${weekCallStats.total} appels → ${weekCallStats.chaud} chauds → ${weekCallStats.rdv} RDV`}>
+              <TrendingUp className="w-3 h-3" />
+              {weekCallStats.total}→{weekCallStats.chaud}🔥→{weekCallStats.rdv} RDV
+              {weekCallStats.total > 0 && <span className="text-green-600 font-bold ml-0.5">({Math.round(weekCallStats.chaud / weekCallStats.total * 100)}%)</span>}
+            </span>
+          )}
           {weekStats.totalSessions > 0 && <span className="px-2 py-1 bg-blue-50 text-blue-700 rounded-full">🎓 {weekStats.totalSessions}</span>}
           {weekStats.totalRdv > 0 && <span className="px-2 py-1 bg-green-50 text-green-700 rounded-full">🤝 {weekStats.totalRdv}</span>}
           {weekStats.totalCallbacks > 0 && <span className="px-2 py-1 bg-amber-50 text-amber-700 rounded-full">📞 {weekStats.totalCallbacks}</span>}
@@ -681,6 +809,24 @@ export default function WeeklyPlanner() {
                   <button key={q.l} onClick={() => setAddForm(f => ({ ...f, start_time: q.s, end_time: q.e }))} className="px-2 py-1 text-[10px] bg-gray-100 hover:bg-gray-200 rounded-full">{q.l}</button>
                 )}
               </div>
+              {/* ✅ Alertes conflits */}
+              {addForm.event_type === 'indispo' && addConflicts.length > 0 && (
+                <div className="rounded-lg border-2 border-amber-300 bg-amber-50 p-3">
+                  <p className="text-xs font-bold text-amber-800 flex items-center gap-1 mb-1">
+                    <AlertTriangle className="w-3.5 h-3.5" /> Attention — conflits détectés
+                  </p>
+                  {addConflicts.filter(e => ['session', 'rdv'].includes(e.type)).map(e => (
+                    <p key={e.id} className="text-[11px] text-red-700 font-medium">
+                      ⚠️ {e.type === 'session' ? 'Formation' : 'RDV'} : {e.title} ({e.time})
+                    </p>
+                  ))}
+                  {addConflicts.filter(e => e.type === 'callback').length > 0 && (
+                    <p className="text-[11px] text-amber-700 mt-1">
+                      📞 {addConflicts.filter(e => e.type === 'callback').length} rappel(s) seront repoussés au prochain jour ouvré
+                    </p>
+                  )}
+                </div>
+              )}
               <div className="flex gap-2 pt-1">
                 <button onClick={() => setShowAddModal(false)} className="flex-1 py-2.5 text-sm border rounded-lg hover:bg-gray-50 font-medium text-gray-600">Annuler</button>
                 <button onClick={handleAddEvent} className="flex-1 py-2.5 text-sm bg-primary-600 text-white rounded-lg hover:bg-primary-700 font-medium shadow-sm">Ajouter</button>
