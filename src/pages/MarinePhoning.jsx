@@ -214,6 +214,7 @@ export default function MarinePhoning() {
   const [aiSummary, setAiSummary] = useState('')
   const [aiSummaryLoading, setAiSummaryLoading] = useState(false)
   const currentProspectRef = useRef(null)
+  const nextTargetRef = useRef(null) // P1 fix: save goNext target to survive loadProspects race
   const prospectStartTime = useRef(null) // Timer invisible pour reporting
   const [callHistory, setCallHistory] = useState([])
   const [duplicates, setDuplicates] = useState([])
@@ -261,7 +262,7 @@ export default function MarinePhoning() {
   const [doNotCallCustom, setDoNotCallCustom] = useState('')
   const [doNotCallScope, setDoNotCallScope] = useState('single')
   // Filters for "À rappeler" tab
-  const [rappelFilterBy, setRappelFilterBy] = useState('')
+  const [rappelFilterBy, setRappelFilterBy] = useState(getCallerFromEmail(user?.email) || '')
   const [rappelFilterDate, setRappelFilterDate] = useState('all')
 
   // Email prospect modal
@@ -985,6 +986,16 @@ export default function MarinePhoning() {
 <p>Seriez-vous disponible pour un échange rapide de 10 minutes cette semaine ?</p>
 <p>Belle journée !</p>`,
     },
+    remerciement: {
+      subject: (name) => 'Merci pour votre retour – Access Formation',
+      body: (name, contact) => `<p>Bonjour${contact ? ' ' + contact : ''},</p>
+<p>Je vous remercie pour le temps que vous nous avez accordé au téléphone.</p>
+<p>Nous avons bien noté que les formations en santé et sécurité ne correspondent pas à vos besoins actuels, et nous respectons tout à fait cette décision.</p>
+<p>Sachez toutefois que nos services restent à votre disposition si vos besoins venaient à évoluer : SST, prévention incendie, gestes et postures, habilitations électriques, CACES…</p>
+<p>Nous intervenons en <strong>intra-entreprise</strong>, directement sur site, et sommes certifiés <strong>Qualiopi</strong> (financement OPCO possible).</p>
+<p>N'hésitez pas à revenir vers nous à tout moment.</p>
+<p>Nous vous souhaitons une très bonne continuation !</p>`,
+    },
   }
 
   function openEmailModal(prospect, template, goNextAfter = true) {
@@ -1016,6 +1027,11 @@ export default function MarinePhoning() {
   async function handleSendEmail() {
     if (!emailTo) { toast.error('Adresse email requise'); return }
     const ep = emailProspectRef.current || current // Utiliser le prospect capturé
+    // P6 fix: Vérifier que l'email correspond bien au prospect affiché
+    if (ep && current && ep.id !== current.id) {
+      console.warn('⚠️ Email prospect mismatch: captured=', ep.name, 'current=', current.name)
+      if (!confirm(`Attention: l'email va être envoyé pour "${ep.name}" mais la fiche actuelle est "${current.name}". Continuer ?`)) return
+    }
     // Anti-doublon
     const dup = await checkEmailDuplicate(ep?.siren)
     if (dup) {
@@ -1132,16 +1148,30 @@ export default function MarinePhoning() {
   function goNext() {
     if (!current || viewMode === 'list') { setCurrent(null); return }
     const prevName = current.name
+    const prevId = current.id
     const list = viewMode === 'carte' ? mapProspects : filtered
-    const idx = list.findIndex(p => p.id === current.id)
-    if (idx < list.length - 1) {
-      selectProspect(list[idx + 1])
-      toast(`✅ ${prevName} → ${list[idx + 1].name}`, { duration: 2000 })
+    const idx = list.findIndex(p => p.id === prevId)
+    if (idx >= 0 && idx < list.length - 1) {
+      const next = list[idx + 1]
+      nextTargetRef.current = { id: next.id, siren: next.siren }
+      selectProspect(next)
+      toast(`✅ ${prevName} → ${next.name}`, { duration: 2000 })
     }
-    else { setCurrent(null); loadProspects() }
+    else {
+      nextTargetRef.current = null
+      setCurrent(null)
+      loadProspects()
+    }
   }
 
   function handleSkip() { if (!current) return; toast('Prospect passé', { icon: '⏭️' }); goNext() }
+
+  // P5 fix: ouvrir modal DNC avec scope par défaut 'all' si siblings existent
+  function openDoNotCallModal() {
+    const hasSiblings = duplicates.some(d => d.reason?.includes('SIREN'))
+    setDoNotCallScope(hasSiblings ? 'all' : 'single')
+    setShowDoNotCallModal(true)
+  }
 
   // === OPCO Detection ===
   async function autoDetectOpco() {
@@ -1176,9 +1206,10 @@ export default function MarinePhoning() {
   // === Stepped flow handlers ===
   async function handleNoResponse(messageLaisse, cbDate, cbTime) {
     if (!current) return
+    const capturedProspect = { ...current } // P6 fix: capturer le prospect avant toute async
     setSaving(true)
     try {
-      const clientId = await findOrCreateClient(current)
+      const clientId = await findOrCreateClient(capturedProspect)
       await clearOldCallbacks(clientId)
       const now = new Date()
       const noteText = `${callerName} — ${now.toLocaleDateString('fr-FR')} ${now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })} — ${messageLaisse ? 'Message laissé' : 'Pas de réponse'}` + (cbDate ? ` — Rappel ${new Date(cbDate).toLocaleDateString('fr-FR')}${cbTime ? ' à ' + cbTime : ''}` : '')
@@ -1188,14 +1219,14 @@ export default function MarinePhoning() {
         needs_callback: !!cbDate, callback_date: cbDate || null, callback_time: cbTime || null,
       })
       await supabase.from('prospection_massive').update({
-        contacted: true, contacted_at: now.toISOString(), prospection_status: 'a_rappeler',
+        contacted: true, contacted_at: now.toISOString(), prospection_status: cbDate ? 'a_rappeler' : (capturedProspect.prospection_status === 'a_rappeler' ? 'a_appeler' : (capturedProspect.prospection_status || 'a_appeler')),
         prospection_notes: noteText, updated_at: now.toISOString(),
-      }).eq('id', current.id)
+      }).eq('id', capturedProspect.id)
       toast.success(messageLaisse ? '📨 Message laisse' : '📵 Pas de reponse')
       loadDailyStats(); loadTodayCallbacks()
       // Proposer email NRP si email dispo
-      const pe = current.email
-      if (pe) { openEmailModal(current, 'nrp', true) }
+      const pe = capturedProspect.email
+      if (pe) { openEmailModal(capturedProspect, 'nrp', true) }
       else { goNext() }
       await loadProspects()
     } catch (error) { toast.error('Erreur: ' + error.message) }
@@ -1204,9 +1235,10 @@ export default function MarinePhoning() {
 
   async function handleNotInterested(tag) {
     if (!current) return
+    const capturedProspect = { ...current } // P7: capturer avant async
     setSaving(true)
     try {
-      const clientId = await findOrCreateClient(current)
+      const clientId = await findOrCreateClient(capturedProspect)
       await clearOldCallbacks(clientId)
       const noteText = `❄️ ${tag}` + (notes ? '\n' + notes : '')
       await supabase.from('prospect_calls').insert({
@@ -1217,9 +1249,14 @@ export default function MarinePhoning() {
       await supabase.from('prospection_massive').update({
         contacted: true, contacted_at: new Date().toISOString(), prospection_status: 'pas_interesse',
         prospection_notes: noteText, updated_at: new Date().toISOString(),
-      }).eq('id', current.id)
+      }).eq('id', capturedProspect.id)
       toast.success('❄️ ' + tag + ' — suivant')
-      loadDailyStats(); loadTodayCallbacks(); goNext(); await loadProspects()
+      loadDailyStats(); loadTodayCallbacks()
+      // P7: Proposer email de remerciement si email dispo
+      const pe = capturedProspect.email || contactEmail
+      if (pe) { openEmailModal(capturedProspect, 'remerciement', true) }
+      else { goNext() }
+      await loadProspects()
     } catch (error) { toast.error('Erreur: ' + error.message) }
     finally { setSaving(false) }
   }
@@ -1373,7 +1410,13 @@ export default function MarinePhoning() {
     let list = prospects.filter(p => {
       if (statusFilter === 'a_appeler' && p.prospection_status && p.prospection_status !== 'a_appeler') return false
       if (statusFilter === 'a_appeler' && p.gere_par_id) return false
-      if (statusFilter === 'rappels' && !(p.siren && todayCallbackSirens.has(p.siren))) return false
+      if (statusFilter === 'rappels') {
+        if (!(p.siren && todayCallbackSirens.has(p.siren))) return false
+        if (rappelFilterBy) {
+          const cb = callbackDetails.get(p.siren)
+          if (cb?.called_by !== rappelFilterBy) return false
+        }
+      }
       if (statusFilter === 'a_rappeler' && p.prospection_status !== 'a_rappeler') return false
       // Sub-filters for "À rappeler" tab
       if (statusFilter === 'a_rappeler' && rappelFilterBy) {
@@ -1454,7 +1497,21 @@ export default function MarinePhoning() {
     if (showEmailModal) return // Ne pas changer de prospect pendant l'envoi d'email
     if (viewMode === 'file' && filtered.length > 0) {
       if (!current || !filtered.some(p => p.id === current.id)) {
+        // P1 fix: Priorité 1 — prospect ciblé par goNext (survit au reload)
+        if (nextTargetRef.current) {
+          const target = filtered.find(p => p.id === nextTargetRef.current.id)
+            || filtered.find(p => p.siren === nextTargetRef.current.siren)
+          if (target) { nextTargetRef.current = null; selectProspect(target); return }
+        }
+        // Priorité 2 — même SIREN (si DISTINCT ON a changé l'ID)
+        if (current?.siren) {
+          const sameSiren = filtered.find(p => p.siren === current.siren)
+          if (sameSiren) { selectProspect(sameSiren); return }
+        }
+        // Dernier recours — premier de la liste
         selectProspect(filtered[0])
+      } else {
+        nextTargetRef.current = null // Target atteint, nettoyer
       }
     } else if (viewMode === 'file' && filtered.length === 0) {
       setCurrent(null)
@@ -1584,8 +1641,8 @@ export default function MarinePhoning() {
         ))}
       </div>
 
-      {/* Sous-filtres pour "À rappeler" */}
-      {statusFilter === 'a_rappeler' && (
+      {/* Sous-filtres pour "À rappeler" et "Rappels" */}
+      {(statusFilter === 'a_rappeler' || statusFilter === 'rappels') && (
         <div className="flex gap-2 flex-wrap items-center bg-amber-50 rounded-lg px-3 py-2 border border-amber-200">
           <span className="text-xs font-medium text-amber-700">Filtrer :</span>
           <select value={rappelFilterBy} onChange={e => setRappelFilterBy(e.target.value)}
@@ -1595,6 +1652,7 @@ export default function MarinePhoning() {
             <option value="Marine">Marine</option>
             <option value="Maxime">Maxime</option>
           </select>
+          {statusFilter === 'a_rappeler' && (
           <div className="flex gap-1">
             {[
               { value: 'all', label: "📋 Tout" },
@@ -1607,6 +1665,7 @@ export default function MarinePhoning() {
               </button>
             ))}
           </div>
+          )}
         </div>
       )}
 
@@ -1686,7 +1745,7 @@ export default function MarinePhoning() {
               </div>
               <div className="flex items-center gap-3 ml-3">
                 {p.phone && <a href={'tel:' + p.phone.replace(/\s/g, '')} onClick={e => e.stopPropagation()} className="text-primary-600 text-sm">{p.phone}</a>}
-                {emailSentMap[p.siren] && (() => {
+                {p.email && emailSentMap[p.siren] && (() => {
                   const days = Math.floor((Date.now() - new Date(emailSentMap[p.siren].date).getTime()) / 86400000)
                   const isRelance = days >= 7 && emailSentMap[p.siren].template !== 'relance'
                   return <span title={days + 'j depuis email'} className={'text-xs ' + (isRelance ? 'text-orange-500' : 'text-green-500')}>{isRelance ? '✉️' : '✅✉'}</span>
@@ -1982,7 +2041,7 @@ export default function MarinePhoning() {
                           ))}
                           <button onClick={() => setShowStatusChangeDialog(false)} className="px-2 py-1 text-xs text-gray-400 hover:text-gray-600">Garder tel quel</button>
                           {(callerName === 'Hicham' || callerName === 'Maxime') && (
-                            <button onClick={() => { setShowStatusChangeDialog(false); setShowDoNotCallModal(true) }}
+                            <button onClick={() => { setShowStatusChangeDialog(false); openDoNotCallModal() }}
                               className="px-2 py-1 rounded text-xs font-medium border border-red-300 bg-red-50 text-red-700 hover:bg-red-100">
                               🚫 Ne pas rappeler
                             </button>
@@ -2030,10 +2089,10 @@ export default function MarinePhoning() {
                   <Send className="w-4 h-4" />
                 </button>
               </div>
-              {current.siren && emailSentMap[current.siren] && (() => {
+              {current.siren && emailSentMap[current.siren] && (current.email || contactEmail) && (() => {
                 const em = emailSentMap[current.siren]
                 const days = Math.floor((Date.now() - new Date(em.date).getTime()) / 86400000)
-                const tplLabels = { suite_echange: 'Suite échange', nrp: 'NRP', relance: 'Relance' }
+                const tplLabels = { suite_echange: 'Suite échange', nrp: 'NRP', relance: 'Relance', remerciement: 'Remerciement' }
                 return (
                   <div className="flex items-center gap-2 text-xs px-2">
                     <span className={days >= 7 && em.template !== 'relance' ? 'text-orange-500' : 'text-green-600'}>
@@ -2224,7 +2283,7 @@ export default function MarinePhoning() {
                     <ArrowLeft className="w-4 h-4" /> ↩️ Remettre dans la file
                   </button>
                   {(callerName === 'Hicham' || callerName === 'Maxime') && (
-                    <button onClick={() => setShowDoNotCallModal(true)}
+                    <button onClick={() => openDoNotCallModal()}
                       className="px-3 py-2 bg-red-50 hover:bg-red-100 rounded-lg text-sm text-red-600 border border-red-300" title="Ne pas rappeler">
                       🚫
                     </button>
@@ -2233,7 +2292,7 @@ export default function MarinePhoning() {
               )}
               {/* Bouton ne pas rappeler quand prospect est à_appeler */}
               {(callerName === 'Hicham' || callerName === 'Maxime') && (!current.prospection_status || current.prospection_status === 'a_appeler') && (
-                <button onClick={() => setShowDoNotCallModal(true)}
+                <button onClick={() => openDoNotCallModal()}
                   className="w-full flex items-center justify-center gap-2 px-3 py-1.5 bg-red-50 hover:bg-red-100 rounded-lg text-xs text-red-600 border border-red-200">
                   🚫 Ne pas rappeler
                 </button>
@@ -2322,6 +2381,10 @@ export default function MarinePhoning() {
                   <button onClick={() => handleNoResponse(nrpMessageLaisse, nrpCallbackDate, nrpCallbackTime)} disabled={saving || !nrpCallbackDate}
                     className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-orange-500 text-white rounded-xl hover:bg-orange-600 disabled:opacity-50 font-semibold text-sm">
                     {saving ? <><Loader2 className="w-5 h-5 animate-spin" /> Enregistrement...</> : <><Bell className="w-5 h-5" /> Programmer rappel & Suivant</>}
+                  </button>
+                  <button onClick={() => handleNoResponse(nrpMessageLaisse, null, null)} disabled={saving}
+                    className="w-full text-center text-xs text-gray-500 hover:text-gray-700 py-2 underline cursor-pointer disabled:opacity-50">
+                    Enregistrer sans programmer de rappel
                   </button>
                 </div>
               )}
@@ -2750,6 +2813,7 @@ export default function MarinePhoning() {
                   { id: 'suite_echange', label: '😊 Suite echange' },
                   { id: 'nrp', label: '📨 NRP' },
                   { id: 'relance', label: '🔄 Relance' },
+                  { id: 'remerciement', label: '❄️ Remerciement' },
                 ].map(t => (
                   <button key={t.id} onClick={() => {
                     setEmailTemplate(t.id)
