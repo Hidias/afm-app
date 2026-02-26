@@ -147,7 +147,7 @@ export default function WeeklyPlanner() {
           .gte('callback_date', startStr).lte('callback_date', endStr)
           .order('callback_date').order('callback_time'),
         supabase.from('quotes')
-          .select('id, reference, quote_date, total_ht, status, client_id, notes, relance_count, last_relance_date, clients(name, phone, contact_email)')
+          .select('id, reference, quote_date, total_ht, status, client_id, notes, relance_count, last_relance_date, clients(name, contact_phone, contact_email)')
           .eq('status', 'sent').order('quote_date'),
         supabase.from('user_planning_events')
           .select('*').eq('user_id', user?.id)
