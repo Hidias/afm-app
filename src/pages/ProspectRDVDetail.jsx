@@ -691,6 +691,26 @@ export default function ProspectRDVDetail() {
               </button>
             </div>
           )}
+
+          {/* Bouton Créer Devis — affiché quand RDV réalisé */}
+          {formData.client_id && formData.status === 'realise' && (
+            <div className="bg-amber-50 rounded-lg border-2 border-amber-400 p-6">
+              <div className="flex items-center gap-3 mb-3">
+                <span className="text-2xl">📝</span>
+                <div>
+                  <h3 className="font-bold text-amber-900">RDV réalisé — Créer un devis ?</h3>
+                  <p className="text-sm text-amber-700">Le devis sera pré-rempli avec les infos du client</p>
+                </div>
+              </div>
+              <button
+                onClick={() => navigate(`/devis?client_id=${formData.client_id}`)}
+                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-amber-600 text-white rounded-lg hover:bg-amber-700 font-semibold"
+              >
+                <FileText className="w-5 h-5" />
+                Créer un devis pour ce client
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Sidebar actions */}
