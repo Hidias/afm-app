@@ -74,6 +74,7 @@ export default function WeeklyPlanner() {
   const [showAddModal, setShowAddModal] = useState(false)
   const [addDate, setAddDate] = useState(null)
   const [addForm, setAddForm] = useState({ event_type: 'indispo', title: '', start_time: '09:00', end_time: '12:00', description: '' })
+  const [relanceSending, setRelanceSending] = useState(null) // quote id en cours d'envoi
 
   // ─── Calcul des dates ───────────────────────────────────
   const weekStart = useMemo(() => {
@@ -119,9 +120,9 @@ export default function WeeklyPlanner() {
           .gte('callback_date', startStr).lte('callback_date', endStr)
           .order('callback_date').order('callback_time'),
 
-        // Devis envoyés (relances)
+        // Devis envoyés (relances) — avec email client pour relance directe
         supabase.from('quotes')
-          .select('id, reference, quote_date, total_ht, status, clients(name, phone)')
+          .select('id, reference, quote_date, total_ht, status, client_id, clients(name, phone, contact_email)')
           .eq('status', 'sent')
           .order('quote_date'),
 
@@ -276,6 +277,7 @@ export default function WeeklyPlanner() {
           startTime: c.callback_time ? fmtTime(c.callback_time) : '10:00',
           endTime: c.callback_time ? addMinutesToTime(fmtTime(c.callback_time), 15) : '10:15',
           notes: c.notes,
+          callId: c.id, // pour le bouton "fait"
           priority: 2,
         })
       })
@@ -360,11 +362,74 @@ export default function WeeklyPlanner() {
     } catch (err) { toast.error('Erreur: ' + err.message) }
   }
 
+  // ✅ Feature 1 : Marquer un callback comme "fait"
+  const handleCallbackDone = async (callId) => {
+    try {
+      const { error } = await supabase.from('prospect_calls')
+        .update({ needs_callback: false })
+        .eq('id', callId)
+      if (error) throw error
+      toast.success('Rappel marqué comme fait')
+      setCallbacks(prev => prev.filter(c => c.id !== callId))
+    } catch (err) { toast.error('Erreur: ' + err.message) }
+  }
+
+  // ✅ Feature 3 : Relance devis par email
+  const handleRelanceDevis = async (quote) => {
+    const clientEmail = quote.clients?.contact_email
+    if (!clientEmail) {
+      toast.error('Pas d\'email pour ce client — ajouter dans la fiche client')
+      return
+    }
+    if (!confirm(`Envoyer une relance à ${quote.clients?.name} (${clientEmail}) pour le devis ${quote.reference} ?`)) return
+
+    setRelanceSending(quote.id)
+    try {
+      const montant = parseFloat(quote.total_ht).toLocaleString('fr-FR', { minimumFractionDigits: 2 })
+      const body = `
+        <p>Bonjour,</p>
+        <p>Je me permets de revenir vers vous concernant notre devis <strong>${quote.reference}</strong> 
+        d'un montant de <strong>${montant} € HT</strong>, envoyé le ${new Date(quote.quote_date).toLocaleDateString('fr-FR')}.</p>
+        <p>Je souhaitais savoir si vous aviez eu l'occasion d'en prendre connaissance et si vous aviez des questions 
+        ou des ajustements à apporter.</p>
+        <p>Je reste à votre entière disposition pour en discuter par téléphone ou pour planifier un rendez-vous.</p>
+      `
+
+      const res = await fetch('/api/send-prospect-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: clientEmail,
+          subject: `Relance devis ${quote.reference} — Access Formation`,
+          body,
+          caller: 'Hicham',
+          clientId: quote.client_id,
+          prospectName: quote.clients?.name,
+          templateType: 'relance_devis',
+        }),
+      })
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error || 'Erreur serveur')
+      }
+
+      toast.success(`Relance envoyée à ${clientEmail}`)
+      // Retirer le devis de la liste visuelle (il reste en BDD avec status 'sent')
+      setDevisRelance(prev => prev.filter(q => q.id !== quote.id))
+    } catch (err) {
+      toast.error('Erreur envoi: ' + err.message)
+    } finally {
+      setRelanceSending(null)
+    }
+  }
+
   // ─── Rendu d'un événement ──────────────────────────────
   const EventCard = ({ event }) => {
     const config = SLOT_TYPES[event.type] || SLOT_TYPES.task
     const isLink = !!event.link
     const isDeletable = !!event.eventId
+    const isCallback = !!event.callId
     const Wrapper = isLink ? Link : 'div'
 
     return (
@@ -388,7 +453,17 @@ export default function WeeklyPlanner() {
             )}
           </div>
         </Wrapper>
-        {/* ✅ Bouton supprimer au hover */}
+        {/* ✅ Bouton "Fait" pour callbacks */}
+        {isCallback && (
+          <button
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleCallbackDone(event.callId) }}
+            className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-green-500 text-white rounded-full shadow opacity-0 group-hover:opacity-100 transition-opacity z-10 flex items-center justify-center"
+            title="Marquer comme fait"
+          >
+            <Check className="w-2.5 h-2.5" />
+          </button>
+        )}
+        {/* Bouton supprimer pour events manuels */}
         {isDeletable && (
           <button
             onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleDeleteEvent(event.eventId) }}
@@ -486,17 +561,33 @@ export default function WeeklyPlanner() {
             {isFreePhoning && slotEvents.filter(e => !['callback'].includes(e.type)).length === 0 && (
               <div className="space-y-1 mt-1">
                 {showRelances && (
-                  <Link to="/devis" className="block px-2 py-1.5 rounded bg-red-50 border border-red-200 text-[10px] hover:bg-red-100 transition-colors" style={{ borderLeft: '3px solid #EF4444' }}>
+                  <div className="px-2 py-1.5 rounded bg-red-50 border border-red-200 text-[10px]" style={{ borderLeft: '3px solid #EF4444' }}>
                     <div className="flex items-center gap-1 font-semibold text-red-700">
                       <AlertTriangle className="w-3 h-3" />
                       <span>{devisRelance.length} devis à relancer</span>
                     </div>
                     {devisRelance.slice(0, 3).map(q => (
-                      <p key={q.id} className="text-red-600 truncate mt-0.5">
-                        💰 {q.clients?.name} — {parseFloat(q.total_ht).toLocaleString('fr')}€ ({q.daysSince}j)
-                      </p>
+                      <div key={q.id} className="flex items-center justify-between mt-1 gap-1">
+                        <p className="text-red-600 truncate flex-1">
+                          💰 {q.clients?.name} — {parseFloat(q.total_ht).toLocaleString('fr')}€ ({q.daysSince}j)
+                        </p>
+                        <button
+                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleRelanceDevis(q) }}
+                          disabled={relanceSending === q.id}
+                          className={`flex-shrink-0 px-1.5 py-0.5 rounded text-[9px] font-semibold transition-colors ${
+                            relanceSending === q.id
+                              ? 'bg-gray-200 text-gray-400'
+                              : q.clients?.contact_email
+                                ? 'bg-red-600 text-white hover:bg-red-700'
+                                : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                          }`}
+                          title={q.clients?.contact_email ? `Relancer ${q.clients.contact_email}` : 'Pas d\'email client'}
+                        >
+                          {relanceSending === q.id ? '⏳' : '✉️'} Relancer
+                        </button>
+                      </div>
                     ))}
-                  </Link>
+                  </div>
                 )}
                 {slotProspects.map((p, i) => (
                   <ProspectSuggestion key={p.id} prospect={p} rank={prospectIdx - 4 + i + 1} />
