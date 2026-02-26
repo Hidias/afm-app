@@ -394,7 +394,21 @@ export default function Dashboard() {
       totalSigned: q.filter(x => x.status === 'signed' || x.status === 'accepted').reduce((s, x) => s + (parseFloat(x.total_ht) || 0), 0),
     }
   }, [dashData.quotes])
-  
+
+  // Devis envoyés sans réponse > 7j
+  const quotesRelance = useMemo(() => {
+    const now = Date.now()
+    return (dashData.quotes || [])
+      .filter(q => q.status === 'sent' || q.status === 'pending')
+      .map(q => {
+        const sentDate = q.updated_at || q.quote_date || q.created_at
+        const days = sentDate ? Math.floor((now - new Date(sentDate).getTime()) / 86400000) : 0
+        return { ...q, daysSinceSent: days }
+      })
+      .filter(q => q.daysSinceSent >= 7)
+      .sort((a, b) => b.daysSinceSent - a.daysSinceSent)
+  }, [dashData.quotes])
+
   const monthlyCA = useMemo(() => {
     const inv = dashData.invoices.filter(i => i.status !== 'cancelled')
     const current = inv.filter(i => i.invoice_date && new Date(i.invoice_date) >= thisMonth)
@@ -737,6 +751,23 @@ export default function Dashboard() {
                 </div>
               ))}
             </div>
+            {/* Alerte relance devis > 7j */}
+            {quotesRelance.length > 0 && (
+              <div className="bg-orange-50 border border-orange-300 rounded-lg px-3 py-2">
+                <p className="text-xs font-bold text-orange-800 mb-1">⏰ {quotesRelance.length} devis en attente de réponse (&gt;7j)</p>
+                {quotesRelance.slice(0, 3).map(q => (
+                  <div key={q.id} className="flex items-center justify-between text-xs py-0.5">
+                    <span className="text-orange-700 truncate">
+                      <span className="font-medium">{q.clients?.name || '?'}</span>
+                      <span className="text-orange-500 ml-1">— {q.daysSinceSent}j</span>
+                      {q.total_ht > 0 && <span className="text-orange-600 ml-1">({q.total_ht.toLocaleString('fr-FR')}€)</span>}
+                    </span>
+                    <Link to="/devis" className="text-orange-600 hover:text-orange-800 font-medium underline ml-2 whitespace-nowrap">Relancer</Link>
+                  </div>
+                ))}
+                {quotesRelance.length > 3 && <p className="text-[10px] text-orange-500 mt-1">+{quotesRelance.length - 3} autre(s)</p>}
+              </div>
+            )}
             <div className="flex items-center justify-between pt-2 border-t">
               <span className="text-xs text-gray-500">Pipeline: <b>{(quotesPipeline.totalDraft + quotesPipeline.totalSent).toLocaleString('fr-FR')}€</b></span>
               <Link to="/devis" className="text-xs text-primary-600 hover:underline flex items-center gap-1">Gérer <ArrowRight className="w-3 h-3" /></Link>
