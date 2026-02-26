@@ -85,10 +85,14 @@ export const useDataStore = create((set, get) => ({
       postal_code: client.postal_code || null,
       city: client.city || null,
       siret: client.siret || null,
+      siren: client.siren || (client.siret ? client.siret.slice(0, 9) : null),
       contact_name: client.contact_name || null,
       contact_function: client.contact_function || null,
       contact_email: client.contact_email || client.email || null,
       contact_phone: client.contact_phone || client.phone || null,
+      website: client.website || null,
+      opco_name: client.opco_name || null,
+      taille_entreprise: client.taille_entreprise || null,
       notes: client.notes || null,
       status: client.status || 'prospect',
       client_type: client.client_type || 'entreprise',
@@ -114,12 +118,16 @@ export const useDataStore = create((set, get) => ({
     if (updates.postal_code !== undefined) validUpdates.postal_code = updates.postal_code
     if (updates.city !== undefined) validUpdates.city = updates.city
     if (updates.siret !== undefined) validUpdates.siret = updates.siret
+    if (updates.siren !== undefined) validUpdates.siren = updates.siren
     if (updates.contact_name !== undefined) validUpdates.contact_name = updates.contact_name
     if (updates.contact_function !== undefined) validUpdates.contact_function = updates.contact_function
     if (updates.contact_email !== undefined) validUpdates.contact_email = updates.contact_email
     if (updates.email !== undefined) validUpdates.contact_email = updates.email
     if (updates.contact_phone !== undefined) validUpdates.contact_phone = updates.contact_phone
     if (updates.phone !== undefined) validUpdates.contact_phone = updates.phone
+    if (updates.website !== undefined) validUpdates.website = updates.website
+    if (updates.opco_name !== undefined) validUpdates.opco_name = updates.opco_name
+    if (updates.taille_entreprise !== undefined) validUpdates.taille_entreprise = updates.taille_entreprise
     if (updates.notes !== undefined) validUpdates.notes = updates.notes
     if (updates.status !== undefined) validUpdates.status = updates.status
     if (updates.client_type !== undefined) validUpdates.client_type = updates.client_type
