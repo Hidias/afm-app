@@ -77,6 +77,9 @@ export default function ClientDetail() {
   // RDV
   const [rdvs, setRdvs] = useState([])
 
+  // Prospection enrichment
+  const [prospectionData, setProspectionData] = useState(null) // données prospection_massive liées
+  const [prospectionLoading, setProspectionLoading] = useState(false)
   // Sections dépliées
   const [sections, setSections] = useState({ contacts: true, timeline: true, formations: true })
 
@@ -127,6 +130,38 @@ export default function ClientDetail() {
     setLoading(false)
   }
 
+  // Lookup prospection_massive après loadClient
+  useEffect(() => {
+    if (client) lookupProspection(client)
+  }, [client?.id, client?.siret])
+
+  async function lookupProspection(c) {
+    if (!c) return
+    const siren = c.siren || (c.siret ? c.siret.slice(0, 9) : null)
+    if (!siren || siren.startsWith('MANUAL_')) { setProspectionData(null); return }
+    setProspectionLoading(true)
+    try {
+      const { data } = await supabase
+        .from('prospection_massive')
+        .select('id, name, siren, siret, phone, email, site_web, naf, effectif, dirigeant_nom, dirigeant_prenom, dirigeant_fonction, opco_name, forme_juridique, enrichment_notes, ai_summary, prospection_status, city, postal_code, contacted, contacted_at, prospection_notes')
+        .eq('siren', siren)
+        .order('contacted', { ascending: false })
+        .limit(5)
+      if (data && data.length > 0) {
+        // Prendre le prospect le plus riche (le premier contacté, ou le premier)
+        const best = data.find(d => d.contacted) || data[0]
+        setProspectionData({ ...best, totalSiblings: data.length, allProspects: data })
+      } else {
+        setProspectionData(null)
+      }
+    } catch (err) {
+      console.error('Lookup prospection error:', err)
+      setProspectionData(null)
+    } finally {
+      setProspectionLoading(false)
+    }
+  }
+
   async function loadClient() {
     const { data, error } = await supabase.from('clients').select('*').eq('id', id).single()
     if (error) { toast.error('Client introuvable'); return }
@@ -162,6 +197,65 @@ export default function ClientDetail() {
   async function loadRdvs() {
     const { data } = await supabase.from('prospect_rdv').select('*').eq('client_id', id).order('rdv_date', { ascending: false })
     setRdvs(data || [])
+  }
+
+  // Importer les données de prospection_massive → remplir champs vides du client
+  async function importFromProspection() {
+    if (!prospectionData || !client) return
+    const p = prospectionData
+    const updates = {}
+    // Remplir uniquement les champs vides du client
+    if (!client.contact_phone && p.phone) updates.contact_phone = p.phone
+    if (!client.contact_email && p.email) updates.contact_email = p.email
+    if (!client.website && p.site_web) updates.website = p.site_web
+    if (!client.opco_name && p.opco_name) updates.opco_name = p.opco_name
+    if (!client.taille_entreprise && p.effectif) updates.taille_entreprise = String(p.effectif)
+    if (!client.siren && p.siren) updates.siren = p.siren
+    if (!client.contact_name && p.dirigeant_nom) updates.contact_name = [p.dirigeant_prenom, p.dirigeant_nom].filter(Boolean).join(' ')
+    if (!client.contact_function && p.dirigeant_fonction) updates.contact_function = p.dirigeant_fonction
+    // Notes enrichies — concaténer
+    const extraNotes = [p.enrichment_notes, p.ai_summary, p.prospection_notes].filter(Boolean).join(' | ')
+    if (extraNotes) {
+      updates.notes = client.notes ? client.notes + '\n\n📊 Enrichissement prospection:\n' + extraNotes : '📊 Enrichissement prospection:\n' + extraNotes
+    }
+
+    if (Object.keys(updates).length === 0 && !extraNotes) {
+      // Rien à importer, mais marquer quand même
+      await markDejaClient()
+      toast.success('Prospect marqué "déjà client" — aucun champ à importer')
+      return
+    }
+
+    try {
+      const { error } = await supabase.from('clients').update(updates).eq('id', id)
+      if (error) throw error
+      // Marquer les prospects comme deja_client
+      await markDejaClient()
+      // Rafraîchir
+      const { data: fresh } = await supabase.from('clients').select('*').eq('id', id).single()
+      if (fresh) { setClient(fresh); setEditForm(fresh) }
+      const imported = Object.keys(updates).filter(k => k !== 'notes').length
+      toast.success(`✅ ${imported} champ(s) importé(s) — prospect retiré de la file Marine`)
+    } catch (err) {
+      toast.error('Erreur import: ' + err.message)
+    }
+  }
+
+  // Marquer tous les prospects du même SIREN comme "deja_client"
+  async function markDejaClient() {
+    if (!prospectionData) return
+    const siren = prospectionData.siren
+    if (!siren) return
+    try {
+      await supabase.from('prospection_massive').update({
+        prospection_status: 'deja_client',
+        updated_at: new Date().toISOString(),
+      }).eq('siren', siren)
+      // Rafraîchir le lookup
+      setProspectionData(prev => prev ? { ...prev, prospection_status: 'deja_client' } : null)
+    } catch (err) {
+      console.error('Erreur marquage deja_client:', err)
+    }
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -213,8 +307,10 @@ export default function ClientDetail() {
   }
 
   async function saveClient() {
+    const sirenVal = editForm.siren || (editForm.siret ? editForm.siret.slice(0, 9) : null)
     const { error } = await supabase.from('clients').update({
-      name: editForm.name, siret: editForm.siret, address: editForm.address,
+      name: editForm.name, siret: editForm.siret, siren: sirenVal,
+      address: editForm.address,
       postal_code: editForm.postal_code, city: editForm.city,
       contact_email: editForm.contact_email, contact_phone: editForm.contact_phone,
       contact_name: editForm.contact_name, contact_function: editForm.contact_function,
@@ -228,6 +324,10 @@ export default function ClientDetail() {
     }).eq('id', id)
     if (error) return toast.error('Erreur sauvegarde')
     toast.success('Client mis à jour')
+    // Marquer prospect deja_client si SIREN trouvé dans prospection_massive
+    if (sirenVal && prospectionData && prospectionData.prospection_status !== 'deja_client') {
+      await markDejaClient()
+    }
     // Recharger les données fraîches mais rester en mode édition
     const { data: fresh } = await supabase.from('clients').select('*').eq('id', id).single()
     if (fresh) {
@@ -541,6 +641,74 @@ export default function ClientDetail() {
         </div>
 
         <div className="p-6">
+          {/* ══════ BANDEAU ENRICHISSEMENT PROSPECTION ══════ */}
+          {prospectionData && prospectionData.prospection_status !== 'deja_client' && (() => {
+            const p = prospectionData
+            // Calculer les champs importables (vides côté client, remplis côté prospect)
+            const importable = []
+            if (!client.contact_phone && p.phone) importable.push({ label: 'Téléphone', value: p.phone })
+            if (!client.contact_email && p.email) importable.push({ label: 'Email', value: p.email })
+            if (!client.website && p.site_web) importable.push({ label: 'Site web', value: p.site_web })
+            if (!client.opco_name && p.opco_name) importable.push({ label: 'OPCO', value: p.opco_name })
+            if (!client.taille_entreprise && p.effectif) importable.push({ label: 'Effectif', value: String(p.effectif) })
+            if (!client.contact_name && p.dirigeant_nom) importable.push({ label: 'Dirigeant', value: [p.dirigeant_prenom, p.dirigeant_nom].filter(Boolean).join(' ') })
+            if (p.enrichment_notes) importable.push({ label: 'Notes', value: p.enrichment_notes.substring(0, 80) + (p.enrichment_notes.length > 80 ? '…' : '') })
+
+            return (
+              <div className="mb-4 bg-blue-50 border-2 border-blue-300 rounded-lg p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">📊</span>
+                    <h3 className="font-semibold text-blue-900 text-sm">Données de prospection disponibles</h3>
+                    <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
+                      {p.contacted ? '📞 Contacté' : 'Non contacté'}{p.totalSiblings > 1 ? ` · ${p.totalSiblings} établissements` : ''}
+                    </span>
+                    {p.prospection_notes && (
+                      <span className="text-xs text-blue-600 italic truncate max-w-[200px]" title={p.prospection_notes}>
+                        💬 {p.prospection_notes.substring(0, 50)}{p.prospection_notes.length > 50 ? '…' : ''}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button onClick={importFromProspection}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-xs font-medium transition-colors">
+                      <Save className="w-3.5 h-3.5" /> Importer & lier
+                    </button>
+                    <button onClick={markDejaClient}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 text-xs font-medium transition-colors"
+                      title="Marquer comme déjà client sans importer">
+                      Lier sans importer
+                    </button>
+                  </div>
+                </div>
+                {importable.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {importable.map((item, i) => (
+                      <span key={i} className="inline-flex items-center gap-1 text-xs bg-white border border-blue-200 rounded-full px-2.5 py-1 text-blue-800">
+                        <span className="font-medium text-blue-500">{item.label}:</span> {item.value}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-blue-600">Aucun nouveau champ à importer — cliquez "Lier sans importer" pour retirer le prospect de la file Marine</p>
+                )}
+              </div>
+            )
+          })()}
+
+          {/* ══════ BANDEAU DÉJÀ LIÉ ══════ */}
+          {prospectionData && prospectionData.prospection_status === 'deja_client' && (
+            <div className="mb-4 bg-green-50 border border-green-200 rounded-lg px-4 py-2 flex items-center gap-2">
+              <span className="text-sm">✅</span>
+              <span className="text-xs text-green-700 font-medium">Prospect lié — retiré de la file Marine</span>
+              {prospectionData.contacted_at && (
+                <span className="text-xs text-green-500">
+                  Dernier contact : {new Date(prospectionData.contacted_at).toLocaleDateString('fr-FR')}
+                </span>
+              )}
+            </div>
+          )}
+
           {editing ? (
             <div className="grid grid-cols-2 gap-4">
               <div><label className="text-xs font-medium text-gray-500 mb-1 block">SIRET</label>
