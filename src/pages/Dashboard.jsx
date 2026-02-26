@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { useDataStore } from '../lib/store'
+import { useAuthStore, useDataStore } from '../lib/store'
 import { supabase } from '../lib/supabase'
 import { 
   Building2, GraduationCap, Users, Calendar, FileText, ArrowRight, 
@@ -14,6 +14,7 @@ import {
 import { format, isAfter, isBefore, startOfToday, addDays, differenceInDays, subMonths, startOfMonth, endOfMonth } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import toast from 'react-hot-toast'
+import WeeklyPlanner from '../components/WeeklyPlanner'
 
 // ═══════════════════════════════════════════════════════════
 // WIDGET REGISTRY
@@ -100,7 +101,10 @@ function ProgressBar({ value, max = 100, color = 'bg-blue-500', label, showValue
 // ═══════════════════════════════════════════════════════════
 export default function Dashboard() {
   const { clients, fetchClients, courses, fetchCourses, trainees, fetchTrainees, sessions, fetchSessions, getPurgeStats } = useDataStore()
+  const { user } = useAuthStore()
   const navigate = useNavigate()
+  
+  const isHicham = user?.email === 'hicham.saidi@accessformation.pro'
   
   const [widgetConfigs, setWidgetConfigs] = useState([])
   const [showSettings, setShowSettings] = useState(false)
@@ -957,6 +961,17 @@ export default function Dashboard() {
         ))}
       </div>
       
+      {/* ═══ Planning Semaine Intelligent (Hicham only) ═══ */}
+      {isHicham && (
+        <div className="card">
+          <div className="flex items-center gap-2 mb-3">
+            <Calendar className="w-5 h-5 text-primary-500" />
+            <h3 className="text-sm font-bold text-gray-700">Ma Semaine</h3>
+          </div>
+          <WeeklyPlanner />
+        </div>
+      )}
+
       {/* Widget grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {visibleWidgets.map((config, idx) => {
