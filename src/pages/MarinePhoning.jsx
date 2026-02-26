@@ -449,6 +449,7 @@ export default function MarinePhoning() {
   }
 
   async function loadDuplicates(prospect) {
+    const prospectId = prospect.id
     setDuplicates([])
     setShowDuplicates(false)
     setSiblingSelections(new Set())
@@ -457,6 +458,7 @@ export default function MarinePhoning() {
       const myId = prospect.id
       if (prospect.siren) {
         const { data } = await supabase.from('prospection_massive').select('id, name, city, departement, phone, email, siret, prospection_status, contacted, contacted_at, prospection_notes, enrichment_notes, is_siege, gere_par_id, gere_par_city, dirigeant_nom, dirigeant_prenom, groupe').eq('siren', prospect.siren).neq('id', myId).limit(20)
+        if (currentProspectRef.current !== prospectId) return
         if (data) data.forEach(d => found.push({ ...d, reason: 'Même SIREN (groupe)' }))
       }
       // Cross-SIREN : même dirigeant
@@ -511,6 +513,7 @@ export default function MarinePhoning() {
           if (data) data.forEach(d => { if (!found.some(f => f.id === d.id)) found.push({ ...d, reason: 'Même site web' }) })
         }
       }
+      if (currentProspectRef.current !== prospectId) return
       setDuplicates(found)
     } catch (err) { console.error('Erreur doublons:', err) }
   }
@@ -642,12 +645,15 @@ export default function MarinePhoning() {
   }
 
   async function loadCallHistory(prospect) {
+    const prospectId = prospect.id
     setCallHistory([])
     setShowHistory(false)
     try {
       const { data: clientData } = await supabase.from('clients').select('id').eq('siren', prospect.siren).maybeSingle()
+      if (currentProspectRef.current !== prospectId) return
       if (clientData) {
         const { data: calls } = await supabase.from('prospect_calls').select('*').eq('client_id', clientData.id).order('called_at', { ascending: false }).limit(5)
+        if (currentProspectRef.current !== prospectId) return
         if (calls && calls.length > 0) {
           setCallHistory(calls)
           // Pré-remplir depuis le dernier appel
@@ -666,10 +672,8 @@ export default function MarinePhoning() {
     if (!current || !newPhone.trim()) return
     try {
       await supabase.from('prospection_massive').update({ phone: newPhone.trim() }).eq('id', current.id)
-      current.phone = newPhone.trim()
-      setCurrent({ ...current })
-      const idx = prospects.findIndex(p => p.id === current.id)
-      if (idx >= 0) { prospects[idx].phone = newPhone.trim() }
+      setCurrent(prev => prev ? { ...prev, phone: newPhone.trim() } : prev)
+      setProspects(prev => prev.map(p => p.id === current.id ? { ...p, phone: newPhone.trim() } : p))
       setEditingPhone(false)
       toast.success('Téléphone mis à jour')
     } catch (err) {
@@ -721,9 +725,10 @@ export default function MarinePhoning() {
 
   async function handleSave() {
     if (!current) return
+    const cap = { ...current }
     setSaving(true)
     try {
-      const clientId = await findOrCreateClient(current)
+      const clientId = await findOrCreateClient(cap)
       await clearOldCallbacks(clientId)
       const { data: insertedCall, error: callError } = await supabase.from('prospect_calls').insert({
         client_id: clientId, called_by: callerName,
@@ -766,11 +771,11 @@ export default function MarinePhoning() {
         await supabase.from('prospect_calls').update({ rdv_id: insertedRdv.id }).eq('id', insertedCall.id)
 
         const notifMessage = isMarine
-          ? 'Marine a un prospect chaud : ' + current.name + (current.city ? ' (' + current.city + ')' : '') + (dispoInfo ? ' • Dispo : ' + dispoInfo : '') + (formationsSelected.length > 0 ? ' • ' + formationsSelected.join(', ') : '') + (contactName ? ' • Contact : ' + contactName : '')
+          ? 'Marine a un prospect chaud : ' + cap.name + (cap.city ? ' (' + cap.city + ')' : '') + (dispoInfo ? ' • Dispo : ' + dispoInfo : '') + (formationsSelected.length > 0 ? ' • ' + formationsSelected.join(', ') : '') + (contactName ? ' • Contact : ' + contactName : '')
           : callerName + ' a décroché un RDV pour ' + rdvAssignedTo + ' le ' + new Date(rdvDate).toLocaleDateString('fr-FR') + (formationsSelected.length > 0 ? ' • ' + formationsSelected.join(', ') : '')
 
         await supabase.from('notifications').insert({
-          title: '🔥 ' + (isMarine ? 'Prospect chaud' : 'Nouveau RDV') + ' — ' + current.name,
+          title: '🔥 ' + (isMarine ? 'Prospect chaud' : 'Nouveau RDV') + ' — ' + cap.name,
           message: notifMessage,
           type: 'rdv_phoning', link: '/prospection/' + insertedRdv.id,
         })
@@ -780,8 +785,8 @@ export default function MarinePhoning() {
           await fetch('/api/send-callback-reminder', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              prospectName: current.name,
-              prospectPhone: current.phone,
+              prospectName: cap.name,
+              prospectPhone: cap.phone,
               contactName,
               contactFunction,
               callbackDate: isMarine ? null : rdvDate,
@@ -798,22 +803,22 @@ export default function MarinePhoning() {
       await supabase.from('prospection_massive').update({
         contacted: true, contacted_at: new Date().toISOString(), prospection_status: newStatus,
         prospection_notes: notes || null, updated_at: new Date().toISOString(),
-      }).eq('id', current.id)
+      }).eq('id', cap.id)
 
       let message = '✅ Appel enregistré'
       if (createRdv) message += callerName === 'Marine' ? ' • 🔥 Alerte prospect chaud envoyée' : ' • RDV créé pour ' + rdvAssignedTo
       if (needsCallback) {
         message += ' • Rappel programmé'
         await supabase.from('notifications').insert({
-          title: '🔔 Rappel — ' + current.name,
+          title: '🔔 Rappel — ' + cap.name,
           message: callerName + ' → rappeler le ' + new Date(callbackDate).toLocaleDateString('fr-FR') + ' à ' + callbackTime + (callbackReason ? ' (' + callbackReason + ')' : '') + (contactName ? ' • ' + contactName : ''),
           type: 'rappel_phoning', link: '/prospection-massive',
-          metadata: { callback_date: callbackDate, callback_time: callbackTime, prospect_name: current.name, prospect_phone: current.phone, contact_name: contactName }
+          metadata: { callback_date: callbackDate, callback_time: callbackTime, prospect_name: cap.name, prospect_phone: cap.phone, contact_name: contactName }
         })
         try {
           await fetch('/api/send-callback-reminder', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prospectName: current.name, prospectPhone: current.phone, contactName, contactFunction, callbackDate, callbackTime, callbackReason, callerName, notes })
+            body: JSON.stringify({ prospectName: cap.name, prospectPhone: cap.phone, contactName, contactFunction, callbackDate, callbackTime, callbackReason, callerName, notes })
           })
         } catch (emailErr) { console.error('Erreur email:', emailErr) }
       }
@@ -825,13 +830,13 @@ export default function MarinePhoning() {
           await fetch('/api/send-callback-reminder', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              prospectName: current.name, prospectPhone: current.phone,
+              prospectName: cap.name, prospectPhone: cap.phone,
               contactName, contactFunction,
               callbackDate: null, callbackTime: null,
               callbackReason: emoji + ' ' + (callResult === 'chaud' ? 'INTÉRESSÉ' : 'TIÈDE') + ' — ' + (formationsSelected.length > 0 ? formationsSelected.join(', ') : 'Formations non précisées'),
               callerName: 'Marine',
               to: 'hicham.saidi@accessformation.pro',
-              notes: (contactName ? 'Contact : ' + contactName + (contactFunction ? ' (' + contactFunction + ')' : '') + '\n' : '') + (current.city ? 'Ville : ' + current.city + ' (' + (current.distance < 9999 ? current.distance.toFixed(0) + ' km' : '?') + ')\n' : '') + (notes || ''),
+              notes: (contactName ? 'Contact : ' + contactName + (contactFunction ? ' (' + contactFunction + ')' : '') + '\n' : '') + (cap.city ? 'Ville : ' + cap.city + ' (' + (cap.distance < 9999 ? cap.distance.toFixed(0) + ' km' : '?') + ')\n' : '') + (notes || ''),
             })
           })
         } catch (e) { console.error('Erreur notif Marine:', e) }
@@ -839,10 +844,10 @@ export default function MarinePhoning() {
       loadDailyStats()
       loadTodayCallbacks()
       // Si email dispo, ouvrir modale email au lieu de passer au suivant
-      const prospectEmail = contactEmail || current.email
+      const prospectEmail = contactEmail || cap.email
       if (prospectEmail || contactName) {
         const tpl = callResult === 'chaud' || callResult === 'tiede' ? 'suite_echange' : 'nrp'
-        openEmailModal(current, tpl, true)
+        openEmailModal(cap, tpl, true)
       } else {
         goNext()
       }
@@ -855,11 +860,12 @@ export default function MarinePhoning() {
 
   async function handleResetStatus() {
     if (!current) return
+    const capId = current.id
     setSaving(true)
     try {
       await supabase.from('prospection_massive').update({
         prospection_status: 'a_appeler', contacted: false, contacted_at: null, updated_at: new Date().toISOString()
-      }).eq('id', current.id)
+      }).eq('id', capId)
       toast.success('↩️ Remis dans la file')
       setCurrent(null)
       await loadProspects()
@@ -873,9 +879,10 @@ export default function MarinePhoning() {
 
   async function handleQuickAction(result) {
     if (!current) return
+    const cap = { ...current }
     setSaving(true)
     try {
-      const clientId = await findOrCreateClient(current)
+      const clientId = await findOrCreateClient(cap)
       await clearOldCallbacks(clientId)
       await supabase.from('prospect_calls').insert({
         client_id: clientId, called_by: callerName, call_result: result,
@@ -885,7 +892,7 @@ export default function MarinePhoning() {
       const newStatus = result === 'froid' ? 'pas_interesse' : result === 'wrong_number' ? 'numero_errone' : 'a_rappeler'
       await supabase.from('prospection_massive').update({
         contacted: true, contacted_at: new Date().toISOString(), prospection_status: newStatus, updated_at: new Date().toISOString()
-      }).eq('id', current.id)
+      }).eq('id', cap.id)
       const labels = { no_answer: '📞 Injoignable', wrong_number: '❌ N° erroné', froid: '❄️ Pas intéressé' }
       toast.success(labels[result] + ' — suivant')
       loadDailyStats()
@@ -911,9 +918,10 @@ export default function MarinePhoning() {
 
   async function handleWrongNumber() {
     if (!current) return
+    const cap = { ...current }
     setSaving(true)
     try {
-      const clientId = await findOrCreateClient(current)
+      const clientId = await findOrCreateClient(cap)
       await clearOldCallbacks(clientId)
       const hasNew = wrongNumberNew.trim().length >= 6
       const noteText = hasNew ? 'Numéro erroné. Nouveau numéro : ' + wrongNumberNew.trim() : 'Numéro erroné'
@@ -925,14 +933,14 @@ export default function MarinePhoning() {
         await supabase.from('prospection_massive').update({
           phone: wrongNumberNew.trim(), contacted: false, contacted_at: null,
           prospection_status: 'a_appeler', prospection_notes: noteText, updated_at: new Date().toISOString(),
-        }).eq('siren', current.siren)
+        }).eq('siren', cap.siren)
         await supabase.from('clients').update({ contact_phone: wrongNumberNew.trim() }).eq('id', clientId)
         toast.success('✅ Nouveau numéro enregistré — remis dans la file')
       } else {
         await supabase.from('prospection_massive').update({
           contacted: true, contacted_at: new Date().toISOString(),
           prospection_status: 'numero_errone', updated_at: new Date().toISOString(),
-        }).eq('siren', current.siren)
+        }).eq('siren', cap.siren)
         toast.success('❌ N° erroné — suivant')
       }
       loadDailyStats(); loadTodayCallbacks(); goNext(); await loadProspects()
@@ -1263,9 +1271,10 @@ export default function MarinePhoning() {
 
   async function handleTransfer() {
     if (!current) return
+    const cap = { ...current }
     setSaving(true)
     try {
-      const clientId = await findOrCreateClient(current)
+      const clientId = await findOrCreateClient(cap)
       await clearOldCallbacks(clientId)
       const noteText = `👋 Passer la main — ${transferReason}` + (transferNote ? '\n' + transferNote : '') + (contactName ? '\nContact : ' + contactName + (contactFunction ? ' (' + contactFunction + ')' : '') : '')
       await supabase.from('prospect_calls').insert({
@@ -1276,22 +1285,33 @@ export default function MarinePhoning() {
       await supabase.from('prospection_massive').update({
         contacted: true, contacted_at: new Date().toISOString(), prospection_status: 'a_rappeler',
         prospection_notes: noteText, updated_at: new Date().toISOString(),
-      }).eq('id', current.id)
-      // Email simple à Hicham
+      }).eq('id', cap.id)
+      // Créer callback J+1 pour Hicham → visible dans onglet Rappels
+      const tomorrow = new Date()
+      tomorrow.setDate(tomorrow.getDate() + 1)
+      tomorrow.setHours(9, 0, 0, 0)
+      await supabase.from('prospect_calls').insert({
+        client_id: clientId, called_by: 'Hicham', call_result: 'a_rappeler',
+        contact_name: contactName || null, contact_function: contactFunction || null,
+        needs_callback: true, callback_date: tomorrow.toISOString(),
+        notes: `📥 Transféré par ${callerName} — ${transferReason}` + (transferNote ? '\n' + transferNote : ''),
+        duration_seconds: 0,
+      })
+      // Email alerte à Hicham
       try {
         await fetch('/api/send-callback-reminder', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            prospectName: current.name, prospectPhone: current.phone,
+            prospectName: cap.name, prospectPhone: cap.phone,
             contactName, contactFunction,
-            callbackDate: null, callbackTime: null,
+            callbackDate: tomorrow.toISOString().split('T')[0], callbackTime: '09:00',
             callbackReason: '👋 PASSER LA MAIN — ' + transferReason + (transferNote ? '\n' + transferNote : ''),
             callerName, to: 'hicham.saidi@accessformation.pro',
-              notes: 'Prospect à rappeler par Hicham/Maxime.\n' + (current.city ? 'Ville : ' + current.city + ' (' + (current.distance < 9999 ? current.distance.toFixed(0) + ' km' : '?') + ')\n' : '') + (current.siret ? 'SIRET : ' + current.siret : ''),
+            notes: 'Prospect à rappeler par Hicham/Maxime.\n' + (cap.city ? 'Ville : ' + cap.city + ' (' + (cap.distance < 9999 ? cap.distance.toFixed(0) + ' km' : '?') + ')\n' : '') + (cap.siret ? 'SIRET : ' + cap.siret : ''),
           })
         })
       } catch (emailErr) { console.error('Erreur email transfert:', emailErr) }
-      toast.success('👋 Transmis à Hicham/Maxime — suivant')
+      toast.success('👋 Transmis à Hicham/Maxime — rappel créé pour demain')
       loadDailyStats(); loadTodayCallbacks(); goNext(); await loadProspects()
     } catch (error) { toast.error('Erreur: ' + error.message) }
     finally { setSaving(false) }
@@ -1325,12 +1345,13 @@ export default function MarinePhoning() {
 
   async function handleUpdateProspectStatus(newStatus) {
     if (!current) return
+    const capId = current.id
     try {
       await supabase.from('prospection_massive').update({
         prospection_status: newStatus, updated_at: new Date().toISOString(),
-      }).eq('id', current.id)
-      setProspects(prev => prev.map(p => p.id === current.id ? { ...p, prospection_status: newStatus } : p))
-      current.prospection_status = newStatus
+      }).eq('id', capId)
+      setProspects(prev => prev.map(p => p.id === capId ? { ...p, prospection_status: newStatus } : p))
+      setCurrent(prev => prev && prev.id === capId ? { ...prev, prospection_status: newStatus } : prev)
       toast.success('Statut mis à jour')
       loadTodayCallbacks()
     } catch (error) { toast.error('Erreur: ' + error.message) }
@@ -1338,6 +1359,7 @@ export default function MarinePhoning() {
 
   async function handleDoNotCall() {
     if (!current) return
+    const cap = { ...current }
     const reason = doNotCallReason === 'autre' ? doNotCallCustom.trim() : doNotCallReason
     if (!reason) { toast.error('Motif obligatoire'); return }
     try {
@@ -1349,16 +1371,23 @@ export default function MarinePhoning() {
         prospection_status: 'ne_pas_rappeler',
         updated_at: new Date().toISOString(),
       }
-      if (doNotCallScope === 'all' && current.siren) {
-        // Appliquer à tous les établissements du même SIREN
-        await supabase.from('prospection_massive').update(updateData).eq('siren', current.siren)
-        setProspects(prev => prev.filter(p => p.siren !== current.siren))
+      // Nettoyer les callbacks actifs avant blacklist
+      if (cap.siren) {
+        const { data: linkedClients } = await supabase.from('clients').select('id').eq('siren', cap.siren)
+        if (linkedClients?.length) {
+          const clientIds = linkedClients.map(c => c.id)
+          await supabase.from('prospect_calls').update({ needs_callback: false })
+            .in('client_id', clientIds).eq('needs_callback', true)
+        }
+      }
+      if (doNotCallScope === 'all' && cap.siren) {
+        await supabase.from('prospection_massive').update(updateData).eq('siren', cap.siren)
+        setProspects(prev => prev.filter(p => p.siren !== cap.siren))
         const sibCount = duplicates.filter(d => d.reason?.includes('SIREN')).length + 1
         toast.success(`🚫 ${sibCount} établissement(s) marqué(s) "ne pas rappeler"`)
       } else {
-        // Cet établissement uniquement
-        await supabase.from('prospection_massive').update(updateData).eq('id', current.id)
-        setProspects(prev => prev.filter(p => p.id !== current.id))
+        await supabase.from('prospection_massive').update(updateData).eq('id', cap.id)
+        setProspects(prev => prev.filter(p => p.id !== cap.id))
         toast.success('🚫 Marqué "ne pas rappeler"')
       }
       setShowDoNotCallModal(false)
@@ -1366,6 +1395,7 @@ export default function MarinePhoning() {
       setDoNotCallCustom('')
       setDoNotCallScope('single')
       loadDoNotCallCount()
+      loadTodayCallbacks()
       goNext()
     } catch (error) { toast.error('Erreur: ' + error.message) }
   }
@@ -1812,7 +1842,7 @@ export default function MarinePhoning() {
                 <div className="flex items-center justify-between">
                   <h2 className="text-lg font-bold text-gray-900 leading-tight">{current.name}</h2>
                   {existingClient && <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium whitespace-nowrap">🟢 Client ({existingClient.status})</span>}
-                  <span className="text-xs text-gray-400 whitespace-nowrap ml-2">{filtered.findIndex(p => p.id === current.id) + 1}/{filtered.length}</span>
+                  <span className="text-xs text-gray-400 whitespace-nowrap ml-2">{(() => { const idx = filtered.findIndex(p => p.id === current.id); return idx >= 0 ? `${idx + 1}/${filtered.length}` : `—/${filtered.length}` })()}</span>
                 </div>
                 <div className="flex items-center gap-2 mt-1">
                   <MapPin className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
@@ -1895,7 +1925,7 @@ export default function MarinePhoning() {
                 return (
                   <div className="bg-purple-50 border border-purple-300 rounded-lg px-3 py-2">
                     <p className="text-xs font-bold text-purple-800 mb-1">
-                      👤 {current.dirigeant_nom ? `${current.dirigeant_prenom || ''} ${current.dirigeant_nom}` : `Groupe "${current.groupe}"`} — {crossLinks.length} autre(s) entreprise(s)
+                      👤 {current.dirigeant_nom ? `${current.dirigeant_prenom || ''} ${current.dirigeant_nom}` : current.groupe ? `Groupe "${current.groupe}"` : current.name} — {crossLinks.length} autre(s) entreprise(s)
                     </p>
                     {hot.length > 0 ? hot.map((d, i) => (
                       <p key={i} className="text-xs text-purple-700">
@@ -2075,7 +2105,7 @@ export default function MarinePhoning() {
                       const val = e.target.value.trim()
                       if (val && val !== current.email && current.id) {
                         await supabase.from('prospection_massive').update({ email: val, updated_at: new Date().toISOString() }).eq('id', current.id)
-                        current.email = val
+                        setCurrent(prev => prev ? { ...prev, email: val } : prev)
                         setProspects(prev => prev.map(p => p.id === current.id ? { ...p, email: val } : p))
                       }
                     }}
@@ -2266,7 +2296,7 @@ export default function MarinePhoning() {
                 <Phone className="w-4 h-4 text-primary-600" />
                 <span className="font-bold text-primary-900 text-sm truncate">{current.name}</span>
                 {current.city && <span className="text-xs text-primary-600">— {current.city}</span>}
-                <span className="ml-auto text-xs text-primary-400">{filtered.findIndex(p => p.id === current.id) + 1}/{filtered.length}</span>
+                <span className="ml-auto text-xs text-primary-400">{(() => { const idx = filtered.findIndex(p => p.id === current.id); return idx >= 0 ? `${idx + 1}/${filtered.length}` : `—/${filtered.length}` })()}</span>
               </div>
               {current.enrichment_notes && (
                 <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5 flex items-center gap-1.5">
