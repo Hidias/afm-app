@@ -224,23 +224,37 @@ export default function ProspectRDVDetail() {
     }
 
     try {
+      const siretVal = (newClientData.siret || '').trim() || null
+      const sirenVal = siretVal ? siretVal.slice(0, 9) : null
+
       const { data, error } = await supabase
         .from('clients')
         .insert([{
           name: newClientData.name.toUpperCase(),
-          siret: newClientData.siret,
+          siret: siretVal,
+          siren: sirenVal,
           address: newClientData.address,
           postal_code: newClientData.postal_code,
           city: newClientData.city,
           contact_phone: newClientData.contact_phone,
-          email: newClientData.email
+          contact_email: newClientData.email,
+          status: 'prospect',
+          client_type: 'entreprise',
         }])
         .select()
         .single()
 
       if (error) throw error
 
-      toast.success('Client créé')
+      // Marquer les prospects du même SIREN comme deja_client
+      if (sirenVal) {
+        await supabase.from('prospection_massive').update({
+          prospection_status: 'deja_client',
+          updated_at: new Date().toISOString(),
+        }).eq('siren', sirenVal)
+      }
+
+      toast.success('Client créé' + (sirenVal ? ' — prospect retiré de la file Marine' : ''))
       setClients([...clients, data])
       setFormData({ ...formData, client_id: data.id })
       setShowNewClientModal(false)
