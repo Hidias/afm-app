@@ -25,7 +25,9 @@ function decrypt(encryptedText) {
 
 // Convertir SMTP host → IMAP host
 function getImapHost(smtpHost) {
-  if (smtpHost?.includes('exchange')) return 'imap.exchange.ionos.eu'
+  // Exchange IONOS : exchange.ionos.eu (IMAP port 993 SSL)
+  if (smtpHost?.includes('exchange')) return 'exchange.ionos.eu'
+  // Mail Basic IONOS : imap.ionos.fr
   return 'imap.ionos.fr'
 }
 
