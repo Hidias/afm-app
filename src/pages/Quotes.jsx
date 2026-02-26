@@ -12,7 +12,7 @@ import {
   GraduationCap, Calendar, MapPin, Users
 } from 'lucide-react'
 import { money } from '../lib/utils'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 
 const STATUS_CONFIG = {
   draft: { label: 'Brouillon', class: 'bg-gray-100 text-gray-700', icon: '📝' },
@@ -144,6 +144,7 @@ function SignaturePad({ value, onChange, onClear }) {
 export default function Quotes() {
   const { createSession, trainers: storeTrainers, fetchTrainers } = useDataStore()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [quotes, setQuotes] = useState([])
   const [clients, setClients] = useState([])
   const [contacts, setContacts] = useState([])
@@ -196,6 +197,28 @@ export default function Quotes() {
   ]
 
   useEffect(() => { loadAll() }, [])
+
+  // Auto-open create mode if ?client_id=xxx in URL (from RDV "Créer devis")
+  useEffect(() => {
+    const clientIdParam = searchParams.get('client_id')
+    if (clientIdParam && clients.length > 0 && mode === 'list') {
+      const client = clients.find(c => c.id === clientIdParam)
+      if (client) {
+        (async () => {
+          const ref = await generateReference()
+          const qDate = format(new Date(), 'yyyy-MM-dd')
+          const vDate = calcValidityDate(qDate)
+          setCurrentQuote({ ...emptyQuote, reference: ref, quote_date: qDate, validity_date: vDate, payment_deadline: vDate, client_id: client.id })
+          await loadClientContacts(client.id)
+          setItems([])
+          setMode('create')
+          // Clean URL params
+          setSearchParams({}, { replace: true })
+          toast.success(`📝 Nouveau devis pour ${client.name}`)
+        })()
+      }
+    }
+  }, [clients, searchParams])
 
   async function loadAll() {
     setLoading(true)
