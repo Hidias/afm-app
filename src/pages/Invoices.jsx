@@ -43,6 +43,9 @@ export default function Invoices() {
   const [paymentForm, setPaymentForm] = useState({amount:'',payment_date:format(new Date(),'yyyy-MM-dd'),payment_method:'virement bancaire',payment_reference:'',notes:''})
   const [showQuoteSelector, setShowQuoteSelector] = useState(false)
   const [quoteSearch, setQuoteSearch] = useState('')
+  const [showSessionSelector, setShowSessionSelector] = useState(false)
+  const [sessionSearch, setSessionSearch] = useState('')
+  const [completedSessions, setCompletedSessions] = useState([])
   const [sortField, setSortField] = useState('invoice_date')
   const [sortDir, setSortDir] = useState('desc')
   const [showGroupedModal, setShowGroupedModal] = useState(false)
@@ -128,6 +131,22 @@ export default function Invoices() {
       is_subrogation:false,billing_client_id:''})
     setItems((qItems||[]).map((it,i)=>({...it,id:undefined,quote_id:undefined,invoice_id:undefined,position:i})))
     setPayments([]); setShowQuoteSelector(false); setMode('create')
+  }
+
+  // ─── Load completed sessions for selector ───
+  const openSessionSelector = async () => {
+    setSessionSearch('')
+    const { data } = await supabase
+      .from('sessions')
+      .select('id, reference, start_date, end_date, status, is_intra, session_type, client_id, clients(name), courses(title), quote_id')
+      .in('status', ['completed', 'in_progress'])
+      .order('end_date', { ascending: false })
+      .limit(100)
+    // Charger les factures existantes liées à des sessions pour marquer "déjà facturé"
+    const { data: existingInvs } = await supabase.from('invoices').select('session_id').not('session_id', 'is', null)
+    const invoicedSessionIds = new Set((existingInvs || []).map(i => i.session_id))
+    setCompletedSessions((data || []).map(s => ({ ...s, already_invoiced: invoicedSessionIds.has(s.id) })))
+    setShowSessionSelector(true)
   }
 
   // ─── From session (après formation) ───
@@ -504,6 +523,7 @@ export default function Invoices() {
         <h1 className="text-2xl font-bold text-gray-900">Facturation</h1>
         <div className="flex gap-2">
           <button onClick={()=>setShowQuoteSelector(true)} className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2 text-sm"><Receipt size={16}/>Depuis un devis</button>
+          <button onClick={openSessionSelector} className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2 text-sm"><CheckCircle size={16}/>Depuis une session</button>
           <button onClick={()=>handleNew('invoice')} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2 text-sm"><Plus size={16}/>Facture libre</button>
           <button onClick={()=>{setGroupedClientSearch('');setGroupedClientId('');setGroupedClientOpen(false);setShowGroupedModal(true)}} className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 flex items-center gap-2 text-sm"><Receipt size={16}/>Sous-traitance groupée</button>
           <button onClick={()=>handleNew('credit_note')} className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 flex items-center gap-2 text-sm"><Plus size={16}/>Avoir</button>
@@ -569,6 +589,27 @@ export default function Invoices() {
               {q.object&&<p className="text-xs text-gray-400 mt-1 truncate">{q.object}</p>}
             </button>)
           })}
+        </div>
+      </div></div>)}
+
+      {/* ─── Modal sélection session ─── */}
+      {showSessionSelector&&(<div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50"><div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[80vh] flex flex-col">
+        <div className="flex items-center justify-between p-4 border-b"><h3 className="font-semibold text-lg">Créer une facture depuis une session</h3><button onClick={()=>setShowSessionSelector(false)}><X size={20}/></button></div>
+        <div className="p-4"><div className="relative"><Search className="absolute left-3 top-2.5 text-gray-400" size={16}/><input type="text" placeholder="Rechercher une session (référence, client, formation)..." value={sessionSearch} onChange={e=>setSessionSearch(e.target.value)} className="w-full pl-9 pr-3 py-2 border rounded-lg text-sm" autoFocus/></div></div>
+        <div className="overflow-y-auto flex-1 px-4 pb-4">
+          {completedSessions.filter(s=>{if(!sessionSearch)return true;const q=sessionSearch.toLowerCase();return s.reference?.toLowerCase().includes(q)||s.clients?.name?.toLowerCase().includes(q)||s.courses?.title?.toLowerCase().includes(q)}).map(s=>(
+            <button key={s.id} onClick={()=>{if(s.already_invoiced){if(!confirm('Cette session a déjà une facture associée. Créer quand même ?'))return};setShowSessionSelector(false);handleFromSession(s.id)}} className={`w-full text-left p-3 border rounded-lg mb-2 transition-colors ${s.already_invoiced?'border-orange-200 bg-orange-50/50 hover:bg-orange-50':'hover:bg-green-50 hover:border-green-300'}`}>
+              <div className="flex justify-between items-start">
+                <div><span className="font-medium text-sm">{s.reference}</span><span className="text-gray-500 text-sm ml-2">{s.clients?.name}</span></div>
+                <div className="flex items-center gap-2">
+                  {s.already_invoiced&&<span className="text-xs bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded">Déjà facturée</span>}
+                  <span className={`text-xs px-1.5 py-0.5 rounded ${s.status==='completed'?'bg-green-100 text-green-700':'bg-yellow-100 text-yellow-700'}`}>{s.status==='completed'?'Terminée':'En cours'}</span>
+                </div>
+              </div>
+              <p className="text-xs text-gray-400 mt-1 truncate">{s.courses?.title} — {fmtDateShort(s.start_date)}{s.end_date!==s.start_date?' au '+fmtDateShort(s.end_date):''}</p>
+            </button>
+          ))}
+          {completedSessions.length===0&&<p className="text-center text-gray-400 py-8">Aucune session terminée ou en cours</p>}
         </div>
       </div></div>)}
 
