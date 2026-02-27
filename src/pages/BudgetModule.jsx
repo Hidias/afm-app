@@ -287,6 +287,14 @@ function TransactionsTab({ filtered, categories, months, filterMonth, setFilterM
   )
 }
 
+// Nettoyer les noms de fichiers pour Supabase Storage (pas d'accents, pas de caractères spéciaux)
+function sanitizeFileName(name) {
+  return name
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // supprimer les accents
+    .replace(/[^a-zA-Z0-9._-]/g, '_') // remplacer tout caractère spécial par _
+    .replace(/_+/g, '_') // éviter les __ multiples
+}
+
 // ════════════════════════════════════════
 // SAISIE — avec registre invités repas
 // ════════════════════════════════════════
@@ -536,7 +544,8 @@ function SaisieTab({ categories, rules, loadAll, clients }) {
       if (files.length > 0 && txData) {
         let uploaded = 0
         for (const file of files) {
-          const path = `${txData.id}/${Date.now()}_${file.name}`
+          const safeName = sanitizeFileName(file.name)
+          const path = `${txData.id}/${Date.now()}_${safeName}`
           const { error: upErr } = await supabase.storage.from('budget-receipts').upload(path, file)
           if (upErr) { console.error('Upload error:', upErr); toast.error(`⚠️ Erreur upload ${file.name}`); continue }
           const { error: dbErr } = await supabase.from('budget_receipts').insert({
@@ -651,7 +660,8 @@ function SaisieTab({ categories, rules, loadAll, clients }) {
       let uploaded = 0
       let errors = 0
       for (const file of files) {
-        const path = `${txData.id}/${Date.now()}_${file.name}`
+        const safeName = sanitizeFileName(file.name)
+        const path = `${txData.id}/${Date.now()}_${safeName}`
         const { error: upErr } = await supabase.storage.from('budget-receipts').upload(path, file)
         if (upErr) { console.error('Upload error:', upErr); errors++; continue }
         const { error: dbErr } = await supabase.from('budget_receipts').insert({
