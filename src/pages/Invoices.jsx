@@ -158,7 +158,24 @@ export default function Invoices() {
     const { data: ccs } = await supabase.from('client_contacts').select('*').eq('client_id', sess.client_id)
     const bc = ccs?.find(c => c.is_billing) || ccs?.find(c => c.is_primary)
     setContacts(ccs || [])
-    
+
+    // Charger les stagiaires de la session
+    const { data: stData } = await supabase
+      .from('session_trainees')
+      .select('trainee_id, trainees(first_name, last_name, client_id, clients(name))')
+      .eq('session_id', sessionId)
+    const traineeNames = (stData || [])
+      .map(st => st.trainees).filter(Boolean)
+      .map(t => {
+        const fullName = `${t.first_name} ${(t.last_name || '').toUpperCase()}`
+        // Inter-entreprises : afficher l'entreprise d'origine
+        if (!sess.is_intra && t.clients?.name) return `${fullName} (${t.clients.name})`
+        return fullName
+      })
+    const traineeSuffix = traineeNames.length > 0
+      ? `\nStagiaires (${traineeNames.length}) : ${traineeNames.join(', ')}`
+      : ''
+
     let invoiceItems = []
     
     if (isSubcontract) {
@@ -187,6 +204,11 @@ export default function Invoices() {
       }
     }
     
+    // Ajouter la liste des stagiaires à la description de la première ligne
+    if (traineeSuffix && invoiceItems.length > 0) {
+      invoiceItems[0].description_detail = (invoiceItems[0].description_detail || '') + traineeSuffix
+    }
+
     const objectTitle = isSubcontract 
       ? (sess.subcontract_course_title || 'Prestation de formation')
       : (sess.courses?.title || '')
