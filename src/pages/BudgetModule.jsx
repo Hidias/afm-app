@@ -966,9 +966,20 @@ function ComptableTab({ transactions, receipts, loadAll }) {
   const [notes, setNotes] = useState('')
   const [history, setHistory] = useState([])
   const [selected, setSelected] = useState(new Set())
+  const [showResend, setShowResend] = useState(false)
+  const [resendSelected, setResendSelected] = useState(new Set())
+  const [resetting, setResetting] = useState(false)
 
   // Transactions pas encore envoyées qui ont des PJ ou sont manuelles
   const toSend = useMemo(() => transactions.filter(tx => !tx.sent_to_comptable && (tx.is_manual || receipts[tx.id]?.length > 0)), [transactions, receipts])
+
+  // Transactions déjà envoyées (manuelles uniquement, les 30 derniers jours)
+  const alreadySent = useMemo(() => {
+    const cutoff = new Date()
+    cutoff.setDate(cutoff.getDate() - 30)
+    return transactions.filter(tx => tx.sent_to_comptable && tx.is_manual && new Date(tx.date) >= cutoff)
+      .sort((a, b) => new Date(b.date) - new Date(a.date))
+  }, [transactions])
 
   useEffect(() => {
     // Init sélection avec toutes les non-envoyées
@@ -980,6 +991,30 @@ function ComptableTab({ transactions, receipts, loadAll }) {
 
   function toggleSelect(id) {
     setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
+  }
+
+  function toggleResend(id) {
+    setResendSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
+  }
+
+  async function handleRequeue() {
+    if (resendSelected.size === 0) return
+    setResetting(true)
+    try {
+      const ids = [...resendSelected]
+      const { error } = await supabase
+        .from('budget_transactions')
+        .update({ sent_to_comptable: false, sent_to_comptable_at: null })
+        .in('id', ids)
+      if (error) { toast.error('Erreur: ' + error.message); setResetting(false); return }
+      toast.success(`🔄 ${ids.length} opération(s) remise(s) en file d'envoi`)
+      setResendSelected(new Set())
+      setShowResend(false)
+      loadAll()
+    } catch (e) {
+      toast.error('Erreur: ' + e.message)
+    }
+    setResetting(false)
   }
 
   async function handleSend() {
@@ -1006,6 +1041,43 @@ function ComptableTab({ transactions, receipts, loadAll }) {
     setSending(false)
   }
 
+  // Tableau réutilisable pour les transactions
+  function TxTable({ items, selectedSet, onToggle, selectAll }) {
+    return (
+      <div className="max-h-60 overflow-y-auto border rounded-lg">
+        <table className="w-full text-xs">
+          <thead className="bg-gray-50 sticky top-0">
+            <tr>
+              <th className="px-2 py-1.5 text-left">
+                <input type="checkbox" checked={selectedSet.size === items.length && items.length > 0}
+                  onChange={() => selectAll(selectedSet.size === items.length ? new Set() : new Set(items.map(t => t.id)))} />
+              </th>
+              <th className="px-2 py-1.5 text-left text-gray-500">Date</th>
+              <th className="px-2 py-1.5 text-left text-gray-500">Description</th>
+              <th className="px-2 py-1.5 text-left text-gray-500">Catégorie</th>
+              <th className="px-2 py-1.5 text-right text-gray-500">Montant</th>
+              <th className="px-2 py-1.5 text-center text-gray-500">Type</th>
+              <th className="px-2 py-1.5 text-center text-gray-500">PJ</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map(tx => (
+              <tr key={tx.id} className={`border-t ${selectedSet.has(tx.id) ? 'bg-blue-50' : ''}`}>
+                <td className="px-2 py-1"><input type="checkbox" checked={selectedSet.has(tx.id)} onChange={() => onToggle(tx.id)} /></td>
+                <td className="px-2 py-1">{new Date(tx.date).toLocaleDateString('fr-FR')}</td>
+                <td className="px-2 py-1 truncate max-w-40">{tx.description}</td>
+                <td className="px-2 py-1">{tx.category_name}</td>
+                <td className="px-2 py-1 text-right font-mono">{tx.debit > 0 ? <span className="text-red-600">-{fmt(tx.debit)}</span> : <span className="text-green-600">+{fmt(tx.credit)}</span>}</td>
+                <td className="px-2 py-1 text-center">{tx.is_personal ? <span className="text-purple-600">Perso</span> : <span className="text-blue-600">Ent.</span>}</td>
+                <td className="px-2 py-1 text-center">{receipts[tx.id]?.length > 0 ? `📎${receipts[tx.id].length}` : <span className="text-orange-400">⚠️</span>}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-4">
       {/* À envoyer */}
@@ -1019,34 +1091,7 @@ function ComptableTab({ transactions, receipts, loadAll }) {
           <div className="text-center py-8 text-gray-400">✅ Tout a été envoyé</div>
         ) : (
           <>
-            <div className="max-h-60 overflow-y-auto border rounded-lg">
-              <table className="w-full text-xs">
-                <thead className="bg-gray-50 sticky top-0">
-                  <tr>
-                    <th className="px-2 py-1.5 text-left"><input type="checkbox" checked={selected.size === toSend.length} onChange={() => setSelected(selected.size === toSend.length ? new Set() : new Set(toSend.map(t => t.id)))} /></th>
-                    <th className="px-2 py-1.5 text-left text-gray-500">Date</th>
-                    <th className="px-2 py-1.5 text-left text-gray-500">Description</th>
-                    <th className="px-2 py-1.5 text-left text-gray-500">Catégorie</th>
-                    <th className="px-2 py-1.5 text-right text-gray-500">Montant</th>
-                    <th className="px-2 py-1.5 text-center text-gray-500">Type</th>
-                    <th className="px-2 py-1.5 text-center text-gray-500">PJ</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {toSend.map(tx => (
-                    <tr key={tx.id} className={`border-t ${selected.has(tx.id) ? 'bg-blue-50' : ''}`}>
-                      <td className="px-2 py-1"><input type="checkbox" checked={selected.has(tx.id)} onChange={() => toggleSelect(tx.id)} /></td>
-                      <td className="px-2 py-1">{new Date(tx.date).toLocaleDateString('fr-FR')}</td>
-                      <td className="px-2 py-1 truncate max-w-40">{tx.description}</td>
-                      <td className="px-2 py-1">{tx.category_name}</td>
-                      <td className="px-2 py-1 text-right font-mono">{tx.debit > 0 ? <span className="text-red-600">-{fmt(tx.debit)}</span> : <span className="text-green-600">+{fmt(tx.credit)}</span>}</td>
-                      <td className="px-2 py-1 text-center">{tx.is_personal ? <span className="text-purple-600">Perso</span> : <span className="text-blue-600">Ent.</span>}</td>
-                      <td className="px-2 py-1 text-center">{receipts[tx.id]?.length > 0 ? `📎${receipts[tx.id].length}` : '-'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <TxTable items={toSend} selectedSet={selected} onToggle={toggleSelect} selectAll={setSelected} />
             <div className="mt-3 space-y-2">
               <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes pour Cristina (optionnel)..." className="w-full border rounded-lg px-3 py-2 text-sm h-20 resize-y" />
               <button onClick={handleSend} disabled={sending || selected.size === 0}
@@ -1057,6 +1102,29 @@ function ComptableTab({ transactions, receipts, loadAll }) {
           </>
         )}
       </div>
+
+      {/* Renvoyer des transactions déjà envoyées */}
+      {alreadySent.length > 0 && (
+        <div className="bg-white rounded-xl shadow-sm border p-4">
+          <div className="flex items-center justify-between">
+            <h3 className="font-bold text-gray-700">🔄 Renvoyer des opérations</h3>
+            <button onClick={() => { setShowResend(!showResend); setResendSelected(new Set()) }}
+              className="text-sm text-blue-600 hover:text-blue-800">
+              {showResend ? 'Masquer' : `${alreadySent.length} déjà envoyée(s)`}
+            </button>
+          </div>
+          {showResend && (
+            <div className="mt-3">
+              <p className="text-xs text-gray-500 mb-2">Sélectionnez les opérations à remettre en file d'envoi (ex: PJ manquantes, erreur, complément)</p>
+              <TxTable items={alreadySent} selectedSet={resendSelected} onToggle={toggleResend} selectAll={setResendSelected} />
+              <button onClick={handleRequeue} disabled={resetting || resendSelected.size === 0}
+                className="mt-2 w-full bg-amber-500 text-white py-2.5 rounded-lg font-medium hover:bg-amber-600 disabled:opacity-50">
+                {resetting ? '⏳...' : `🔄 Remettre ${resendSelected.size} opération(s) en file d'envoi`}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Historique */}
       <div className="bg-white rounded-xl shadow-sm border p-4">
