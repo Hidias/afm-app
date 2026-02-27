@@ -534,14 +534,18 @@ function SaisieTab({ categories, rules, loadAll, clients }) {
 
       // Upload du fichier associé
       if (files.length > 0 && txData) {
+        let uploaded = 0
         for (const file of files) {
           const path = `${txData.id}/${Date.now()}_${file.name}`
           const { error: upErr } = await supabase.storage.from('budget-receipts').upload(path, file)
-          if (upErr) { console.error('Upload error:', upErr); continue }
-          await supabase.from('budget_receipts').insert({
+          if (upErr) { console.error('Upload error:', upErr); toast.error(`⚠️ Erreur upload ${file.name}`); continue }
+          const { error: dbErr } = await supabase.from('budget_receipts').insert({
             transaction_id: txData.id, file_name: file.name, file_path: path, file_type: file.type, file_size: file.size
           })
+          if (dbErr) { console.error('DB insert error:', dbErr); continue }
+          uploaded++
         }
+        if (uploaded > 0) toast.success(`📎 ${uploaded} PJ uploadée(s)`)
       }
 
       toast.success(`✅ Sauvegardé : ${form.description}`)
@@ -642,17 +646,22 @@ function SaisieTab({ categories, rules, loadAll, clients }) {
       toast.success(`✅ ${form.type === 'debit' ? 'Dépense' : 'Entrée'}: ${fmt(amount)}`)
     }
 
-    // Upload des fichiers (seulement en mode création)
-    if (files.length > 0 && txData && !isEditing) {
+    // Upload des fichiers (création ET édition)
+    if (files.length > 0 && txData) {
+      let uploaded = 0
+      let errors = 0
       for (const file of files) {
         const path = `${txData.id}/${Date.now()}_${file.name}`
         const { error: upErr } = await supabase.storage.from('budget-receipts').upload(path, file)
-        if (upErr) { console.error('Upload error:', upErr); continue }
-        await supabase.from('budget_receipts').insert({
+        if (upErr) { console.error('Upload error:', upErr); errors++; continue }
+        const { error: dbErr } = await supabase.from('budget_receipts').insert({
           transaction_id: txData.id, file_name: file.name, file_path: path, file_type: file.type, file_size: file.size
         })
+        if (dbErr) { console.error('DB insert error:', dbErr); errors++; continue }
+        uploaded++
       }
-      toast.success(`📎 ${files.length} fichier(s) uploadé(s)`)
+      if (uploaded > 0) toast.success(`📎 ${uploaded} fichier(s) uploadé(s)`)
+      if (errors > 0) toast.error(`⚠️ ${errors} fichier(s) en erreur d'upload`)
     }
 
     // Sauvegarder les invités si c'est un repas
