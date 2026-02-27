@@ -196,8 +196,11 @@ export async function generateInvoicePDF(invoice, items, client, contact, option
   ry += 5
 
   if (invoice.client_reference) {
-    doc.text('Ref. client : ' + invoice.client_reference, MR, ry, { align: 'right' })
-    ry += 5
+    var crLines = doc.splitTextToSize('Ref. client : ' + invoice.client_reference, 80)
+    for (var cri = 0; cri < crLines.length; cri++) {
+      doc.text(crLines[cri], MR, ry, { align: 'right' })
+      ry += 4
+    }
   }
 
   if (invoice.session_reference) {
@@ -223,12 +226,14 @@ export async function generateInvoicePDF(invoice, items, client, contact, option
   var billingClient = options.billingClient || null
   var displayClient = billingClient || client  // OPCO si subrogation, sinon client normal
   var cX = 118
+  var cMaxW = MR - cX  // largeur max dispo pour le bloc client
   var cy = y
   doc.setFontSize(10)
   doc.setFont(F, 'bold')
   doc.setTextColor(0, 0, 0)
-  doc.text(displayClient?.name || '', cX, cy)
-  cy += 6
+  var nameLines = doc.splitTextToSize(displayClient?.name || '', cMaxW)
+  doc.text(nameLines, cX, cy)
+  cy += nameLines.length * 5
 
   doc.setFont(F, 'normal')
   doc.setFontSize(9)
@@ -237,14 +242,16 @@ export async function generateInvoicePDF(invoice, items, client, contact, option
   if (!billingClient && contact) {
     var cn = contact.name || ((contact.first_name || '') + ' ' + (contact.last_name || '')).trim()
     if (cn) {
-      doc.text("A l'attention de " + (contact.civilite ? contact.civilite + ' ' : '') + cn, cX, cy)
-      cy += 5
+      var attnLines = doc.splitTextToSize("A l'attention de " + (contact.civilite ? contact.civilite + ' ' : '') + cn, cMaxW)
+      doc.text(attnLines, cX, cy)
+      cy += attnLines.length * 4
     }
   }
 
   if (displayClient?.address) {
-    doc.text(displayClient.address, cX, cy)
-    cy += 5
+    var addrLines = doc.splitTextToSize(displayClient.address, cMaxW)
+    doc.text(addrLines, cX, cy)
+    cy += addrLines.length * 4
   }
 
   var cl = [displayClient?.postal_code, (displayClient?.city || '').toUpperCase()].filter(Boolean).join(' ')
@@ -271,10 +278,12 @@ export async function generateInvoicePDF(invoice, items, client, contact, option
     cy += 4
     doc.setFont(F, 'normal')
     doc.setTextColor(80, 80, 80)
-    doc.text(client.name || '', cX, cy)
+    var subLines = doc.splitTextToSize(client.name || '', cMaxW)
+    doc.text(subLines, cX, cy)
+    cy += subLines.length * 4
     if (client.siret) {
-      cy += 4
       doc.text('SIRET : ' + client.siret, cX, cy)
+      cy += 4
     }
     doc.setTextColor(0, 0, 0)
   }
