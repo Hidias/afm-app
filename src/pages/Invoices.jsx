@@ -18,7 +18,14 @@ const STATUS_MAP = {
   cancelled:{label:'Annulée',color:'gray',icon:Ban},
 }
 const PAYMENT_METHODS = ['virement bancaire','chèque','prélèvement','carte bancaire','espèces']
-const PAYMENT_TERMS = ['À réception de facture','à 30 jours','à 45 jours','à 60 jours']
+const PAYMENT_TERMS = ['À réception de facture','à 30 jours','à 30 jours fin de mois','à 45 jours','à 45 jours fin de mois','à 60 jours','à 60 jours fin de mois']
+const calcDueDate = (terms) => {
+  const daysMap = { 'À réception de facture': 0, 'à 30 jours': 30, 'à 30 jours fin de mois': 30, 'à 45 jours': 45, 'à 45 jours fin de mois': 45, 'à 60 jours': 60, 'à 60 jours fin de mois': 60 }
+  const days = daysMap[terms] ?? 30
+  let d = addDays(new Date(), days)
+  if (terms?.includes('fin de mois')) { d = new Date(d.getFullYear(), d.getMonth() + 1, 0) }
+  return format(d, 'yyyy-MM-dd')
+}
 const TVA_RATES = [0,2.1,5.5,8.5,10,20]
 const CREATORS = ['Hicham Saidi','Maxime Langlais']
 const emptyItem = () => ({code:'',description_title:'',description_detail:'',quantity:1,unit:'unité',unit_price_ht:0,tva_rate:20,course_id:null})
@@ -170,9 +177,7 @@ export default function Invoices() {
     const ref = await generateReference('invoice')
     // Délai de paiement : préférence client ou 30 jours par défaut
     const clientPaymentTerms = sess.clients?.default_payment_terms || 'à 30 jours'
-    const daysMap = { 'À réception de facture': 0, 'à 30 jours': 30, 'à 45 jours': 45, 'à 60 jours': 60 }
-    const delayDays = daysMap[clientPaymentTerms] ?? 30
-    const dd = format(addDays(new Date(), delayDays), 'yyyy-MM-dd')
+    const dd = calcDueDate(clientPaymentTerms)
     
     const { data: ccs } = await supabase.from('client_contacts').select('*').eq('client_id', sess.client_id)
     const bc = ccs?.find(c => c.is_billing) || ccs?.find(c => c.is_primary)
@@ -273,9 +278,7 @@ export default function Invoices() {
     
     const ref = await generateReference('invoice')
     const clientPaymentTerms = clientData.default_payment_terms || 'à 30 jours'
-    const daysMap = { 'À réception de facture': 0, 'à 30 jours': 30, 'à 45 jours': 45, 'à 60 jours': 60 }
-    const delayDays = daysMap[clientPaymentTerms] ?? 30
-    const dd = format(addDays(new Date(), delayDays), 'yyyy-MM-dd')
+    const dd = calcDueDate(clientPaymentTerms)
     
     const { data: ccs } = await supabase.from('client_contacts').select('*').eq('client_id', groupedClientId)
     const bc = ccs?.find(c => c.is_billing) || ccs?.find(c => c.is_primary)
@@ -819,7 +822,8 @@ export default function Invoices() {
               <div><label className="text-xs text-gray-500">Moyen de règlement</label><select value={current?.payment_method||''} onChange={e=>setCurrent({...current,payment_method:e.target.value})} className="w-full border rounded-lg px-3 py-2 text-sm mt-1" disabled={ro}>{PAYMENT_METHODS.map(m=><option key={m} value={m}>{m}</option>)}</select></div>
               <div><label className="text-xs text-gray-500">Délai de règlement</label><select value={current?.payment_terms||''} onChange={e=>{
                 const t=e.target.value; let d=30; if(t.includes('réception'))d=0; else if(t.includes('45'))d=45; else if(t.includes('60'))d=60
-                setCurrent({...current,payment_terms:t,due_date:format(addDays(new Date(current.invoice_date||new Date()),d),'yyyy-MM-dd')})
+                let dueD=addDays(new Date(current.invoice_date||new Date()),d); if(t.includes('fin de mois')){dueD=new Date(dueD.getFullYear(),dueD.getMonth()+1,0)}
+                setCurrent({...current,payment_terms:t,due_date:format(dueD,'yyyy-MM-dd')})
               }} className="w-full border rounded-lg px-3 py-2 text-sm mt-1" disabled={ro}>{PAYMENT_TERMS.map(t=><option key={t} value={t}>{t}</option>)}</select></div>
               <div><label className="text-xs text-gray-500">Date d'échéance</label><input type="date" value={current?.due_date||''} onChange={e=>setCurrent({...current,due_date:e.target.value})} className="w-full border rounded-lg px-3 py-2 text-sm mt-1" readOnly={ro}/></div>
               <div><label className="text-xs text-gray-500">Remise globale (%)</label><input type="number" value={current?.discount_percent||0} onChange={e=>setCurrent({...current,discount_percent:e.target.value})} className="w-full border rounded-lg px-3 py-2 text-sm mt-1" readOnly={ro} step="0.01" min="0" max="100"/></div>
