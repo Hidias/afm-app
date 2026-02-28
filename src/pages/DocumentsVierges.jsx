@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
-import { FileText, Download, BookOpen, ClipboardList, Loader2, FolderArchive, Shield, CheckSquare, Info, Package, AlertTriangle } from 'lucide-react'
+import { FileText, Download, BookOpen, ClipboardList, Loader2, Shield, CheckSquare, Info, Package, AlertTriangle } from 'lucide-react'
 import { downloadDocument, setOrganization } from '../lib/pdfGenerator'
-import { downloadDossierComplet, DOSSIER_CONFIG } from '../lib/pdfDossierComplet'
 import { downloadCompetencyGrid, GRID_INFO } from '../lib/pdfCompetencyGrids'
 import { downloadPasseportPrevention } from '../lib/pdfPasseportPrevention'
 import { downloadKitSecours, KIT_CONFIG } from '../lib/pdfKitSecours'
@@ -21,21 +20,10 @@ const getThemeColor = (themeName) => {
 }
 
 const FORMATION_COLORS = {
-  sst: '#22c55e',
   incendie: '#ef4444',
   gestes_postures: '#3b82f6',
   r489: '#1f2937',
   r485: '#6b7280',
-  habilitation_electrique: '#eab308',
-}
-
-const FORMATION_EMOJI = {
-  sst: '🩺',
-  incendie: '🔥',
-  gestes_postures: '🏋️',
-  r489: '🏗️',
-  r485: '🏭',
-  habilitation_electrique: '⚡',
 }
 
 // Mapping des kits vers les thèmes de positionnement
@@ -52,8 +40,6 @@ const KIT_THEME_MAP = {
 export default function DocumentsVierges() {
   const { organization, fetchOrganization, themes, fetchThemes, fetchThemeQuestions } = useDataStore()
   const [loadingTheme, setLoadingTheme] = useState(null)
-  const [loadingDossier, setLoadingDossier] = useState(null)
-  const [dossierProgress, setDossierProgress] = useState(null)
   const [loadingGrid, setLoadingGrid] = useState(null)
   const [loadingKit, setLoadingKit] = useState(null)
   const [kitProgress, setKitProgress] = useState(null)
@@ -93,22 +79,6 @@ export default function DocumentsVierges() {
       toast.error('Erreur lors du téléchargement')
     }
     setLoadingTheme(null)
-  }
-
-  const handleDownloadDossier = async (formationKey) => {
-    setLoadingDossier(formationKey)
-    setDossierProgress(null)
-    try {
-      await downloadDossierComplet(formationKey, (step, total, label) => {
-        setDossierProgress({ step, total, label })
-      })
-      toast.success(`Dossier ${DOSSIER_CONFIG[formationKey].label} téléchargé ✓`)
-    } catch (error) {
-      console.error(error)
-      toast.error('Erreur lors de la compilation du dossier')
-    }
-    setLoadingDossier(null)
-    setDossierProgress(null)
   }
 
   const handleDownloadGrid = (gridKey) => {
@@ -187,10 +157,10 @@ export default function DocumentsVierges() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Documents vierges</h1>
-        <p className="text-gray-500">Téléchargez les documents vierges, kits terrain et dossiers compilés pour vos formations</p>
+        <p className="text-gray-500">Téléchargez les documents vierges et kits terrain pour vos formations</p>
       </div>
 
-      {/* ═══ SECTION 0 : Kit Secours Formation (PRIORITAIRE) ═══ */}
+      {/* ═══ Kit Secours Formation ═══ */}
       <div className="card border-2 border-red-200 bg-red-50/30">
         <div className="flex items-center gap-3 mb-2">
           <div className="p-2 rounded-lg bg-red-500">
@@ -239,51 +209,6 @@ export default function DocumentsVierges() {
                 <Loader2 className="w-4 h-4 text-red-500 animate-spin flex-shrink-0" />
               ) : (
                 <Download className="w-4 h-4 text-gray-400 group-hover:text-red-500 flex-shrink-0 transition-colors" />
-              )}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* ═══ SECTION 1 : Dossiers compilés par formation ═══ */}
-      <div className="card border-2 border-primary-200 bg-primary-50/30">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="p-2 rounded-lg bg-primary-500">
-            <FolderArchive className="w-5 h-5 text-white" />
-          </div>
-          <div>
-            <h2 className="font-semibold">Dossiers vierges par formation</h2>
-            <p className="text-xs text-gray-500">1 PDF compilé = émargement + fiche renseignements + évaluations + grille compétences</p>
-          </div>
-        </div>
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
-          {Object.entries(DOSSIER_CONFIG).map(([key, config]) => (
-            <button
-              key={key}
-              onClick={() => handleDownloadDossier(key)}
-              disabled={loadingDossier === key}
-              className="flex items-center gap-3 p-3 rounded-lg border bg-white hover:bg-gray-50 transition-colors disabled:opacity-50 text-left"
-            >
-              <div className="text-2xl">{FORMATION_EMOJI[key] || '📋'}</div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold truncate">{config.label}</p>
-                <p className="text-[10px] text-gray-400">
-                  {config.documents.length} docs{config.competencyGrid ? ' + grille compétences' : ''}
-                </p>
-                {loadingDossier === key && dossierProgress && (
-                  <div className="mt-1">
-                    <div className="w-full bg-gray-200 rounded-full h-1.5">
-                      <div className="bg-primary-500 h-1.5 rounded-full transition-all"
-                        style={{ width: `${(dossierProgress.step / dossierProgress.total) * 100}%` }} />
-                    </div>
-                    <p className="text-[9px] text-gray-400 mt-0.5">{dossierProgress.label}</p>
-                  </div>
-                )}
-              </div>
-              {loadingDossier === key ? (
-                <Loader2 className="w-4 h-4 text-primary-500 animate-spin flex-shrink-0" />
-              ) : (
-                <Download className="w-4 h-4 text-gray-400 flex-shrink-0" />
               )}
             </button>
           ))}
@@ -463,8 +388,8 @@ export default function DocumentsVierges() {
             <h3 className="font-medium text-blue-800 mb-1">Indicateurs Qualiopi</h3>
             <p className="text-sm text-blue-700">
               Les badges (Q4, Q8, Q11, Q22, Q30) indiquent l'indicateur Qualiopi auquel correspond chaque document.
-              Les dossiers compilés regroupent tous les documents nécessaires par formation. Les grilles de compétences
-              répondent à l'indicateur Q22 (évaluation des acquis).
+              Les kits secours regroupent tous les documents nécessaires par formation (×10 exemplaires).
+              Les grilles de compétences répondent à l'indicateur Q22 (évaluation des acquis).
             </p>
           </div>
         </div>
