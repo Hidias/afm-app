@@ -131,6 +131,57 @@ async function publishInstagram(content, mediaUrl, token) {
   return publishData.id
 }
 
+// ── Publier sur LinkedIn ────────────────────────────────
+async function publishLinkedIn(content, mediaUrl, token) {
+  const accessToken = token.access_token
+  const personUrn = token.page_id || token.account_id
+
+  if (!personUrn) throw new Error('LinkedIn: aucun profil connecté')
+
+  // Construire l'auteur URN — le sub peut être un ID simple ou déjà un URN
+  const authorUrn = personUrn.startsWith('urn:') ? personUrn : `urn:li:person:${personUrn}`
+
+  const postBody = {
+    author: authorUrn,
+    lifecycleState: 'PUBLISHED',
+    visibility: 'PUBLIC',
+    commentary: content,
+    distribution: {
+      feedDistribution: 'MAIN_FEED',
+    },
+  }
+
+  // Ajouter l'image si disponible
+  if (mediaUrl) {
+    postBody.content = {
+      article: {
+        source: mediaUrl,
+        title: 'Access Formation',
+      },
+    }
+  }
+
+  const res = await fetch('https://api.linkedin.com/rest/posts', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+      'X-Restli-Protocol-Version': '2.0.0',
+      'LinkedIn-Version': '202401',
+    },
+    body: JSON.stringify(postBody),
+  })
+
+  // LinkedIn renvoie 201 Created avec un header x-restli-id
+  if (res.status === 201) {
+    const postId = res.headers.get('x-restli-id') || 'published'
+    return postId
+  }
+
+  const data = await res.json().catch(() => ({}))
+  throw new Error(`LinkedIn ${res.status}: ${data.message || JSON.stringify(data)}`)
+}
+
 // ── Publier sur Google My Business ──────────────────────
 async function publishGMB(content, mediaUrl, token) {
   const accessToken = await refreshGoogleToken(token)
@@ -202,12 +253,6 @@ export default async function handler(req, res) {
 
     // ── Publier sur chaque plateforme ─────────────────
     for (const platform of platforms) {
-      // Skip LinkedIn (pas encore implémenté)
-      if (platform === 'linkedin') {
-        results.linkedin = { status: 'skipped', reason: 'LinkedIn pas encore connecté' }
-        continue
-      }
-
       const token = tokenMap[platform === 'gmb' ? 'gmb' : platform]
       if (!token) {
         results[platform] = { status: 'error', reason: `${platform} non connecté` }
@@ -232,6 +277,9 @@ export default async function handler(req, res) {
             break
           case 'gmb':
             externalId = await publishGMB(content, mediaUrl, token)
+            break
+          case 'linkedin':
+            externalId = await publishLinkedIn(content, mediaUrl, token)
             break
         }
 
