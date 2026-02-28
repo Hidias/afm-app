@@ -28,6 +28,9 @@
     "api/send-invoices-comptable.js": {
       "maxDuration": 60
     },
+    "api/generate-relance-email.js": {
+      "maxDuration": 30
+    },
     "api/sync-sent-emails.js": {
       "maxDuration": 60
     },
