@@ -25,6 +25,9 @@
     "api/send-prospect-email.js": {
       "maxDuration": 30
     },
+    "api/send-invoices-comptable.js": {
+      "maxDuration": 60
+    },
     "api/sync-sent-emails.js": {
       "maxDuration": 60
     },
