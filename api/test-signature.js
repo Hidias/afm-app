@@ -47,20 +47,20 @@ export default async function handler(req, res) {
     const signature = `
 <table cellpadding="0" cellspacing="0" style="font-family: Arial, sans-serif; margin-top: 16px; border-collapse: collapse; width: 440px;">
   <tr>
-    <td style="background: #1a2e3d; padding: 14px 18px; border-radius: 8px 8px 0 0;">
+    <td bgcolor="#1a2e3d" style="background-color: #1a2e3d; padding: 14px 18px; border-radius: 8px 8px 0 0;">
       <p style="margin: 0; font-size: 15px; font-weight: bold; color: #ffffff;">Hicham SAIDI</p>
       <p style="margin: 2px 0 0 0; font-size: 11px; color: rgba(255,255,255,0.7);">Dirigeant associé</p>
     </td>
   </tr>
   <tr>
-    <td style="background: #f8f9fa; padding: 12px 18px; border-left: 1px solid #e5e7eb; border-right: 1px solid #e5e7eb;">
+    <td bgcolor="#f8f9fa" style="background-color: #f8f9fa; padding: 12px 18px; border-left: 1px solid #e5e7eb; border-right: 1px solid #e5e7eb;">
       <p style="margin: 0 0 4px 0; font-size: 13px; font-weight: bold; color: #1a2e3d;">ACCESS FORMATION</p>
       <p style="margin: 0 0 1px 0; font-size: 12px; color: #555;">📞 06 35 20 04 28 · ✉️ <a href="mailto:hicham.saidi@accessformation.pro" style="color: #2563eb; text-decoration: none;">hicham.saidi@accessformation.pro</a></p>
       <p style="margin: 0; font-size: 12px;">🌐 <a href="https://www.accessformation.pro" style="color: #2563eb; text-decoration: none;">www.accessformation.pro</a></p>
     </td>
   </tr>
   <tr>
-    <td style="background: linear-gradient(90deg, #c8993c, #ddb05c); padding: 5px 18px; border-radius: 0 0 8px 8px;">
+    <td bgcolor="#c8993c" style="background-color: #c8993c; padding: 5px 18px; border-radius: 0 0 8px 8px;">
       <p style="margin: 0; font-size: 10px; color: #1a2e3d; font-weight: bold; text-transform: uppercase; letter-spacing: 1.2px; text-align: center;">Organisme de formation certifié Qualiopi</p>
     </td>
   </tr>
