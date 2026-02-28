@@ -129,16 +129,16 @@ export async function sendWithRetry(transporter, mailOptions, maxRetries = 3) {
 // ─── Signatures HTML Access Formation ────────────────────────
 export const SIGNATURES = {
   Hicham: {
-    name: 'Hicham',
+    name: 'Hicham SAIDI',
     title: 'Dirigeant associé',
-    phone: '06.35.20.04.28',
+    phone: '06 35 20 04 28',
     email: 'hicham.saidi@accessformation.pro',
     senderEmail: 'hicham.saidi@accessformation.pro',
   },
   Maxime: {
-    name: 'Maxime',
+    name: 'Maxime LANGLAIS',
     title: 'Dirigeant associé',
-    phone: '07.83.51.17.95',
+    phone: '07 83 51 17 95',
     email: 'maxime.langlais@accessformation.pro',
     senderEmail: 'maxime.langlais@accessformation.pro',
   },
@@ -157,19 +157,23 @@ export const SIGNATURES = {
 export function buildSignatureHTML(caller) {
   const sig = SIGNATURES[caller] || SIGNATURES.Marine
   return `
-    <table cellpadding="0" cellspacing="0" style="font-family: Arial, sans-serif; margin-top: 20px; border-collapse: collapse;">
+    <table cellpadding="0" cellspacing="0" style="font-family: Arial, sans-serif; margin-top: 16px; border-collapse: collapse; width: 440px;">
       <tr>
-        <td style="padding-right: 15px; border-right: 3px solid #d4a84b; vertical-align: top;">
-          <div style="background: linear-gradient(135deg, #1a3a4a 0%, #2d5a6b 100%); padding: 16px 20px; border-radius: 8px; min-width: 160px;">
-            <p style="margin: 0; font-family: 'Georgia', serif; font-size: 16px; color: #d4a84b; font-style: italic; letter-spacing: 1px;">${sig.name}</p>
-            ${sig.title ? `<p style="margin: 4px 0 0 0; font-size: 11px; color: rgba(255,255,255,0.8);">${sig.title}</p>` : ''}
-          </div>
+        <td style="background: #1a2e3d; padding: 14px 18px; border-radius: 8px 8px 0 0;">
+          <p style="margin: 0; font-size: 15px; font-weight: bold; color: #ffffff;">${sig.name}</p>
+          ${sig.title ? `<p style="margin: 2px 0 0 0; font-size: 11px; color: rgba(255,255,255,0.7);">${sig.title}</p>` : ''}
         </td>
-        <td style="padding-left: 15px; vertical-align: top;">
-          <p style="margin: 0 0 4px 0; font-size: 14px; font-weight: bold; color: #1a3a4a;">Access Formation</p>
-          ${sig.phone ? `<p style="margin: 0 0 2px 0; font-size: 12px; color: #555;">📞 ${sig.phone}</p>` : ''}
-          <p style="margin: 0 0 2px 0; font-size: 12px; color: #555;">✉️ ${sig.email}</p>
-          <p style="margin: 0; font-size: 12px; color: #555;">🌐 www.accessformation.pro</p>
+      </tr>
+      <tr>
+        <td style="background: #f8f9fa; padding: 12px 18px; border-left: 1px solid #e5e7eb; border-right: 1px solid #e5e7eb;">
+          <p style="margin: 0 0 4px 0; font-size: 13px; font-weight: bold; color: #1a2e3d;">ACCESS FORMATION</p>
+          <p style="margin: 0 0 1px 0; font-size: 12px; color: #555;">📞 ${sig.phone} · ✉️ <a href="mailto:${sig.email}" style="color: #2563eb; text-decoration: none;">${sig.email}</a></p>
+          <p style="margin: 0; font-size: 12px;">🌐 <a href="https://www.accessformation.pro" style="color: #2563eb; text-decoration: none;">www.accessformation.pro</a></p>
+        </td>
+      </tr>
+      <tr>
+        <td style="background: linear-gradient(90deg, #c8993c, #ddb05c); padding: 5px 18px; border-radius: 0 0 8px 8px;">
+          <p style="margin: 0; font-size: 10px; color: #1a2e3d; font-weight: bold; text-transform: uppercase; letter-spacing: 1.2px; text-align: center;">Organisme de formation certifié Qualiopi</p>
         </td>
       </tr>
     </table>`
