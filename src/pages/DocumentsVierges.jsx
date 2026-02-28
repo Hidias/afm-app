@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
-import { FileText, Download, BookOpen, ClipboardList, Loader2, FolderArchive, Shield, CheckSquare, Info } from 'lucide-react'
+import { FileText, Download, BookOpen, ClipboardList, Loader2, FolderArchive, Shield, CheckSquare, Info, Package, AlertTriangle } from 'lucide-react'
 import { downloadDocument, setOrganization } from '../lib/pdfGenerator'
 import { downloadDossierComplet, DOSSIER_CONFIG } from '../lib/pdfDossierComplet'
 import { downloadCompetencyGrid, GRID_INFO } from '../lib/pdfCompetencyGrids'
 import { downloadPasseportPrevention } from '../lib/pdfPasseportPrevention'
+import { downloadKitSecours, KIT_CONFIG } from '../lib/pdfKitSecours'
 import { useDataStore } from '../lib/store'
 import toast from 'react-hot-toast'
 
@@ -37,12 +38,25 @@ const FORMATION_EMOJI = {
   habilitation_electrique: '⚡',
 }
 
+// Mapping des kits vers les thèmes de positionnement
+const KIT_THEME_MAP = {
+  sst_fi: ['secourisme', 'sst'],
+  sst_mac: ['secourisme', 'sst'],
+  incendie: ['incendie', 'epi'],
+  gestes_postures: ['gestes', 'postures', 'ergonomie', 'prap'],
+  r489: ['r489', 'chariot', 'conduite'],
+  r485: ['r485', 'gerbeur'],
+  habilitation_electrique: ['électri', 'habilitation'],
+}
+
 export default function DocumentsVierges() {
   const { organization, fetchOrganization, themes, fetchThemes, fetchThemeQuestions } = useDataStore()
   const [loadingTheme, setLoadingTheme] = useState(null)
   const [loadingDossier, setLoadingDossier] = useState(null)
   const [dossierProgress, setDossierProgress] = useState(null)
   const [loadingGrid, setLoadingGrid] = useState(null)
+  const [loadingKit, setLoadingKit] = useState(null)
+  const [kitProgress, setKitProgress] = useState(null)
 
   useEffect(() => {
     fetchOrganization()
@@ -119,6 +133,42 @@ export default function DocumentsVierges() {
     }
   }
 
+  // ─── Kit Secours ───────────────────────────────────────
+  const handleDownloadKit = async (kitKey) => {
+    setLoadingKit(kitKey)
+    setKitProgress(null)
+    try {
+      // Trouver les questions de positionnement correspondantes
+      let questions = null
+      const themeKeywords = KIT_THEME_MAP[kitKey] || []
+      if (themeKeywords.length > 0 && themes.length > 0) {
+        const matchedTheme = themes.find(t => {
+          const name = t.name.toLowerCase()
+          return themeKeywords.some(kw => name.includes(kw))
+        })
+        if (matchedTheme) {
+          try {
+            const { data: q } = await fetchThemeQuestions(matchedTheme.id)
+            if (q && q.length > 0) questions = q
+          } catch { /* pas grave si pas de questions */ }
+        }
+      }
+
+      await downloadKitSecours(kitKey, {
+        questions,
+        onProgress: (step, total, label) => {
+          setKitProgress({ step, total, label })
+        },
+      })
+      toast.success(`Kit Secours ${KIT_CONFIG[kitKey].shortLabel} téléchargé ✓`)
+    } catch (error) {
+      console.error('Erreur Kit Secours:', error)
+      toast.error(`Erreur : ${error.message || 'Échec de la génération'}`)
+    }
+    setLoadingKit(null)
+    setKitProgress(null)
+  }
+
   const adminDocs = [
     { id: 'reglement', label: 'Règlement intérieur', qualiopi: '9' },
     { id: 'livret', label: 'Livret d\'accueil', qualiopi: '1' },
@@ -137,10 +187,65 @@ export default function DocumentsVierges() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Documents vierges</h1>
-        <p className="text-gray-500">Téléchargez les documents vierges et dossiers compilés pour vos formations</p>
+        <p className="text-gray-500">Téléchargez les documents vierges, kits terrain et dossiers compilés pour vos formations</p>
       </div>
 
-      {/* ═══ SECTION 1 : Dossiers compilés par formation (NOUVEAU) ═══ */}
+      {/* ═══ SECTION 0 : Kit Secours Formation (PRIORITAIRE) ═══ */}
+      <div className="card border-2 border-red-200 bg-red-50/30">
+        <div className="flex items-center gap-3 mb-2">
+          <div className="p-2 rounded-lg bg-red-500">
+            <Package className="w-5 h-5 text-white" />
+          </div>
+          <div className="flex-1">
+            <h2 className="font-semibold text-red-900">Kit Secours Formation</h2>
+            <p className="text-xs text-red-700">
+              ZIP complet prêt à imprimer : page de garde + intercalaires + 10 exemplaires de chaque document + grilles + tests
+            </p>
+          </div>
+          <div className="flex items-center gap-1.5 px-2 py-1 bg-amber-100 rounded-lg border border-amber-300">
+            <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+            <span className="text-[10px] font-medium text-amber-700">Mode dégradé</span>
+          </div>
+        </div>
+        <p className="text-[10px] text-gray-500 mb-3 ml-12">
+          Imprimez 2-3 lots par formation. Recto-verso compatible. Chaque document est paginé et séparé par des intercalaires couleur.
+        </p>
+
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-2">
+          {Object.entries(KIT_CONFIG).map(([key, config]) => (
+            <button
+              key={key}
+              onClick={() => handleDownloadKit(key)}
+              disabled={loadingKit !== null}
+              className="flex items-center gap-3 p-3 rounded-lg border bg-white hover:bg-gray-50 transition-all disabled:opacity-50 text-left hover:shadow-sm group"
+            >
+              <div className="text-2xl flex-shrink-0">{config.emoji}</div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold truncate">{config.shortLabel}</p>
+                <p className="text-[10px] text-gray-400">
+                  {config.documents.length} docs{config.competencyGrid ? ' + grille' : ''}{config.documents.some(d => d.type === 'sst_template') ? ' + INRS' : ''}
+                </p>
+                {loadingKit === key && kitProgress && (
+                  <div className="mt-1">
+                    <div className="w-full bg-gray-200 rounded-full h-1.5">
+                      <div className="bg-red-500 h-1.5 rounded-full transition-all"
+                        style={{ width: `${(kitProgress.step / kitProgress.total) * 100}%` }} />
+                    </div>
+                    <p className="text-[9px] text-gray-400 mt-0.5">{kitProgress.label}</p>
+                  </div>
+                )}
+              </div>
+              {loadingKit === key ? (
+                <Loader2 className="w-4 h-4 text-red-500 animate-spin flex-shrink-0" />
+              ) : (
+                <Download className="w-4 h-4 text-gray-400 group-hover:text-red-500 flex-shrink-0 transition-colors" />
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ═══ SECTION 1 : Dossiers compilés par formation ═══ */}
       <div className="card border-2 border-primary-200 bg-primary-50/30">
         <div className="flex items-center gap-3 mb-4">
           <div className="p-2 rounded-lg bg-primary-500">
@@ -274,7 +379,7 @@ export default function DocumentsVierges() {
           </div>
         </div>
 
-        {/* ═══ Grilles de compétences (NOUVEAU) ═══ */}
+        {/* ═══ Grilles de compétences ═══ */}
         <div className="card">
           <div className="flex items-center gap-3 mb-4">
             <div className="p-2 rounded-lg bg-amber-500">
@@ -308,7 +413,7 @@ export default function DocumentsVierges() {
           </div>
         </div>
 
-        {/* ═══ Passeport Prévention (NOUVEAU) ═══ */}
+        {/* ═══ Passeport Prévention ═══ */}
         <div className="card">
           <div className="flex items-center gap-3 mb-4">
             <div className="p-2 rounded-lg bg-teal-500">
