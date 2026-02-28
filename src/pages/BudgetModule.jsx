@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import toast from 'react-hot-toast'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, AreaChart, Area } from 'recharts'
+import { generateInvoicePDF, calcInvoiceTotals } from '../lib/invoiceGenerator'
 
 // ════════════════════════════════════════════════════════════
 //  BUDGET MODULE v4 — Access Campus
@@ -979,6 +980,20 @@ function ComptableTab({ transactions, receipts, loadAll }) {
   const [showResend, setShowResend] = useState(false)
   const [resendSelected, setResendSelected] = useState(new Set())
   const [resetting, setResetting] = useState(false)
+  // ─── Factures clients ───
+  const [invMonth, setInvMonth] = useState(() => {
+    const now = new Date()
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  })
+  const [invLoading, setInvLoading] = useState(false)
+  const [invSending, setInvSending] = useState(false)
+  const [invProgress, setInvProgress] = useState(null)
+  const [invNotes, setInvNotes] = useState('')
+  const [invoicesData, setInvoicesData] = useState([])
+  const [invSelected, setInvSelected] = useState(new Set())
+  const [invHistory, setInvHistory] = useState([])
+  const [showInvResend, setShowInvResend] = useState(false)
+  const [invResendSelected, setInvResendSelected] = useState(new Set())
 
   // Transactions pas encore envoyées qui ont des PJ ou sont manuelles
   const toSend = useMemo(() => transactions.filter(tx => !tx.sent_to_comptable && (tx.is_manual || receipts[tx.id]?.length > 0)), [transactions, receipts])
@@ -992,19 +1007,109 @@ function ComptableTab({ transactions, receipts, loadAll }) {
   }, [transactions])
 
   useEffect(() => {
-    // Init sélection avec toutes les non-envoyées
     setSelected(new Set(toSend.map(t => t.id)))
-    // Charger historique
     supabase.from('budget_emails_sent').select('*').order('sent_at', { ascending: false }).limit(20)
       .then(({ data }) => { if (data) setHistory(data) })
+    supabase.from('invoice_emails_sent').select('*').order('sent_at', { ascending: false }).limit(20)
+      .then(({ data }) => { if (data) setInvHistory(data) })
   }, [toSend.length])
+
+  // ─── Charger factures du mois sélectionné ───
+  useEffect(() => { loadInvoices() }, [invMonth])
+
+  async function loadInvoices() {
+    setInvLoading(true)
+    const [year, month] = invMonth.split('-').map(Number)
+    const startDate = `${year}-${String(month).padStart(2, '0')}-01`
+    const endDate = month === 12
+      ? `${year + 1}-01-01`
+      : `${year}-${String(month + 1).padStart(2, '0')}-01`
+
+    const { data: invoices } = await supabase
+      .from('invoices')
+      .select('*, clients!client_id(id, name, siret, address, postal_code, city, tva)')
+      .gte('invoice_date', startDate)
+      .lt('invoice_date', endDate)
+      .not('status', 'in', '("draft","cancelled")')
+      .order('invoice_date', { ascending: true })
+
+    if (!invoices || invoices.length === 0) {
+      setInvoicesData([])
+      setInvSelected(new Set())
+      setInvLoading(false)
+      return
+    }
+
+    const invIds = invoices.map(i => i.id)
+    const { data: allItems } = await supabase
+      .from('invoice_items')
+      .select('*')
+      .in('invoice_id', invIds)
+      .order('position')
+
+    const contactIds = [...new Set(invoices.filter(i => i.contact_id).map(i => i.contact_id))]
+    let contactsMap = {}
+    if (contactIds.length > 0) {
+      const { data: contacts } = await supabase
+        .from('client_contacts')
+        .select('*')
+        .in('id', contactIds)
+      ;(contacts || []).forEach(c => { contactsMap[c.id] = c })
+    }
+
+    const enriched = invoices.map(inv => {
+      const items = (allItems || []).filter(it => it.invoice_id === inv.id)
+      const totals = calcInvoiceTotals(items, inv.discount_percent, inv.tva_applicable)
+      return {
+        invoice: inv,
+        items,
+        client: inv.clients || null,
+        contact: inv.contact_id ? contactsMap[inv.contact_id] || null : null,
+        tvaByRate: totals.tvaByRate,
+        totals
+      }
+    })
+
+    setInvoicesData(enriched)
+    setInvSelected(new Set(enriched.filter(d => !d.invoice.sent_to_comptable).map(d => d.invoice.id)))
+    setInvLoading(false)
+  }
+
+  const invToSend = useMemo(() => invoicesData.filter(d => !d.invoice.sent_to_comptable), [invoicesData])
+  const invAlreadySent = useMemo(() => invoicesData.filter(d => d.invoice.sent_to_comptable), [invoicesData])
+
+  const invTotals = useMemo(() => {
+    const sel = invoicesData.filter(d => invSelected.has(d.invoice.id))
+    const facts = sel.filter(d => d.invoice.type !== 'credit_note')
+    const avoirs = sel.filter(d => d.invoice.type === 'credit_note')
+    const today = new Date(); today.setHours(0, 0, 0, 0)
+    const overdue = sel.filter(d => {
+      if (d.invoice.type === 'credit_note') return false
+      const due = d.invoice.due_date ? new Date(d.invoice.due_date) : null
+      return d.invoice.status === 'overdue' || (due && due < today && d.invoice.status !== 'paid')
+    })
+    return {
+      nbFacts: facts.length,
+      nbAvoirs: avoirs.length,
+      ht: facts.reduce((s, d) => s + (parseFloat(d.invoice.total_ht) || 0), 0),
+      tva: facts.reduce((s, d) => s + (parseFloat(d.invoice.total_tva) || 0), 0),
+      ttc: facts.reduce((s, d) => s + (parseFloat(d.invoice.total_ttc) || 0), 0),
+      overdue: overdue.length,
+      overdueAmount: overdue.reduce((s, d) => s + (parseFloat(d.invoice.amount_due) || 0), 0),
+    }
+  }, [invoicesData, invSelected])
 
   function toggleSelect(id) {
     setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
   }
-
   function toggleResend(id) {
     setResendSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
+  }
+  function toggleInvSelect(id) {
+    setInvSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
+  }
+  function toggleInvResend(id) {
+    setInvResendSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
   }
 
   async function handleRequeue() {
@@ -1021,6 +1126,26 @@ function ComptableTab({ transactions, receipts, loadAll }) {
       setResendSelected(new Set())
       setShowResend(false)
       loadAll()
+    } catch (e) {
+      toast.error('Erreur: ' + e.message)
+    }
+    setResetting(false)
+  }
+
+  async function handleInvRequeue() {
+    if (invResendSelected.size === 0) return
+    setResetting(true)
+    try {
+      const ids = [...invResendSelected]
+      const { error } = await supabase
+        .from('invoices')
+        .update({ sent_to_comptable: false, sent_to_comptable_at: null })
+        .in('id', ids)
+      if (error) { toast.error('Erreur: ' + error.message); setResetting(false); return }
+      toast.success(`🔄 ${ids.length} facture(s) remise(s) en file d'envoi`)
+      setInvResendSelected(new Set())
+      setShowInvResend(false)
+      loadInvoices()
     } catch (e) {
       toast.error('Erreur: ' + e.message)
     }
@@ -1051,7 +1176,134 @@ function ComptableTab({ transactions, receipts, loadAll }) {
     setSending(false)
   }
 
-  // Tableau réutilisable pour les transactions
+  // ─── Envoi factures : génération PDFs + envoi API ───
+  async function handleSendInvoices() {
+    if (invSelected.size === 0) { toast.error('Sélectionnez des factures'); return }
+    setInvSending(true)
+
+    const selectedData = invoicesData.filter(d => invSelected.has(d.invoice.id))
+    const total = selectedData.length
+    setInvProgress({ current: 0, total, step: 'Génération PDFs...' })
+
+    try {
+      const attachments = []
+      for (let i = 0; i < selectedData.length; i++) {
+        setInvProgress({ current: i + 1, total, step: `PDF ${i + 1}/${total}...` })
+        const { invoice, items, client, contact } = selectedData[i]
+
+        try {
+          let parentRef = invoice.parent_reference || ''
+          if (!parentRef && invoice.quote_id) {
+            const { data: q } = await supabase.from('quotes').select('reference').eq('id', invoice.quote_id).single()
+            parentRef = q?.reference || ''
+          }
+          let sessionRef = ''
+          if (invoice.session_id) {
+            const { data: s } = await supabase.from('sessions').select('reference').eq('id', invoice.session_id).single()
+            sessionRef = s?.reference || ''
+          }
+          let billingClient = null
+          if (invoice.is_subrogation && invoice.billing_client_id) {
+            const { data: bc } = await supabase.from('clients').select('*').eq('id', invoice.billing_client_id).single()
+            billingClient = bc
+          }
+
+          const doc = await generateInvoicePDF(
+            { ...invoice, parent_reference: parentRef, session_reference: sessionRef },
+            items, client, contact,
+            { skipSave: true, billingClient }
+          )
+
+          const arrayBuffer = doc.output('arraybuffer')
+          const base64 = btoa(new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), ''))
+
+          attachments.push({
+            filename: `${invoice.reference}.pdf`,
+            base64,
+            contentType: 'application/pdf'
+          })
+        } catch (pdfErr) {
+          console.error(`Erreur PDF ${invoice.reference}:`, pdfErr)
+          toast.error(`⚠️ Erreur PDF ${invoice.reference}`)
+        }
+      }
+
+      if (attachments.length === 0) {
+        toast.error('Aucun PDF généré'); setInvSending(false); setInvProgress(null); return
+      }
+
+      setInvProgress({ current: total, total, step: 'Envoi email...' })
+
+      const [year, month] = invMonth.split('-').map(Number)
+      const monthNames = ['', 'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre']
+      const monthLabel = `${monthNames[month]} ${year}`
+
+      const invoicesPayload = selectedData.map(d => ({
+        id: d.invoice.id,
+        reference: d.invoice.reference,
+        type: d.invoice.type,
+        client_name: d.client?.name || '-',
+        invoice_date: d.invoice.invoice_date,
+        due_date: d.invoice.due_date,
+        total_ht: parseFloat(d.invoice.total_ht) || 0,
+        total_tva: parseFloat(d.invoice.total_tva) || 0,
+        total_ttc: parseFloat(d.invoice.total_ttc) || 0,
+        amount_paid: parseFloat(d.invoice.amount_paid) || 0,
+        amount_due: parseFloat(d.invoice.amount_due) || 0,
+        status: d.invoice.status,
+        tva_applicable: d.invoice.tva_applicable,
+        tvaByRate: d.tvaByRate
+      }))
+
+      const { data: { user } } = await supabase.auth.getUser()
+      const resp = await fetch('/api/send-invoices-comptable', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: user.id,
+          invoices: invoicesPayload,
+          attachments,
+          monthLabel,
+          notes: invNotes || null
+        })
+      })
+      const result = await resp.json()
+
+      if (result.success) {
+        toast.success(`✅ ${result.message}`)
+        setInvNotes('')
+        loadInvoices()
+        supabase.from('invoice_emails_sent').select('*').order('sent_at', { ascending: false }).limit(20)
+          .then(({ data }) => { if (data) setInvHistory(data) })
+      } else {
+        toast.error('Erreur: ' + (result.error || 'Envoi échoué'))
+      }
+    } catch (e) {
+      console.error('Erreur envoi factures:', e)
+      toast.error('Erreur envoi: ' + e.message)
+    }
+
+    setInvSending(false)
+    setInvProgress(null)
+  }
+
+  // ─── Month options (12 derniers mois) ───
+  const monthOptions = useMemo(() => {
+    const opts = []
+    const now = new Date()
+    for (let i = 0; i < 12; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+      const val = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+      const mNames = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre']
+      opts.push({ value: val, label: `${mNames[d.getMonth()]} ${d.getFullYear()}` })
+    }
+    return opts
+  }, [])
+
+  const STATUS_LABELS = { draft: 'Brouillon', sent: 'Envoyée', due: 'À régler', overdue: 'En retard', partial: 'Partiel', paid: 'Payée', cancelled: 'Annulée' }
+  const STATUS_COLORS = { paid: 'text-green-600', overdue: 'text-red-600', partial: 'text-orange-600', sent: 'text-blue-600', due: 'text-yellow-600', draft: 'text-gray-500' }
+
+  // Tableau réutilisable pour les transactions budget
   function TxTable({ items, selectedSet, onToggle, selectAll }) {
     return (
       <div className="max-h-60 overflow-y-auto border rounded-lg">
@@ -1090,68 +1342,235 @@ function ComptableTab({ transactions, receipts, loadAll }) {
 
   return (
     <div className="space-y-4">
-      {/* À envoyer */}
+      {/* ═══════════════ SECTION 1 : Pièces comptables (transactions budget) ═══════════════ */}
       <div className="bg-white rounded-xl shadow-sm border p-4">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="font-bold text-gray-700">📮 Envoi au comptable</h3>
-          <div className="text-xs text-gray-400">→ cristina.gonzalez@cegefi-conseils.fr (cc: fournisseurs@accessformation.pro)</div>
+          <h3 className="font-bold text-gray-700">📮 Pièces comptables (justificatifs)</h3>
+          <div className="text-xs text-gray-400">→ cristina.gonzalez@cegefi-conseils.fr</div>
         </div>
 
         {toSend.length === 0 ? (
-          <div className="text-center py-8 text-gray-400">✅ Tout a été envoyé</div>
+          <div className="text-center py-6 text-gray-400 text-sm">✅ Tous les justificatifs ont été envoyés</div>
         ) : (
           <>
             <TxTable items={toSend} selectedSet={selected} onToggle={toggleSelect} selectAll={setSelected} />
             <div className="mt-3 space-y-2">
-              <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes pour Cristina (optionnel)..." className="w-full border rounded-lg px-3 py-2 text-sm h-20 resize-y" />
+              <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes pour Cristina (optionnel)..." className="w-full border rounded-lg px-3 py-2 text-sm h-16 resize-y" />
               <button onClick={handleSend} disabled={sending || selected.size === 0}
-                className="w-full bg-green-600 text-white py-3 rounded-lg font-medium hover:bg-green-700 disabled:opacity-50">
-                {sending ? '⏳ Envoi en cours...' : `📮 Envoyer ${selected.size} opération(s) à Cristina`}
+                className="w-full bg-green-600 text-white py-2.5 rounded-lg font-medium hover:bg-green-700 disabled:opacity-50">
+                {sending ? '⏳ Envoi en cours...' : `📮 Envoyer ${selected.size} justificatif(s)`}
               </button>
             </div>
           </>
         )}
+
+        {alreadySent.length > 0 && (
+          <div className="mt-3 pt-3 border-t">
+            <button onClick={() => { setShowResend(!showResend); setResendSelected(new Set()) }}
+              className="text-xs text-blue-600 hover:text-blue-800">
+              {showResend ? '▲ Masquer' : `🔄 Renvoyer des justificatifs (${alreadySent.length} déjà envoyé(s))`}
+            </button>
+            {showResend && (
+              <div className="mt-2">
+                <TxTable items={alreadySent} selectedSet={resendSelected} onToggle={toggleResend} selectAll={setResendSelected} />
+                <button onClick={handleRequeue} disabled={resetting || resendSelected.size === 0}
+                  className="mt-2 w-full bg-amber-500 text-white py-2 rounded-lg font-medium hover:bg-amber-600 disabled:opacity-50 text-sm">
+                  {resetting ? '⏳...' : `🔄 Remettre ${resendSelected.size} en file d'envoi`}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Renvoyer des transactions déjà envoyées */}
-      {alreadySent.length > 0 && (
-        <div className="bg-white rounded-xl shadow-sm border p-4">
-          <div className="flex items-center justify-between">
-            <h3 className="font-bold text-gray-700">🔄 Renvoyer des opérations</h3>
-            <button onClick={() => { setShowResend(!showResend); setResendSelected(new Set()) }}
-              className="text-sm text-blue-600 hover:text-blue-800">
-              {showResend ? 'Masquer' : `${alreadySent.length} déjà envoyée(s)`}
-            </button>
-          </div>
-          {showResend && (
-            <div className="mt-3">
-              <p className="text-xs text-gray-500 mb-2">Sélectionnez les opérations à remettre en file d'envoi (ex: PJ manquantes, erreur, complément)</p>
-              <TxTable items={alreadySent} selectedSet={resendSelected} onToggle={toggleResend} selectAll={setResendSelected} />
-              <button onClick={handleRequeue} disabled={resetting || resendSelected.size === 0}
-                className="mt-2 w-full bg-amber-500 text-white py-2.5 rounded-lg font-medium hover:bg-amber-600 disabled:opacity-50">
-                {resetting ? '⏳...' : `🔄 Remettre ${resendSelected.size} opération(s) en file d'envoi`}
+      {/* ═══════════════ SECTION 2 : Factures clients ═══════════════ */}
+      <div className="bg-white rounded-xl shadow-sm border p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-bold text-gray-700">🧾 Factures clients (récap mensuel + PDFs)</h3>
+          <div className="text-xs text-gray-400">→ cristina.gonzalez@cegefi-conseils.fr</div>
+        </div>
+
+        <div className="flex items-center gap-3 mb-3">
+          <select value={invMonth} onChange={e => setInvMonth(e.target.value)}
+            className="border rounded-lg px-3 py-2 text-sm font-medium">
+            {monthOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+          {invLoading && <span className="text-xs text-gray-400">⏳ Chargement...</span>}
+          {!invLoading && <span className="text-xs text-gray-500">
+            {invoicesData.length} facture(s) • {invToSend.length} à envoyer • {invAlreadySent.length} déjà envoyée(s)
+          </span>}
+        </div>
+
+        {invLoading ? (
+          <div className="text-center py-8 text-gray-400">⏳ Chargement des factures...</div>
+        ) : invToSend.length === 0 && invAlreadySent.length === 0 ? (
+          <div className="text-center py-8 text-gray-400">Aucune facture pour ce mois</div>
+        ) : invToSend.length === 0 ? (
+          <div className="text-center py-6 text-gray-400 text-sm">✅ Toutes les factures du mois ont été envoyées</div>
+        ) : (
+          <>
+            <div className="max-h-72 overflow-y-auto border rounded-lg">
+              <table className="w-full text-xs">
+                <thead className="bg-gray-50 sticky top-0">
+                  <tr>
+                    <th className="px-2 py-1.5 text-left">
+                      <input type="checkbox"
+                        checked={invSelected.size === invToSend.length && invToSend.length > 0}
+                        onChange={() => setInvSelected(invSelected.size === invToSend.length ? new Set() : new Set(invToSend.map(d => d.invoice.id)))} />
+                    </th>
+                    <th className="px-2 py-1.5 text-left text-gray-500">Référence</th>
+                    <th className="px-2 py-1.5 text-left text-gray-500">Client</th>
+                    <th className="px-2 py-1.5 text-center text-gray-500">Date</th>
+                    <th className="px-2 py-1.5 text-center text-gray-500">Échéance</th>
+                    <th className="px-2 py-1.5 text-right text-gray-500">HT</th>
+                    <th className="px-2 py-1.5 text-right text-gray-500">TVA</th>
+                    <th className="px-2 py-1.5 text-right text-gray-500">TTC</th>
+                    <th className="px-2 py-1.5 text-center text-gray-500">Statut</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {invToSend.map(d => {
+                    const inv = d.invoice
+                    const isCr = inv.type === 'credit_note'
+                    return (
+                      <tr key={inv.id} className={`border-t ${invSelected.has(inv.id) ? 'bg-blue-50' : ''}`}>
+                        <td className="px-2 py-1"><input type="checkbox" checked={invSelected.has(inv.id)} onChange={() => toggleInvSelect(inv.id)} /></td>
+                        <td className="px-2 py-1 font-mono font-bold whitespace-nowrap">{inv.reference}</td>
+                        <td className="px-2 py-1 truncate max-w-32">{d.client?.name || '-'}</td>
+                        <td className="px-2 py-1 text-center">{new Date(inv.invoice_date).toLocaleDateString('fr-FR')}</td>
+                        <td className="px-2 py-1 text-center">{inv.due_date ? new Date(inv.due_date).toLocaleDateString('fr-FR') : '-'}</td>
+                        <td className={`px-2 py-1 text-right font-mono ${isCr ? 'text-purple-600' : ''}`}>{fmt(inv.total_ht)}</td>
+                        <td className="px-2 py-1 text-right font-mono">{fmt(inv.total_tva)}</td>
+                        <td className="px-2 py-1 text-right font-mono font-bold">{fmt(inv.total_ttc)}</td>
+                        <td className="px-2 py-1 text-center">
+                          <span className={`font-bold ${isCr ? 'text-purple-600' : (STATUS_COLORS[inv.status] || 'text-gray-500')}`}>
+                            {isCr ? 'Avoir' : (STATUS_LABELS[inv.status] || inv.status)}
+                          </span>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {invSelected.size > 0 && (
+              <div className="mt-3 bg-gray-50 rounded-lg p-3 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                <div><span className="text-gray-500">Factures :</span> <span className="font-bold">{invTotals.nbFacts}</span>{invTotals.nbAvoirs > 0 && <span className="text-purple-600"> + {invTotals.nbAvoirs} avoir(s)</span>}</div>
+                <div><span className="text-gray-500">Total HT :</span> <span className="font-bold">{fmt(invTotals.ht)}</span></div>
+                <div><span className="text-gray-500">TVA :</span> <span className="font-bold">{fmt(invTotals.tva)}</span></div>
+                <div><span className="text-gray-500">TTC :</span> <span className="font-bold text-green-700">{fmt(invTotals.ttc)}</span></div>
+                {invTotals.overdue > 0 && (
+                  <div className="col-span-full"><span className="text-red-600 font-bold">⚠️ {invTotals.overdue} en retard — {fmt(invTotals.overdueAmount)} impayé</span></div>
+                )}
+              </div>
+            )}
+
+            <div className="mt-3 space-y-2">
+              <textarea value={invNotes} onChange={e => setInvNotes(e.target.value)}
+                placeholder="Notes pour Cristina (optionnel)..."
+                className="w-full border rounded-lg px-3 py-2 text-sm h-16 resize-y" />
+              <button onClick={handleSendInvoices} disabled={invSending || invSelected.size === 0}
+                className="w-full bg-indigo-600 text-white py-3 rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50">
+                {invSending
+                  ? `⏳ ${invProgress?.step || 'Envoi...'} (${invProgress?.current || 0}/${invProgress?.total || 0})`
+                  : `🧾 Envoyer ${invSelected.size} facture(s) + PDFs à Cristina`}
               </button>
             </div>
-          )}
-        </div>
-      )}
+          </>
+        )}
 
-      {/* Historique */}
+        {invAlreadySent.length > 0 && (
+          <div className="mt-3 pt-3 border-t">
+            <button onClick={() => { setShowInvResend(!showInvResend); setInvResendSelected(new Set()) }}
+              className="text-xs text-blue-600 hover:text-blue-800">
+              {showInvResend ? '▲ Masquer' : `🔄 Renvoyer des factures (${invAlreadySent.length} déjà envoyée(s))`}
+            </button>
+            {showInvResend && (
+              <div className="mt-2">
+                <div className="max-h-48 overflow-y-auto border rounded-lg">
+                  <table className="w-full text-xs">
+                    <thead className="bg-gray-50 sticky top-0">
+                      <tr>
+                        <th className="px-2 py-1.5 text-left">
+                          <input type="checkbox"
+                            checked={invResendSelected.size === invAlreadySent.length && invAlreadySent.length > 0}
+                            onChange={() => setInvResendSelected(invResendSelected.size === invAlreadySent.length ? new Set() : new Set(invAlreadySent.map(d => d.invoice.id)))} />
+                        </th>
+                        <th className="px-2 py-1.5 text-left text-gray-500">Référence</th>
+                        <th className="px-2 py-1.5 text-left text-gray-500">Client</th>
+                        <th className="px-2 py-1.5 text-right text-gray-500">TTC</th>
+                        <th className="px-2 py-1.5 text-center text-gray-500">Envoyé le</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {invAlreadySent.map(d => (
+                        <tr key={d.invoice.id} className={`border-t ${invResendSelected.has(d.invoice.id) ? 'bg-blue-50' : ''}`}>
+                          <td className="px-2 py-1"><input type="checkbox" checked={invResendSelected.has(d.invoice.id)} onChange={() => toggleInvResend(d.invoice.id)} /></td>
+                          <td className="px-2 py-1 font-mono font-bold">{d.invoice.reference}</td>
+                          <td className="px-2 py-1 truncate max-w-32">{d.client?.name || '-'}</td>
+                          <td className="px-2 py-1 text-right font-mono">{fmt(d.invoice.total_ttc)}</td>
+                          <td className="px-2 py-1 text-center text-green-600">{d.invoice.sent_to_comptable_at ? new Date(d.invoice.sent_to_comptable_at).toLocaleDateString('fr-FR') : '✓'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <button onClick={handleInvRequeue} disabled={resetting || invResendSelected.size === 0}
+                  className="mt-2 w-full bg-amber-500 text-white py-2 rounded-lg font-medium hover:bg-amber-600 disabled:opacity-50 text-sm">
+                  {resetting ? '⏳...' : `🔄 Remettre ${invResendSelected.size} facture(s) en file d'envoi`}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ═══════════════ SECTION 3 : Historique combiné ═══════════════ */}
       <div className="bg-white rounded-xl shadow-sm border p-4">
         <h3 className="font-bold text-gray-700 mb-3">📋 Historique des envois</h3>
-        {history.length === 0 ? <div className="text-center py-6 text-gray-400">Aucun envoi</div> : (
-          <div className="space-y-2">
-            {history.map(h => (
-              <div key={h.id} className="flex items-center gap-3 p-2 bg-gray-50 rounded-lg border text-sm">
-                <span className="text-green-500">✅</span>
-                <div className="flex-1">
-                  <div className="font-medium">{new Date(h.sent_at).toLocaleDateString('fr-FR')} à {new Date(h.sent_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</div>
-                  <div className="text-xs text-gray-500">{h.nb_transactions} opérations • {h.nb_receipts} PJ • par {h.sent_by}</div>
-                  {h.notes && <div className="text-xs text-gray-400 italic mt-0.5">{h.notes}</div>}
+
+        {history.length > 0 && (
+          <div className="mb-4">
+            <h4 className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Justificatifs / pièces comptables</h4>
+            <div className="space-y-1.5">
+              {history.map(h => (
+                <div key={h.id} className="flex items-center gap-3 p-2 bg-gray-50 rounded-lg border text-sm">
+                  <span className="text-green-500">📮</span>
+                  <div className="flex-1">
+                    <div className="font-medium">{new Date(h.sent_at).toLocaleDateString('fr-FR')} à {new Date(h.sent_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</div>
+                    <div className="text-xs text-gray-500">{h.nb_transactions} opérations • {h.nb_receipts} PJ • par {h.sent_by}</div>
+                    {h.notes && <div className="text-xs text-gray-400 italic mt-0.5">{h.notes}</div>}
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
+        )}
+
+        {invHistory.length > 0 && (
+          <div>
+            <h4 className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Factures clients</h4>
+            <div className="space-y-1.5">
+              {invHistory.map(h => (
+                <div key={h.id} className="flex items-center gap-3 p-2 bg-indigo-50 rounded-lg border border-indigo-100 text-sm">
+                  <span className="text-indigo-500">🧾</span>
+                  <div className="flex-1">
+                    <div className="font-medium">{new Date(h.sent_at).toLocaleDateString('fr-FR')} à {new Date(h.sent_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</div>
+                    <div className="text-xs text-gray-500">
+                      {h.month_label} • {h.nb_invoices} facture(s) • HT {fmt(h.total_ht)} • TTC {fmt(h.total_ttc)}
+                      {h.nb_overdue > 0 && <span className="text-red-500 ml-1">• {h.nb_overdue} en retard</span>}
+                    </div>
+                    {h.notes && <div className="text-xs text-gray-400 italic mt-0.5">{h.notes}</div>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {history.length === 0 && invHistory.length === 0 && (
+          <div className="text-center py-6 text-gray-400">Aucun envoi</div>
         )}
       </div>
     </div>
