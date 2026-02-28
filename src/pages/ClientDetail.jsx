@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { ArrowLeft, Building2, MapPin, Phone, Mail, Globe, Edit, Save, X, Plus, Trash2, User, Clock, MessageSquare, Calendar, FileText, GraduationCap, Star, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Send, StickyNote, Receipt, RefreshCw, Briefcase, FileSignature, Smartphone, Loader2, Search, CreditCard } from 'lucide-react'
+import { ArrowLeft, Building2, MapPin, Phone, Mail, Globe, Edit, Save, X, Plus, Trash2, User, Clock, MessageSquare, Calendar, FileText, GraduationCap, Star, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Send, StickyNote, Receipt, RefreshCw, Briefcase, FileSignature, Smartphone, Loader2, Search, CreditCard, Paperclip } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
@@ -68,11 +68,15 @@ export default function ClientDetail() {
   // Email direct
   const [showEmailForm, setShowEmailForm] = useState(false)
   const [emailForm, setEmailForm] = useState({ to: '', subject: '', body: '', brief: '', sender: 'Hicham' })
+  const [emailAttachments, setEmailAttachments] = useState([]) // { file, name, size, base64 }
   const [emailGenerating, setEmailGenerating] = useState(false)
   const [emailSending, setEmailSending] = useState(false)
 
   // Formations
   const [formations, setFormations] = useState([])
+
+  // Devis client (pour contexte IA)
+  const [clientQuotes, setClientQuotes] = useState([])
 
   // RDV
   const [rdvs, setRdvs] = useState([])
@@ -128,7 +132,7 @@ export default function ClientDetail() {
   // ═══════════════════════════════════════════════════════════
   async function loadAll() {
     setLoading(true)
-    await Promise.all([loadClient(), loadContacts(), loadInteractions(), loadFormations(), loadRdvs()])
+    await Promise.all([loadClient(), loadContacts(), loadInteractions(), loadFormations(), loadRdvs(), loadQuotes()])
     setLoading(false)
   }
 
@@ -198,6 +202,12 @@ export default function ClientDetail() {
   async function loadRdvs() {
     const { data } = await supabase.from('prospect_rdv').select('*').eq('client_id', id).order('rdv_date', { ascending: false })
     setRdvs(data || [])
+  }
+
+  async function loadQuotes() {
+    const { data } = await supabase.from('quotes').select('id, reference, object, status, total_ht, quote_date, validity_date')
+      .eq('client_id', id).order('quote_date', { ascending: false }).limit(10)
+    setClientQuotes(data || [])
   }
 
   // Importer les données de prospection_massive → remplir champs vides du client
@@ -445,22 +455,84 @@ export default function ClientDetail() {
   // ═══════════════════════════════════════════════════════════
   // EMAIL DIRECT CLIENT
   // ═══════════════════════════════════════════════════════════
+
+  // Gestion pièces jointes
+  function handleEmailAttachments(e) {
+    const files = Array.from(e.target.files)
+    const maxSize = 10 * 1024 * 1024 // 10 MB par fichier
+    files.forEach(file => {
+      if (file.size > maxSize) {
+        toast.error(`${file.name} trop volumineux (max 10 Mo)`)
+        return
+      }
+      const reader = new FileReader()
+      reader.onload = () => {
+        const base64 = reader.result.split(',')[1]
+        setEmailAttachments(prev => [...prev, {
+          name: file.name,
+          size: file.size,
+          type: file.type || 'application/octet-stream',
+          base64,
+        }])
+      }
+      reader.readAsDataURL(file)
+    })
+    e.target.value = '' // reset input
+  }
+
+  function removeAttachment(index) {
+    setEmailAttachments(prev => prev.filter((_, i) => i !== index))
+  }
+
   async function generateEmailIA() {
     if (!emailForm.brief?.trim()) return toast.error('Décrivez ce que vous voulez dire')
     setEmailGenerating(true)
     try {
       const timeline = getMergedTimeline()
+      const selectedContact = contacts.find(c => c.email === emailForm.to)
+
       const res = await fetch('/api/generate-client-email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           brief: emailForm.brief,
           clientName: client?.name,
-          clientSector: client?.secteur_activite,
-          contactName: emailForm.to ? contacts.find(c => c.email === emailForm.to)?.name : null,
+          contactName: selectedContact?.name || client?.contact_name,
+          contactFunction: selectedContact?.fonction || selectedContact?.role || client?.contact_function,
           senderName: emailForm.sender,
-          recentInteractions: timeline.slice(0, 5).map(i => ({ date: i.date, type: i.type, title: i.title, content: i.content })),
-          formations: formations.slice(0, 5).map(f => ({ type_formation: f.type_formation, status: f.status })),
+          clientInfo: {
+            city: client?.city,
+            effectif: client?.effectif,
+            naf_label: client?.naf_label,
+            opco_name: client?.opco_name,
+            status: client?.status,
+          },
+          sessions: formations.slice(0, 8).map(f => ({
+            courseTitle: f.courses?.title || f.courses?.code || 'Formation',
+            startDate: f.start_date ? new Date(f.start_date).toLocaleDateString('fr-FR') : '',
+            endDate: f.end_date ? new Date(f.end_date).toLocaleDateString('fr-FR') : '',
+            nbTrainees: f.session_trainees?.length || 0,
+            status: f.status,
+          })),
+          quotes: clientQuotes.slice(0, 5).map(q => ({
+            reference: q.reference,
+            object: q.object,
+            totalHt: q.total_ht,
+            status: q.status,
+            sentDate: q.quote_date ? new Date(q.quote_date).toLocaleDateString('fr-FR') : '',
+          })),
+          rdvs: rdvs.slice(0, 3),
+          emailHistory: emailLogs.slice(0, 5).map(e => ({
+            date: e.sent_at ? new Date(e.sent_at).toLocaleDateString('fr-FR') : '',
+            subject: e.subject,
+            to: e.to_email,
+          })),
+          recentInteractions: timeline.filter(i => i.type !== 'email').slice(0, 5).map(i => ({
+            date: i.date ? new Date(i.date).toLocaleDateString('fr-FR') : '',
+            type: i.type,
+            title: i.title,
+            content: i.content,
+          })),
         }),
       })
       const data = await res.json()
@@ -506,14 +578,20 @@ export default function ClientDetail() {
           clientId: id,
           prospectName: client?.name,
           templateType: 'client_direct',
+          attachments: emailAttachments.map(a => ({
+            filename: a.name,
+            base64: a.base64,
+            contentType: a.type,
+          })),
         }),
       })
       const data = await res.json()
       if (data.error) throw new Error(data.error)
 
-      toast.success('📧 Email envoyé !')
+      toast.success(`📧 Email envoyé !${emailAttachments.length > 0 ? ` (${emailAttachments.length} PJ)` : ''}`)
       setShowEmailForm(false)
       setEmailForm({ to: '', subject: '', body: '', brief: '', sender: 'Hicham' })
+      setEmailAttachments([])
       loadInteractions()
     } catch (err) {
       toast.error('Erreur envoi : ' + err.message)
@@ -527,6 +605,7 @@ export default function ClientDetail() {
     const firstWithEmail = contacts.find(c => c.email)
     const defaultTo = primary?.email || firstWithEmail?.email || client?.contact_email || ''
     setEmailForm({ to: defaultTo, subject: '', body: '', brief: '', sender: 'Hicham' })
+    setEmailAttachments([])
     setShowEmailForm(true)
   }
 
@@ -1182,6 +1261,28 @@ export default function ClientDetail() {
                         placeholder="Le contenu de votre email..."
                         rows={6} className="w-full px-3 py-2 border rounded-lg text-sm" />
                       <p className="text-[10px] text-gray-400 mt-1">La signature Access Formation sera ajoutée automatiquement. BCC : contact@accessformation.pro</p>
+                    </div>
+
+                    {/* Pièces jointes */}
+                    <div>
+                      <label className="text-xs font-medium text-gray-500 mb-1 flex items-center gap-1.5">
+                        <Paperclip className="w-3.5 h-3.5" /> Pièces jointes
+                      </label>
+                      <div className="space-y-1.5">
+                        {emailAttachments.map((att, idx) => (
+                          <div key={idx} className="flex items-center gap-2 bg-white border rounded-lg px-3 py-1.5 text-xs">
+                            <Paperclip className="w-3 h-3 text-gray-400 flex-shrink-0" />
+                            <span className="truncate flex-1">{att.name}</span>
+                            <span className="text-gray-400 flex-shrink-0">{(att.size / 1024).toFixed(0)} Ko</span>
+                            <button onClick={() => removeAttachment(idx)} className="text-red-400 hover:text-red-600 flex-shrink-0"><X className="w-3.5 h-3.5" /></button>
+                          </div>
+                        ))}
+                        <label className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-500 bg-white border border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-green-400 hover:text-green-600 transition-colors">
+                          <Plus className="w-3.5 h-3.5" /> Ajouter un fichier
+                          <input type="file" multiple onChange={handleEmailAttachments} className="hidden"
+                            accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.gif,.zip" />
+                        </label>
+                      </div>
                     </div>
 
                     {/* Actions */}
