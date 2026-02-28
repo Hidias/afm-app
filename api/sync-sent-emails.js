@@ -218,8 +218,19 @@ async function syncAccount(emailConfig, cursor) {
         const sentDate = envelope.date
         const messageId = envelope.messageId
 
-        // Ignorer les emails internes (envoyés à @accessformation.pro)
-        const externalRecipients = allRecipients.filter(e => !e.endsWith('@accessformation.pro'))
+        // Ignorer les emails internes et les adresses personnelles connues
+        const IGNORED_RECIPIENTS = [
+          '@accessformation.pro',
+          'hichamsaidi@msn.com',
+          'hichamsaidi@hotmail.com',
+          'hichamsaidi@gmail.com',
+          'maxime.langlais@gmail.com',
+        ]
+        const externalRecipients = allRecipients.filter(e => 
+          !IGNORED_RECIPIENTS.some(ignored => 
+            ignored.startsWith('@') ? e.endsWith(ignored) : e === ignored
+          )
+        )
         if (externalRecipients.length === 0) {
           skipped++
           continue
@@ -251,22 +262,34 @@ async function syncAccount(emailConfig, cursor) {
             })
             matched++
           } else {
-            // ❌ Pas de match → notification
-            await supabase.from('notifications').insert({
-              type: 'email_sync',
-              title: `📧 Email non associé`,
-              message: `${senderName} → ${toEmail} : "${subject.substring(0, 80)}"`,
-              link: `/clients?email_to_link=${encodeURIComponent(toEmail)}&subject=${encodeURIComponent(subject.substring(0, 80))}&from=${encodeURIComponent(emailConfig.email)}&date=${sentDate ? new Date(sentDate).toISOString() : ''}&message_id=${encodeURIComponent(messageId || '')}`,
-              metadata: {
-                to_email: toEmail,
-                from_email: emailConfig.email,
-                subject: subject,
-                sent_at: sentDate ? new Date(sentDate).toISOString() : null,
-                message_id: messageId,
-                sender_name: senderName,
-              },
-            })
-            notified++
+            // ❌ Pas de match → notification (sauf si déjà une notif non-lue pour ce destinataire)
+            const { data: existingNotif } = await supabase
+              .from('notifications')
+              .select('id')
+              .eq('type', 'email_sync')
+              .is('read_at', null)
+              .contains('metadata', { to_email: toEmail })
+              .limit(1)
+
+            if (!existingNotif?.length) {
+              await supabase.from('notifications').insert({
+                type: 'email_sync',
+                title: `📧 Email non associé`,
+                message: `${senderName} → ${toEmail} : "${subject.substring(0, 80)}"`,
+                link: `/clients?email_to_link=${encodeURIComponent(toEmail)}&subject=${encodeURIComponent(subject.substring(0, 80))}&from=${encodeURIComponent(emailConfig.email)}&date=${sentDate ? new Date(sentDate).toISOString() : ''}&message_id=${encodeURIComponent(messageId || '')}`,
+                metadata: {
+                  to_email: toEmail,
+                  from_email: emailConfig.email,
+                  subject: subject,
+                  sent_at: sentDate ? new Date(sentDate).toISOString() : null,
+                  message_id: messageId,
+                  sender_name: senderName,
+                },
+              })
+              notified++
+            } else {
+              skipped++ // notification déjà existante
+            }
           }
           synced++
         }
