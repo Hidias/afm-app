@@ -85,8 +85,13 @@ Veuillez trouver ci-joints les documents relatifs à la formation "${courseTitle
 - Programme de formation
 - Convocations des stagiaires
 - Analyse du besoin de formation
+- Notice stagiaire — Passeport de Prévention
+- Notice employeur — Passeport de Prévention
+- Décharge de refus de communication du NIR
 
 Merci de nous retourner la convention signée ainsi que l'analyse du besoin complétée et signée avant le début de la formation.
+
+Concernant le Passeport de Prévention : conformément au Décret n° 2025-748 du 1er août 2025, nous déclarons les formations santé-sécurité dans le Passeport de prévention national. La notice stagiaire est à remettre à chaque participant. Si un salarié refuse de communiquer son NIR, merci de lui faire signer la décharge jointe.
 
 Concernant les convocations, chacune contient un QR code permettant aux stagiaires de se connecter à notre portail en ligne. Ils pourront y renseigner leurs informations personnelles ainsi que participer à un test de positionnement avant le début de la formation. Ce test n'a aucun caractère certificatif : il vise uniquement à évaluer leur niveau de connaissances préalable afin de mieux adapter la formation à leur niveau.
 
@@ -198,6 +203,28 @@ Nous vous remercions pour votre confiance et restons à votre disposition.`)
           console.error('Erreur génération analyse besoin:', e)
           addLog('⚠️ Erreur génération analyse du besoin')
         }
+
+        // ── DOCUMENTS PASSEPORT PRÉVENTION (3 PDF depuis Storage) ──
+        addLog('Documents Passeport Prévention...')
+        const passeportDocs = [
+          { id: 'notice_stagiaire_pp', path: 'templates/passeport-prevention/Notice_Passeport_Prevention_Stagiaire_V2_AccessFormation.pdf', name: 'Notice_Stagiaire_Passeport_Prevention.pdf' },
+          { id: 'notice_employeur_pp', path: 'templates/passeport-prevention/Notice_Passeport_Prevention_Employeur_V2_AccessFormation.pdf', name: 'Notice_Employeur_Passeport_Prevention.pdf' },
+          { id: 'decharge_nir_pp', path: 'templates/passeport-prevention/Decharge_Refus_NIR_Passeport_Prevention_AccessFormation.pdf', name: 'Decharge_Refus_NIR_Passeport_Prevention.pdf' },
+        ]
+        for (const doc of passeportDocs) {
+          try {
+            const { data: blob, error: dlError } = await supabase.storage
+              .from('documents')
+              .download(doc.path)
+            if (dlError) throw dlError
+            const base64 = await blobToBase64(blob)
+            files.push({ id: doc.id, name: doc.name, base64, size: base64.length })
+          } catch (e) {
+            console.error(`Erreur téléchargement ${doc.name}:`, e)
+            addLog(`⚠️ ${doc.name} non trouvé dans Storage`)
+          }
+        }
+        addLog('✅ Documents Passeport Prévention ajoutés')
 
       } else {
         // ── CERTIFICATS ──
