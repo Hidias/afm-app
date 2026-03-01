@@ -7,6 +7,7 @@ import nodemailer from 'nodemailer'
 import { createClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
 import { saveToSentFolder } from './_lib/save-to-sent.js'
+import { buildSignatureHTML, wrapEmailHTML, SIGNATURES as SIG_DATA } from './_lib/mailer.js'
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL,
@@ -24,67 +25,11 @@ function decrypt(encryptedText) {
   return decrypted
 }
 
-// Signatures HTML par expediteur
-// senderEmail = adresse FROM réelle pour l'envoi SMTP
-const SIGNATURES = {
-  Hicham: {
-    name: 'Hicham SAIDI',
-    title: 'Dirigeant associé',
-    phone: '06 35 20 04 28',
-    email: 'hicham.saidi@accessformation.pro',
-    senderEmail: 'hicham.saidi@accessformation.pro',
-  },
-  Maxime: {
-    name: 'Maxime LANGLAIS',
-    title: 'Dirigeant associé',
-    phone: '07 83 51 17 95',
-    email: 'maxime.langlais@accessformation.pro',
-    senderEmail: 'maxime.langlais@accessformation.pro',
-  },
-  Marine: {
-    name: 'Marine',
-    title: '',
-    phone: '02 46 56 57 54',
-    email: 'entreprise@accessformation.pro',
-    senderEmail: 'entreprise@accessformation.pro',
-  },
-}
-
-function buildSignatureHTML(caller) {
-  const sig = SIGNATURES[caller] || SIGNATURES.Marine
-  return `
-    <table cellpadding="0" cellspacing="0" style="font-family: Arial, sans-serif; margin-top: 16px; border-collapse: collapse; width: 440px;">
-      <tr>
-        <td bgcolor="#1a2e3d" style="background-color: #1a2e3d; padding: 14px 18px; border-radius: 8px 8px 0 0;">
-          <p style="margin: 0; font-size: 15px; font-weight: bold; color: #ffffff;">${sig.name}</p>
-          ${sig.title ? `<p style="margin: 2px 0 0 0; font-size: 11px; color: rgba(255,255,255,0.7);">${sig.title}</p>` : ''}
-        </td>
-      </tr>
-      <tr>
-        <td bgcolor="#f8f9fa" style="background-color: #f8f9fa; padding: 12px 18px; border-left: 1px solid #e5e7eb; border-right: 1px solid #e5e7eb;">
-          <p style="margin: 0 0 4px 0; font-size: 13px; font-weight: bold; color: #1a2e3d;">ACCESS FORMATION</p>
-          <p style="margin: 0 0 1px 0; font-size: 12px; color: #555;">📞 ${sig.phone} · ✉️ <a href="mailto:${sig.email}" style="color: #2563eb; text-decoration: none;">${sig.email}</a></p>
-          <p style="margin: 0; font-size: 12px;">🌐 <a href="https://www.accessformation.pro" style="color: #2563eb; text-decoration: none;">www.accessformation.pro</a></p>
-        </td>
-      </tr>
-      <tr>
-        <td bgcolor="#c8993c" style="background-color: #c8993c; padding: 5px 18px; border-radius: 0 0 8px 8px;">
-          <p style="margin: 0; font-size: 10px; color: #1a2e3d; font-weight: bold; text-transform: uppercase; letter-spacing: 1.2px; text-align: center;">Organisme de formation certifié Qualiopi</p>
-        </td>
-      </tr>
-    </table>
-  `
-}
-
-function wrapEmailHTML(body, caller) {
-  const signature = buildSignatureHTML(caller)
-  return `
-    <div style="font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #333; max-width: 650px;">
-      ${body}
-      <p style="margin-top: 16px;">Bien cordialement,</p>
-      ${signature}
-    </div>
-  `
+// Signatures importées depuis _lib/mailer.js
+// senderEmail par caller pour l'envoi SMTP
+function getSenderEmail(caller) {
+  const sig = SIG_DATA[caller] || SIG_DATA.Marine
+  return sig.senderEmail
 }
 
 // Trouver la config SMTP pour un email donné, avec fallback intelligent
@@ -130,8 +75,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Parametres manquants: to, subject, body requis' })
     }
 
-    const callerInfo = SIGNATURES[caller] || SIGNATURES.Marine
-    const senderEmail = callerInfo.senderEmail
+    const senderEmail = getSenderEmail(caller)
     const html = wrapEmailHTML(body, caller)
 
     // Chercher la config SMTP correspondant au sender
