@@ -145,10 +145,19 @@ export const SIGNATURES = {
   Marine: {
     name: 'Marine',
     title: '',
-    phone: '02 46 56 57 54',
+    phone: '02 98 90 30 24',
     email: 'contact@accessformation.pro',
-    senderEmail: 'contact@accessformation.pro',
+    senderEmail: 'entreprise@accessformation.pro',
   },
+}
+
+/**
+ * Détermine le caller (Hicham/Maxime/Marine) depuis une adresse email
+ */
+export function getCallerByEmail(email) {
+  if (email?.includes('hicham')) return 'Hicham'
+  if (email?.includes('maxime')) return 'Maxime'
+  return 'Marine'
 }
 
 /**
@@ -177,4 +186,18 @@ export function buildSignatureHTML(caller) {
         </td>
       </tr>
     </table>`
+}
+
+/**
+ * Wrap un body HTML avec "Bien cordialement," + signature
+ */
+export function wrapEmailHTML(body, caller) {
+  const signature = buildSignatureHTML(caller)
+  return `
+    <div style="font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #333; max-width: 650px;">
+      ${body}
+      <p style="margin-top: 16px;">Bien cordialement,</p>
+      ${signature}
+    </div>
+  `
 }
