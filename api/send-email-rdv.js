@@ -5,6 +5,7 @@
 import nodemailer from 'nodemailer'
 import { createClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
+import { buildSignatureHTML, getCallerByEmail } from './_lib/mailer.js'
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL,
@@ -119,33 +120,11 @@ export default async function handler(req, res) {
       }
     }
 
-    // 5. Préparer le corps avec signature
+    // 5. Préparer le corps avec signature pro
     let htmlBody = body.replace(/\n/g, '<br>')
 
-    const signatures = {
-      'hicham.saidi@accessformation.pro': `
-<br><br>
-À très bientôt.<br>
-Bien cordialement,<br>
-<br>
-<strong>Hicham</strong><br>
-Access Formation<br>
-06 35 20 04 28<br>
-<a href="mailto:hicham.saidi@accessformation.pro">hicham.saidi@accessformation.pro</a>
-      `,
-      'maxime.langlais@accessformation.pro': `
-<br><br>
-À très bientôt.<br>
-Bien cordialement,<br>
-<br>
-<strong>Maxime</strong><br>
-Access Formation<br>
-07 83 51 17 95<br>
-<a href="mailto:maxime.langlais@accessformation.pro">maxime.langlais@accessformation.pro</a>
-      `
-    }
-
-    htmlBody += signatures[emailConfig.email] || ''
+    const caller = getCallerByEmail(emailConfig.email)
+    htmlBody += `<br><br><p style="margin: 0;">Bien cordialement,</p>${buildSignatureHTML(caller)}`
 
     const mailOptions = {
       from: `"${emailConfig.email.split('@')[0]}" <${emailConfig.email}>`,
