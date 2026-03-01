@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
-import { FileCheck, Printer, Download, Save, AlertCircle, CheckCircle, Calendar, Eraser } from 'lucide-react'
+import { FileCheck, Printer, Download, Save, AlertCircle, CheckCircle, Calendar, Eraser, Upload, Eye, Trash2, Paperclip } from 'lucide-react'
 import toast from 'react-hot-toast'
 import SignatureCanvas from 'react-signature-canvas'
 import { downloadNeedsAnalysisPDF } from '../lib/needsAnalysisPDF'
@@ -26,6 +26,8 @@ export default function SessionNeedsAnalysis({ session, organization }) {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [showForm, setShowForm] = useState(false)
+  const [scanDoc, setScanDoc] = useState(null) // document scan uploadé
+  const [uploadingScan, setUploadingScan] = useState(false)
   const [formData, setFormData] = useState({
     analysis_date: new Date().toISOString().split('T')[0], // Date du jour par défaut
     context_reasons: [],
@@ -198,6 +200,20 @@ export default function SessionNeedsAnalysis({ session, organization }) {
       console.error('Erreur chargement analyse:', error)
     } finally {
       setLoading(false)
+      // Charger le scan uploadé (indépendant de l'analyse formulaire)
+      try {
+        const { data: scanData } = await supabase
+          .from('session_documents')
+          .select('*')
+          .eq('session_id', session.id)
+          .eq('document_type', 'needs_analysis')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+        setScanDoc(scanData || null)
+      } catch (e) {
+        console.error('Erreur chargement scan analyse:', e)
+      }
     }
   }
 
@@ -284,6 +300,75 @@ export default function SessionNeedsAnalysis({ session, organization }) {
     downloadNeedsAnalysisPDF(session, analysis, false, organization)
   }
 
+  // ── Scan upload/view/delete ──
+  const handleScanUpload = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const maxSize = 15 * 1024 * 1024
+    if (file.size > maxSize) {
+      toast.error('Fichier trop volumineux (max 15 Mo)')
+      return
+    }
+    setUploadingScan(true)
+    try {
+      const fileName = `${Date.now()}_analyse_besoin_${file.name}`
+      const filePath = `sessions/${session.id}/${fileName}`
+
+      const { error: uploadError } = await supabase.storage
+        .from('documents')
+        .upload(filePath, file)
+      if (uploadError) throw uploadError
+
+      const { data: urlData } = supabase.storage
+        .from('documents')
+        .getPublicUrl(filePath)
+
+      const { data: docRecord, error: insertError } = await supabase
+        .from('session_documents')
+        .insert([{
+          session_id: session.id,
+          document_type: 'needs_analysis',
+          file_path: filePath,
+          file_name: fileName,
+          file_url: urlData?.publicUrl || null,
+        }])
+        .select()
+        .single()
+      if (insertError) throw insertError
+
+      setScanDoc(docRecord)
+      toast.success('✅ Scan importé')
+    } catch (err) {
+      console.error('Erreur upload scan:', err)
+      toast.error('Erreur lors de l\'upload')
+    } finally {
+      setUploadingScan(false)
+      e.target.value = ''
+    }
+  }
+
+  const handleViewScan = async () => {
+    if (!scanDoc?.file_path) return
+    const { data } = await supabase.storage
+      .from('documents')
+      .createSignedUrl(scanDoc.file_path, 3600)
+    if (data?.signedUrl) window.open(data.signedUrl, '_blank')
+    else toast.error('Impossible d\'ouvrir le fichier')
+  }
+
+  const handleDeleteScan = async () => {
+    if (!scanDoc) return
+    if (!confirm('Supprimer ce scan ?')) return
+    try {
+      await supabase.storage.from('documents').remove([scanDoc.file_path])
+      await supabase.from('session_documents').delete().eq('id', scanDoc.id)
+      setScanDoc(null)
+      toast.success('Scan supprimé')
+    } catch (err) {
+      toast.error('Erreur suppression')
+    }
+  }
+
   if (loading) {
     return <div className="text-center py-4 text-gray-500">Chargement...</div>
   }
@@ -291,7 +376,7 @@ export default function SessionNeedsAnalysis({ session, organization }) {
   return (
     <div className="space-y-4">
       {/* Header avec boutons */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-2">
           <FileCheck className="w-5 h-5 text-blue-600" />
           <h3 className="font-semibold">Analyse du besoin</h3>
@@ -299,6 +384,11 @@ export default function SessionNeedsAnalysis({ session, organization }) {
             <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded flex items-center gap-1">
               <CheckCircle className="w-3 h-3" />
               Complétée
+            </span>
+          ) : scanDoc ? (
+            <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded flex items-center gap-1">
+              <Paperclip className="w-3 h-3" />
+              Scan importé
             </span>
           ) : (
             <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded flex items-center gap-1">
@@ -308,7 +398,7 @@ export default function SessionNeedsAnalysis({ session, organization }) {
           )}
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <button
             onClick={handlePrintBlank}
             className="btn btn-sm btn-secondary flex items-center gap-1"
@@ -327,6 +417,14 @@ export default function SessionNeedsAnalysis({ session, organization }) {
             </button>
           )}
 
+          {/* Bouton import scan */}
+          <label className={`btn btn-sm btn-secondary flex items-center gap-1 cursor-pointer ${uploadingScan ? 'opacity-50 pointer-events-none' : ''}`}>
+            <Upload className="w-4 h-4" />
+            {uploadingScan ? 'Upload...' : 'Importer un scan'}
+            <input type="file" className="hidden" onChange={handleScanUpload} disabled={uploadingScan}
+              accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.tiff" />
+          </label>
+
           <button
             onClick={() => setShowForm(!showForm)}
             className="btn btn-sm btn-primary flex items-center gap-1"
@@ -336,6 +434,27 @@ export default function SessionNeedsAnalysis({ session, organization }) {
           </button>
         </div>
       </div>
+
+      {/* Scan importé — affichage compact */}
+      {scanDoc && !showForm && (
+        <div className="flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-lg px-4 py-2.5">
+          <Paperclip className="w-4 h-4 text-blue-500 flex-shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-blue-800 truncate">
+              {scanDoc.file_name?.replace(/^\d+_/, '') || 'Scan analyse du besoin'}
+            </p>
+            <p className="text-xs text-blue-500">
+              Importé le {new Date(scanDoc.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+            </p>
+          </div>
+          <button onClick={handleViewScan} className="btn btn-sm btn-secondary flex items-center gap-1" title="Ouvrir">
+            <Eye className="w-4 h-4" /> Voir
+          </button>
+          <button onClick={handleDeleteScan} className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors" title="Supprimer">
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {/* Formulaire */}
       {showForm && (
@@ -799,6 +918,14 @@ export default function SessionNeedsAnalysis({ session, organization }) {
                 'Aucune'
               }
             </div>
+            {scanDoc && (
+              <div>
+                <span className="font-medium">Scan :</span>{' '}
+                <button onClick={handleViewScan} className="text-blue-600 hover:underline">
+                  📎 Voir le scan importé
+                </button>
+              </div>
+            )}
           </div>
           {analysis.filled_at && (
             <div className="mt-2 text-xs text-gray-500">
