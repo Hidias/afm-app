@@ -338,13 +338,26 @@ export default function ClientDetail() {
 
   async function saveClient() {
     const sirenVal = editForm.siren || (editForm.siret ? editForm.siret.slice(0, 9) : null)
+    
+    // Auto-promotion : si status = 'a_completer' et champs clés remplis → passer en 'prospect'
+    let finalStatus = editForm.status
+    if (finalStatus === 'a_completer') {
+      const hasName = !!editForm.name?.trim()
+      const hasContact = !!(editForm.contact_email?.trim() || editForm.contact_phone?.trim())
+      const hasSiret = !!editForm.siret?.trim()
+      if (hasName && hasContact && hasSiret) {
+        finalStatus = 'prospect'
+        toast.success('Fiche complétée → statut passé en Prospect ✓', { icon: '🎯' })
+      }
+    }
+    
     const { error } = await supabase.from('clients').update({
       name: editForm.name, siret: editForm.siret, siren: sirenVal,
       address: editForm.address,
       postal_code: editForm.postal_code, city: editForm.city,
       contact_email: editForm.contact_email, contact_phone: editForm.contact_phone,
       contact_name: editForm.contact_name, contact_function: editForm.contact_function,
-      website: editForm.website, notes: editForm.notes, status: editForm.status,
+      website: editForm.website, notes: editForm.notes, status: finalStatus,
       opco_name: editForm.opco_name || null,
       client_type: editForm.client_type || 'entreprise',
       group_name: editForm.group_name || null,
@@ -700,6 +713,61 @@ export default function ClientDetail() {
           )}
         </div>
       </div>
+
+      {/* ══════ BANNIÈRE FICHE À COMPLÉTER ══════ */}
+      {client.status === 'a_completer' && (
+        <div className="bg-purple-50 border border-purple-200 rounded-xl px-4 py-3">
+          <div className="flex items-start gap-3">
+            <div className="w-8 h-8 bg-purple-500 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5">
+              <Edit className="w-4 h-4 text-white" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-bold text-purple-800">Fiche à compléter</p>
+              <p className="text-xs text-purple-600 mt-0.5">
+                Complétez les informations manquantes ci-dessous. La fiche passera automatiquement en statut "Prospect" une fois les champs clés remplis.
+              </p>
+              <div className="flex flex-wrap gap-2 mt-2">
+                {!client.siret && (
+                  <span className="inline-flex items-center gap-1 px-2 py-1 bg-purple-100 text-purple-700 rounded-full text-[11px] font-medium">
+                    <CreditCard className="w-3 h-3" /> SIRET manquant
+                  </span>
+                )}
+                {!client.contact_email && (
+                  <span className="inline-flex items-center gap-1 px-2 py-1 bg-purple-100 text-purple-700 rounded-full text-[11px] font-medium">
+                    <Mail className="w-3 h-3" /> Email manquant
+                  </span>
+                )}
+                {!client.contact_phone && (
+                  <span className="inline-flex items-center gap-1 px-2 py-1 bg-purple-100 text-purple-700 rounded-full text-[11px] font-medium">
+                    <Phone className="w-3 h-3" /> Téléphone manquant
+                  </span>
+                )}
+                {!client.address && (
+                  <span className="inline-flex items-center gap-1 px-2 py-1 bg-purple-100 text-purple-700 rounded-full text-[11px] font-medium">
+                    <MapPin className="w-3 h-3" /> Adresse manquante
+                  </span>
+                )}
+                {!client.contact_name && (
+                  <span className="inline-flex items-center gap-1 px-2 py-1 bg-purple-100 text-purple-700 rounded-full text-[11px] font-medium">
+                    <User className="w-3 h-3" /> Contact manquant
+                  </span>
+                )}
+                {client.siret && client.contact_email && client.contact_phone && (
+                  <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 rounded-full text-[11px] font-bold">
+                    ✅ Champs clés remplis — enregistrez pour valider
+                  </span>
+                )}
+              </div>
+              {!editing && (
+                <button onClick={() => setEditing(true)}
+                  className="mt-2 px-3 py-1.5 bg-purple-600 text-white text-xs font-medium rounded-lg hover:bg-purple-700 transition-colors inline-flex items-center gap-1">
+                  <Edit className="w-3.5 h-3.5" /> Compléter maintenant
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ══════ FICHE CLIENT ══════ */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
