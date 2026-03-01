@@ -38,7 +38,7 @@ IDENTITÉ :
 - Organisme de formation professionnelle santé/sécurité au travail
 - 24 rue Kerbleiz, 29900 Concarneau (Bretagne)
 - Certifié Qualiopi | NDA : 53 29 10261 29
-- Contact : 02 46 56 57 54 | contact@accessformation.pro
+- Contact : 02 98 90 30 24 | contact@accessformation.pro
 - Co-dirigeants : Hicham SAIDI et Maxime LANGLAIS (formateurs)
 
 FORMATIONS PROPOSÉES :
