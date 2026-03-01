@@ -1,9 +1,11 @@
 // ═══════════════════════════════════════════════════════════════
-// WeeklyPlanner.jsx — Planning semaine simplifié v4
-// Affichage liste épuré, toute la fonctionnalité préservée
+// WeeklyPlanner.jsx — Planning semaine v5
+// + Ajout RDV commerciaux depuis le calendrier
+// + Drag & drop RDV / Rappels / Tâches entre jours
+// + Encart prospects à compléter
 // ═══════════════════════════════════════════════════════════════
 
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuthStore } from '../lib/store'
 import { Link } from 'react-router-dom'
@@ -11,7 +13,8 @@ import {
   ChevronLeft, ChevronRight, Plus, X, Phone,
   Calendar, Clock, AlertTriangle, Ban, FileText,
   Loader2, Flame, Check, Send, UserPlus, MessageSquare,
-  TrendingUp, Zap, Info, ExternalLink
+  TrendingUp, Zap, Info, ExternalLink, Search, Building2,
+  GripVertical, MapPin, User
 } from 'lucide-react'
 import { format, startOfWeek, addDays, addWeeks, isToday, getDay } from 'date-fns'
 import { fr } from 'date-fns/locale'
@@ -45,6 +48,14 @@ const FORMATIONS = [
   'Gestes & Postures / TMS', 'Incendie (EPI, extincteurs, évacuation)',
   'Habilitation électrique B0/H0V', 'Conduite chariot élévateur R489',
   'Conduite gerbeur R485', 'DUERP (Document Unique)', 'Formation sur mesure',
+]
+
+const RDV_TYPES = [
+  { value: 'decouverte', label: '🤝 Découverte' },
+  { value: 'telephone', label: '📞 Téléphone' },
+  { value: 'visio', label: '💻 Visio' },
+  { value: 'sur_place', label: '📍 Sur place' },
+  { value: 'relance', label: '🔄 Relance' },
 ]
 
 // ─── Helpers ─────────────────────────────────────────────
@@ -81,18 +92,39 @@ export default function WeeklyPlanner() {
   const [callbacks, setCallbacks] = useState([])
   const [devisRelance, setDevisRelance] = useState([])
   const [planningEvents, setPlanningEvents] = useState([])
+  const [incompleteProspects, setIncompleteProspects] = useState([])
 
   // Stats
   const [todayCallCount, setTodayCallCount] = useState(0)
   const [weekCallStats, setWeekCallStats] = useState({ total: 0, chaud: 0, tiede: 0, rdv: 0 })
 
-  // UI
+  // UI — Modal ajout événement
   const [showAddModal, setShowAddModal] = useState(false)
   const [addDate, setAddDate] = useState(null)
   const [addForm, setAddForm] = useState({ event_type: 'indispo', title: '', start_time: '09:00', end_time: '12:00', description: '' })
   const [relanceSending, setRelanceSending] = useState(null)
   const [addConflicts, setAddConflicts] = useState([])
-  const [expandedDay, setExpandedDay] = useState(null) // Pour mobile
+  const [expandedDay, setExpandedDay] = useState(null)
+
+  // UI — Modal ajout RDV
+  const [showRdvModal, setShowRdvModal] = useState(false)
+  const [rdvDate, setRdvDate] = useState(null)
+  const [rdvMode, setRdvMode] = useState('existing') // 'existing' | 'new'
+  const [clientSearch, setClientSearch] = useState('')
+  const [clientResults, setClientResults] = useState([])
+  const [selectedClient, setSelectedClient] = useState(null)
+  const [clientContacts, setClientContacts] = useState([])
+  const [rdvForm, setRdvForm] = useState({
+    rdv_time: '14:00', rdv_type: 'decouverte', contact_id: null,
+    contact_name: '', notes: '', formations_interet: [],
+    new_company: '', new_contact_name: '', new_phone: '', new_email: '',
+  })
+  const [rdvSaving, setRdvSaving] = useState(false)
+  const searchTimeoutRef = useRef(null)
+
+  // UI — Drag & Drop
+  const [dragItem, setDragItem] = useState(null)
+  const [dragOverDay, setDragOverDay] = useState(null)
 
   // ─── Calcul des dates ───────────────────────────────────
   const weekStart = useMemo(() => {
@@ -113,13 +145,13 @@ export default function WeeklyPlanner() {
     const startStr = format(weekStart, 'yyyy-MM-dd')
     const endStr = format(addDays(weekStart, 6), 'yyyy-MM-dd')
     try {
-      const [sessR, rdvR, cbR, devisR, evtR] = await Promise.all([
+      const [sessR, rdvR, cbR, devisR, evtR, prospectsR] = await Promise.all([
         supabase.from('sessions')
           .select('id, reference, start_date, end_date, start_time, end_time, location_city, status, trainer_id, courses(title), clients(name), trainers(first_name, last_name)')
           .gte('start_date', startStr).lte('start_date', endStr)
           .neq('status', 'cancelled'),
         supabase.from('prospect_rdv')
-          .select('id, rdv_date, rdv_time, contact_name, conducted_by, status, temperature, notes, formations_interet, client_id, clients(name)')
+          .select('id, rdv_date, rdv_time, contact_name, conducted_by, status, temperature, notes, formations_interet, rdv_type, client_id, clients(name)')
           .gte('rdv_date', startStr).lte('rdv_date', endStr)
           .eq('conducted_by', 'Hicham')
           .in('status', ['a_prendre', 'prevu', 'planifie']),
@@ -134,6 +166,12 @@ export default function WeeklyPlanner() {
         supabase.from('user_planning_events')
           .select('*').eq('user_id', user?.id)
           .gte('event_date', startStr).lte('event_date', endStr),
+        // Prospects à compléter (status = 'a_completer', quel que soit le type)
+        supabase.from('clients')
+          .select('id, name, city, contact_phone, contact_email, siret, created_at')
+          .eq('status', 'a_completer')
+          .order('created_at', { ascending: false })
+          .limit(10),
       ])
 
       // Sessions Hicham uniquement
@@ -146,6 +184,7 @@ export default function WeeklyPlanner() {
       const rdvData = rdvR.data || []
       setRdvs(rdvData)
       setPlanningEvents(evtR.data || [])
+      setIncompleteProspects(prospectsR.data || [])
 
       // Callbacks dédupliqués avec RDV
       const rdvClientIds = new Set(rdvData.map(r => r.client_id).filter(Boolean))
@@ -224,39 +263,50 @@ export default function WeeklyPlanner() {
           time: `${fmtTime(s.start_time)} – ${fmtTime(s.end_time)}`,
           location: s.location_city || '',
           link: `/sessions/${s.id}`,
+          draggable: false,
         })
       })
 
       rdvs.filter(r => r.rdv_date === dateStr).forEach(r => {
         events.push({
-          id: `rdv-${r.id}`, type: 'rdv',
+          id: `rdv-${r.id}`, type: 'rdv', dbId: r.id,
           title: r.clients?.name || 'RDV',
           subtitle: r.contact_name ? `👤 ${r.contact_name}` : '',
           time: r.rdv_time ? fmtTime(r.rdv_time) : 'Heure à définir',
           temperature: r.temperature,
           formations: r.formations_interet,
           link: `/prospection`,
+          draggable: true,
+          dragType: 'rdv',
+          dragDate: r.rdv_date,
         })
       })
 
       callbacks.filter(c => c.callback_date === dateStr).forEach(c => {
         events.push({
-          id: `cb-${c.id}`, type: 'callback',
+          id: `cb-${c.id}`, type: 'callback', dbId: c.id,
           title: c.clients?.name || 'Rappel',
           subtitle: c.contact_name ? `👤 ${c.contact_name}` : '',
           time: c.callback_time ? fmtTime(c.callback_time) : '',
           notes: c.notes,
           callId: c.id,
+          draggable: true,
+          dragType: 'callback',
+          dragDate: c.callback_date,
         })
       })
 
       planningEvents.filter(e => e.event_date === dateStr).forEach(e => {
+        const isDraggable = ['task', 'adm', 'phoning_manual'].includes(e.event_type)
         events.push({
-          id: `evt-${e.id}`, type: e.event_type,
+          id: `evt-${e.id}`, type: e.event_type, dbId: e.id,
           title: e.title,
           subtitle: e.description || '',
           time: `${fmtTime(e.start_time)} – ${fmtTime(e.end_time)}`,
           eventId: e.id,
+          draggable: isDraggable,
+          dragType: 'event',
+          dragDate: e.event_date,
         })
       })
 
@@ -296,16 +346,58 @@ export default function WeeklyPlanner() {
   }, [showAddModal, addDate, addForm.event_type, addForm.start_time, addForm.end_time, dayEvents])
 
   // ═══════════════════════════════════════════════════════════
+  // RECHERCHE CLIENTS (autocomplete RDV)
+  // ═══════════════════════════════════════════════════════════
+  const searchClients = useCallback(async (query) => {
+    if (!query || query.length < 2) { setClientResults([]); return }
+    try {
+      const { data } = await supabase.from('clients')
+        .select('id, name, city, contact_name, contact_phone, contact_email, siret, type')
+        .or(`name.ilike.%${query}%,city.ilike.%${query}%,siret.ilike.%${query}%`)
+        .order('name')
+        .limit(8)
+      setClientResults(data || [])
+    } catch (err) { console.error('Search clients error:', err) }
+  }, [])
+
+  useEffect(() => {
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
+    searchTimeoutRef.current = setTimeout(() => searchClients(clientSearch), 300)
+    return () => clearTimeout(searchTimeoutRef.current)
+  }, [clientSearch, searchClients])
+
+  const handleSelectClient = async (client) => {
+    setSelectedClient(client)
+    setClientSearch(client.name)
+    setClientResults([])
+    try {
+      const { data } = await supabase.from('client_contacts')
+        .select('id, name, first_name, last_name, email, phone, mobile, fonction, is_primary')
+        .eq('client_id', client.id)
+        .order('is_primary', { ascending: false })
+      setClientContacts(data || [])
+      if (data?.length > 0) {
+        const primary = data.find(c => c.is_primary) || data[0]
+        setRdvForm(f => ({
+          ...f,
+          contact_id: primary.id,
+          contact_name: primary.name || `${primary.first_name || ''} ${primary.last_name || ''}`.trim(),
+        }))
+      }
+    } catch (err) { console.error('Load contacts error:', err) }
+  }
+
+  // ═══════════════════════════════════════════════════════════
   // ACTIONS
   // ═══════════════════════════════════════════════════════════
 
+  // ── Ajout événement (Indispo/ADM/Tâche/Phoning) ──
   const handleAddEvent = async () => {
     if (!addForm.title.trim()) { toast.error('Titre requis'); return }
     if (timeToMin(addForm.start_time) >= timeToMin(addForm.end_time)) { toast.error('Heure de fin invalide'); return }
     const dateStr = format(addDate, 'yyyy-MM-dd')
     let rescheduledCount = 0
 
-    // ✅ Si indispo : repousser les callbacks en conflit au prochain jour ouvré
     if (addForm.event_type === 'indispo') {
       const conflictCallbacks = (dayEvents[dateStr] || []).filter(e =>
         e.type === 'callback' && e.callId &&
@@ -336,6 +428,83 @@ export default function WeeklyPlanner() {
     } catch (err) { toast.error('Erreur: ' + err.message) }
   }
 
+  // ── Ajout RDV commercial ──
+  const handleCreateRdv = async () => {
+    const dateStr = format(rdvDate, 'yyyy-MM-dd')
+    setRdvSaving(true)
+    try {
+      let clientId = selectedClient?.id
+
+      // Mode nouveau prospect
+      if (rdvMode === 'new') {
+        if (!rdvForm.new_company.trim()) { toast.error('Nom entreprise requis'); setRdvSaving(false); return }
+        const { data: newClient, error: clientErr } = await supabase.from('clients').insert({
+          name: rdvForm.new_company.trim(),
+          contact_name: rdvForm.new_contact_name.trim() || null,
+          contact_phone: rdvForm.new_phone.trim() || null,
+          contact_email: rdvForm.new_email.trim() || null,
+          type: 'prospect',
+          status: 'a_completer',
+          proprietaire: 'Hicham',
+        }).select().single()
+        if (clientErr) throw clientErr
+        clientId = newClient.id
+
+        // Créer contact si nom fourni
+        if (rdvForm.new_contact_name.trim()) {
+          await supabase.from('client_contacts').insert({
+            client_id: clientId,
+            name: rdvForm.new_contact_name.trim(),
+            phone: rdvForm.new_phone.trim() || null,
+            email: rdvForm.new_email.trim() || null,
+            is_primary: true,
+          })
+        }
+      } else {
+        if (!clientId) { toast.error('Sélectionnez un client'); setRdvSaving(false); return }
+      }
+
+      // Créer le RDV
+      const { error: rdvErr } = await supabase.from('prospect_rdv').insert({
+        client_id: clientId,
+        rdv_date: dateStr,
+        rdv_time: rdvForm.rdv_time || null,
+        rdv_type: rdvForm.rdv_type,
+        conducted_by: 'Hicham',
+        status: 'prevu',
+        contact_name: rdvMode === 'new' ? rdvForm.new_contact_name.trim() || null : rdvForm.contact_name || null,
+        contact_email: rdvMode === 'new' ? rdvForm.new_email.trim() || null : null,
+        contact_phone: rdvMode === 'new' ? rdvForm.new_phone.trim() || null : null,
+        formations_interet: rdvForm.formations_interet.length > 0 ? rdvForm.formations_interet : null,
+        notes: rdvForm.notes.trim() || null,
+        temperature: 'tiede',
+        source: 'planner_hicham',
+      })
+      if (rdvErr) throw rdvErr
+
+      toast.success(`RDV ajouté${rdvMode === 'new' ? ' + prospect créé' : ''} ✓`)
+      closeRdvModal()
+      loadWeekData()
+    } catch (err) { toast.error('Erreur: ' + err.message) }
+    finally { setRdvSaving(false) }
+  }
+
+  const closeRdvModal = () => {
+    setShowRdvModal(false)
+    setRdvDate(null)
+    setRdvMode('existing')
+    setClientSearch('')
+    setClientResults([])
+    setSelectedClient(null)
+    setClientContacts([])
+    setRdvForm({
+      rdv_time: '14:00', rdv_type: 'decouverte', contact_id: null,
+      contact_name: '', notes: '', formations_interet: [],
+      new_company: '', new_contact_name: '', new_phone: '', new_email: '',
+    })
+  }
+
+  // ── Suppression événement ──
   const handleDeleteEvent = async (eventId) => {
     if (!confirm('Supprimer ?')) return
     try {
@@ -345,6 +514,7 @@ export default function WeeklyPlanner() {
     } catch (err) { toast.error('Erreur: ' + err.message) }
   }
 
+  // ── Callback fait ──
   const handleCallbackDone = async (callId) => {
     try {
       await supabase.from('prospect_calls').update({ needs_callback: false }).eq('id', callId)
@@ -398,15 +568,79 @@ export default function WeeklyPlanner() {
   }
 
   // ═══════════════════════════════════════════════════════════
+  // DRAG & DROP (HTML5 natif — même pattern que Dashboard)
+  // ═══════════════════════════════════════════════════════════
+  const handleDragStart = (e, event) => {
+    if (!event.draggable) { e.preventDefault(); return }
+    setDragItem(event)
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', event.id)
+    // Rendre la carte fantôme semi-transparente
+    requestAnimationFrame(() => { if (e.target) e.target.style.opacity = '0.4' })
+  }
+
+  const handleDragEnd = (e) => {
+    if (e.target) e.target.style.opacity = '1'
+    setDragItem(null)
+    setDragOverDay(null)
+  }
+
+  const handleDragOverDay = (e, dateStr) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    if (dragOverDay !== dateStr) setDragOverDay(dateStr)
+  }
+
+  const handleDragLeaveDay = (e) => {
+    // Vérifier qu'on quitte bien la colonne (pas un enfant)
+    const rect = e.currentTarget.getBoundingClientRect()
+    const x = e.clientX, y = e.clientY
+    if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
+      setDragOverDay(null)
+    }
+  }
+
+  const handleDropOnDay = async (e, targetDateStr) => {
+    e.preventDefault()
+    setDragOverDay(null)
+    if (!dragItem || dragItem.dragDate === targetDateStr) { setDragItem(null); return }
+
+    const { dragType, dbId } = dragItem
+    try {
+      if (dragType === 'rdv') {
+        await supabase.from('prospect_rdv').update({ rdv_date: targetDateStr }).eq('id', dbId)
+      } else if (dragType === 'callback') {
+        await supabase.from('prospect_calls').update({ callback_date: targetDateStr }).eq('id', dbId)
+      } else if (dragType === 'event') {
+        await supabase.from('user_planning_events').update({ event_date: targetDateStr }).eq('id', dbId)
+      }
+      toast.success(`Déplacé au ${format(new Date(targetDateStr + 'T12:00:00'), 'EEEE d', { locale: fr })} ✓`)
+      loadWeekData()
+    } catch (err) { toast.error('Erreur déplacement: ' + err.message) }
+    setDragItem(null)
+  }
+
+  // ═══════════════════════════════════════════════════════════
   // SUB-COMPONENTS
   // ═══════════════════════════════════════════════════════════
 
   const EventItem = ({ event }) => {
     const config = SLOT_TYPES[event.type] || SLOT_TYPES.task
     const isLink = !!event.link
+    const canDrag = event.draggable
 
     return (
-      <div className={`flex items-start gap-2 px-2.5 py-2 rounded-lg ${config.color} group relative`}>
+      <div
+        className={`flex items-start gap-1.5 px-2.5 py-2 rounded-lg ${config.color} group relative transition-all ${
+          canDrag ? 'cursor-grab active:cursor-grabbing hover:shadow-sm' : ''
+        } ${dragItem?.id === event.id ? 'opacity-30 scale-95' : ''}`}
+        draggable={canDrag}
+        onDragStart={(e) => handleDragStart(e, event)}
+        onDragEnd={handleDragEnd}
+      >
+        {canDrag && (
+          <GripVertical className="w-3 h-3 mt-1 text-current opacity-0 group-hover:opacity-30 flex-shrink-0 -ml-1 transition-opacity" />
+        )}
         <div className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${config.dot}`} />
         <div className="flex-1 min-w-0">
           {isLink ? (
@@ -449,13 +683,21 @@ export default function WeeklyPlanner() {
     const rdvCount = events.filter(e => e.type === 'rdv').length
     const cbCount = events.filter(e => e.type === 'callback').length
     const isEmpty = events.length === 0
+    const isDropTarget = dragOverDay === dateStr && dragItem?.dragDate !== dateStr
 
     return (
-      <div className={`flex flex-col rounded-xl border overflow-hidden transition-shadow hover:shadow-sm ${
-        isCurrentDay ? 'border-primary-400 ring-1 ring-primary-200' : 'border-gray-200'
-      }`}>
+      <div
+        className={`flex flex-col rounded-xl border overflow-hidden transition-all duration-150 ${
+          isDropTarget ? 'border-primary-500 ring-2 ring-primary-300 bg-primary-50/30 scale-[1.02] shadow-md' :
+          isCurrentDay ? 'border-primary-400 ring-1 ring-primary-200' : 'border-gray-200 hover:shadow-sm'
+        }`}
+        onDragOver={(e) => handleDragOverDay(e, dateStr)}
+        onDragLeave={handleDragLeaveDay}
+        onDrop={(e) => handleDropOnDay(e, dateStr)}
+      >
         {/* Header jour */}
-        <div className={`px-2.5 py-2 text-center border-b ${
+        <div className={`px-2.5 py-2 text-center border-b transition-colors ${
+          isDropTarget ? 'bg-primary-100 border-primary-300' :
           isCurrentDay ? 'bg-primary-50 border-primary-200' : 'bg-gray-50 border-gray-100'
         }`}>
           <p className={`text-[10px] font-bold uppercase tracking-wide ${isCurrentDay ? 'text-primary-600' : 'text-gray-500'}`}>
@@ -474,19 +716,28 @@ export default function WeeklyPlanner() {
         </div>
 
         {/* Events list */}
-        <div className="flex-1 p-1.5 space-y-1 min-h-[120px]">
+        <div className={`flex-1 p-1.5 space-y-1 min-h-[120px] transition-colors ${isDropTarget ? 'bg-primary-50/20' : ''}`}>
           {events.length === 0 ? (
-            <p className="text-[10px] text-gray-300 italic text-center pt-6">Rien de prévu</p>
+            <p className={`text-[10px] italic text-center pt-6 ${isDropTarget ? 'text-primary-400 font-medium' : 'text-gray-300'}`}>
+              {isDropTarget ? '↓ Déposer ici' : 'Rien de prévu'}
+            </p>
           ) : (
             events.map(e => <EventItem key={e.id} event={e} />)
           )}
         </div>
 
-        {/* Bouton ajouter */}
-        <button onClick={() => { setAddDate(date); setShowAddModal(true) }}
-          className="w-full py-1.5 text-[10px] text-gray-400 hover:text-primary-600 hover:bg-primary-50 transition-colors border-t border-gray-100 flex items-center justify-center gap-1">
-          <Plus className="w-3 h-3" /> Ajouter
-        </button>
+        {/* Boutons ajouter — split + Ajouter | RDV */}
+        <div className="flex border-t border-gray-100">
+          <button onClick={() => { setAddDate(date); setShowAddModal(true) }}
+            className="flex-1 py-1.5 text-[10px] text-gray-400 hover:text-primary-600 hover:bg-primary-50 transition-colors flex items-center justify-center gap-1">
+            <Plus className="w-3 h-3" /> Ajouter
+          </button>
+          <div className="w-px bg-gray-100" />
+          <button onClick={() => { setRdvDate(date); setShowRdvModal(true) }}
+            className="flex-1 py-1.5 text-[10px] text-gray-400 hover:text-green-600 hover:bg-green-50 transition-colors flex items-center justify-center gap-1">
+            <UserPlus className="w-3 h-3" /> RDV
+          </button>
+        </div>
       </div>
     )
   }
@@ -539,6 +790,38 @@ export default function WeeklyPlanner() {
         </div>
       </div>
 
+      {/* ═══ Encart prospects à compléter ═══ */}
+      {incompleteProspects.length > 0 && (
+        <div className="bg-orange-50 border border-orange-200 rounded-lg px-3 py-2">
+          <div className="flex items-center gap-2 mb-1.5">
+            <Building2 className="w-3.5 h-3.5 text-orange-500" />
+            <span className="text-xs font-bold text-orange-700">
+              {incompleteProspects.length} prospect{incompleteProspects.length > 1 ? 's' : ''} à compléter
+            </span>
+          </div>
+          <div className="space-y-1">
+            {incompleteProspects.slice(0, 5).map(p => {
+              const missing = []
+              if (!p.siret) missing.push('SIRET')
+              if (!p.contact_email) missing.push('Email')
+              if (!p.contact_phone) missing.push('Tél')
+              return (
+                <div key={p.id} className="flex items-center justify-between gap-2">
+                  <Link to={`/clients/${p.id}`} className="text-[11px] text-orange-600 hover:underline truncate flex-1">
+                    {p.name}{p.city ? ` (${p.city})` : ''}
+                    {missing.length > 0 && <span className="ml-1.5 text-orange-400">— manque : {missing.join(', ')}</span>}
+                  </Link>
+                  <Link to={`/clients/${p.id}`}
+                    className="flex-shrink-0 px-2 py-0.5 rounded text-[10px] font-semibold bg-orange-500 text-white hover:bg-orange-600 transition-colors">
+                    Compléter
+                  </Link>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Alerte devis à relancer */}
       {devisRelance.length > 0 && (
         <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2">
@@ -581,9 +864,12 @@ export default function WeeklyPlanner() {
             {SLOT_TYPES[k].label}
           </span>
         ))}
+        <span className="flex items-center gap-1 text-gray-300">
+          <GripVertical className="w-2.5 h-2.5" /> Glisser-déposer
+        </span>
       </div>
 
-      {/* ═══ MODAL AJOUT ÉVÉNEMENT ═══ */}
+      {/* ═══ MODAL AJOUT ÉVÉNEMENT (Indispo/ADM/Tâche/Phoning) ═══ */}
       {showAddModal && addDate && (
         <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4" onClick={() => setShowAddModal(false)}>
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-5" onClick={e => e.stopPropagation()}>
@@ -618,7 +904,7 @@ export default function WeeklyPlanner() {
                   <button key={q.l} onClick={() => setAddForm(f => ({ ...f, start_time: q.s, end_time: q.e }))} className="px-2 py-1 text-[10px] bg-gray-100 hover:bg-gray-200 rounded-full">{q.l}</button>
                 )}
               </div>
-              {/* ✅ Alertes conflits */}
+              {/* Alertes conflits */}
               {addForm.event_type === 'indispo' && addConflicts.length > 0 && (
                 <div className="rounded-lg border-2 border-amber-300 bg-amber-50 p-3">
                   <p className="text-xs font-bold text-amber-800 flex items-center gap-1 mb-1">
@@ -639,6 +925,200 @@ export default function WeeklyPlanner() {
               <div className="flex gap-2 pt-1">
                 <button onClick={() => setShowAddModal(false)} className="flex-1 py-2.5 text-sm border rounded-lg hover:bg-gray-50 font-medium text-gray-600">Annuler</button>
                 <button onClick={handleAddEvent} className="flex-1 py-2.5 text-sm bg-primary-600 text-white rounded-lg hover:bg-primary-700 font-medium shadow-sm">Ajouter</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══ MODAL AJOUT RDV COMMERCIAL ═══ */}
+      {showRdvModal && rdvDate && (
+        <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4" onClick={closeRdvModal}>
+          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-5" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="font-bold text-gray-900 flex items-center gap-2">
+                  <UserPlus className="w-4 h-4 text-green-600" />
+                  Nouveau RDV commercial
+                </h3>
+                <p className="text-xs text-gray-500 mt-0.5">{format(rdvDate, 'EEEE d MMMM yyyy', { locale: fr })}</p>
+              </div>
+              <button onClick={closeRdvModal} className="p-1 hover:bg-gray-100 rounded-lg"><X className="w-4 h-4" /></button>
+            </div>
+
+            <div className="space-y-4">
+              {/* Toggle client connu / nouveau */}
+              <div className="flex rounded-lg border border-gray-200 overflow-hidden">
+                <button onClick={() => { setRdvMode('existing'); setSelectedClient(null); setClientSearch('') }}
+                  className={`flex-1 px-3 py-2 text-xs font-semibold transition-colors ${rdvMode === 'existing' ? 'bg-green-500 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
+                  <Building2 className="w-3.5 h-3.5 inline mr-1" /> Client connu
+                </button>
+                <button onClick={() => { setRdvMode('new'); setSelectedClient(null); setClientSearch('') }}
+                  className={`flex-1 px-3 py-2 text-xs font-semibold transition-colors ${rdvMode === 'new' ? 'bg-orange-500 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
+                  <UserPlus className="w-3.5 h-3.5 inline mr-1" /> Nouveau prospect
+                </button>
+              </div>
+
+              {/* Mode client connu */}
+              {rdvMode === 'existing' && (
+                <div className="space-y-3">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
+                    <input type="text" value={clientSearch}
+                      onChange={e => { setClientSearch(e.target.value); setSelectedClient(null) }}
+                      placeholder="Rechercher (nom, ville, SIRET)..."
+                      className="w-full border rounded-lg pl-9 pr-3 py-2 text-sm focus:ring-2 focus:ring-green-300 outline-none"
+                      autoFocus />
+                    {clientResults.length > 0 && !selectedClient && (
+                      <div className="absolute z-10 w-full mt-1 bg-white border rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                        {clientResults.map(c => (
+                          <button key={c.id} onClick={() => handleSelectClient(c)}
+                            className="w-full text-left px-3 py-2 hover:bg-green-50 border-b border-gray-50 last:border-0 transition-colors">
+                            <span className="text-sm font-medium text-gray-900">{c.name}</span>
+                            <span className="text-[10px] text-gray-500 ml-2">
+                              {c.city && `📍 ${c.city}`}
+                              {c.siret && ` · ${c.siret}`}
+                            </span>
+                            {c.type === 'prospect' && (
+                              <span className="ml-2 text-[9px] bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded-full">Prospect</span>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  {selectedClient && (
+                    <div className="bg-green-50 border border-green-200 rounded-lg p-2.5 flex items-center justify-between">
+                      <div>
+                        <p className="text-xs font-semibold text-green-800">{selectedClient.name}</p>
+                        <p className="text-[10px] text-green-600">
+                          {selectedClient.city && `📍 ${selectedClient.city}`}
+                          {selectedClient.contact_phone && ` · 📞 ${selectedClient.contact_phone}`}
+                        </p>
+                      </div>
+                      <button onClick={() => { setSelectedClient(null); setClientSearch(''); setClientContacts([]) }}
+                        className="p-1 hover:bg-green-100 rounded">
+                        <X className="w-3.5 h-3.5 text-green-600" />
+                      </button>
+                    </div>
+                  )}
+                  {selectedClient && clientContacts.length > 0 && (
+                    <div>
+                      <label className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Contact</label>
+                      <div className="flex gap-2 mt-1 flex-wrap">
+                        {clientContacts.map(c => {
+                          const cName = c.name || `${c.first_name || ''} ${c.last_name || ''}`.trim()
+                          return (
+                            <button key={c.id} onClick={() => setRdvForm(f => ({ ...f, contact_id: c.id, contact_name: cName }))}
+                              className={`px-2.5 py-1.5 rounded-lg border text-xs transition-colors ${
+                                rdvForm.contact_id === c.id ? 'border-green-500 bg-green-50 text-green-700 font-semibold' : 'border-gray-200 hover:border-gray-300'
+                              }`}>
+                              <User className="w-3 h-3 inline mr-1" />
+                              {cName}
+                              {c.fonction && <span className="text-gray-400 ml-1">({c.fonction})</span>}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Mode nouveau prospect */}
+              {rdvMode === 'new' && (
+                <div className="space-y-3 bg-orange-50/50 border border-orange-100 rounded-lg p-3">
+                  <p className="text-[10px] text-orange-600 font-medium flex items-center gap-1">
+                    <Info className="w-3 h-3" /> Complétez la fiche plus tard — seul le nom est requis
+                  </p>
+                  <input type="text" value={rdvForm.new_company}
+                    onChange={e => setRdvForm(f => ({ ...f, new_company: e.target.value }))}
+                    placeholder="Nom de l'entreprise *"
+                    className="w-full border border-orange-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-orange-300 outline-none bg-white"
+                    autoFocus />
+                  <input type="text" value={rdvForm.new_contact_name}
+                    onChange={e => setRdvForm(f => ({ ...f, new_contact_name: e.target.value }))}
+                    placeholder="Nom du contact"
+                    className="w-full border border-orange-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-orange-300 outline-none bg-white" />
+                  <div className="grid grid-cols-2 gap-2">
+                    <input type="tel" value={rdvForm.new_phone}
+                      onChange={e => setRdvForm(f => ({ ...f, new_phone: e.target.value }))}
+                      placeholder="📞 Téléphone"
+                      className="border border-orange-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-orange-300 outline-none bg-white" />
+                    <input type="email" value={rdvForm.new_email}
+                      onChange={e => setRdvForm(f => ({ ...f, new_email: e.target.value }))}
+                      placeholder="✉️ Email"
+                      className="border border-orange-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-orange-300 outline-none bg-white" />
+                  </div>
+                </div>
+              )}
+
+              {/* Heure + Type RDV */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Heure</label>
+                  <input type="time" value={rdvForm.rdv_time}
+                    onChange={e => setRdvForm(f => ({ ...f, rdv_time: e.target.value }))}
+                    className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-green-300 outline-none mt-1" />
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Type</label>
+                  <select value={rdvForm.rdv_type}
+                    onChange={e => setRdvForm(f => ({ ...f, rdv_type: e.target.value }))}
+                    className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-green-300 outline-none mt-1 bg-white">
+                    {RDV_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              {/* Formations d'intérêt */}
+              <div>
+                <label className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Formations d'intérêt</label>
+                <div className="flex gap-1.5 flex-wrap mt-1">
+                  {FORMATIONS.map(f => (
+                    <button key={f} onClick={() => {
+                      setRdvForm(prev => ({
+                        ...prev,
+                        formations_interet: prev.formations_interet.includes(f)
+                          ? prev.formations_interet.filter(x => x !== f)
+                          : [...prev.formations_interet, f]
+                      }))
+                    }}
+                      className={`px-2 py-1 text-[10px] rounded-full border transition-colors ${
+                        rdvForm.formations_interet.includes(f) ? 'bg-green-100 border-green-400 text-green-700 font-semibold' : 'bg-gray-50 border-gray-200 text-gray-500 hover:border-gray-300'
+                      }`}>
+                      {f}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Notes */}
+              <textarea value={rdvForm.notes}
+                onChange={e => setRdvForm(f => ({ ...f, notes: e.target.value }))}
+                placeholder="Notes..."
+                rows={2}
+                className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-green-300 outline-none resize-none" />
+
+              {/* Actions */}
+              <div className="flex gap-2 pt-1">
+                <button onClick={closeRdvModal} className="flex-1 py-2.5 text-sm border rounded-lg hover:bg-gray-50 font-medium text-gray-600">
+                  Annuler
+                </button>
+                <button onClick={handleCreateRdv} disabled={rdvSaving}
+                  className={`flex-1 py-2.5 text-sm rounded-lg font-medium shadow-sm transition-colors ${
+                    rdvMode === 'new'
+                      ? 'bg-orange-500 text-white hover:bg-orange-600'
+                      : 'bg-green-600 text-white hover:bg-green-700'
+                  } ${rdvSaving ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                  {rdvSaving ? (
+                    <><Loader2 className="w-4 h-4 inline animate-spin mr-1" /> Enregistrement...</>
+                  ) : rdvMode === 'new' ? (
+                    <><UserPlus className="w-4 h-4 inline mr-1" /> Créer prospect + RDV</>
+                  ) : (
+                    <><Calendar className="w-4 h-4 inline mr-1" /> Ajouter RDV</>
+                  )}
+                </button>
               </div>
             </div>
           </div>
