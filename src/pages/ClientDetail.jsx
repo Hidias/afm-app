@@ -341,15 +341,13 @@ export default function ClientDetail() {
     
     // Auto-promotion : si status = 'a_completer' et champs clés remplis → passer en 'prospect'
     let finalStatus = editForm.status
-    if (finalStatus === 'a_completer') {
+    const wasAutoPromoted = finalStatus === 'a_completer' && (() => {
       const hasName = !!editForm.name?.trim()
       const hasContact = !!(editForm.contact_email?.trim() || editForm.contact_phone?.trim())
       const hasSiret = !!editForm.siret?.trim()
-      if (hasName && hasContact && hasSiret) {
-        finalStatus = 'prospect'
-        toast.success('Fiche complétée → statut passé en Prospect ✓', { icon: '🎯' })
-      }
-    }
+      if (hasName && hasContact && hasSiret) { finalStatus = 'prospect'; return true }
+      return false
+    })()
     
     const { error } = await supabase.from('clients').update({
       name: editForm.name, siret: editForm.siret, siren: sirenVal,
@@ -367,7 +365,7 @@ export default function ClientDetail() {
       satisfaction_mode: editForm.satisfaction_mode || 'after_session',
     }).eq('id', id)
     if (error) return toast.error('Erreur sauvegarde')
-    toast.success('Client mis à jour')
+    toast.success(wasAutoPromoted ? 'Fiche complétée → statut passé en Prospect ✓' : 'Client mis à jour', wasAutoPromoted ? { icon: '🎯' } : {})
     // Marquer prospect deja_client si des liens détectés
     if (sirenVal && clientLinks) {
       const hasUnmarked = [
