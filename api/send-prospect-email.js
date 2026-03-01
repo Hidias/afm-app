@@ -129,7 +129,7 @@ export default async function handler(req, res) {
     bccSet.delete(to)
 
     const mailOptions = {
-      from: `"Access Formation - ${callerInfo.name}" <${senderEmail}>`,
+      from: `"Access Formation - ${SIG_DATA[caller]?.name || caller}" <${senderEmail}>`,
       sender: emailConfig.email,
       replyTo: `"Access Formation" <${senderEmail}>`,
       to: to,
