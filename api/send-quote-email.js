@@ -5,6 +5,7 @@ import { createClient } from '@supabase/supabase-js'
 import nodemailer from 'nodemailer'
 import crypto from 'crypto'
 import { saveToSentFolder } from './_lib/save-to-sent.js'
+import { buildSignatureHTML, getCallerByEmail } from './_lib/mailer.js'
 
 // Augmenter la limite du body parser Vercel (défaut 4.5MB)
 export const config = {
@@ -60,38 +61,7 @@ async function sendEmailWithRetry(transporter, mailOptions, maxRetries = 3) {
   throw lastError
 }
 
-// Signatures HTML par utilisateur
-function buildQuoteSignature(name, title, phone, email) {
-  return `
-<br><br>
-<p style="margin: 0;">Bien cordialement,</p>
-<table cellpadding="0" cellspacing="0" style="font-family: Arial, sans-serif; margin-top: 16px; border-collapse: collapse; width: 440px;">
-  <tr>
-    <td bgcolor="#1a2e3d" style="background-color: #1a2e3d; padding: 14px 18px; border-radius: 8px 8px 0 0;">
-      <p style="margin: 0; font-size: 15px; font-weight: bold; color: #ffffff;">${name}</p>
-      <p style="margin: 2px 0 0 0; font-size: 11px; color: rgba(255,255,255,0.7);">${title}</p>
-    </td>
-  </tr>
-  <tr>
-    <td bgcolor="#f8f9fa" style="background-color: #f8f9fa; padding: 12px 18px; border-left: 1px solid #e5e7eb; border-right: 1px solid #e5e7eb;">
-      <p style="margin: 0 0 4px 0; font-size: 13px; font-weight: bold; color: #1a2e3d;">ACCESS FORMATION</p>
-      <p style="margin: 0 0 1px 0; font-size: 12px; color: #555;">📞 ${phone} · ✉️ <a href="mailto:${email}" style="color: #2563eb; text-decoration: none;">${email}</a></p>
-      <p style="margin: 0; font-size: 12px;">🌐 <a href="https://www.accessformation.pro" style="color: #2563eb; text-decoration: none;">www.accessformation.pro</a></p>
-    </td>
-  </tr>
-  <tr>
-    <td bgcolor="#c8993c" style="background-color: #c8993c; padding: 5px 18px; border-radius: 0 0 8px 8px;">
-      <p style="margin: 0; font-size: 10px; color: #1a2e3d; font-weight: bold; text-transform: uppercase; letter-spacing: 1.2px; text-align: center;">Organisme de formation certifié Qualiopi</p>
-    </td>
-  </tr>
-</table>
-  `
-}
-
-const SIGNATURES = {
-  'hicham.saidi@accessformation.pro': buildQuoteSignature('Hicham SAIDI', 'Dirigeant associé', '06 35 20 04 28', 'hicham.saidi@accessformation.pro'),
-  'maxime.langlais@accessformation.pro': buildQuoteSignature('Maxime LANGLAIS', 'Dirigeant associé', '07 83 51 17 95', 'maxime.langlais@accessformation.pro'),
-}
+// Signatures importées depuis _lib/mailer.js
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -149,10 +119,10 @@ export default async function handler(req, res) {
       maxMessages: 1
     })
 
-    // 4. Préparer le corps HTML avec signature
+    // 4. Préparer le corps HTML avec signature pro
     let htmlBody = body.replace(/\n/g, '<br>')
-    const signature = SIGNATURES[emailConfig.email] || ''
-    htmlBody += signature
+    const caller = getCallerByEmail(emailConfig.email)
+    htmlBody += `<br><br><p style="margin: 0;">Bien cordialement,</p>${buildSignatureHTML(caller)}`
 
     // 5. Construire les options du mail
     const senderName = emailConfig.email.includes('maxime') ? 'Maxime Langlais' : 'Hicham Saidi'
