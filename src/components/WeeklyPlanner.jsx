@@ -11,12 +11,12 @@ import { useAuthStore } from '../lib/store'
 import { Link } from 'react-router-dom'
 import {
   ChevronLeft, ChevronRight, Plus, X, Phone,
-  Calendar, Clock, AlertTriangle, Ban, FileText,
-  Loader2, Flame, Check, Send, UserPlus, MessageSquare,
+  Calendar, Clock, AlertTriangle,
+  Loader2, Flame, Check, UserPlus,
   TrendingUp, Zap, Info, ExternalLink, Search, Building2,
-  GripVertical, MapPin, User
+  GripVertical, User
 } from 'lucide-react'
-import { format, startOfWeek, addDays, addWeeks, isToday, getDay } from 'date-fns'
+import { format, startOfWeek, addDays, addWeeks, isToday } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import toast from 'react-hot-toast'
 
@@ -122,9 +122,10 @@ export default function WeeklyPlanner() {
   const [rdvSaving, setRdvSaving] = useState(false)
   const searchTimeoutRef = useRef(null)
 
-  // UI — Drag & Drop
+  // UI — Drag & Drop (desktop) + Tap-to-move (touch/iPad)
   const [dragItem, setDragItem] = useState(null)
   const [dragOverDay, setDragOverDay] = useState(null)
+  const [tapSelected, setTapSelected] = useState(null) // {event} sélectionné par tap pour déplacement tactile
 
   // ─── Calcul des dates ───────────────────────────────────
   const weekStart = useMemo(() => {
@@ -261,6 +262,7 @@ export default function WeeklyPlanner() {
           title: s.courses?.title || 'Formation',
           subtitle: s.clients?.name || '',
           time: `${fmtTime(s.start_time)} – ${fmtTime(s.end_time)}`,
+          startTime: s.start_time, endTime: s.end_time,
           location: s.location_city || '',
           link: `/sessions/${s.id}`,
           draggable: false,
@@ -273,6 +275,7 @@ export default function WeeklyPlanner() {
           title: r.clients?.name || 'RDV',
           subtitle: r.contact_name ? `👤 ${r.contact_name}` : '',
           time: r.rdv_time ? fmtTime(r.rdv_time) : 'Heure à définir',
+          startTime: r.rdv_time || null, endTime: r.rdv_time ? addMinutesToTime(r.rdv_time, 60) : null,
           temperature: r.temperature,
           formations: r.formations_interet,
           link: `/prospection`,
@@ -288,6 +291,7 @@ export default function WeeklyPlanner() {
           title: c.clients?.name || 'Rappel',
           subtitle: c.contact_name ? `👤 ${c.contact_name}` : '',
           time: c.callback_time ? fmtTime(c.callback_time) : '',
+          startTime: c.callback_time || null, endTime: c.callback_time ? addMinutesToTime(c.callback_time, 15) : null,
           notes: c.notes,
           callId: c.id,
           draggable: true,
@@ -303,6 +307,7 @@ export default function WeeklyPlanner() {
           title: e.title,
           subtitle: e.description || '',
           time: `${fmtTime(e.start_time)} – ${fmtTime(e.end_time)}`,
+          startTime: e.start_time, endTime: e.end_time,
           eventId: e.id,
           draggable: isDraggable,
           dragType: 'event',
@@ -472,6 +477,7 @@ export default function WeeklyPlanner() {
         rdv_type: rdvForm.rdv_type,
         conducted_by: 'Hicham',
         status: 'prevu',
+        contact_id: rdvMode === 'existing' && rdvForm.contact_id ? rdvForm.contact_id : null,
         contact_name: rdvMode === 'new' ? rdvForm.new_contact_name.trim() || null : rdvForm.contact_name || null,
         contact_email: rdvMode === 'new' ? rdvForm.new_email.trim() || null : null,
         contact_phone: rdvMode === 'new' ? rdvForm.new_phone.trim() || null : null,
@@ -496,6 +502,15 @@ export default function WeeklyPlanner() {
         interaction_date: new Date().toISOString(),
         metadata: { source: 'planner', rdv_type: rdvForm.rdv_type },
       }).then(({ error }) => { if (error) console.warn('Interaction log error:', error) })
+
+      // Notification
+      const clientName = rdvMode === 'new' ? rdvForm.new_company.trim() : selectedClient?.name || 'Client'
+      await supabase.from('notifications').insert({
+        title: `🤝 RDV planifié — ${clientName}`,
+        message: `${format(rdvDate, 'd MMMM', { locale: fr })} à ${rdvForm.rdv_time || '?'} · ${RDV_TYPES.find(t => t.value === rdvForm.rdv_type)?.label || rdvForm.rdv_type}${rdvForm.formations_interet.length > 0 ? ' · ' + rdvForm.formations_interet.join(', ') : ''}`,
+        type: 'rdv_planner',
+        link: '/prospection',
+      }).then(({ error }) => { if (error) console.warn('Notification error:', error) })
 
       toast.success(`RDV ajouté${rdvMode === 'new' ? ' + prospect créé' : ''} ✓`)
       closeRdvModal()
@@ -525,6 +540,16 @@ export default function WeeklyPlanner() {
     try {
       await supabase.from('user_planning_events').delete().eq('id', eventId)
       toast.success('Supprimé')
+      loadWeekData()
+    } catch (err) { toast.error('Erreur: ' + err.message) }
+  }
+
+  // ── Suppression RDV ──
+  const handleDeleteRdv = async (rdvId) => {
+    if (!confirm('Annuler ce RDV ?')) return
+    try {
+      await supabase.from('prospect_rdv').update({ status: 'annule' }).eq('id', rdvId)
+      toast.success('RDV annulé ✓')
       loadWeekData()
     } catch (err) { toast.error('Erreur: ' + err.message) }
   }
@@ -636,6 +661,38 @@ export default function WeeklyPlanner() {
   }
 
   // ═══════════════════════════════════════════════════════════
+  // TAP-TO-MOVE (fallback tactile iPad/mobile)
+  // Tap sur carte draggable → sélection, tap sur header jour → déplacement
+  // ═══════════════════════════════════════════════════════════
+  const handleTapSelect = (event) => {
+    if (!event.draggable) return
+    if (tapSelected?.id === event.id) {
+      // Deuxième tap = désélection
+      setTapSelected(null)
+    } else {
+      setTapSelected(event)
+      toast(`📌 ${event.title} sélectionné — tapez sur un jour pour déplacer`, { icon: '👆', duration: 2500 })
+    }
+  }
+
+  const handleTapMoveToDay = async (targetDateStr) => {
+    if (!tapSelected || tapSelected.dragDate === targetDateStr) { setTapSelected(null); return }
+    const { dragType, dbId } = tapSelected
+    try {
+      if (dragType === 'rdv') {
+        await supabase.from('prospect_rdv').update({ rdv_date: targetDateStr }).eq('id', dbId)
+      } else if (dragType === 'callback') {
+        await supabase.from('prospect_calls').update({ callback_date: targetDateStr }).eq('id', dbId)
+      } else if (dragType === 'event') {
+        await supabase.from('user_planning_events').update({ event_date: targetDateStr }).eq('id', dbId)
+      }
+      toast.success(`Déplacé au ${format(new Date(targetDateStr + 'T12:00:00'), 'EEEE d', { locale: fr })} ✓`)
+      setTapSelected(null)
+      loadWeekData()
+    } catch (err) { toast.error('Erreur déplacement: ' + err.message) }
+  }
+
+  // ═══════════════════════════════════════════════════════════
   // SUB-COMPONENTS
   // ═══════════════════════════════════════════════════════════
 
@@ -643,15 +700,22 @@ export default function WeeklyPlanner() {
     const config = SLOT_TYPES[event.type] || SLOT_TYPES.task
     const isLink = !!event.link
     const canDrag = event.draggable
+    const isTapSelected = tapSelected?.id === event.id
 
     return (
       <div
         className={`flex items-start gap-1.5 px-2.5 py-2 rounded-lg ${config.color} group relative transition-all ${
           canDrag ? 'cursor-grab active:cursor-grabbing hover:shadow-sm' : ''
-        } ${dragItem?.id === event.id ? 'opacity-30 scale-95' : ''}`}
+        } ${dragItem?.id === event.id ? 'opacity-30 scale-95' : ''} ${
+          isTapSelected ? 'ring-2 ring-primary-500 shadow-md scale-[1.02]' : ''
+        }`}
         draggable={canDrag}
         onDragStart={(e) => handleDragStart(e, event)}
         onDragEnd={handleDragEnd}
+        onClick={(e) => {
+          // Tap-to-move uniquement si pas de lien cliqué et pas d'action bouton
+          if (canDrag && !e.defaultPrevented) handleTapSelect(event)
+        }}
       >
         {canDrag && (
           <GripVertical className="w-3 h-3 mt-1 text-current opacity-0 group-hover:opacity-30 flex-shrink-0 -ml-1 transition-opacity" />
@@ -659,7 +723,7 @@ export default function WeeklyPlanner() {
         <div className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${config.dot}`} />
         <div className="flex-1 min-w-0">
           {isLink ? (
-            <Link to={event.link} className="hover:underline">
+            <Link to={event.link} className="hover:underline" onClick={e => e.stopPropagation()}>
               <span className="font-semibold text-xs">{event.title}</span>
             </Link>
           ) : (
@@ -673,14 +737,20 @@ export default function WeeklyPlanner() {
           </div>
         </div>
         {/* Actions rapides */}
+        {event.type === 'rdv' && event.dbId && (
+          <button onClick={(e) => { e.stopPropagation(); handleDeleteRdv(event.dbId) }}
+            className="p-1 rounded-full hover:bg-white/50 opacity-0 group-hover:opacity-100 transition-opacity" title="Annuler RDV">
+            <X className="w-3.5 h-3.5 text-red-500" />
+          </button>
+        )}
         {event.callId && (
-          <button onClick={() => handleCallbackDone(event.callId)}
+          <button onClick={(e) => { e.stopPropagation(); handleCallbackDone(event.callId) }}
             className="p-1 rounded-full hover:bg-white/50 opacity-0 group-hover:opacity-100 transition-opacity" title="Fait ✓">
             <Check className="w-3.5 h-3.5 text-green-600" />
           </button>
         )}
         {event.eventId && (
-          <button onClick={() => handleDeleteEvent(event.eventId)}
+          <button onClick={(e) => { e.stopPropagation(); handleDeleteEvent(event.eventId) }}
             className="p-1 rounded-full hover:bg-white/50 opacity-0 group-hover:opacity-100 transition-opacity" title="Supprimer">
             <X className="w-3.5 h-3.5 text-red-500" />
           </button>
@@ -699,35 +769,47 @@ export default function WeeklyPlanner() {
     const cbCount = events.filter(e => e.type === 'callback').length
     const isEmpty = events.length === 0
     const isDropTarget = dragOverDay === dateStr && dragItem?.dragDate !== dateStr
+    const isTapTarget = tapSelected && tapSelected.dragDate !== dateStr
 
     return (
       <div
         className={`flex flex-col rounded-xl border overflow-hidden transition-all duration-150 ${
           isDropTarget ? 'border-primary-500 ring-2 ring-primary-300 bg-primary-50/30 scale-[1.02] shadow-md' :
+          isTapTarget ? 'border-dashed border-primary-400' :
           isCurrentDay ? 'border-primary-400 ring-1 ring-primary-200' : 'border-gray-200 hover:shadow-sm'
         }`}
         onDragOver={(e) => handleDragOverDay(e, dateStr)}
         onDragLeave={handleDragLeaveDay}
         onDrop={(e) => handleDropOnDay(e, dateStr)}
       >
-        {/* Header jour */}
-        <div className={`px-2.5 py-2 text-center border-b transition-colors ${
-          isDropTarget ? 'bg-primary-100 border-primary-300' :
-          isCurrentDay ? 'bg-primary-50 border-primary-200' : 'bg-gray-50 border-gray-100'
-        }`}>
+        {/* Header jour — zone de drop tactile */}
+        <div
+          className={`px-2.5 py-2 text-center border-b transition-colors ${
+            isDropTarget ? 'bg-primary-100 border-primary-300' :
+            isTapTarget ? 'bg-primary-50 border-primary-200 cursor-pointer hover:bg-primary-100' :
+            isCurrentDay ? 'bg-primary-50 border-primary-200' : 'bg-gray-50 border-gray-100'
+          }`}
+          onClick={() => { if (isTapTarget) handleTapMoveToDay(dateStr) }}
+        >
           <p className={`text-[10px] font-bold uppercase tracking-wide ${isCurrentDay ? 'text-primary-600' : 'text-gray-500'}`}>
             {DAYS[dayIdx]}
           </p>
           <p className={`text-lg font-bold leading-tight ${isCurrentDay ? 'text-primary-800' : 'text-gray-900'}`}>
             {format(date, 'd')}
           </p>
+          {/* Indicateur tap-to-move */}
+          {isTapTarget && (
+            <p className="text-[9px] text-primary-500 font-semibold mt-0.5 animate-pulse">↓ Déplacer ici</p>
+          )}
           {/* Badges */}
-          <div className="flex items-center justify-center gap-1 mt-1 flex-wrap">
-            {hasSession && <span className="text-[8px] bg-blue-500 text-white px-1.5 py-0.5 rounded-full font-medium">🎓 Formation</span>}
-            {rdvCount > 0 && <span className="text-[8px] bg-green-500 text-white px-1.5 py-0.5 rounded-full font-medium">🤝 {rdvCount}</span>}
-            {cbCount > 0 && <span className="text-[8px] bg-amber-500 text-white px-1.5 py-0.5 rounded-full font-medium">📞 {cbCount}</span>}
-            {isEmpty && dayIdx < 5 && <span className="text-[8px] bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded-full">Libre</span>}
-          </div>
+          {!isTapTarget && (
+            <div className="flex items-center justify-center gap-1 mt-1 flex-wrap">
+              {hasSession && <span className="text-[8px] bg-blue-500 text-white px-1.5 py-0.5 rounded-full font-medium">🎓 Formation</span>}
+              {rdvCount > 0 && <span className="text-[8px] bg-green-500 text-white px-1.5 py-0.5 rounded-full font-medium">🤝 {rdvCount}</span>}
+              {cbCount > 0 && <span className="text-[8px] bg-amber-500 text-white px-1.5 py-0.5 rounded-full font-medium">📞 {cbCount}</span>}
+              {isEmpty && dayIdx < 5 && <span className="text-[8px] bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded-full">Libre</span>}
+            </div>
+          )}
         </div>
 
         {/* Events list */}
@@ -799,7 +881,7 @@ export default function WeeklyPlanner() {
           {weekStats.totalRdv > 0 && <span className="px-2 py-0.5 bg-green-50 text-green-700 rounded-full">🤝 {weekStats.totalRdv}</span>}
           {weekStats.totalCallbacks > 0 && <span className="px-2 py-0.5 bg-amber-50 text-amber-700 rounded-full">📞 {weekStats.totalCallbacks}</span>}
           {weekStats.totalRelances > 0 && <span className="px-2 py-0.5 bg-red-50 text-red-700 rounded-full font-bold">💰 {weekStats.caRelance.toLocaleString('fr')}€</span>}
-          <Link to="/marine-phoning" className="px-2 py-0.5 bg-purple-50 text-purple-700 rounded-full hover:bg-purple-100 transition-colors flex items-center gap-1 font-medium">
+          <Link to="/prospection" className="px-2 py-0.5 bg-purple-50 text-purple-700 rounded-full hover:bg-purple-100 transition-colors flex items-center gap-1 font-medium">
             <Phone className="w-2.5 h-2.5" /> Phoning <ExternalLink className="w-2 h-2" />
           </Link>
         </div>
@@ -866,6 +948,19 @@ export default function WeeklyPlanner() {
         </div>
       )}
 
+      {/* Bannière tap-to-move actif */}
+      {tapSelected && (
+        <div className="bg-primary-50 border border-primary-300 rounded-lg px-3 py-2 flex items-center justify-between animate-pulse">
+          <span className="text-xs font-semibold text-primary-700">
+            📌 <strong>{tapSelected.title}</strong> sélectionné — tapez sur un jour pour déplacer
+          </span>
+          <button onClick={() => setTapSelected(null)}
+            className="px-2 py-1 text-[10px] bg-primary-600 text-white rounded-full hover:bg-primary-700 font-medium">
+            ✕ Annuler
+          </button>
+        </div>
+      )}
+
       {/* Grille semaine */}
       <div className="grid grid-cols-6 gap-2">
         {weekDates.map((date, idx) => <DayCard key={format(date, 'yyyy-MM-dd')} date={date} dayIdx={idx} />)}
@@ -880,7 +975,7 @@ export default function WeeklyPlanner() {
           </span>
         ))}
         <span className="flex items-center gap-1 text-gray-300">
-          <GripVertical className="w-2.5 h-2.5" /> Glisser-déposer
+          <GripVertical className="w-2.5 h-2.5" /> Glisser ou taper pour déplacer
         </span>
       </div>
 
