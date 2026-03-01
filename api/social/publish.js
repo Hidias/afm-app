@@ -47,6 +47,8 @@ async function refreshGoogleToken(token) {
     return data.access_token
   }
 
+  // Si le refresh échoue, log l'erreur et retourne l'ancien token
+  console.error('Google token refresh failed:', JSON.stringify(data))
   return token.access_token
 }
 
@@ -185,9 +187,14 @@ async function publishLinkedIn(content, mediaUrl, token) {
 // ── Publier sur Google My Business ──────────────────────
 async function publishGMB(content, mediaUrl, token) {
   const accessToken = await refreshGoogleToken(token)
-  const locationId = token.page_id
+  const accountId = token.account_id  // format: accounts/123456
+  const locationId = token.page_id    // format: locations/789012
 
   if (!locationId) throw new Error('GMB: aucune fiche connectée')
+  if (!accountId) throw new Error('GMB: aucun compte connecté (account_id manquant)')
+
+  // Construire le parent path complet : accounts/XXX/locations/YYY
+  const parent = `${accountId}/${locationId}`
 
   const postBody = {
     languageCode: 'fr',
@@ -209,7 +216,12 @@ async function publishGMB(content, mediaUrl, token) {
     url: 'https://www.accessformation.pro',
   }
 
-  const res = await fetch(`https://mybusinessbusinessinformation.googleapis.com/v1/${locationId}/localPosts`, {
+  // ⚠️ L'endpoint Local Posts est sur mybusiness.googleapis.com/v4
+  // PAS sur mybusinessbusinessinformation.googleapis.com (qui est pour les infos de la fiche)
+  const url = `https://mybusiness.googleapis.com/v4/${parent}/localPosts`
+  console.log('[GMB] Publishing to:', url)
+
+  const res = await fetch(url, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -217,9 +229,22 @@ async function publishGMB(content, mediaUrl, token) {
     },
     body: JSON.stringify(postBody),
   })
+
+  // Vérifier que la réponse est bien du JSON avant de parser
+  const contentType = res.headers.get('content-type') || ''
+  if (!contentType.includes('application/json')) {
+    const text = await res.text()
+    console.error(`[GMB] Non-JSON response (${res.status}):`, text.slice(0, 500))
+    throw new Error(`Google: réponse inattendue (HTTP ${res.status}). Vérifiez que l'API My Business est activée dans Google Cloud Console.`)
+  }
+
   const data = await res.json()
 
-  if (data.error) throw new Error(`GMB: ${data.error.message}`)
+  if (data.error) {
+    console.error('[GMB] API error:', JSON.stringify(data.error))
+    throw new Error(`Google: ${data.error.message || JSON.stringify(data.error)}`)
+  }
+
   return data.name
 }
 
