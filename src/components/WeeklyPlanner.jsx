@@ -482,6 +482,21 @@ export default function WeeklyPlanner() {
       })
       if (rdvErr) throw rdvErr
 
+      // Trace CRM — interaction dans le timeline client
+      await supabase.from('client_interactions').insert({
+        client_id: clientId,
+        type: 'meeting',
+        title: `RDV ${rdvForm.rdv_type} planifié le ${format(rdvDate, 'd MMMM', { locale: fr })}`,
+        content: [
+          rdvForm.contact_name && `Contact : ${rdvMode === 'new' ? rdvForm.new_contact_name : rdvForm.contact_name}`,
+          rdvForm.formations_interet.length > 0 && `Formations : ${rdvForm.formations_interet.join(', ')}`,
+          rdvForm.notes && `Notes : ${rdvForm.notes}`,
+        ].filter(Boolean).join('\n'),
+        author: 'Hicham',
+        interaction_date: new Date().toISOString(),
+        metadata: { source: 'planner', rdv_type: rdvForm.rdv_type },
+      }).then(({ error }) => { if (error) console.warn('Interaction log error:', error) })
+
       toast.success(`RDV ajouté${rdvMode === 'new' ? ' + prospect créé' : ''} ✓`)
       closeRdvModal()
       loadWeekData()
