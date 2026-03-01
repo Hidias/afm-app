@@ -49,6 +49,7 @@ const uploadCategories = [
   { id: 'emargement', label: 'Émargement signé' },
   { id: 'evaluation', label: 'Évaluations remplies' },
   { id: 'certification_sst', label: 'Certification SST' },
+  { id: 'needs_analysis', label: 'Analyse du besoin' },
   { id: 'autre', label: 'Autre document' },
 ]
 
