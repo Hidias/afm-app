@@ -443,7 +443,10 @@ export default function MarinePhoning() {
     // Check if already a client
     setExistingClient(null)
     if (prospect.siren) {
-      supabase.from('clients').select('id, name, status, city').eq('siren', prospect.siren).limit(1)
+      supabase.from('clients').select('id, name, status, city')
+        .eq('siren', prospect.siren)
+        .in('status', ['actif', 'en_discussion'])
+        .limit(1)
         .then(({ data }) => setExistingClient(data?.[0] || null))
     }
   }
