@@ -10,6 +10,9 @@ import { useNavigate } from 'react-router-dom'
 
 const RDV_TYPES = {
   decouverte: { label: 'Découverte', color: 'bg-blue-100 text-blue-800' },
+  telephone: { label: 'Téléphone', color: 'bg-cyan-100 text-cyan-800' },
+  visio: { label: 'Visio', color: 'bg-indigo-100 text-indigo-800' },
+  sur_place: { label: 'Sur place', color: 'bg-teal-100 text-teal-800' },
   suivi: { label: 'Suivi', color: 'bg-purple-100 text-purple-800' },
   signature: { label: 'Signature', color: 'bg-green-100 text-green-800' },
   relance: { label: 'Relance', color: 'bg-orange-100 text-orange-800' },
