@@ -10,7 +10,7 @@ const ORG = {
   address1: '24 Rue Kerbleiz',
   address2: '29900 Concarneau',
   country: 'France',
-  phone: '02 46 56 57 54',
+  phone: '02 98 90 30 24',
   email: 'contact@accessformation.pro',
   siret: '943 563 866 00012',
   naf: '8559A',
@@ -26,12 +26,12 @@ const ORG = {
 const CONTACTS = {
   'Hicham Saidi': {
     name: 'Hicham Saidi',
-    phone: '02 46 56 57 54',
+    phone: '06 35 20 04 28',
     email: 'hicham.saidi@accessformation.pro'
   },
   'Maxime Langlais': {
     name: 'Maxime Langlais',
-    phone: '02 46 56 57 54',
+    phone: '07 83 51 17 95',
     email: 'maxime.langlais@accessformation.pro'
   },
 }
@@ -98,7 +98,7 @@ function addFooter(doc, f, p, t) {
   doc.text('Access Formation - 24 Rue Kerbleiz - 29900 Concarneau - France', cx, 275, { align: 'center' })
   doc.text("Declaration d'activite enregistree sous le numero 53 29 10261 29 aupres du prefet de la region Bretagne", cx, 279, { align: 'center' })
   doc.text('SARL au capital de 2.500 EUR - Siret : 943 563 866 00012 - Naf : 8559A - TVA : FR71943563866 - RCS 943 563 866 R.C.S. Quimper', cx, 283, { align: 'center' })
-  doc.text('Tel : 02 46 56 57 54 - Email : contact@accessformation.pro', cx, 287, { align: 'center' })
+  doc.text('Tel : 02 98 90 30 24 - Email : contact@accessformation.pro', cx, 287, { align: 'center' })
   doc.setFont(f, 'bold')
   doc.setFontSize(7)
   doc.setTextColor(100, 100, 100)
