@@ -446,7 +446,7 @@ export default function Qualiopi() {
         <div class="footer">
             <p><strong>ACCESS FORMATION</strong></p>
             <p>24 rue Kerbleiz - 29900 Concarneau</p>
-            <p>Tél : 02 46 56 57 54 | Email : contact@accessformation.pro</p>
+            <p>Tél : 02 98 90 30 24 | Email : contact@accessformation.pro</p>
         </div>
     </div>
 </body>
@@ -508,7 +508,7 @@ export default function Qualiopi() {
     <div class="footer">
         <p><strong>ACCESS FORMATION</strong></p>
         <p>24 rue Kerbleiz - 29900 Concarneau</p>
-        <p>Tél : 02 46 56 57 54 | Email : contact@accessformation.pro</p>
+        <p>Tél : 02 98 90 30 24 | Email : contact@accessformation.pro</p>
     </div>
 </body>
 </html>`
