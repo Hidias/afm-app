@@ -193,7 +193,7 @@ function generatePageDeGarde(config, documentsList) {
   doc.text('ACCESS FORMATION', pw / 2, 22, { align: 'center' })
   doc.setFontSize(11)
   doc.setFont('helvetica', 'normal')
-  doc.text('24 rue Kerbleiz — 29900 Concarneau — 02 46 56 57 54', pw / 2, 32, { align: 'center' })
+  doc.text('24 rue Kerbleiz — 29900 Concarneau — 02 98 90 30 24', pw / 2, 32, { align: 'center' })
   doc.text('NDA 53 29 10261 29 — Qualiopi certifié', pw / 2, 39, { align: 'center' })
   doc.setFontSize(14)
   doc.setFont('helvetica', 'bold')
