@@ -24,7 +24,7 @@ export const downloadNeedsAnalysisPDF = async (session, analysisData = null, bla
     addressFull: orgSettings.address && orgSettings.postal_code && orgSettings.city
       ? `${orgSettings.address} - ${orgSettings.postal_code} ${orgSettings.city}`
       : '24 Rue Kerbleiz - 29900 Concarneau',
-    phone: orgSettings.phone || '02 46 56 57 54',
+    phone: orgSettings.phone || '02 98 90 30 24',
     email: orgSettings.email || 'contact@accessformation.pro',
     siret: orgSettings.siret || '94356386600012',
     nda: orgSettings.nda || '53291026129',
@@ -40,7 +40,7 @@ export const downloadNeedsAnalysisPDF = async (session, analysisData = null, bla
     nameFull: 'SARL ACCESS FORMATION',
     address: '24 Rue Kerbleiz, 29900 Concarneau',
     addressFull: '24 Rue Kerbleiz - 29900 Concarneau',
-    phone: '02 46 56 57 54',
+    phone: '02 98 90 30 24',
     email: 'contact@accessformation.pro',
     siret: '94356386600012',
     nda: '53291026129',
@@ -587,7 +587,7 @@ export const getNeedsAnalysisPDFBytes = async (session, analysisData = null, bla
     addressFull: orgSettings.address && orgSettings.postal_code && orgSettings.city
       ? `${orgSettings.address} - ${orgSettings.postal_code} ${orgSettings.city}`
       : '24 Rue Kerbleiz - 29900 Concarneau',
-    phone: orgSettings.phone || '02 46 56 57 54',
+    phone: orgSettings.phone || '02 98 90 30 24',
     email: orgSettings.email || 'contact@accessformation.pro',
     siret: orgSettings.siret || '94356386600012',
     nda: orgSettings.nda || '53291026129',
@@ -602,7 +602,7 @@ export const getNeedsAnalysisPDFBytes = async (session, analysisData = null, bla
     nameFull: 'SARL ACCESS FORMATION',
     address: '24 Rue Kerbleiz, 29900 Concarneau',
     addressFull: '24 Rue Kerbleiz - 29900 Concarneau',
-    phone: '02 46 56 57 54',
+    phone: '02 98 90 30 24',
     email: 'contact@accessformation.pro',
     siret: '94356386600012',
     nda: '53291026129',
