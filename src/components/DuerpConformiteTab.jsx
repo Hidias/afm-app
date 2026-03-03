@@ -451,7 +451,7 @@ export default function DuerpConformiteTab({ projectId, project, risks, units })
                     <p className="font-bold text-sm text-amber-900">Besoin de former vos équipes ?</p>
                     <p className="text-xs text-amber-700">Access Formation — SST, CACES, Incendie, Habilitation électrique</p>
                   </div>
-                  <a href="tel:0298972626" className="flex items-center gap-1.5 px-3 py-2 bg-amber-600 text-white rounded-lg text-xs font-medium hover:bg-amber-700">
+                  <a href="tel:0298903024" className="flex items-center gap-1.5 px-3 py-2 bg-amber-600 text-white rounded-lg text-xs font-medium hover:bg-amber-700">
                     <Phone className="w-3.5 h-3.5" /> Nous contacter
                   </a>
                 </div>
