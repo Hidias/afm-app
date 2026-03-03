@@ -31,7 +31,7 @@ let ORG = {
   address: '24 rue Kerbleiz, 29900 Concarneau',
   addressFull: '24 Rue Kerbleiz - 29900 Concarneau - France',
   city: 'Concarneau',
-  phone: '02 46 56 57 54', email: 'contact@accessformation.pro',
+  phone: '02 98 90 30 24', email: 'contact@accessformation.pro',
   siret: '943 563 866 00012', naf: '8559A', tva: 'FR71943563866',
   nda: '53 29 10261 29', ndaFull: '53291026129 auprès du préfet de la région Bretagne',
   iban: 'FR76 1558 9297 0600 0890 6894 048', bic: 'CMBRFR2BXXXX',
