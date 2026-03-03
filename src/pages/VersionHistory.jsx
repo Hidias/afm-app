@@ -176,7 +176,7 @@ export default function VersionHistory() {
         {/* Header */}
         <div className="mb-8">
           <Link
-            to="/settings"
+            to="/parametres"
             className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-4"
           >
             <ArrowLeft className="w-4 h-4" />
