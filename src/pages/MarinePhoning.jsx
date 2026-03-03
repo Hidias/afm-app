@@ -2951,7 +2951,7 @@ export default function MarinePhoning() {
                   </div>
                   <div className="text-xs text-gray-500">
                     <p className="font-semibold text-gray-700">ACCESS FORMATION</p>
-                    <p>{callerName === 'Hicham' ? '06.35.20.04.28' : callerName === 'Maxime' ? '07.83.51.17.95' : '02 46 56 57 54'}</p>
+                    <p>{callerName === 'Hicham' ? '06.35.20.04.28' : callerName === 'Maxime' ? '07.83.51.17.95' : '02 98 90 30 24'}</p>
                     <p>www.accessformation.pro</p>
                   </div>
                 </div>
