@@ -652,10 +652,12 @@ export default function MarinePhoning() {
     setCallHistory([])
     setShowHistory(false)
     try {
-      const { data: clientData } = await supabase.from('clients').select('id').eq('siren', prospect.siren).maybeSingle()
+      // Chercher TOUS les clients avec ce SIREN (multi-établissements ou doublons)
+      const { data: clientRows } = await supabase.from('clients').select('id').eq('siren', prospect.siren)
       if (currentProspectRef.current !== prospectId) return
-      if (clientData) {
-        const { data: calls } = await supabase.from('prospect_calls').select('*').eq('client_id', clientData.id).order('called_at', { ascending: false }).limit(5)
+      if (clientRows && clientRows.length > 0) {
+        const clientIds = clientRows.map(c => c.id)
+        const { data: calls } = await supabase.from('prospect_calls').select('*').in('client_id', clientIds).order('called_at', { ascending: false }).limit(5)
         if (currentProspectRef.current !== prospectId) return
         if (calls && calls.length > 0) {
           setCallHistory(calls)
@@ -720,8 +722,18 @@ export default function MarinePhoning() {
     return newClient.id
   }
 
-  async function clearOldCallbacks(clientId) {
+  async function clearOldCallbacks(clientId, siren) {
     try {
+      if (siren) {
+        // Nettoyer les callbacks sur TOUS les clients du même SIREN (multi-établissements/doublons)
+        const { data: siblingClients } = await supabase.from('clients').select('id').eq('siren', siren)
+        if (siblingClients && siblingClients.length > 0) {
+          const allIds = siblingClients.map(c => c.id)
+          await supabase.from('prospect_calls').update({ needs_callback: false }).in('client_id', allIds).eq('needs_callback', true)
+          return
+        }
+      }
+      // Fallback : nettoyage par client_id seul
       await supabase.from('prospect_calls').update({ needs_callback: false }).eq('client_id', clientId).eq('needs_callback', true)
     } catch (err) { console.error('Erreur nettoyage rappels:', err) }
   }
@@ -732,7 +744,7 @@ export default function MarinePhoning() {
     setSaving(true)
     try {
       const clientId = await findOrCreateClient(cap)
-      await clearOldCallbacks(clientId)
+      await clearOldCallbacks(clientId, cap.siren)
       const { data: insertedCall, error: callError } = await supabase.from('prospect_calls').insert({
         client_id: clientId, called_by: callerName,
         contact_name: contactName || null, contact_function: contactFunction || null,
@@ -886,7 +898,7 @@ export default function MarinePhoning() {
     setSaving(true)
     try {
       const clientId = await findOrCreateClient(cap)
-      await clearOldCallbacks(clientId)
+      await clearOldCallbacks(clientId, cap.siren)
       await supabase.from('prospect_calls').insert({
         client_id: clientId, called_by: callerName, call_result: result,
         notes: result === 'no_answer' ? 'Pas de réponse' : result === 'wrong_number' ? 'Numéro erroné' : 'Pas intéressé',
@@ -925,7 +937,7 @@ export default function MarinePhoning() {
     setSaving(true)
     try {
       const clientId = await findOrCreateClient(cap)
-      await clearOldCallbacks(clientId)
+      await clearOldCallbacks(clientId, cap.siren)
       const hasNew = wrongNumberNew.trim().length >= 6
       const noteText = hasNew ? 'Numéro erroné. Nouveau numéro : ' + wrongNumberNew.trim() : 'Numéro erroné'
       await supabase.from('prospect_calls').insert({
@@ -1221,7 +1233,7 @@ export default function MarinePhoning() {
     setSaving(true)
     try {
       const clientId = await findOrCreateClient(capturedProspect)
-      await clearOldCallbacks(clientId)
+      await clearOldCallbacks(clientId, capturedProspect.siren)
       const now = new Date()
       const noteText = `${callerName} — ${now.toLocaleDateString('fr-FR')} ${now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })} — ${messageLaisse ? 'Message laissé' : 'Pas de réponse'}` + (cbDate ? ` — Rappel ${new Date(cbDate).toLocaleDateString('fr-FR')}${cbTime ? ' à ' + cbTime : ''}` : '')
       await supabase.from('prospect_calls').insert({
@@ -1250,7 +1262,7 @@ export default function MarinePhoning() {
     setSaving(true)
     try {
       const clientId = await findOrCreateClient(capturedProspect)
-      await clearOldCallbacks(clientId)
+      await clearOldCallbacks(clientId, capturedProspect.siren)
       const noteText = `❄️ ${tag}` + (notes ? '\n' + notes : '')
       await supabase.from('prospect_calls').insert({
         client_id: clientId, called_by: callerName, call_result: 'froid',
@@ -1278,7 +1290,7 @@ export default function MarinePhoning() {
     setSaving(true)
     try {
       const clientId = await findOrCreateClient(cap)
-      await clearOldCallbacks(clientId)
+      await clearOldCallbacks(clientId, cap.siren)
       const noteText = `👋 Passer la main — ${transferReason}` + (transferNote ? '\n' + transferNote : '') + (contactName ? '\nContact : ' + contactName + (contactFunction ? ' (' + contactFunction + ')' : '') : '')
       await supabase.from('prospect_calls').insert({
         client_id: clientId, called_by: callerName, call_result: 'blocked',
@@ -1414,7 +1426,7 @@ export default function MarinePhoning() {
   }).length
 
   const STATUS_FILTERS = [
-    { id: 'a_appeler', label: '📞 À appeler', count: prospects.filter(p => (!p.prospection_status || p.prospection_status === 'a_appeler') && !p.gere_par_id).length },
+    { id: 'a_appeler', label: '📞 À appeler', count: prospects.filter(p => (!p.prospection_status || p.prospection_status === 'a_appeler') && !p.gere_par_id && !(p.siren && todayCallbackSirens.has(p.siren))).length },
     { id: 'rappels', label: '🔔 Rappels', count: rappelsCount },
     { id: 'a_rappeler', label: '🟡 À rappeler', count: prospects.filter(p => p.prospection_status === 'a_rappeler').length },
     { id: 'rdv_pris', label: '🔥 RDV', count: prospects.filter(p => p.prospection_status === 'rdv_pris').length },
@@ -1450,6 +1462,7 @@ export default function MarinePhoning() {
     let list = prospects.filter(p => {
       if (statusFilter === 'a_appeler' && p.prospection_status && p.prospection_status !== 'a_appeler') return false
       if (statusFilter === 'a_appeler' && p.gere_par_id) return false
+      if (statusFilter === 'a_appeler' && p.siren && todayCallbackSirens.has(p.siren)) return false
       if (statusFilter === 'rappels') {
         if (!(p.siren && todayCallbackSirens.has(p.siren))) return false
         if (rappelFilterBy) {
