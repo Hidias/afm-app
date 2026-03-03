@@ -798,7 +798,7 @@ export default function ProspectRDVDetail() {
                       value={newClientData.contact_phone}
                       onChange={(e) => setNewClientData({ ...newClientData, contact_phone: e.target.value })}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-                      placeholder="02 46 56 57 54"
+                      placeholder="02 98 90 30 24"
                     />
                   </div>
                 </div>
