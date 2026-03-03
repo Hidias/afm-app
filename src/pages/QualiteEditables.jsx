@@ -14,7 +14,7 @@ import toast from 'react-hot-toast'
 const ORG = {
   nom: 'Access Formation', forme: 'SARL', siret: '943 563 866 00012',
   nda: '53 29 10261 29', adresse: '24 rue Kerbleiz', cp: '29900', ville: 'Concarneau',
-  tel: '02 46 56 57 54', email: 'contact@accessformation.pro',
+  tel: '02 98 90 30 24', email: 'contact@accessformation.pro',
 }
 
 // ===== STRUCTURE DOCUMENTS COMPLÈTE =====
