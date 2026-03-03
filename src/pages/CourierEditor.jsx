@@ -19,7 +19,7 @@ const ORG_DEFAULTS = {
   name: 'Access Formation',
   nameFull: 'SARL Access Formation',
   address: '24 rue Kerbleiz, 29900 Concarneau',
-  phone: '02 46 56 57 54',
+  phone: '02 98 90 30 24',
   email: 'contact@accessformation.pro',
   siret: '943 563 866 00012',
   nda: '53 29 10261 29',
@@ -153,7 +153,7 @@ export default function CourierEditor() {
       doc.setFont('helvetica', 'normal')
       doc.text((org.nameFull || org.name).toUpperCase(), 70, 12)
       doc.text(org.address || '24 rue Kerbleiz, 29900 Concarneau', 70, 17)
-      doc.text('Tél : ' + (org.phone || '02 46 56 57 54') + ' - ' + (org.email || 'contact@accessformation.pro'), 70, 22)
+      doc.text('Tél : ' + (org.phone || '02 98 90 30 24') + ' - ' + (org.email || 'contact@accessformation.pro'), 70, 22)
       doc.text('SIRET : ' + (org.siret || '943 563 866 00012') + ' - NDA : ' + (org.nda || '53 29 10261 29'), 70, 27)
 
       // Ligne de séparation
