@@ -415,7 +415,7 @@ export function generateDuerpPDF({ project, units, risks, actions, categories, u
   doc.setFontSize(9); doc.setFont(undefined, 'bold'); doc.setTextColor(...C.teal)
   doc.text('Contactez-nous pour un devis personnalise', ml + 5, y + 6)
   doc.setFont(undefined, 'normal'); doc.setFontSize(8.5); doc.setTextColor(60, 60, 60)
-  doc.text('02 46 56 57 54  |  contact@accessformation.pro  |  www.accessformation.pro', ml + 5, y + 11)
+  doc.text('02 98 90 30 24  |  contact@accessformation.pro  |  www.accessformation.pro', ml + 5, y + 11)
   y += 18
 
   y = checkY(y, 40); y = subTitle(y, 'VOS OBLIGATIONS')
