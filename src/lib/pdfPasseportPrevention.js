@@ -8,7 +8,7 @@ import jsPDF from 'jspdf'
 const ORG = {
   name: 'Access Formation',
   address: '24 rue Kerbleiz, 29900 Concarneau',
-  phone: '02 46 56 57 54',
+  phone: '02 98 90 30 24',
   email: 'contact@accessformation.pro',
   website: 'www.accessformation.pro',
   nda: '53 29 10261 29',
