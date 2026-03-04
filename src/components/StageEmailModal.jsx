@@ -108,7 +108,7 @@ Access Formation`
     const basePath = `stagiaire-emails/${session.id}/${trainee.id}`
 
     // Certificat
-    const cert = generatePDF('certificat', session, { trainee, trainer })
+    const cert = await generatePDF('certificat', session, { trainee, trainer })
     if (cert) {
       const filename = `Certificat_${ref}_${trainee.last_name}.pdf`
       const path = `${basePath}/${filename}`
@@ -118,7 +118,7 @@ Access Formation`
     }
 
     // Attestation
-    const att = generatePDF('attestation', session, { trainee, trainer })
+    const att = await generatePDF('attestation', session, { trainee, trainer })
     if (att) {
       const filename = `Attestation_${ref}_${trainee.last_name}.pdf`
       const path = `${basePath}/${filename}`
@@ -128,7 +128,7 @@ Access Formation`
     }
 
     // Évaluation à froid
-    const evalF = generatePDF('evaluationFroid', session, { trainee })
+    const evalF = await generatePDF('evaluationFroid', session, { trainee })
     if (evalF) {
       const filename = `EvaluationFroid_${ref}_${trainee.last_name}.pdf`
       const path = `${basePath}/${filename}`
