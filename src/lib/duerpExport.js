@@ -220,7 +220,7 @@ export function generateDuerpPDF({ project, units, risks, actions, categories, u
   const infoLines = [
     `Reference : ${project.reference || ''}`, project.siret ? `SIRET : ${project.siret}` : null,
     project.naf_code ? `Code NAF : ${project.naf_code} -- ${project.naf_label || ''}` : null,
-    project.address ? `Adresse : ${project.address}, ${project.postal_code || ''} ${project.city || ''}` : null,
+    project.address ? `Adresse : ${project.address}${project.postal_code && !project.address.includes(project.postal_code) ? ', ' + [project.postal_code, project.city].filter(Boolean).join(' ') : ''}` : null,
     project.effectif ? `Effectif : ${project.effectif} salarie(s)` : null,
     `Accompagnateur a la redaction : ${accompName}`,
     `Date d'elaboration : ${fmtDate(project.date_elaboration)}`,
@@ -279,6 +279,21 @@ export function generateDuerpPDF({ project, units, risks, actions, categories, u
   // ── SECTION 1 : SYNTHESE ──
   y = newPage(); y = sectionTitle(y, 1, 'SYNTHESE POUR LE DIRIGEANT')
   y = para(y, "Ce document est un appui a la redaction de votre DUERP. Il recense les risques identifies lors de la visite et propose les actions a mettre en place. Cette synthese vous donne une vision claire et actionnable.")
+
+  // Observations terrain du formateur
+  if (project.notes && project.notes.trim()) {
+    y = checkY(y, 28); y += 2
+    doc.setFillColor(240, 248, 255); doc.setDrawColor(...C.teal); doc.setLineWidth(0.4)
+    const noteLines = doc.splitTextToSize(project.notes.trim(), cw - 16)
+    const noteH = Math.max(18, noteLines.length * 3.8 + 12)
+    doc.roundedRect(ml, y, cw, noteH, 2, 2, 'FD')
+    doc.setFontSize(8); doc.setFont(undefined, 'bold'); doc.setTextColor(...C.teal)
+    doc.text('Observations terrain du formateur :', ml + 4, y + 6)
+    doc.setFont(undefined, 'normal'); doc.setTextColor(50, 50, 50); doc.setFontSize(7.5)
+    noteLines.forEach((l, i) => { const ly = y + 12 + i * 3.8; if (ly < y + noteH - 2) doc.text(l, ml + 4, ly) })
+    y += noteH + 4
+  }
+
   y += 2; y = subTitle(y, 'VOS POSTES ET UNITES DE TRAVAIL')
   y = para(y, `Votre entreprise a ete decoupee en ${units.length} unite(s) de travail :`)
   y += 2
@@ -507,8 +522,8 @@ export function generateDuerpPDF({ project, units, risks, actions, categories, u
       if (txt.includes('electrique') || txt.includes('risque electrique')) return 'PROG-FI B0H0V'
       return ''
     }
-    const ab = sortedAct.map(a => { const r = risks.find(r => r.id === a.risk_id); return [PRIO[a.priorite] || '--', a.action || '--', TYPE_A[a.type_action] || a.type_action || '--', a.responsable || '--', fmtDate(a.echeance), STAT[a.statut] || '--', matchFormation(a), (r?.danger || '').substring(0, 30) || '--'] })
-    doc.autoTable({ startY: y, head: [['Priorite', 'Action', 'Type', 'Resp.', 'Ech.', 'Statut', 'Formation AF', 'Risque lie']], body: ab, theme: 'grid', styles: { fontSize: 8, cellPadding: 2.5, overflow: 'linebreak', lineWidth: 0.1 }, headStyles: { fillColor: C.teal, textColor: C.white, fontStyle: 'bold', fontSize: 8 }, columnStyles: { 0: { cellWidth: 18, halign: 'center' }, 1: { cellWidth: 36 }, 2: { cellWidth: 16 }, 3: { cellWidth: 20 }, 4: { cellWidth: 14, halign: 'center' }, 5: { cellWidth: 14, halign: 'center' }, 6: { cellWidth: 20, halign: 'center' }, 7: { cellWidth: 34 } }, margin: { left: ml, right: mr, bottom: 30 }, didParseCell: (d) => { if (d.section === 'body' && d.column.index === 0) { if (d.cell.raw === 'CRITIQUE') { d.cell.styles.fillColor = LVL.critique.bg; d.cell.styles.textColor = LVL.critique.text; d.cell.styles.fontStyle = 'bold' } else if (d.cell.raw === 'Haute') { d.cell.styles.fillColor = LVL.eleve.bg; d.cell.styles.textColor = LVL.eleve.text } } if (d.section === 'body' && d.column.index === 5 && d.cell.raw === 'Fait') { d.cell.styles.fillColor = LVL.faible.bg; d.cell.styles.textColor = LVL.faible.text } if (d.section === 'body' && d.column.index === 6 && d.cell.raw) { d.cell.styles.textColor = C.teal; d.cell.styles.fontStyle = 'bold' } }, didDrawPage: autoTablePageHook })
+    const ab = sortedAct.map(a => { const r = risks.find(r => r.id === a.risk_id); return [PRIO[a.priorite] || '--', a.action || '--', TYPE_A[a.type_action] || a.type_action || '--', a.responsable || '--', fmtDate(a.echeance), STAT[a.statut] || '--', matchFormation(a), r?.danger || '--'] })
+    doc.autoTable({ startY: y, head: [['Priorite', 'Action', 'Type', 'Resp.', 'Ech.', 'Statut', 'Formation AF', 'Risque lie']], body: ab, theme: 'grid', styles: { fontSize: 8, cellPadding: 2.5, overflow: 'linebreak', lineWidth: 0.1 }, headStyles: { fillColor: C.teal, textColor: C.white, fontStyle: 'bold', fontSize: 8 }, columnStyles: { 0: { cellWidth: 18, halign: 'center' }, 1: { cellWidth: 34 }, 2: { cellWidth: 24 }, 3: { cellWidth: 16 }, 4: { cellWidth: 12, halign: 'center' }, 5: { cellWidth: 12, halign: 'center' }, 6: { cellWidth: 20, halign: 'center' }, 7: { cellWidth: 46 } }, margin: { left: ml, right: mr, bottom: 30 }, didParseCell: (d) => { if (d.section === 'body' && d.column.index === 0) { if (d.cell.raw === 'CRITIQUE') { d.cell.styles.fillColor = LVL.critique.bg; d.cell.styles.textColor = LVL.critique.text; d.cell.styles.fontStyle = 'bold' } else if (d.cell.raw === 'Haute') { d.cell.styles.fillColor = LVL.eleve.bg; d.cell.styles.textColor = LVL.eleve.text } } if (d.section === 'body' && d.column.index === 5 && d.cell.raw === 'Fait') { d.cell.styles.fillColor = LVL.faible.bg; d.cell.styles.textColor = LVL.faible.text } if (d.section === 'body' && d.column.index === 6 && d.cell.raw) { d.cell.styles.textColor = C.teal; d.cell.styles.fontStyle = 'bold' } }, didDrawPage: autoTablePageHook })
   }
 
   // ── SECTION 5 : MENTIONS LEGALES ──
@@ -608,7 +623,7 @@ export function generateDuerpExcel({ project, units, risks, actions, categories,
   const info = [
     ['Entreprise :', project.company_name || '', '', 'Reference :', project.reference || ''],
     ['SIRET :', project.siret || '', '', 'Code NAF :', `${project.naf_code || ''} ${project.naf_label || ''}`],
-    ['Adresse :', `${project.address || ''}, ${project.postal_code || ''} ${project.city || ''}`, '', '', ''],
+    ['Adresse :', `${project.address || ''}${project.postal_code && !(project.address || '').includes(project.postal_code) ? ', ' + [project.postal_code, project.city].filter(Boolean).join(' ') : ''}`, '', '', ''],
     ['Effectif :', `${project.effectif || ''} salarie(s)`, '', 'Contact :', project.contact_name || ''],
     ['Accompagnateur :', accompName, '', 'Date :', fmtDate(project.date_elaboration)],
   ]
