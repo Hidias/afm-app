@@ -379,6 +379,12 @@ Nous vous remercions pour votre confiance et restons à votre disposition.`)
       return
     }
 
+    // Avertir si un compte rendu IA a été généré mais pas encore inséré dans le corps du mail
+    if (compteRendu && !emailBody.includes(compteRendu)) {
+      toast.error('Le compte rendu IA a été généré mais n\'a pas été ajouté au mail. Cliquez sur "+ Ajouter au mail" avant d\'envoyer.', { duration: 5000 })
+      return
+    }
+
     const allFiles = [...generatedFiles, ...uploadedFiles]
     if (allFiles.length === 0) {
       toast.error('Aucun document à envoyer')
