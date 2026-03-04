@@ -156,7 +156,7 @@ export async function generateSatisfactionEntreprisePDF(session, client) {
     doc.setTextColor(0, 0, 0)
     doc.text(q.text, 15, y)
     
-    y += 5
+    y += 4
     
     // Sous-titre
     doc.setFont('helvetica', 'italic')
@@ -187,7 +187,7 @@ export async function generateSatisfactionEntreprisePDF(session, client) {
       doc.text(i.toString(), x + boxSize + 2, y + 3.5)
     }
     
-    y += 12
+    y += 9
   })
   
   // ══════════════════════════════════════════════════════════════
