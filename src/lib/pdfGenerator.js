@@ -1158,8 +1158,9 @@ function generateCertificat(session, trainee, trainer = null) {
   
   doc.setFontSize(10)
   doc.setFont('helvetica', 'normal')
-  doc.text(`Je soussigné, ${ORG.dirigeant}, représentant légal du dispensateur de l'action concourant au développement des compétences ${ORG.name}, ${ORG.address}`, 20, y, { maxWidth: 170 })
-  y += 14
+  const introLines1 = doc.splitTextToSize(`Je soussigné, ${ORG.dirigeant}, représentant légal du dispensateur de l'action concourant au développement des compétences ${ORG.name}, ${ORG.address}`, 170)
+  doc.text(introLines1, 20, y)
+  y += introLines1.length * 5 + 4
   
   doc.setFont('helvetica', 'bold')
   doc.text('Atteste que :', 20, y)
@@ -1333,7 +1334,8 @@ function generateCertificat(session, trainee, trainer = null) {
   
   doc.text('Cachet et signature du responsable du dispensateur de formation :', 20, y); y += 5
   try { doc.addImage(STAMP_BASE64, 'JPEG', 20, y, 50, 18) } catch {}
-  doc.text(`${ORG.dirigeant}, Dirigeant ${ORG.name}`, 75, y + 10)
+  const sigLines1 = doc.splitTextToSize(`${ORG.dirigeant}, Dirigeant ${ORG.name}`, pw - 75 - 15)
+  doc.text(sigLines1, 75, y + 8)
   
   addFooter(doc, DOC_CODES.certificat)
   return doc
@@ -2521,8 +2523,9 @@ function generateCertificatContent(doc, session, trainee, trainer) {
   
   doc.setFontSize(10)
   doc.setFont('helvetica', 'normal')
-  doc.text(`Je soussigné, ${ORG.dirigeant}, représentant légal du dispensateur de l'action concourant au développement des compétences ${ORG.name}, ${ORG.address}`, 20, y, { maxWidth: 170 })
-  y += 14
+  const introLines2 = doc.splitTextToSize(`Je soussigné, ${ORG.dirigeant}, représentant légal du dispensateur de l'action concourant au développement des compétences ${ORG.name}, ${ORG.address}`, 170)
+  doc.text(introLines2, 20, y)
+  y += introLines2.length * 5 + 4
   
   doc.setFont('helvetica', 'bold')
   doc.text('Atteste que :', 20, y)
@@ -2595,7 +2598,8 @@ function generateCertificatContent(doc, session, trainee, trainer) {
   
   doc.text('Cachet et signature du responsable du dispensateur de formation :', 20, y); y += 5
   try { doc.addImage(STAMP_BASE64, 'JPEG', 20, y, 50, 18) } catch {}
-  doc.text(`${ORG.dirigeant}, Dirigeant ${ORG.name}`, 75, y + 10)
+  const sigLines2 = doc.splitTextToSize(`${ORG.dirigeant}, Dirigeant ${ORG.name}`, pw - 75 - 15)
+  doc.text(sigLines2, 75, y + 8)
   
   addFooter(doc, DOC_CODES.certificat)
 }
