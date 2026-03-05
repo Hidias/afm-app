@@ -842,7 +842,7 @@ export default function Invoices() {
               <div className="flex justify-between font-semibold border-t pt-2"><span>Net HT</span><span>{money(currentTotals.netHt)}</span></div>
               {Object.entries(currentTotals.tvaByRate).map(([r,d])=><div key={r} className="flex justify-between text-gray-500"><span>TVA {r}%</span><span>{money(d.tva)}</span></div>)}
               <div className="flex justify-between font-bold text-lg border-t pt-2"><span>TTC</span><span>{money(currentTotals.totalTtc)}</span></div>
-              {parseFloat(current?.amount_paid)>0&&<><div className="flex justify-between text-green-600"><span>Déjà payé</span><span>{money(current.amount_paid)}</span></div><div className="flex justify-between font-bold text-red-600 border-t pt-2"><span>Reste dû</span><span>{money(currentTotals.totalTtc-(parseFloat(current.amount_paid)||0))}</span></div></>}
+              {(parseFloat(current?.amount_paid)>0||parseFloat(current?.amount_due)>0.01)&&<><div className="flex justify-between text-green-600"><span>Déjà payé</span><span>{money(current.amount_paid||0)}</span></div>{parseFloat(current?.amount_due)>0.01&&<div className="flex justify-between font-bold text-red-600 border-t pt-2"><span>Reste dû</span><span>{money(current.amount_due)}</span></div>}</>}
             </div>}
           </div>
         </div>
@@ -851,7 +851,7 @@ export default function Invoices() {
         {current?.id&&<div className="bg-white rounded-xl border p-5">
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-semibold text-sm">Paiements</h3>
-            {!['paid','cancelled'].includes(current.status)&&current.type!=='credit_note'&&<button onClick={()=>{setPaymentForm({...paymentForm,amount:current.amount_due||''});setShowPaymentForm(true)}} className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs flex items-center gap-1"><CreditCard size={14}/>Enregistrer un paiement</button>}
+            {current.status!=='cancelled'&&current.type!=='credit_note'&&(current.status!=='paid'||parseFloat(current.amount_due)>0.01)&&<button onClick={()=>{setPaymentForm({...paymentForm,amount:parseFloat(current.amount_due)>0.01?current.amount_due:''});setShowPaymentForm(true)}} className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs flex items-center gap-1"><CreditCard size={14}/>Enregistrer un paiement</button>}
           </div>
           {payments.length===0?<p className="text-sm text-gray-400">Aucun paiement enregistré</p>:(
             <div className="space-y-2">{payments.map(p=><div key={p.id} className="flex items-center justify-between border rounded-lg p-3 text-sm">
