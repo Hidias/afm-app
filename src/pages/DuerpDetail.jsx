@@ -599,7 +599,18 @@ export default function DuerpDetail() {
 
   const applyAiGeneralResults = async () => {
     if (!aiResult || aiResult.mode !== 'general') return
-    let createdUnits = 0, createdRisks = 0, createdActions = 0
+    let createdUnits = 0, createdRisks = 0, createdActions = 0, skippedDupes = 0
+
+    // Sauvegarder les observations terrain dans duerp_projects.notes
+    if (aiGeneralDescription.trim()) {
+      const existing = project.notes ? project.notes.trim() : ''
+      const datePrefix = new Date().toLocaleDateString('fr-FR')
+      const newNote = `[${datePrefix}] ${aiGeneralDescription.trim()}`
+      const merged = existing ? `${existing}\n\n${newNote}` : newNote
+      await supabase.from('duerp_projects').update({ notes: merged }).eq('id', id)
+      setProject(p => ({ ...p, notes: merged }))
+    }
+
     // Créer les nouvelles unités si proposées
     const unitCodeMap = {}
     units.forEach(u => { unitCodeMap[u.code] = u.id })
@@ -611,10 +622,18 @@ export default function DuerpDetail() {
         if (!error && data) { unitCodeMap[nu.code] = data.id; createdUnits++ }
       }
     }
-    // Créer les risques
+
+    // Construire le set de clés existantes pour dédoublonnage (danger normalisé + unit_id)
+    const norm = s => (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
+    const existingKeys = new Set(risks.map(r => `${norm(r.danger)}__${r.unit_id || ''}`))
+
+    // Créer les risques (avec dédoublonnage)
     for (const r of (aiResult.risques || [])) {
       if (r._skip) continue
       const unitId = unitCodeMap[r.unit_code] || null
+      const dedupeKey = `${norm(r.danger)}__${unitId || ''}`
+      if (existingKeys.has(dedupeKey)) { skippedDupes++; continue }
+      existingKeys.add(dedupeKey)
       const { data: newRisk, error } = await supabase.from('duerp_risks').insert({
         project_id: id, unit_id: unitId, category_code: r.category_code || null,
         danger: r.danger, situation: r.situation, consequences: r.consequences,
@@ -635,7 +654,8 @@ export default function DuerpDetail() {
       }
     }
     setAiResult(null); setShowAiGeneralModal(false); setAiGeneralDescription('')
-    toast.success(`${createdUnits} unité(s), ${createdRisks} risque(s), ${createdActions} action(s) créé(s)`)
+    const dupeMsg = skippedDupes > 0 ? ` (${skippedDupes} doublon(s) ignoré(s))` : ''
+    toast.success(`${createdUnits} unité(s), ${createdRisks} risque(s), ${createdActions} action(s) créé(s)${dupeMsg}`)
     loadAll()
   }
 
