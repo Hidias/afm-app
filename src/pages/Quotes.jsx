@@ -552,6 +552,7 @@ export default function Quotes() {
         endDate: '',
         startTime: '09:00',
         endTime: '17:00',
+        preset: 'perso',
         trainerId: defaultTrainer?.id || '',
         location: client.city || '',
         nbParticipants: parseInt(f.item.quantity) || 1,
@@ -598,7 +599,14 @@ export default function Quotes() {
           location_city: sel.location || client.city || null,
           is_intra: true,
           status: 'planned',
-          day_type: 'full',
+          day_type: (() => {
+            const [sh, sm] = (sel.startTime || '09:00').split(':').map(Number)
+            const [eh, em] = (sel.endTime || '17:00').split(':').map(Number)
+            let startMins = sh * 60 + sm
+            let endMins = eh * 60 + em
+            if (endMins <= startMins) endMins += 24 * 60 // nuit
+            return (endMins - startMins) <= 270 ? 'half' : 'full' // <= 4h30 = demi-journée
+          })(),
           notes: `Créée depuis devis ${quote.reference}`,
           funding_type: 'none',
         })
@@ -2002,17 +2010,59 @@ export default function Quotes() {
                             onChange={(e) => updateSessionSelection(idx, 'endDate', e.target.value)}
                             className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500" />
                         </div>
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">Heure début</label>
-                          <input type="time" value={sel.startTime}
-                            onChange={(e) => updateSessionSelection(idx, 'startTime', e.target.value)}
-                            className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500" />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">Heure fin</label>
-                          <input type="time" value={sel.endTime}
-                            onChange={(e) => updateSessionSelection(idx, 'endTime', e.target.value)}
-                            className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500" />
+                        <div className="col-span-2">
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Créneau</label>
+                          <div className="flex flex-wrap gap-1.5">
+                            {[
+                              { key: 'matin',    label: '🌅 Matin',      start: '08:00', end: '12:00' },
+                              { key: 'aprem',    label: '🌇 Après-midi', start: '13:00', end: '17:00' },
+                              { key: 'soiree',   label: '🌆 Soirée',     start: '18:00', end: '22:00' },
+                              { key: 'nuit',     label: '🌙 Nuit',       start: '21:00', end: '05:00' },
+                              { key: 'journee',  label: '☀️ Journée',    start: '09:00', end: '17:00' },
+                              { key: 'perso',    label: '✏️ Perso',      start: null,    end: null    },
+                            ].map(p => (
+                              <button
+                                key={p.key}
+                                type="button"
+                                onClick={() => {
+                                  setSessionSelections(prev => prev.map((s, i) => {
+                                    if (i !== idx) return s
+                                    return {
+                                      ...s,
+                                      preset: p.key,
+                                      startTime: p.start || s.startTime,
+                                      endTime: p.end || s.endTime,
+                                    }
+                                  }))
+                                }}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-all ${
+                                  sel.preset === p.key
+                                    ? 'bg-emerald-600 text-white border-emerald-600'
+                                    : 'bg-white text-gray-600 border-gray-200 hover:border-emerald-400'
+                                }`}
+                              >
+                                {p.label}
+                              </button>
+                            ))}
+                          </div>
+                          {sel.preset === 'perso' && (
+                            <div className="flex gap-2 mt-2">
+                              <div className="flex-1">
+                                <input type="time" value={sel.startTime}
+                                  onChange={(e) => updateSessionSelection(idx, 'startTime', e.target.value)}
+                                  className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500" />
+                              </div>
+                              <span className="self-center text-gray-400 text-sm">→</span>
+                              <div className="flex-1">
+                                <input type="time" value={sel.endTime}
+                                  onChange={(e) => updateSessionSelection(idx, 'endTime', e.target.value)}
+                                  className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500" />
+                              </div>
+                            </div>
+                          )}
+                          {sel.preset !== 'perso' && (
+                            <p className="text-[11px] text-gray-400 mt-1">{sel.startTime} → {sel.endTime}</p>
+                          )}
                         </div>
                       </div>
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
