@@ -1662,8 +1662,7 @@ export const useDataStore = create((set, get) => ({
     let presentHalfDays = 0
     halfDays?.forEach(h => {
       if (h.morning === true) presentHalfDays++
-      // Pour session demi-journée, on ne compte que le matin
-      if (!isHalfDaySession && h.afternoon === true) presentHalfDays++
+      if (h.afternoon === true) presentHalfDays++
     })
     
     const allPresent = presentHalfDays >= requiredHalfDays
