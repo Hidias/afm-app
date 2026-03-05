@@ -105,7 +105,13 @@ export default function DuerpProjects() {
   const [apiSearching, setApiSearching] = useState(false)
   const [newProject, setNewProject] = useState({})
   const [creating, setCreating] = useState(false)
-  
+
+  // Écran rattachement orphelins post-création
+  const [showRattachement, setShowRattachement] = useState(false)
+  const [rattachementData, setRattachementData] = useState(null) // { projectId, units, orphanRisks }
+  const [rattachAssignments, setRattachAssignments] = useState({}) // { riskId: unitId | '__skip' }
+  const [rattachSaving, setRattachSaving] = useState(false)
+
   // Context menu
   const [contextMenu, setContextMenu] = useState(null)
 
@@ -316,6 +322,19 @@ export default function DuerpProjects() {
       toast.success(`Projet DUERP créé : ${ref}`)
       resetCreateForm()
       loadAll()
+
+      // Si des risques orphelins ont été injectés → écran de rattachement
+      if (templates?.length) {
+        const { data: createdUnits } = await supabase.from('duerp_units').select('*').eq('project_id', project.id).order('sort_order')
+        const { data: orphanRisks } = await supabase.from('duerp_risks').select('*').eq('project_id', project.id).is('unit_id', null)
+        if (orphanRisks?.length && createdUnits?.length) {
+          const initAssignments = {}
+          orphanRisks.forEach(r => { initAssignments[r.id] = '' })
+          setRattachAssignments(initAssignments)
+          setRattachementData({ projectId: project.id, units: createdUnits, orphanRisks })
+          setShowRattachement(true)
+        }
+      }
     } catch (err) {
       console.error(err)
       toast.error('Erreur création : ' + (err.message || ''))
@@ -332,6 +351,32 @@ export default function DuerpProjects() {
     setApiSearch('')
     setApiResults([])
     setNewProject({})
+  }
+
+  // Sauvegarde du rattachement des risques orphelins
+  const saveRattachement = async () => {
+    if (!rattachementData) return
+    setRattachSaving(true)
+    try {
+      const updates = Object.entries(rattachAssignments).filter(([, unitId]) => unitId && unitId !== '__skip')
+      const toDelete = Object.entries(rattachAssignments).filter(([, unitId]) => unitId === '__skip').map(([riskId]) => riskId)
+
+      for (const [riskId, unitId] of updates) {
+        await supabase.from('duerp_risks').update({ unit_id: unitId }).eq('id', riskId)
+      }
+      if (toDelete.length) {
+        // Supprimer les actions liées aux risques ignorés avant de supprimer les risques
+        await supabase.from('duerp_actions').delete().in('risk_id', toDelete)
+        await supabase.from('duerp_risks').delete().in('id', toDelete)
+      }
+      toast.success(`Rattachement enregistré — ${updates.length} risque(s) affecté(s)${toDelete.length ? `, ${toDelete.length} supprimé(s)` : ''}`)
+      setShowRattachement(false)
+      setRattachementData(null)
+      setRattachAssignments({})
+    } catch (err) {
+      toast.error('Erreur : ' + err.message)
+    }
+    setRattachSaving(false)
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -897,6 +942,89 @@ export default function DuerpProjects() {
       {/* Overlay pour fermer le context menu */}
       {contextMenu && (
         <div className="fixed inset-0 z-10" onClick={() => setContextMenu(null)} />
+      )}
+
+      {/* ════════════════════════════════════════════════════════════════ */}
+      {/* MODAL RATTACHEMENT ORPHELINS (post-création)                   */}
+      {/* ════════════════════════════════════════════════════════════════ */}
+      {showRattachement && rattachementData && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between p-5 border-b">
+              <div>
+                <h2 className="text-lg font-bold text-gray-900">Rattachement des risques types</h2>
+                <p className="text-sm text-gray-500 mt-0.5">{rattachementData.orphanRisks.length} risques pré-chargés depuis les templates — à affecter aux unités ou à supprimer</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs bg-amber-100 text-amber-700 px-2 py-1 rounded-full font-medium">Étape obligatoire</span>
+              </div>
+            </div>
+
+            {/* Corps */}
+            <div className="flex-1 overflow-y-auto p-5 space-y-2">
+              {/* Actions rapides */}
+              <div className="flex gap-2 mb-3 flex-wrap">
+                <span className="text-xs font-medium text-gray-500 self-center">Tout affecter à :</span>
+                {rattachementData.units.map(u => (
+                  <button key={u.id} onClick={() => {
+                    const all = {}
+                    rattachementData.orphanRisks.forEach(r => { all[r.id] = u.id })
+                    setRattachAssignments(all)
+                  }} className="text-xs px-2.5 py-1 bg-teal-50 text-teal-700 border border-teal-200 rounded-lg hover:bg-teal-100 transition">
+                    {u.name}
+                  </button>
+                ))}
+                <button onClick={() => {
+                  const all = {}
+                  rattachementData.orphanRisks.forEach(r => { all[r.id] = '__skip' })
+                  setRattachAssignments(all)
+                }} className="text-xs px-2.5 py-1 bg-red-50 text-red-600 border border-red-200 rounded-lg hover:bg-red-100 transition">
+                  Tout supprimer
+                </button>
+              </div>
+
+              {rattachementData.orphanRisks.map(risk => (
+                <div key={risk.id} className={`flex items-center gap-3 p-3 rounded-xl border transition ${rattachAssignments[risk.id] === '__skip' ? 'opacity-40 bg-red-50 border-red-200' : rattachAssignments[risk.id] ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-900 truncate">{risk.danger}</p>
+                    {risk.situation && <p className="text-xs text-gray-400 truncate">{risk.situation}</p>}
+                  </div>
+                  <select
+                    value={rattachAssignments[risk.id] || ''}
+                    onChange={e => setRattachAssignments(prev => ({ ...prev, [risk.id]: e.target.value }))}
+                    className="text-xs border rounded-lg px-2 py-1.5 bg-white min-w-[160px] focus:ring-1 focus:ring-teal-400"
+                  >
+                    <option value="">— Affecter à... —</option>
+                    {rattachementData.units.map(u => (
+                      <option key={u.id} value={u.id}>{u.name}</option>
+                    ))}
+                    <option value="__skip">🗑 Supprimer ce risque</option>
+                  </select>
+                </div>
+              ))}
+            </div>
+
+            {/* Footer */}
+            <div className="p-5 border-t flex items-center justify-between gap-3">
+              <div className="text-xs text-gray-400">
+                {Object.values(rattachAssignments).filter(v => v && v !== '__skip').length} affecté(s) · {Object.values(rattachAssignments).filter(v => v === '__skip').length} à supprimer · {Object.values(rattachAssignments).filter(v => !v).length} en attente
+              </div>
+              <div className="flex gap-3">
+                <Link to={`/duerp/${rattachementData.projectId}`}
+                  onClick={() => { setShowRattachement(false); setRattachementData(null) }}
+                  className="px-4 py-2 text-sm text-gray-500 hover:bg-gray-100 rounded-lg transition">
+                  Passer — gérer dans le projet
+                </Link>
+                <button onClick={saveRattachement} disabled={rattachSaving}
+                  className="px-6 py-2.5 bg-teal-600 text-white rounded-xl text-sm font-medium hover:bg-teal-700 disabled:opacity-50 flex items-center gap-2">
+                  {rattachSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                  Enregistrer et ouvrir le projet
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
