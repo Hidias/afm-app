@@ -215,12 +215,14 @@ export async function generateInvoicePDF(invoice, items, client, contact, option
   doc.text(ORG.address1, ML, y)
   doc.text(ORG.address2, ML, y + 5)
   doc.text(ORG.country, ML, y + 10)
+  doc.setTextColor(80, 80, 80)
+  doc.text('TVA : ' + ORG.tva, ML, y + 15)
   doc.setTextColor(0, 0, 0)
   doc.setFont(F, 'bold')
-  doc.text('Votre contact : ' + cb.name, ML, y + 18)
+  doc.text('Votre contact : ' + cb.name, ML, y + 22)
   doc.setFont(F, 'normal')
   doc.setTextColor(80, 80, 80)
-  doc.text('Tel : ' + cb.phone, ML, y + 23)
+  doc.text('Tel : ' + cb.phone, ML, y + 27)
 
   // --- CLIENT ---
   var billingClient = options.billingClient || null
@@ -266,6 +268,10 @@ export async function generateInvoicePDF(invoice, items, client, contact, option
     doc.setFontSize(8)
     doc.text('SIRET : ' + displayClient.siret, cX, cy)
     cy += 4
+  } else if (displayClient?.siren) {
+    doc.setFontSize(8)
+    doc.text('SIREN : ' + displayClient.siren, cX, cy)
+    cy += 4
   }
 
   // Mention subrogation si OPCO
@@ -284,20 +290,30 @@ export async function generateInvoicePDF(invoice, items, client, contact, option
     if (client.siret) {
       doc.text('SIRET : ' + client.siret, cX, cy)
       cy += 4
+    } else if (client.siren) {
+      doc.text('SIREN : ' + client.siren, cX, cy)
+      cy += 4
     }
     doc.setTextColor(0, 0, 0)
   }
 
   // --- OBJET ---
-  y = Math.max(82, cy + 4)
+  y = Math.max(86, cy + 4)
   if (invoice.object) {
     doc.setFontSize(9)
     doc.setFont(F, 'normal')
     doc.setTextColor(0, 0, 0)
     var ol = doc.splitTextToSize('Objet : ' + invoice.object, MR - ML)
     doc.text(ol, ML, y)
-    y += ol.length * 4 + 4
+    y += ol.length * 4 + 2
   }
+
+  // --- NATURE DE L'OPERATION (mention obligatoire réforme 2026) ---
+  doc.setFontSize(8)
+  doc.setFont(F, 'normal')
+  doc.setTextColor(80, 80, 80)
+  doc.text('Nature de l\'operation : Prestation de services', ML, y)
+  y += 6
 
   // --- TABLE DES LIGNES ---
   var tb = items.map(function (it) {
