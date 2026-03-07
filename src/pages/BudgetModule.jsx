@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import toast from 'react-hot-toast'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, AreaChart, Area } from 'recharts'
-import { generateInvoicePDF, calcInvoiceTotals } from '../lib/invoiceGenerator'
+import { generateInvoicePDF, generateFacturXPDF, calcInvoiceTotals } from '../lib/invoiceGenerator'
 
 // ════════════════════════════════════════════════════════════
 //  BUDGET MODULE v4 — Access Campus
@@ -1183,48 +1183,58 @@ function ComptableTab({ transactions, receipts, loadAll }) {
 
     const selectedData = invoicesData.filter(d => invSelected.has(d.invoice.id))
     const total = selectedData.length
-    setInvProgress({ current: 0, total, step: 'Génération PDFs...' })
+    setInvProgress({ current: 0, total, step: 'Génération Factur-X...' })
 
     try {
+      // ── Préparer les données enrichies (parentRef, sessionRef, billingClient) ──
+      const enriched = await Promise.all(selectedData.map(async (d) => {
+        const { invoice, items, client, contact } = d
+        let parentRef = invoice.parent_reference || ''
+        if (!parentRef && invoice.quote_id) {
+          const { data: q } = await supabase.from('quotes').select('reference').eq('id', invoice.quote_id).single()
+          parentRef = q?.reference || ''
+        }
+        let sessionRef = ''
+        if (invoice.session_id) {
+          const { data: s } = await supabase.from('sessions').select('reference').eq('id', invoice.session_id).single()
+          sessionRef = s?.reference || ''
+        }
+        let billingClient = null
+        if (invoice.is_subrogation && invoice.billing_client_id) {
+          const { data: bc } = await supabase.from('clients').select('*').eq('id', invoice.billing_client_id).single()
+          billingClient = bc
+        }
+        return { invoice: { ...invoice, parent_reference: parentRef, session_reference: sessionRef }, items, client, contact, billingClient }
+      }))
+
+      // ── Génération Factur-X en batch de 5 parallèles ──
+      const BATCH = 5
       const attachments = []
-      for (let i = 0; i < selectedData.length; i++) {
-        setInvProgress({ current: i + 1, total, step: `PDF ${i + 1}/${total}...` })
-        const { invoice, items, client, contact } = selectedData[i]
+      let done = 0
 
-        try {
-          let parentRef = invoice.parent_reference || ''
-          if (!parentRef && invoice.quote_id) {
-            const { data: q } = await supabase.from('quotes').select('reference').eq('id', invoice.quote_id).single()
-            parentRef = q?.reference || ''
+      for (let i = 0; i < enriched.length; i += BATCH) {
+        const batch = enriched.slice(i, i + BATCH)
+        const results = await Promise.allSettled(batch.map(({ invoice, items, client, contact, billingClient }) =>
+          generateFacturXPDF(invoice, items, client, contact, { returnBase64: true, billingClient }, billingClient)
+            .then(base64 => ({ ok: true, invoice, base64 }))
+            .catch(err => ({ ok: false, invoice, err }))
+        ))
+
+        for (const r of results) {
+          done++
+          setInvProgress({ current: done, total, step: `Factur-X ${done}/${total}...` })
+          if (r.status === 'fulfilled' && r.value.ok) {
+            attachments.push({
+              filename: `${r.value.invoice.reference}_facturx.pdf`,
+              base64: r.value.base64,
+              contentType: 'application/pdf'
+            })
+          } else {
+            const inv = r.value?.invoice || r.reason
+            const ref = inv?.reference || '?'
+            console.error(`Erreur Factur-X ${ref}:`, r.value?.err || r.reason)
+            toast.error(`⚠️ Erreur Factur-X ${ref} — facture ignorée`)
           }
-          let sessionRef = ''
-          if (invoice.session_id) {
-            const { data: s } = await supabase.from('sessions').select('reference').eq('id', invoice.session_id).single()
-            sessionRef = s?.reference || ''
-          }
-          let billingClient = null
-          if (invoice.is_subrogation && invoice.billing_client_id) {
-            const { data: bc } = await supabase.from('clients').select('*').eq('id', invoice.billing_client_id).single()
-            billingClient = bc
-          }
-
-          const doc = await generateInvoicePDF(
-            { ...invoice, parent_reference: parentRef, session_reference: sessionRef },
-            items, client, contact,
-            { skipSave: true, billingClient }
-          )
-
-          const arrayBuffer = doc.output('arraybuffer')
-          const base64 = btoa(new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), ''))
-
-          attachments.push({
-            filename: `${invoice.reference}.pdf`,
-            base64,
-            contentType: 'application/pdf'
-          })
-        } catch (pdfErr) {
-          console.error(`Erreur PDF ${invoice.reference}:`, pdfErr)
-          toast.error(`⚠️ Erreur PDF ${invoice.reference}`)
         }
       }
 
