@@ -1035,6 +1035,53 @@ export default function MarinePhoning() {
     setShowEmailModal(true)
   }
 
+  // Ouvrir le modal email depuis la liste (sans avoir sélectionné le prospect)
+  function openEmailForListItem(p, e) {
+    e.stopPropagation()
+    emailProspectRef.current = p
+    const tpl = 'suite_echange'
+    const t = EMAIL_TEMPLATES[tpl]
+    setEmailTo(p.email || '')
+    setEmailSubject(t.subject(p.name))
+    setEmailBody(t.body(p.name, ''))
+    setEmailTemplate(tpl)
+    setPendingGoNext(false)
+    setShowEmailModal(true)
+  }
+
+  // Snooze prospect : créer un callback sans enregistrer d'appel
+  async function handleSnooze(days) {
+    if (!current) return
+    const clientId = current.client_id || null
+    const snoozeDate = new Date()
+    snoozeDate.setDate(snoozeDate.getDate() + days)
+    const snoozeDateStr = snoozeDate.toISOString().split('T')[0]
+    try {
+      // Mettre à jour le statut du prospect
+      await supabase.from('prospection_massive')
+        .update({ prospection_status: 'a_rappeler', updated_at: new Date().toISOString() })
+        .eq('id', current.id)
+      // Créer un appel de snooze (pas de durée, juste le callback)
+      if (clientId) {
+        await supabase.from('prospect_calls').insert({
+          client_id: clientId,
+          called_by: callerName,
+          call_result: 'no_answer',
+          needs_callback: true,
+          callback_date: snoozeDateStr,
+          callback_time: '09:00',
+          callback_reason: `Reporté ${days}j — injoignable`,
+          notes: `Reporté automatiquement — ${days} jour(s)`,
+          call_number: (callHistory.length || 0) + 1,
+        })
+      }
+      toast.success(`💤 Reporté au ${snoozeDate.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}`)
+      goNext()
+      await loadProspects()
+      await loadTodayCallbacks()
+    } catch (err) { toast.error('Erreur snooze : ' + err.message) }
+  }
+
   async function checkEmailDuplicate(siren) {
     if (!siren) return null
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString()
@@ -1541,6 +1588,32 @@ export default function MarinePhoning() {
       if (aO !== bO) return aO - bO
       return a.distance - b.distance
     })
+
+    // Alternance secteurs Hicham / Maxime — uniquement sur l'onglet "À appeler"
+    if (statusFilter === 'a_appeler') {
+      const getSector = (p) => {
+        if (!p.latitude || !p.longitude) return 'none'
+        const dH = distanceKm(BASES.concarneau.lat, BASES.concarneau.lng, p.latitude, p.longitude)
+        const dM = distanceKm(BASES.derval.lat, BASES.derval.lng, p.latitude, p.longitude)
+        const inH = dH <= 75
+        const inM = dM <= 75
+        if (inH && inM) return dH <= dM ? 'hicham' : 'maxime'
+        if (inH) return 'hicham'
+        if (inM) return 'maxime'
+        return 'none'
+      }
+      const hichamList = list.filter(p => getSector(p) === 'hicham')
+      const maximeList = list.filter(p => getSector(p) === 'maxime')
+      const noneList   = list.filter(p => getSector(p) === 'none')
+      const interleaved = []
+      const maxLen = Math.max(hichamList.length, maximeList.length)
+      for (let i = 0; i < maxLen; i++) {
+        if (i < hichamList.length) interleaved.push(hichamList[i])
+        if (i < maximeList.length) interleaved.push(maximeList[i])
+      }
+      list = [...interleaved, ...noneList]
+    }
+
     return list
   }, [prospects, statusFilter, departementFilter, effectifFilter, formeFilter, searchTerm, searchResults, todayCallbackSirens, callbackDetails, rappelCallerMap, rappelFilterBy, rappelFilterDate, mapBase, mapRadius, doNotCallList])
 
@@ -1798,6 +1871,13 @@ export default function MarinePhoning() {
               </div>
               <div className="flex items-center gap-3 ml-3">
                 {p.phone && <a href={'tel:' + p.phone.replace(/\s/g, '')} onClick={e => e.stopPropagation()} className="text-primary-600 text-sm">{p.phone}</a>}
+                {statusFilter === 'rappels' && p.email && (
+                  <button onClick={(e) => openEmailForListItem(p, e)}
+                    title="Relancer par email"
+                    className="flex items-center gap-1 px-2 py-1 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg text-xs text-blue-600 transition-colors">
+                    <Mail className="w-3 h-3" /> Email
+                  </button>
+                )}
                 {p.email && emailSentMap[p.siren] && (() => {
                   const days = Math.floor((Date.now() - new Date(emailSentMap[p.siren].date).getTime()) / 86400000)
                   const isRelance = days >= 7 && emailSentMap[p.siren].template !== 'relance'
@@ -1886,7 +1966,24 @@ export default function MarinePhoning() {
                   return (lastContact || noAnswerCount >= 2) ? (
                     <div className="flex items-center gap-2 mt-1 flex-wrap">
                       {lastContact && <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">👤 Demander {lastContact.contact_name}{lastContact.contact_function ? ' (' + lastContact.contact_function + ')' : ''}</span>}
-                      {noAnswerCount >= 2 && <span className="text-xs bg-red-50 text-red-600 px-2 py-0.5 rounded-full">{noAnswerCount}× injoignable</span>}
+                      {noAnswerCount >= 2 && (
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-xs bg-red-50 text-red-600 px-2 py-0.5 rounded-full">{noAnswerCount}× injoignable</span>
+                          <button onClick={() => openDoNotCallModal()}
+                            className="text-xs bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 px-2 py-0.5 rounded-full transition-colors">
+                            🚫 Ne plus rappeler
+                          </button>
+                          <div className="flex items-center gap-1">
+                            <span className="text-xs text-gray-400">💤</span>
+                            {[{ label: '1 sem', days: 7 }, { label: '2 sem', days: 14 }, { label: '1 mois', days: 30 }].map(opt => (
+                              <button key={opt.days} onClick={() => handleSnooze(opt.days)}
+                                className="text-xs bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full transition-colors">
+                                {opt.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ) : null
                 })()}
@@ -2535,11 +2632,22 @@ export default function MarinePhoning() {
                   </div>
 
                   {/* Contact details */}
-                  <div className="grid grid-cols-2 gap-2">
-                    <input type="email" value={contactEmail} onChange={e => setContactEmail(e.target.value)} placeholder="Email direct"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent" />
-                    <input type="tel" value={contactMobile} onChange={e => setContactMobile(e.target.value)} placeholder="Mobile direct"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent" />
+                  <div className="bg-gray-50 rounded-lg p-3 space-y-2">
+                    <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">👤 Interlocuteur</h4>
+                    <div className="grid grid-cols-2 gap-2">
+                      <input type="text" value={contactName} onChange={e => setContactName(e.target.value)} placeholder="Nom du contact"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white" />
+                      <select value={contactFunction} onChange={e => setContactFunction(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white">
+                        <option value="Dirigeant">Dirigeant</option><option value="RH">RH</option><option value="QHSE">QHSE</option><option value="Resp formation">Resp formation</option><option value="Secrétariat">Secrétariat</option><option value="Autre">Autre</option>
+                      </select>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <input type="email" value={contactEmail} onChange={e => setContactEmail(e.target.value)} placeholder="Email direct"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white" />
+                      <input type="tel" value={contactMobile} onChange={e => setContactMobile(e.target.value)} placeholder="Mobile direct"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white" />
+                    </div>
                   </div>
 
                   {/* Formations */}
