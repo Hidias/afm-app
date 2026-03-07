@@ -614,7 +614,16 @@ export async function generateFacturXPDF(invoice, items, client, contact, option
     )
   }
 
-  // 4. Télécharger le PDF/A-3 Factur-X
+  // 4a. Mode retour base64 (pour envoi au comptable sans download)
+  if (options.returnBase64) {
+    var arrayBuffer = await response.arrayBuffer()
+    var bytes = new Uint8Array(arrayBuffer)
+    var b = ''
+    for (var j = 0; j < bytes.length; j++) { b += String.fromCharCode(bytes[j]) }
+    return btoa(b)
+  }
+
+  // 4b. Mode download (comportement par défaut — bouton Factur-X dans Invoices.jsx)
   var blob = await response.blob()
   var url = URL.createObjectURL(blob)
   var a = document.createElement('a')
