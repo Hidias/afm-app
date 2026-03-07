@@ -432,22 +432,32 @@ async function embedAndMakePDFA3(pdfBuffer, xmlString, invoiceRef, invoiceDate, 
 
   // 4. Nettoyer les polices non embarquées non utilisées (PDF/A interdit les polices sans embedding)
   // jsPDF déclare les 14 polices standard dans Resources même si inutilisées
+  // Identifier d'abord toutes les polices réellement utilisées dans le PDF brut
+  // (jsPDF ne compresse pas ses streams, regex directe possible)
+  const usedFonts = new Set(
+    Array.from(pdfBuffer.toString('latin1').matchAll(/\/(F\d+)\s+[\d.]+\s+Tf/g), m => m[1])
+  )
+
   const pages = pdfDoc.getPages()
   for (const page of pages) {
-    const resources = page.node.get(PDFName.of('Resources'))
-    if (!resources) continue
-    const fontDict = resources.get(PDFName.of('Font'))
-    if (!fontDict || !fontDict.keys) continue
+    // pdf-lib peut retourner une PDFRef — résoudre via context.lookup()
+    let resourcesObj = page.node.get(PDFName.of('Resources'))
+    if (!resourcesObj) continue
+    if (resourcesObj.constructor && resourcesObj.constructor.name === 'PDFRef') {
+      resourcesObj = pdfDoc.context.lookup(resourcesObj)
+    }
+    if (!resourcesObj || typeof resourcesObj.get !== 'function') continue
 
-    // Identifier les polices utilisées via regex sur le PDF brut (jsPDF ne compresse pas ses streams)
-    // On cherche les instructions Tf : /F1 12 Tf → F1
-    const usedFonts = new Set(
-      Array.from(pdfBuffer.toString('latin1').matchAll(/\/(F\d+)\s+[\d.]+\s+Tf/g), m => m[1])
-    )
+    let fontDict = resourcesObj.get(PDFName.of('Font'))
+    if (!fontDict) continue
+    if (fontDict.constructor && fontDict.constructor.name === 'PDFRef') {
+      fontDict = pdfDoc.context.lookup(fontDict)
+    }
+    if (!fontDict || typeof fontDict.keys !== 'function') continue
 
-    // Supprimer du dictionnaire toutes les polices non utilisées
-    for (const key of fontDict.keys()) {
-      const fontName = key.asString ? key.asString().replace(/^\//, '') : String(key).replace(/^\//, '')
+    // Supprimer toutes les polices non utilisées dans le contenu
+    for (const key of [...fontDict.keys()]) {
+      const fontName = String(key).replace(/^\//, '')
       if (!usedFonts.has(fontName)) {
         fontDict.delete(key)
       }
