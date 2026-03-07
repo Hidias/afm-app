@@ -371,8 +371,8 @@ ${linesXml}
         <ram:Name>Access Formation</ram:Name>
         <ram:SpecifiedLegalOrganization><ram:ID schemeID="0002">94356386600012</ram:ID></ram:SpecifiedLegalOrganization>
         <ram:PostalTradeAddress>
-          <ram:LineOne>24 Rue Kerbleiz</ram:LineOne><ram:CityName>Concarneau</ram:CityName>
-          <ram:PostcodeCode>29900</ram:PostcodeCode><ram:CountryID>FR</ram:CountryID>
+          <ram:LineOne>24 Rue Kerbleiz</ram:LineOne>
+          <ram:PostcodeCode>29900</ram:PostcodeCode><ram:CityName>Concarneau</ram:CityName><ram:CountryID>FR</ram:CountryID>
         </ram:PostalTradeAddress>
         <ram:SpecifiedTaxRegistration><ram:ID schemeID="VA">FR71943563866</ram:ID></ram:SpecifiedTaxRegistration>
       </ram:SellerTradeParty>
@@ -381,8 +381,8 @@ ${linesXml}
 ${buyerSiretXml}
         <ram:PostalTradeAddress>
           <ram:LineOne>${esc(client.address||'')}</ram:LineOne>
-          <ram:CityName>${esc((client.city||'').toUpperCase())}</ram:CityName>
           <ram:PostcodeCode>${esc(client.postal_code||'')}</ram:PostcodeCode>
+          <ram:CityName>${esc((client.city||'').toUpperCase())}</ram:CityName>
           <ram:CountryID>FR</ram:CountryID>
         </ram:PostalTradeAddress>
       </ram:BuyerTradeParty>
