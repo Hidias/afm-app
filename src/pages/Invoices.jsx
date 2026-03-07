@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { generateInvoicePDF, calcInvoiceTotals } from '../lib/invoiceGenerator'
+import { generateInvoicePDF, generateFacturXPDF, calcInvoiceTotals } from '../lib/invoiceGenerator'
 import { format, addDays, differenceInDays } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import toast from 'react-hot-toast'
@@ -466,6 +466,22 @@ export default function Invoices() {
     await generateInvoicePDF({...inv,parent_reference:pRef,session_reference:sRef}, itemsList||items, client, contact, { billingClient })
   }
 
+  const handleFacturX = async (inv, itemsList) => {
+    const client = clients.find(c=>c.id===inv.client_id)
+    const billingClient = inv.is_subrogation && inv.billing_client_id ? clients.find(c=>c.id===inv.billing_client_id) : null
+    let contact=null; if(inv.contact_id){const{data}=await supabase.from('client_contacts').select('*').eq('id',inv.contact_id).single();contact=data}
+    let pRef=inv.parent_reference||''; if(!pRef&&inv.parent_invoice_id){pRef=invoices.find(i=>i.id===inv.parent_invoice_id)?.reference||''}
+    if(!pRef&&inv.quote_id){pRef=quotes.find(q=>q.id===inv.quote_id)?.reference||''}
+    let sRef=''; if(inv.session_id){const{data:s}=await supabase.from('sessions').select('reference').eq('id',inv.session_id).single();sRef=s?.reference||''}
+    try {
+      toast.loading('Génération Factur-X…', {id:'facturx'})
+      await generateFacturXPDF({...inv,parent_reference:pRef,session_reference:sRef}, itemsList||items, client, contact, { billingClient }, billingClient)
+      toast.success('Factur-X téléchargé', {id:'facturx'})
+    } catch(e) {
+      toast.error('Erreur Factur-X : '+e.message, {id:'facturx'})
+    }
+  }
+
   // ─── Items ───
   const updateItem = (i,f,v) => { const n=[...items]; n[i]={...n[i],[f]:v}; setItems(n) }
   const addItem = () => setItems([...items,emptyItem()])
@@ -726,6 +742,7 @@ export default function Invoices() {
         <div className="flex gap-2">
           {mode==='view'&&<>
             <button onClick={()=>handlePDF(current,items)} className="px-3 py-2 bg-gray-100 rounded-lg text-sm flex items-center gap-1"><Download size={14}/>PDF</button>
+            {current.type!=='credit_note'&&<button onClick={()=>handleFacturX(current,items)} className="px-3 py-2 bg-purple-100 text-purple-700 rounded-lg text-sm flex items-center gap-1" title="Télécharger au format Factur-X (PDF/A-3 + XML)"><Download size={14}/>Factur-X</button>}
             {current.type==='invoice'&&!['cancelled','paid'].includes(current.status)&&<button onClick={()=>handleCreateCreditNote(current)} className="px-3 py-2 bg-orange-100 text-orange-700 rounded-lg text-sm flex items-center gap-1"><Copy size={14}/>Avoir</button>}
             <button onClick={()=>setMode('edit')} className="px-3 py-2 bg-blue-600 text-white rounded-lg text-sm flex items-center gap-1"><Pencil size={14}/>Modifier</button>
           </>}
