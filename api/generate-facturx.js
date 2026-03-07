@@ -333,7 +333,7 @@ function generateCIIXML(invoice, items, client) {
   xmlns:xs="http://www.w3.org/2001/XMLSchema"
   xmlns:udt="urn:un:unece:uncefact:data:standard:UnqualifiedDataType:100">
   <rsm:ExchangedDocumentContext>
-    <ram:BusinessProcessSpecifiedDocumentContextParameter><ram:ID>S</ram:ID></ram:BusinessProcessSpecifiedDocumentContextParameter>
+    <ram:BusinessProcessSpecifiedDocumentContextParameter><ram:ID>A1</ram:ID></ram:BusinessProcessSpecifiedDocumentContextParameter>
     <ram:GuidelineSpecifiedDocumentContextParameter>
       <ram:ID>urn:cen.eu:en16931:2017#compliant#urn:factur-x.eu:1p0:en16931</ram:ID>
     </ram:GuidelineSpecifiedDocumentContextParameter>
@@ -398,7 +398,7 @@ async function embedAndMakePDFA3(pdfBuffer, xmlString, invoiceRef, invoiceDate, 
     updateMetadata: false,
   })
 
-  // 1. Attacher l'XML (AFRelationship.Alternative = Factur-X standard)
+  // 1. Attacher l'XML (AFRelationship.Data = NF Z55-300 §4.2.3 obligatoire)
   const xmlBytes = new TextEncoder().encode(xmlString)
   const label = invoiceType === 'credit_note' ? 'Avoir' : 'Facture'
   await pdfDoc.attach(xmlBytes, 'factur-x.xml', {
@@ -406,7 +406,7 @@ async function embedAndMakePDFA3(pdfBuffer, xmlString, invoiceRef, invoiceDate, 
     description: `${label} ${invoiceRef} - Factur-X EN16931`,
     creationDate: invoiceDate ? new Date(invoiceDate) : new Date(),
     modificationDate: new Date(),
-    afRelationship: AFRelationship.Alternative,
+    afRelationship: AFRelationship.Data,
   })
 
   // 1b. Corriger le /Subtype du EmbeddedFile : pdf-lib encode comme PDFName invalide
