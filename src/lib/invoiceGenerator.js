@@ -73,14 +73,27 @@ async function loadLogo() {
   try {
     var r = await fetch('/assets/logo-access.png')
     var b = await r.blob()
-    return new Promise(function (res) {
+    var dataUrl = await new Promise(function (res) {
       var rd = new FileReader()
-      rd.onload = function () {
-        logoCache = rd.result
-        res(logoCache)
-      }
+      rd.onload = function () { res(rd.result) }
       rd.readAsDataURL(b)
     })
+    // Aplatir le PNG sur fond blanc (supprime canal alpha → PDF/A compatible)
+    logoCache = await new Promise(function (res) {
+      var img = new Image()
+      img.onload = function () {
+        var canvas = document.createElement('canvas')
+        canvas.width = img.width
+        canvas.height = img.height
+        var ctx = canvas.getContext('2d')
+        ctx.fillStyle = '#FFFFFF'
+        ctx.fillRect(0, 0, canvas.width, canvas.height)
+        ctx.drawImage(img, 0, 0)
+        res(canvas.toDataURL('image/png'))
+      }
+      img.src = dataUrl
+    })
+    return logoCache
   } catch (e) {
     return null
   }
