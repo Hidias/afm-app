@@ -538,3 +538,71 @@ export async function generateInvoicePDF(invoice, items, client, contact, option
 
   return doc
 }
+
+// ============================================================
+// GENERATION FACTUR-X (PDF/A-3 + XML CII EN16931)
+// Nécessite l'endpoint Vercel /api/generate-facturx
+// ============================================================
+
+/**
+ * Génère et télécharge une facture au format Factur-X (PDF/A-3b).
+ * Le PDF visuel est généré localement par jsPDF (inchangé),
+ * puis envoyé à /api/generate-facturx qui y embarque le XML CII.
+ *
+ * @param {Object} invoice   - Objet facture complet (avec id)
+ * @param {Array}  items     - Lignes de facture
+ * @param {Object} client    - Client (name, address, siret…)
+ * @param {Object} contact   - Contact (optionnel)
+ * @param {Object} options   - Options passées à generateInvoicePDF
+ * @param {Object} billingClient - Client OPCO si subrogation (optionnel)
+ * @returns {Promise<void>}
+ */
+export async function generateFacturXPDF(invoice, items, client, contact, options, billingClient) {
+  contact = contact || null
+  options = options || {}
+
+  // 1. Générer le PDF visuel jsPDF (skipSave = true pour avoir les bytes)
+  var doc = await generateInvoicePDF(invoice, items, client, contact, {
+    ...options,
+    billingClient: billingClient || null,
+    skipSave: true,
+  })
+
+  // 2. Extraire les bytes du PDF
+  var pdfArrayBuffer = doc.output('arraybuffer')
+  var pdfUint8 = new Uint8Array(pdfArrayBuffer)
+  var binary = ''
+  for (var i = 0; i < pdfUint8.length; i++) {
+    binary += String.fromCharCode(pdfUint8[i])
+  }
+  var pdfBase64 = btoa(binary)
+
+  // 3. Appeler l'endpoint Vercel pour embarquer le XML CII
+  var response = await fetch('/api/generate-facturx', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      invoice_id: invoice.id,
+      pdf_base64: pdfBase64,
+    }),
+  })
+
+  if (!response.ok) {
+    var errBody = null
+    try { errBody = await response.json() } catch (_) {}
+    throw new Error(
+      'Erreur génération Factur-X : ' + (errBody?.error || response.statusText)
+    )
+  }
+
+  // 4. Télécharger le PDF/A-3 Factur-X
+  var blob = await response.blob()
+  var url = URL.createObjectURL(blob)
+  var a = document.createElement('a')
+  a.href = url
+  a.download = invoice.reference + '_facturx.pdf'
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
