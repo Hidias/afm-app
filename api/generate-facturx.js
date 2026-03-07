@@ -430,14 +430,38 @@ async function embedAndMakePDFA3(pdfBuffer, xmlString, invoiceRef, invoiceDate, 
   const outputIntentRef = pdfDoc.context.register(outputIntent)
   pdfDoc.catalog.set(PDFName.of('OutputIntents'), pdfDoc.context.obj([outputIntentRef]))
 
-  // 4. Infos document
+  // 4. Nettoyer les polices non embarquées non utilisées (PDF/A interdit les polices sans embedding)
+  // jsPDF déclare les 14 polices standard dans Resources même si inutilisées
+  const pages = pdfDoc.getPages()
+  for (const page of pages) {
+    const resources = page.node.get(PDFName.of('Resources'))
+    if (!resources) continue
+    const fontDict = resources.get(PDFName.of('Font'))
+    if (!fontDict || !fontDict.keys) continue
+
+    // Identifier les polices utilisées via regex sur le PDF brut (jsPDF ne compresse pas ses streams)
+    // On cherche les instructions Tf : /F1 12 Tf → F1
+    const usedFonts = new Set(
+      Array.from(pdfBuffer.toString('latin1').matchAll(/\/(F\d+)\s+[\d.]+\s+Tf/g), m => m[1])
+    )
+
+    // Supprimer du dictionnaire toutes les polices non utilisées
+    for (const key of fontDict.keys()) {
+      const fontName = key.asString ? key.asString().replace(/^\//, '') : String(key).replace(/^\//, '')
+      if (!usedFonts.has(fontName)) {
+        fontDict.delete(key)
+      }
+    }
+  }
+
+  // 5. Infos document
   pdfDoc.setTitle(`${label} ${invoiceRef}`)
   pdfDoc.setAuthor('Access Formation')
   pdfDoc.setSubject(`${label} ${invoiceRef} - Access Formation`)
   pdfDoc.setProducer('Access Formation - AFM Campus')
   pdfDoc.setCreator('Access Formation - AFM Campus')
 
-  // 5. Sauvegarder sans object streams (interdit en PDF/A)
+  // 6. Sauvegarder sans object streams (interdit en PDF/A)
   const pdfBytes = await pdfDoc.save({ useObjectStreams: false })
   return Buffer.from(pdfBytes)
 }
