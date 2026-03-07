@@ -430,7 +430,31 @@ async function embedAndMakePDFA3(pdfBuffer, xmlString, invoiceRef, invoiceDate, 
   const outputIntentRef = pdfDoc.context.register(outputIntent)
   pdfDoc.catalog.set(PDFName.of('OutputIntents'), pdfDoc.context.obj([outputIntentRef]))
 
-  // 4. Nettoyer les polices non embarquées non utilisées (PDF/A interdit les polices sans embedding)
+  // 4a. Supprimer les SMask (transparence) sur les images — interdit PDF/A
+  // Le logo PNG a un canal alpha qui génère un /SMask, violation PDF/A §6.5
+  for (const page of pdfDoc.getPages()) {
+    let resourcesObj = page.node.get(PDFName.of('Resources'))
+    if (!resourcesObj) continue
+    if (resourcesObj.constructor && resourcesObj.constructor.name === 'PDFRef') {
+      resourcesObj = pdfDoc.context.lookup(resourcesObj)
+    }
+    if (!resourcesObj || typeof resourcesObj.get !== 'function') continue
+    const xoDict = resourcesObj.get(PDFName.of('XObject'))
+    if (!xoDict) continue
+    const xo = xoDict.constructor && xoDict.constructor.name === 'PDFRef'
+      ? pdfDoc.context.lookup(xoDict) : xoDict
+    if (!xo || typeof xo.values !== 'function') continue
+    for (const val of xo.values()) {
+      const img = val.constructor && val.constructor.name === 'PDFRef'
+        ? pdfDoc.context.lookup(val) : val
+      if (!img || !img.dict) continue
+      if (img.dict.get(PDFName.of('Subtype'))?.encodedName === '/Image') {
+        img.dict.delete(PDFName.of('SMask'))
+      }
+    }
+  }
+
+  // 4b. Nettoyer les polices non embarquées non utilisées (PDF/A interdit les polices sans embedding)
   // jsPDF déclare les 14 polices standard dans Resources même si inutilisées
   // Identifier d'abord toutes les polices réellement utilisées dans le PDF brut
   // (jsPDF ne compresse pas ses streams, regex directe possible)
