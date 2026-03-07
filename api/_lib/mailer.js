@@ -189,14 +189,35 @@ export function buildSignatureHTML(caller) {
 }
 
 /**
+ * Normalise les styles inline d'un body HTML pour compatibilité email
+ * (Outlook et clients email n'héritent pas les polices du parent)
+ */
+function normalizeBodyStyles(body) {
+  const P_STYLE  = 'font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#333;margin:0 0 10px 0;'
+  const UL_STYLE = 'font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#333;margin:0 0 10px 0;padding-left:20px;'
+  const LI_STYLE = 'font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#333;margin:0 0 4px 0;'
+
+  return body
+    // <p> sans style → injecter
+    .replace(/<p(?![^>]*style=)([^>]*)>/gi, `<p style="${P_STYLE}"$1>`)
+    // <p style="..."> existant → préfixer pour forcer la police
+    .replace(/<p style="(?!font-family)([^"]*)"/gi, `<p style="font-family:Arial,sans-serif;$1"`)
+    // <ul> sans style → injecter
+    .replace(/<ul(?![^>]*style=)([^>]*)>/gi, `<ul style="${UL_STYLE}"$1>`)
+    // <li> sans style → injecter
+    .replace(/<li(?![^>]*style=)([^>]*)>/gi, `<li style="${LI_STYLE}"$1>`)
+}
+
+/**
  * Wrap un body HTML avec "Bien cordialement," + signature
  */
 export function wrapEmailHTML(body, caller) {
   const signature = buildSignatureHTML(caller)
+  const normalizedBody = normalizeBodyStyles(body || '')
   return `
     <div style="font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #333; max-width: 650px;">
-      ${body}
-      <p style="margin-top: 16px;">Bien cordialement,</p>
+      ${normalizedBody}
+      <p style="${'font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#333;margin:16px 0 10px 0;'}">Bien cordialement,</p>
       ${signature}
     </div>
   `
