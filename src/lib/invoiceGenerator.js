@@ -1,6 +1,8 @@
 import jsPDF from 'jspdf'
 import 'jspdf-autotable'
 import { format } from 'date-fns'
+import { LiberationSans_Regular } from './fonts/LiberationSans-Regular.js'
+import { LiberationSans_Bold } from './fonts/LiberationSans-Bold.js'
 
 // ============================================================
 // CONSTANTES ACCESS FORMATION
@@ -158,7 +160,11 @@ export async function generateInvoicePDF(invoice, items, client, contact, option
   options = options || {}
   var isCredit = invoice.type === 'credit_note'
   var doc = new jsPDF()
-  var F = 'helvetica'
+  doc.addFileToVFS('LiberationSans-Regular.ttf', LiberationSans_Regular)
+  doc.addFont('LiberationSans-Regular.ttf', 'LiberationSans', 'normal')
+  doc.addFileToVFS('LiberationSans-Bold.ttf', LiberationSans_Bold)
+  doc.addFont('LiberationSans-Bold.ttf', 'LiberationSans', 'bold')
+  var F = 'LiberationSans' 
   var cb = CONTACTS[invoice.created_by] || CONTACTS['Hicham Saidi']
   var logo = await loadLogo()
   var y = 12
