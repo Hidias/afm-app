@@ -299,6 +299,26 @@ function generateCIIXML(invoice, items, client) {
       </ram:CategoryTradeTax><ram:Reason>Remise</ram:Reason>
     </ram:SpecifiedTradeAllowanceCharge>`:''
 
+  // BG-16 PaymentMeans — BT-81 TypeCode + BT-84 IBAN + BT-86 BIC (EN16931)
+  const pmCode = invoice.payment_method === 'virement bancaire' ? 30
+    : invoice.payment_method === 'chèque' ? 20
+    : invoice.payment_method === 'espèces' ? 10
+    : invoice.payment_method === 'carte bancaire' ? 48
+    : invoice.payment_method === 'prélèvement' ? 49 : 30
+  // IBAN/BIC seulement pour virement (TypeCode 30) et prélèvement (49)
+  const AF_IBAN = 'FR7615589297060008906894048'
+  const AF_BIC  = 'CMBRFR2BXXX'
+  const ibanBlock = (pmCode === 30 || pmCode === 49) ? `
+      <ram:PayeePartyCreditorFinancialAccount>
+        <ram:IBANID>${AF_IBAN}</ram:IBANID>
+      </ram:PayeePartyCreditorFinancialAccount>
+      <ram:PayeeSpecifiedCreditorFinancialInstitution>
+        <ram:BICID>${AF_BIC}</ram:BICID>
+      </ram:PayeeSpecifiedCreditorFinancialInstitution>` : ''
+  const paymentMeansXml = `    <ram:SpecifiedTradeSettlementPaymentMeans>
+      <ram:TypeCode>${pmCode}</ram:TypeCode>${ibanBlock}
+    </ram:SpecifiedTradeSettlementPaymentMeans>`
+
   const dueDateXml=invoice.due_date?`    <ram:SpecifiedTradePaymentTerms>
       <ram:DueDateDateTime><udt:DateTimeString format="102">${ciiDate(invoice.due_date)}</udt:DateTimeString></ram:DueDateDateTime>
     </ram:SpecifiedTradePaymentTerms>`:''
@@ -372,6 +392,7 @@ ${deliveryXml}
     <ram:ApplicableHeaderTradeSettlement>
       <ram:PaymentReference>${esc(invoice.reference)}</ram:PaymentReference>
       <ram:InvoiceCurrencyCode>EUR</ram:InvoiceCurrencyCode>
+${paymentMeansXml}
 ${precedingXml}
 ${tvaBlocksXml}
 ${discountXml}
