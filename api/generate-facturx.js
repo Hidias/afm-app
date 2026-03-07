@@ -124,6 +124,11 @@ function buildXmpMetadata(invoiceRef, invoiceDate, invoiceType) {
   const now = new Date().toISOString()
   const docDate = invoiceDate ? new Date(invoiceDate).toISOString() : now
 
+  // DocumentID stable par facture ; InstanceID unique à chaque génération
+  const safeRef = (invoiceRef || 'unknown').replace(/[^a-zA-Z0-9-]/g, '')
+  const documentId = `uuid-afm-${safeRef}`
+  const instanceId = `uuid:${safeRef}-${Date.now().toString(36)}`
+
   return `<?xpacket begin="\uFEFF" id="W5M0MpCehiHzreSzNTczkc9d"?>
 <x:xmpmeta xmlns:x="adobe:ns:meta/">
  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
@@ -152,7 +157,13 @@ function buildXmpMetadata(invoiceRef, invoiceDate, invoiceType) {
   <rdf:Description rdf:about=""
     xmlns:pdf="http://ns.adobe.com/pdf/1.3/">
    <pdf:Producer>Access Formation - AFM Campus</pdf:Producer>
-   <pdf:PDFVersion>1.4</pdf:PDFVersion>
+   <pdf:PDFVersion>1.7</pdf:PDFVersion>
+  </rdf:Description>
+
+  <rdf:Description rdf:about=""
+    xmlns:xmpMM="http://ns.adobe.com/xap/1.0/mm/">
+   <xmpMM:DocumentID>${documentId}</xmpMM:DocumentID>
+   <xmpMM:InstanceID>${instanceId}</xmpMM:InstanceID>
   </rdf:Description>
 
   <rdf:Description rdf:about=""
@@ -391,12 +402,39 @@ async function embedAndMakePDFA3(pdfBuffer, xmlString, invoiceRef, invoiceDate, 
   const xmlBytes = new TextEncoder().encode(xmlString)
   const label = invoiceType === 'credit_note' ? 'Avoir' : 'Facture'
   await pdfDoc.attach(xmlBytes, 'factur-x.xml', {
-    mimeType: 'application/xml; charset=UTF-8',
+    mimeType: 'application/xml',
     description: `${label} ${invoiceRef} - Factur-X EN16931`,
     creationDate: invoiceDate ? new Date(invoiceDate) : new Date(),
     modificationDate: new Date(),
     afRelationship: AFRelationship.Alternative,
   })
+
+  // 1b. Corriger le /Subtype du EmbeddedFile : pdf-lib encode comme PDFName invalide
+  // veraPDF exige une PDFString (application/xml), pas un PDFName (/application#2Fxml)
+  try {
+    const afArray = pdfDoc.catalog.get(PDFName.of('AF'))
+    if (afArray) {
+      const afList = afArray instanceof Array ? afArray : [afArray]
+      for (const afRef of afList) {
+        const af = pdfDoc.context.lookup(afRef) || afRef
+        if (af && typeof af.get === 'function') {
+          const efDict = af.get(PDFName.of('EF'))
+          if (efDict) {
+            const efResolved = pdfDoc.context.lookup(efDict) || efDict
+            const fRef = efResolved && typeof efResolved.get === 'function'
+              ? efResolved.get(PDFName.of('F')) : null
+            if (fRef) {
+              const embStream = pdfDoc.context.lookup(fRef) || fRef
+              if (embStream && embStream.dict) {
+                // Forcer Subtype comme PDFString et non PDFName
+                embStream.dict.set(PDFName.of('Subtype'), PDFString.of('application/xml'))
+              }
+            }
+          }
+        }
+      }
+    }
+  } catch (_) {}
 
   // 2. XMP metadata PDF/A-3b + Factur-X extension schema
   const xmpString = buildXmpMetadata(invoiceRef, invoiceDate, invoiceType)
@@ -450,6 +488,10 @@ async function embedAndMakePDFA3(pdfBuffer, xmlString, invoiceRef, invoiceDate, 
       if (!img || !img.dict) continue
       if (img.dict.get(PDFName.of('Subtype'))?.encodedName === '/Image') {
         img.dict.delete(PDFName.of('SMask'))
+        // Supprimer DecodeParms orphelin sans Filter (invalide PDF/A)
+        if (img.dict.get(PDFName.of('DecodeParms')) && !img.dict.get(PDFName.of('Filter'))) {
+          img.dict.delete(PDFName.of('DecodeParms'))
+        }
       }
     }
   }
