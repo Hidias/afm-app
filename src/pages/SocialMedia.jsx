@@ -521,6 +521,13 @@ Objectif : référencement local + conversions
 - TOUJOURS "nous" jamais "je" jamais "on" (sauf Facebook où "on" est toléré)
 - Contact : contact@accessformation.pro uniquement (PAS de numéro de téléphone)
 
+═══ STATISTIQUES ET CHIFFRES — RÈGLE STRICTE ═══
+- JAMAIS inventer ou approximer des statistiques, pourcentages ou chiffres chocs
+- Si le sujet appelle des données chiffrées : SOIT tu cites une source officielle réelle et vérifiable (INRS, Santé publique France, OMS, Dares, CNAM, etc.) en l'indiquant explicitement dans le post, SOIT tu reformules sans chiffre
+- En cas de doute sur la fiabilité d'une statistique : NE PAS l'utiliser — reformuler sur l'angle "prévention / réflexes / formation" sans données chiffrées invérifiables
+- Exemple de reformulation correcte sans stats : "Un arrêt cardiaque peut survenir n'importe quel jour. Vos équipes ont-elles les bons réflexes ?" plutôt que "23% d'arrêts cardiaques en plus le vendredi 13"
+- Les posts sans chiffres mais ancrés dans le terrain et le vécu performent autant ou mieux que les posts avec stats douteuses
+
 ${contextParts.join('\n')}
 
 Localisation : 📍 Concarneau, Bretagne — Interventions en Bretagne (22,29,35,56) et Pays de la Loire (44,49,53,72,85)
