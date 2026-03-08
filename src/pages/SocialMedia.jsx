@@ -1078,7 +1078,8 @@ function MediaPicker({ media, selected, onSelect }) {
     setUploading(true)
     for (const file of files) {
       try {
-        const fileName = `social/${Date.now()}_${file.name}`
+        const safeName = file.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9._-]/g, '_')
+        const fileName = `social/${Date.now()}_${safeName}`
         const { data, error } = await supabase.storage.from('media').upload(fileName, file)
         if (error) throw error
 
@@ -1506,7 +1507,8 @@ function LibraryTab({ media, onUpdate }) {
     let count = 0
     for (const file of files) {
       try {
-        const fileName = `social/${Date.now()}_${file.name}`
+        const safeName = file.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9._-]/g, '_')
+        const fileName = `social/${Date.now()}_${safeName}`
         const { error: upErr } = await supabase.storage.from('media').upload(fileName, file)
         if (upErr) throw upErr
 
