@@ -27,6 +27,7 @@ import { getNeedsAnalysisPDFBytes } from '../lib/needsAnalysisPDF'
 const statusLabels = {
   draft: { label: 'Brouillon', class: 'badge-gray' },
   planned: { label: 'Planifiée', class: 'badge-blue' },
+  confirmed: { label: 'Confirmée', class: 'badge-campus' },
   in_progress: { label: 'En cours', class: 'badge-yellow' },
   completed: { label: 'Terminée', class: 'badge-green' },
   cancelled: { label: 'Annulée', class: 'badge-red' },
