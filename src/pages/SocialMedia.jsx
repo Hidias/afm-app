@@ -112,27 +112,37 @@ export default function SocialMedia() {
 
       if (sessErr) console.warn('Stats sessions:', sessErr.message)
 
-      // Évaluations à chaud pour la note moyenne (moyenne des 6 questions)
+      // Évaluations à chaud pour la note moyenne (nouvelles colonnes q_org/q_contenu/q_formateur/q_global)
       const { data: evals, error: evalErr } = await supabase
-        .from('evaluations_hot')
-        .select('q1_objectives, q2_content, q3_pedagogy, q4_trainer, q5_organization, q6_materials, submitted_at')
-        .not('q1_objectives', 'is', null)
+        .from('trainee_evaluations')
+        .select('q_org_accueil, q_org_documents, q_org_locaux, q_org_materiel, q_contenu_supports, q_contenu_programme, q_contenu_organisation, q_contenu_duree, q_formateur_pedagogie, q_formateur_expertise, q_formateur_progression, q_formateur_moyens, q_global_adequation, q_global_competences, submitted_at')
+        .not('q_org_accueil', 'is', null)
         .order('submitted_at', { ascending: false })
         .limit(100)
 
       if (evalErr) console.warn('Stats évaluations:', evalErr.message)
 
       const completedSessions = (sessions || []).filter(s => s.status === 'completed' || s.status === 'terminée' || s.status === 'Terminée')
-      
-      // Calculer la note moyenne sur 5 (moyenne des 6 critères par éval, puis moyenne générale)
-      const validEvals = (evals || []).filter(e => e.q1_objectives)
+
+      // Calculer la note moyenne sur 5 (moyenne de toutes les notes des 14 critères)
+      const newKeys = [
+        'q_org_accueil', 'q_org_documents', 'q_org_locaux', 'q_org_materiel',
+        'q_contenu_supports', 'q_contenu_programme', 'q_contenu_organisation', 'q_contenu_duree',
+        'q_formateur_pedagogie', 'q_formateur_expertise', 'q_formateur_progression', 'q_formateur_moyens',
+        'q_global_adequation', 'q_global_competences'
+      ]
+      const validEvals = (evals || []).filter(e => e.q_org_accueil != null)
       let avgRating = '4.96'
       if (validEvals.length > 0) {
-        const totalAvg = validEvals.reduce((sum, e) => {
-          const avg = (e.q1_objectives + e.q2_content + e.q3_pedagogy + e.q4_trainer + e.q5_organization + e.q6_materials) / 6
-          return sum + avg
-        }, 0) / validEvals.length
-        avgRating = totalAvg.toFixed(2)
+        const allScores = []
+        validEvals.forEach(e => {
+          newKeys.forEach(k => {
+            if (e[k] != null && !isNaN(e[k])) allScores.push(Number(e[k]))
+          })
+        })
+        if (allScores.length > 0) {
+          avgRating = (allScores.reduce((a, b) => a + b, 0) / allScores.length).toFixed(2)
+        }
       }
 
       const s = {
