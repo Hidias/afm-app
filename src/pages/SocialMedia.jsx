@@ -106,7 +106,7 @@ export default function SocialMedia() {
       // Sessions avec jointures correctes
       const { data: sessions, error: sessErr } = await supabase
         .from('sessions')
-        .select('id, start_date, end_date, location_city, location_name, status, course:courses(title), client:clients(name)')
+        .select('id, start_date, end_date, location_city, location_name, status, course:courses(title), client:clients(name), session_trainees(trainee_id, presence_complete, early_departure, result)')
         .order('start_date', { ascending: false })
         .limit(20)
 
@@ -145,12 +145,27 @@ export default function SocialMedia() {
         }
       }
 
+      // Calculer le vrai nombre de stagiaires formés et le taux de réussite
+      let totalTrainees = 0, successOk = 0, successTotal = 0
+      completedSessions.forEach(s => {
+        const trainees = s.session_trainees || []
+        const formed = trainees.filter(st => st.presence_complete || st.early_departure)
+        totalTrainees += formed.length
+        formed.forEach(st => {
+          if (st.result) {
+            successTotal++
+            if (st.result === 'acquired') successOk++
+          }
+        })
+      })
+      const successRate = successTotal > 0 ? Math.round(successOk / successTotal * 100).toString() : '100'
+
       const s = {
         recentSessions: (sessions || []).slice(0, 5),
         completedCount: completedSessions.length,
         avgRating,
-        totalTrainees: completedSessions.length * 8,
-        successRate: '100',
+        totalTrainees,
+        successRate,
       }
       setStats(s)
       return s
