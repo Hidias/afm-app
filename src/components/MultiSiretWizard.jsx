@@ -348,7 +348,12 @@ export default function MultiSiretWizard({ onClose, onCreated }) {
           location_name: common.location || null,
           is_intra: common.is_intra,
           is_remote: false,
-          day_type: 'full',
+          day_type: (() => {
+            const [sh, sm] = (common.start_time || '09:00').split(':').map(Number)
+            const [eh, em] = (common.end_time || '17:00').split(':').map(Number)
+            const duration = (eh * 60 + em) - (sh * 60 + sm)
+            return duration <= 270 ? 'half' : 'full'
+          })(),
           status: 'planned',
           notes: null,
           signatory_name: common.signatory_name || null,
