@@ -3590,7 +3590,7 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
 
   async function loadSessionsAndCourses() {
     const [sesR, couR] = await Promise.all([
-      supabase.from('sessions').select('id, reference, start_date, end_date, status, custom_price_ht, total_price, session_type, is_intra, client_id, course_id').not('status', 'eq', 'cancelled').order('start_date'),
+      supabase.from('sessions').select('id, reference, start_date, end_date, status, custom_price_ht, total_price, session_type, is_intra, client_id, course_id, day_type, subcontract_daily_rate, subcontract_course_title').not('status', 'eq', 'cancelled').order('start_date'),
       supabase.from('courses').select('id, title, code, duration_days, price_ht'),
     ])
     if (sesR.data) setSessions(sesR.data)
@@ -3829,21 +3829,34 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
       const today = new Date().toISOString().substring(0, 10)
       const futureSessions = sessions.filter(s => s.start_date >= today && s.status !== 'cancelled' && s.status !== 'draft')
 
+      // Calcul prix session : sous-traitance = daily_rate × nb_jours, sinon custom/total/catalogue
+      const calcSessionPrice = (s) => {
+        if (s.custom_price_ht) return parseFloat(s.custom_price_ht)
+        if (s.total_price) return parseFloat(s.total_price)
+        if (s.subcontract_daily_rate) {
+          const start = new Date(s.start_date)
+          const end = new Date(s.end_date || s.start_date)
+          const diffMs = end - start
+          const nbJours = Math.round(diffMs / (1000 * 60 * 60 * 24)) + 1
+          const halfDay = s.day_type === 'half' ? 0.5 : 1
+          return parseFloat(s.subcontract_daily_rate) * nbJours * halfDay
+        }
+        const course = courseMap[s.course_id] || {}
+        return parseFloat(course.price_ht) || 0
+      }
+
       // Grouper par mois
       const sessionsByMonth = {}
       futureSessions.forEach(s => {
         const ym = s.start_date.substring(0, 7)
         if (!sessionsByMonth[ym]) sessionsByMonth[ym] = []
         const course = courseMap[s.course_id] || {}
-        const prix = s.custom_price_ht || s.total_price || course.price_ht || 0
+        const prix = calcSessionPrice(s)
         const cli = (clients || []).find(c => c.id === s.client_id)
-        sessionsByMonth[ym].push({ ...s, prix, courseName: course.title || '?', courseCode: course.code || '?', clientName: cli?.name || '?' })
+        sessionsByMonth[ym].push({ ...s, prix, courseName: s.subcontract_course_title || course.title || '?', courseCode: course.code || '?', clientName: cli?.name || '?' })
       })
 
-      const sessionsTotal = futureSessions.reduce((s, ses) => {
-        const course = courseMap[ses.course_id] || {}
-        return s + (ses.custom_price_ht || ses.total_price || course.price_ht || 0)
-      }, 0)
+      const sessionsTotal = futureSessions.reduce((s, ses) => s + calcSessionPrice(ses), 0)
 
       // Classement formations par rentabilité
       const formationsRank = courses.map(c => {
