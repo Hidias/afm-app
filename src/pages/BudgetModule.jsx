@@ -2026,9 +2026,13 @@ function ImportTab({ loadAll, categories, rules, invoices, clients, transactions
   const [matchStep, setMatchStep] = useState('auto') // auto | select_client | select_invoices
 
   // Factures non payées
+  // Préférer les données chargées localement (invoicesList du parent arrive souvent vide)
+  const effectiveInvoices = localInvoices ?? invoices ?? []
+  const effectiveClients = localClients ?? clients ?? []
+
   const unpaidInvoices = useMemo(() =>
-    (invoices || []).filter(inv => inv.type !== 'credit_note' && ['sent', 'due', 'overdue', 'partial'].includes(inv.status) && parseFloat(inv.amount_due) > 0),
-    [invoices]
+    effectiveInvoices.filter(inv => inv.type !== 'credit_note' && ['sent', 'due', 'overdue', 'partial'].includes(inv.status) && parseFloat(inv.amount_due) > 0),
+    [effectiveInvoices]
   )
 
   // ── Parser CSV amélioré + déduplication ──
@@ -2148,7 +2152,7 @@ function ImportTab({ loadAll, categories, rules, invoices, clients, transactions
         const ref = refMatch[0].toUpperCase().replace(/[_]/g, '-')
         const inv = unpaidInvoices.find(u => u.reference?.toUpperCase().includes(ref.replace(/-/g, '').slice(-5)) || u.reference?.toUpperCase() === ref)
         if (inv) {
-          const cli = (clients || []).find(c => c.id === inv.client_id)
+          const cli = effectiveClients.find(c => c.id === inv.client_id)
           matchedInvoices = [{ id: inv.id, reference: inv.reference, client_name: cli?.name || '?', total_ttc: parseFloat(inv.total_ttc), amount_due: parseFloat(inv.amount_due) }]
           matchConfidence = Math.abs(parseFloat(inv.amount_due) - amount) < 0.01 ? 'high' : 'medium'
           matchType = 'Référence'
@@ -2160,7 +2164,7 @@ function ImportTab({ loadAll, categories, rules, invoices, clients, transactions
         const amountMatches = unpaidInvoices.filter(u => Math.abs(parseFloat(u.amount_due) - amount) < 0.01)
         if (amountMatches.length === 1) {
           const inv = amountMatches[0]
-          const cli = (clients || []).find(c => c.id === inv.client_id)
+          const cli = effectiveClients.find(c => c.id === inv.client_id)
           matchedInvoices = [{ id: inv.id, reference: inv.reference, client_name: cli?.name || '?', total_ttc: parseFloat(inv.total_ttc), amount_due: parseFloat(inv.amount_due) }]
           matchConfidence = 'high'
           matchType = 'Montant exact'
@@ -2180,7 +2184,7 @@ function ImportTab({ loadAll, categories, rules, invoices, clients, transactions
           } else {
             // Ambiguïté
             matchedInvoices = amountMatches.slice(0, 3).map(inv => {
-              const cli = (clients || []).find(c => c.id === inv.client_id)
+              const cli = effectiveClients.find(c => c.id === inv.client_id)
               return { id: inv.id, reference: inv.reference, client_name: cli?.name || '?', total_ttc: parseFloat(inv.total_ttc), amount_due: parseFloat(inv.amount_due) }
             })
             matchConfidence = 'ambiguous'
@@ -3454,6 +3458,8 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
   const [newAction, setNewAction] = useState({ title: '', detail: '', category: 'general', impact_monthly: '', due_date: '' })
   const [actionFilter, setActionFilter] = useState('active') // all, active, done
   const [chartPeriod, setChartPeriod] = useState('6') // 6 or 12 months
+  const [localInvoices, setLocalInvoices] = useState(null) // null = pas encore chargé
+  const [localClients, setLocalClients] = useState(null)
 
   // ══ LOAD SETTINGS ══
   useEffect(() => {
@@ -3461,7 +3467,17 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
     loadActions()
     loadPipeline()
     loadSessionsAndCourses()
+    loadInvoicesAndClients()
   }, [])
+
+  async function loadInvoicesAndClients() {
+    const [invR, cliR] = await Promise.all([
+      supabase.from('invoices').select('*').order('invoice_date', { ascending: false }),
+      supabase.from('clients').select('*').order('name'),
+    ])
+    if (invR.data) setLocalInvoices(invR.data)
+    if (cliR.data) setLocalClients(cliR.data)
+  }
 
   async function loadSettings() {
     const { data } = await supabase.from('budget_settings').select('*')
@@ -3628,9 +3644,13 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
   function monthLabel(m) { const parts = m.split('/'); return `${ML[parts[0]] || parts[0]} ${(parts[1] || '').slice(-2)}` }
 
   // ══ Factures impayées ══
+  // Préférer les données chargées localement (invoicesList du parent arrive souvent vide)
+  const effectiveInvoices = localInvoices ?? invoices ?? []
+  const effectiveClients = localClients ?? clients ?? []
+
   const unpaidInvoices = useMemo(() =>
-    (invoices || []).filter(inv => inv.type !== 'credit_note' && ['sent', 'due', 'overdue', 'partial'].includes(inv.status) && parseFloat(inv.amount_due) > 0),
-    [invoices]
+    effectiveInvoices.filter(inv => inv.type !== 'credit_note' && ['sent', 'due', 'overdue', 'partial'].includes(inv.status) && parseFloat(inv.amount_due) > 0),
+    [effectiveInvoices]
   )
 
   // ══ ANALYSE PRINCIPALE ══
@@ -3851,7 +3871,7 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
         if (!sessionsByMonth[ym]) sessionsByMonth[ym] = []
         const course = courseMap[s.course_id] || {}
         const prix = calcSessionPrice(s)
-        const cli = (clients || []).find(c => c.id === s.client_id)
+        const cli = effectiveClients.find(c => c.id === s.client_id)
         sessionsByMonth[ym].push({ ...s, prix, courseName: s.subcontract_course_title || course.title || '?', courseCode: course.code || '?', clientName: cli?.name || '?' })
       })
 
@@ -3939,10 +3959,8 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
       }
 
       // Factures attendues (entrées)
-      console.log('[CashFlow] invoices total:', (invoices||[]).length, '| unpaidInvoices:', unpaidInvoices.length, '| entreesAVenir:', entreesAVenir.length, '| currentYearMonth:', currentYearMonth)
-      console.log('[CashFlow] unpaid statuts:', unpaidInvoices.map(i => i.status + '/' + i.due_date?.substring(0,7)))
       entreesAVenir.forEach(inv => {
-        const cli = (clients || []).find(c => c.id === inv.client_id)
+        const cli = effectiveClients.find(c => c.id === inv.client_id)
         const isOverdue = inv.due_date && inv.due_date < today
         cashFlowItems.push({ date: inv.due_date || inv.invoice_date, label: `${inv.reference} — ${cli?.name || '?'}`, montant: parseFloat(inv.amount_due), type: isOverdue ? 'retard' : 'entree' })
       })
@@ -4007,7 +4025,7 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
         sessionsByMonth: {}, sessionsTotal: 0, formationsRank: [], cashFlowItems: []
       }
     }
-  }, [transactions, categories, unpaidInvoices, config, currentMonthKey, pipeline, chartPeriod, chargesFixes, sessions, courses, clients])
+  }, [transactions, categories, unpaidInvoices, config, currentMonthKey, pipeline, chartPeriod, chargesFixes, sessions, courses, effectiveClients, effectiveInvoices])
 
   function detectRecurringCharges(txs, months, curMonth) {
     const descMap = {}
@@ -4049,7 +4067,7 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
     if (overdue.length > 0) {
       const totalO = overdue.reduce((s, inv) => s + parseFloat(inv.amount_due), 0)
       const details = overdue.map(inv => {
-        const cli = (clients || []).find(c => c.id === inv.client_id)
+        const cli = effectiveClients.find(c => c.id === inv.client_id)
         const jours = Math.floor((new Date() - new Date(inv.due_date)) / 86400000)
         return `${cli?.name || '?'} ${fmt(parseFloat(inv.amount_due))} (+${jours}j)`
       }).join(' · ')
@@ -4295,7 +4313,7 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
               <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-600">📬 {analysis.entreesAVenir.length} facture(s) en attente</summary>
               <div className="mt-2 space-y-1">
                 {analysis.entreesAVenir.map(inv => {
-                  const cli = (clients || []).find(c => c.id === inv.client_id)
+                  const cli = effectiveClients.find(c => c.id === inv.client_id)
                   const isOD = inv.due_date && inv.due_date < new Date().toISOString().substring(0, 10)
                   return (
                     <div key={inv.id} className={`flex justify-between text-xs px-2 py-1 rounded ${isOD ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>
