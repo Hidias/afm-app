@@ -121,6 +121,7 @@ export default function WeeklyPlanner() {
   })
   const [rdvSaving, setRdvSaving] = useState(false)
   const searchTimeoutRef = useRef(null)
+  const gridRef = useRef(null)
 
   // UI — Drag & Drop (desktop) + Tap-to-move (touch/iPad)
   const [dragItem, setDragItem] = useState(null)
@@ -217,6 +218,51 @@ export default function WeeklyPlanner() {
   }, [weekStart, user?.id])
 
   useEffect(() => { if (user?.id) loadWeekData() }, [loadWeekData, user?.id])
+
+  // ─── Plage horaire dynamique ─────────────────────────────
+  const { gridStartH, gridEndH } = useMemo(() => {
+    let minH = 6, maxH = 19
+    Object.values(dayEvents).flat().forEach(evt => {
+      if (evt.startTime) {
+        const h = Math.floor(timeToMin(evt.startTime) / 60)
+        if (h < minH) minH = Math.max(0, h - 1)
+      }
+      if (evt.endTime) {
+        const h = Math.ceil(timeToMin(evt.endTime) / 60)
+        if (h > maxH) maxH = Math.min(25, h + 1)
+      }
+    })
+    return { gridStartH: minH, gridEndH: maxH }
+  }, [dayEvents])
+
+  // ─── Assignation colonnes pour chevauchements ────────────
+  function assignEventColumns(events) {
+    const timed = events.filter(e => e.startTime)
+    if (!timed.length) return {}
+    const sorted = [...timed].sort((a, b) => timeToMin(a.startTime) - timeToMin(b.startTime))
+    const result = {}
+    const colEnds = []
+    for (const evt of sorted) {
+      const startMin = timeToMin(evt.startTime)
+      const endMin = timeToMin(evt.endTime || addMinutesToTime(evt.startTime, 30))
+      let colIdx = colEnds.findIndex(end => end <= startMin)
+      if (colIdx === -1) { colIdx = colEnds.length; colEnds.push(endMin) }
+      else { colEnds[colIdx] = endMin }
+      result[evt.id] = { colIdx, numCols: 1 }
+    }
+    const numCols = Math.max(1, colEnds.length)
+    Object.values(result).forEach(r => { r.numCols = numCols })
+    return result
+  }
+
+  // ─── Scroll auto vers heure courante ────────────────────
+  useEffect(() => {
+    if (!gridRef.current || weekOffset !== 0 || loading) return
+    const HOUR_PX = 60
+    const now = new Date()
+    const scrollTo = (now.getHours() + now.getMinutes() / 60 - gridStartH) * HOUR_PX - 120
+    gridRef.current.scrollTop = Math.max(0, scrollTo)
+  }, [gridStartH, weekOffset, loading])
 
   // ─── Stats appels ─────────────────────────────────────
   const loadCallStats = async () => {
@@ -840,7 +886,205 @@ export default function WeeklyPlanner() {
   }
 
   // ═══════════════════════════════════════════════════════════
-  // RENDU
+  // TIME GRID (desktop uniquement)
+  // ═══════════════════════════════════════════════════════════
+  const TimeGrid = () => {
+    const HOUR_PX = 60
+    const hours = []
+    for (let h = gridStartH; h < gridEndH; h++) hours.push(h)
+    const totalPx = (gridEndH - gridStartH) * HOUR_PX
+
+    const now = new Date()
+    const nowPx = (now.getHours() * 60 + now.getMinutes() - gridStartH * 60) * (HOUR_PX / 60)
+    const isCurrentWeek = weekOffset === 0
+
+    return (
+      <div className="hidden md:block border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
+        {/* Header fixe : noms de jours */}
+        <div className="flex border-b border-gray-200 bg-gray-50">
+          <div className="w-12 flex-shrink-0 border-r border-gray-200" />
+          {weekDates.map((date, dayIdx) => {
+            const dateStr = format(date, 'yyyy-MM-dd')
+            const events = dayEvents[dateStr] || []
+            const isCurrentDay = isToday(date)
+            const allDayEvents = events.filter(e => !e.startTime)
+            const isDropTarget = dragOverDay === dateStr && dragItem?.dragDate !== dateStr
+            const isTapTarget = tapSelected && tapSelected.dragDate !== dateStr
+
+            return (
+              <div key={dateStr}
+                className={`flex-1 border-r border-gray-200 last:border-r-0 ${isCurrentDay ? 'bg-primary-50/60' : ''} ${isDropTarget ? 'bg-primary-50 ring-1 ring-inset ring-primary-400' : ''}`}
+                onDragOver={e => handleDragOverDay(e, dateStr)}
+                onDragLeave={handleDragLeaveDay}
+                onDrop={e => handleDropOnDay(e, dateStr)}
+              >
+                {/* Nom + numéro */}
+                <div className={`px-2 pt-2 pb-1 text-center cursor-pointer hover:bg-gray-100/60 transition-colors ${isTapTarget ? 'bg-primary-50 cursor-pointer' : ''}`}
+                  onClick={() => { if (isTapTarget) handleTapMoveToDay(dateStr) }}>
+                  <p className={`text-[10px] font-bold uppercase tracking-wide ${isCurrentDay ? 'text-primary-600' : 'text-gray-400'}`}>{DAYS[dayIdx]}</p>
+                  <p className={`text-base font-bold ${isCurrentDay ? 'text-primary-700' : 'text-gray-800'}`}>{format(date, 'd')}</p>
+                  {isTapTarget && <p className="text-[9px] text-primary-500 font-semibold animate-pulse">↓ Déplacer ici</p>}
+                </div>
+                {/* Events sans heure (bandeau allday) */}
+                {allDayEvents.length > 0 && (
+                  <div className="px-1 pb-1 space-y-0.5">
+                    {allDayEvents.map(evt => {
+                      const config = SLOT_TYPES[evt.type] || SLOT_TYPES.task
+                      return (
+                        <div key={evt.id} className={`rounded px-1.5 py-0.5 text-[9px] font-semibold truncate ${config.color}`}>
+                          {evt.title}
+                          {evt.time && evt.time !== 'Heure à définir' ? '' : evt.time === 'Heure à définir' ? ' · À définir' : ''}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+                {/* Boutons rapides */}
+                <div className="flex border-t border-gray-100">
+                  <button onClick={() => { setAddDate(date); setShowAddModal(true) }}
+                    className="flex-1 py-1 text-[9px] text-gray-400 hover:text-primary-600 hover:bg-primary-50 transition-colors flex items-center justify-center gap-0.5">
+                    <Plus className="w-2.5 h-2.5" /> Ajouter
+                  </button>
+                  <div className="w-px bg-gray-100" />
+                  <button onClick={() => { setRdvDate(date); setShowRdvModal(true) }}
+                    className="flex-1 py-1 text-[9px] text-gray-400 hover:text-green-600 hover:bg-green-50 transition-colors flex items-center justify-center gap-0.5">
+                    <UserPlus className="w-2.5 h-2.5" /> RDV
+                  </button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+
+        {/* Corps scrollable */}
+        <div ref={gridRef} className="overflow-y-auto" style={{ maxHeight: 600 }}>
+          <div className="flex" style={{ height: totalPx }}>
+            {/* Axe horaire */}
+            <div className="w-12 flex-shrink-0 relative border-r border-gray-200 bg-gray-50/50">
+              {hours.map(h => (
+                <div key={h} className="absolute w-full flex items-start justify-end pr-2"
+                  style={{ top: (h - gridStartH) * HOUR_PX - 7 }}>
+                  <span className="text-[10px] text-gray-400 leading-none">{String(h).padStart(2, '0')}h</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Colonnes jours */}
+            {weekDates.map((date, dayIdx) => {
+              const dateStr = format(date, 'yyyy-MM-dd')
+              const events = dayEvents[dateStr] || []
+              const isCurrentDay = isToday(date)
+              const timedEvents = events.filter(e => e.startTime)
+              const colAssign = assignEventColumns(events)
+
+              return (
+                <div key={dateStr}
+                  className={`flex-1 relative border-r border-gray-200 last:border-r-0 ${isCurrentDay ? 'bg-primary-50/20' : ''}`}
+                  style={{ height: totalPx }}
+                  onClick={e => {
+                    if (e.target !== e.currentTarget) return
+                    const rect = e.currentTarget.getBoundingClientRect()
+                    const y = e.clientY - rect.top + (gridRef.current?.scrollTop || 0)
+                    const clickedMin = Math.round(y / (HOUR_PX / 60) / 15) * 15 + gridStartH * 60
+                    const clampedStart = Math.min(Math.max(clickedMin, gridStartH * 60), gridEndH * 60 - 60)
+                    const clampedEnd = clampedStart + 60
+                    const fmtMin = m => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+                    setAddDate(date)
+                    setAddForm(f => ({ ...f, start_time: fmtMin(clampedStart), end_time: fmtMin(clampedEnd) }))
+                    setShowAddModal(true)
+                  }}
+                >
+                  {/* Lignes horaires */}
+                  {hours.map(h => (
+                    <div key={h} className="absolute w-full border-t border-gray-100 pointer-events-none"
+                      style={{ top: (h - gridStartH) * HOUR_PX }} />
+                  ))}
+                  {/* Demi-heures */}
+                  {hours.map(h => (
+                    <div key={`${h}h`} className="absolute w-full border-t border-gray-50 pointer-events-none"
+                      style={{ top: (h - gridStartH) * HOUR_PX + HOUR_PX / 2 }} />
+                  ))}
+
+                  {/* Ligne "maintenant" */}
+                  {isCurrentDay && isCurrentWeek && nowPx >= 0 && nowPx <= totalPx && (
+                    <div className="absolute w-full z-20 pointer-events-none flex items-center" style={{ top: nowPx }}>
+                      <div className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0 -ml-1" />
+                      <div className="flex-1 h-px bg-red-400" />
+                    </div>
+                  )}
+
+                  {/* Événements avec heure */}
+                  {timedEvents.map(evt => {
+                    const config = SLOT_TYPES[evt.type] || SLOT_TYPES.task
+                    const startMin = timeToMin(evt.startTime)
+                    const endMin = timeToMin(evt.endTime || addMinutesToTime(evt.startTime, 30))
+                    const top = (startMin - gridStartH * 60) * (HOUR_PX / 60)
+                    const height = Math.max(24, (endMin - startMin) * (HOUR_PX / 60))
+                    const assign = colAssign[evt.id] || { colIdx: 0, numCols: 1 }
+                    const widthPct = 100 / assign.numCols
+                    const leftPct = (assign.colIdx / assign.numCols) * 100
+                    const isLink = !!evt.link
+
+                    return (
+                      <div key={evt.id}
+                        className={`absolute rounded overflow-hidden border border-white/70 shadow-sm group z-10 hover:z-30 hover:shadow-md transition-shadow ${config.color} ${evt.draggable ? 'cursor-grab' : 'cursor-pointer'} ${dragItem?.id === evt.id ? 'opacity-30' : ''}`}
+                        style={{ top, height, left: `${leftPct + 1}%`, width: `${widthPct - 2}%` }}
+                        draggable={evt.draggable}
+                        onDragStart={evt.draggable ? e => handleDragStart(e, evt) : undefined}
+                        onDragEnd={evt.draggable ? handleDragEnd : undefined}
+                        onClick={e => {
+                          e.stopPropagation()
+                          if (evt.draggable) handleTapSelect(evt)
+                        }}
+                      >
+                        <div className="px-1 pt-0.5 h-full flex flex-col">
+                          <div className="font-semibold leading-tight truncate" style={{ fontSize: 10 }}>
+                            {isLink
+                              ? <Link to={evt.link} onClick={e => e.stopPropagation()} className="hover:underline">{evt.title}</Link>
+                              : evt.title}
+                            {evt.temperature === 'chaud' && <Flame className="inline w-2.5 h-2.5 text-red-500 ml-0.5" />}
+                          </div>
+                          {height > 32 && evt.subtitle && (
+                            <div className="truncate opacity-70" style={{ fontSize: 9 }}>{evt.subtitle}</div>
+                          )}
+                          {height > 44 && (
+                            <div className="opacity-60 mt-auto" style={{ fontSize: 9 }}>
+                              {fmtTime(evt.startTime)}{evt.endTime ? ` – ${fmtTime(evt.endTime)}` : ''}
+                            </div>
+                          )}
+                        </div>
+                        {/* Actions rapides */}
+                        {evt.type === 'rdv' && evt.dbId && (
+                          <button onClick={e => { e.stopPropagation(); handleDeleteRdv(evt.dbId) }}
+                            className="absolute top-0.5 right-0.5 p-0.5 rounded-full bg-white/60 hover:bg-white opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                            <X className="w-2.5 h-2.5 text-red-500" />
+                          </button>
+                        )}
+                        {evt.callId && (
+                          <button onClick={e => { e.stopPropagation(); handleCallbackDone(evt.callId) }}
+                            className="absolute top-0.5 right-0.5 p-0.5 rounded-full bg-white/60 hover:bg-white opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                            <Check className="w-2.5 h-2.5 text-green-600" />
+                          </button>
+                        )}
+                        {evt.eventId && (
+                          <button onClick={e => { e.stopPropagation(); handleDeleteEvent(evt.eventId) }}
+                            className="absolute top-0.5 right-0.5 p-0.5 rounded-full bg-white/60 hover:bg-white opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                            <X className="w-2.5 h-2.5 text-red-500" />
+                          </button>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // ═══════════════════════════════════════════════════════════
   // ═══════════════════════════════════════════════════════════
 
   if (loading) return (
@@ -961,8 +1205,9 @@ export default function WeeklyPlanner() {
         </div>
       )}
 
-      {/* Grille semaine */}
-      <div className="grid grid-cols-6 gap-2">
+      {/* Grille semaine — desktop: time grid, mobile: cartes */}
+      <TimeGrid />
+      <div className="grid grid-cols-3 gap-2 md:hidden sm:grid-cols-6">
         {weekDates.map((date, idx) => <DayCard key={format(date, 'yyyy-MM-dd')} date={date} dayIdx={idx} />)}
       </div>
 
