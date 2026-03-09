@@ -25,6 +25,7 @@ const TRAINER_COLORS = [
 ]
 
 const STATUS_CONFIG = {
+  confirmed: { label: 'Confirmée', dot: 'bg-indigo-500' },
   draft: { label: 'Brouillon', dot: 'bg-gray-400' },
   planned: { label: 'Planifiée', dot: 'bg-blue-500' },
   in_progress: { label: 'En cours', dot: 'bg-yellow-500' },
@@ -38,7 +39,7 @@ export default function SessionPlanning({ sessions, trainers }) {
   const [hoveredSession, setHoveredSession] = useState(null)
   const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 })
   const [copiedUrl, setCopiedUrl] = useState(null)
-  const [statusFilter, setStatusFilter] = useState(['planned', 'in_progress', 'completed'])
+  const [statusFilter, setStatusFilter] = useState(['planned', 'confirmed', 'in_progress', 'completed'])
   const containerRef = useRef(null)
   const gridRef = useRef(null)
 
