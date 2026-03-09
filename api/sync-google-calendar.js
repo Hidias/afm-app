@@ -18,11 +18,13 @@ const CALENDAR_MAP = {
     calendarId: process.env.GCAL_HICHAM || 'hicham.saidi@accessformation.pro',
     trainerMatch: 'hicham',
     conductedBy: 'Hicham',
+    userId: 'a5482cd6-3961-4c55-adcd-2bff9f5736b3',
   },
   maxime: {
     calendarId: process.env.GCAL_MAXIME || 'maxime.langlais@accessformation.pro',
     trainerMatch: 'maxime',
     conductedBy: 'Maxime',
+    userId: 'e028a949-d0d8-4702-b2db-e281fd4bfdb1',
   },
 }
 
@@ -166,6 +168,9 @@ const COLORS = {
   session: '9',    // Blueberry (bleu foncé)
   rdv: '2',        // Sage (vert)
   callback: '5',   // Banana (jaune)
+  indispo: '11',   // Tomato (rouge)
+  tache: '6',      // Tangerine (orange)
+  autre: '8',      // Graphite (gris)
 }
 
 // ─── Construire les événements attendus ───────────────────
@@ -325,6 +330,41 @@ async function buildExpectedEvents(trainerConfig) {
         startDateTime: timeToGcal(cb.callback_date, cbTime),
         endDateTime: timeToGcal(cb.callback_date, addMinutes(cbTime, 30)),
         colorId: COLORS.callback,
+        status: 'confirmed',
+      })
+    }
+  }
+
+  // ═══ EVENTS PLANNING (indispos, tâches, perso) ═══
+  if (trainerConfig.userId) {
+    const { data: planningEvents } = await supabase
+      .from('user_planning_events')
+      .select('id, event_type, event_date, start_time, end_time, title, description')
+      .eq('user_id', trainerConfig.userId)
+      .gte('event_date', pastDate)
+      .order('event_date')
+
+    const EVENT_EMOJI = {
+      indispo: '🚫',
+      tache: '✅',
+      conges: '🏖️',
+      perso: '👤',
+      autre: '📌',
+    }
+
+    for (const evt of (planningEvents || [])) {
+      const emoji = EVENT_EMOJI[evt.event_type] || '📌'
+      const colorId = COLORS[evt.event_type] || COLORS.autre
+
+      events.push({
+        campusId: `planning-${evt.id}`,
+        campusType: 'planning',
+        summary: `${emoji} ${evt.title}`,
+        description: evt.description || '',
+        location: '',
+        startDateTime: timeToGcal(evt.event_date, evt.start_time || '09:00'),
+        endDateTime: timeToGcal(evt.event_date, evt.end_time || '18:00'),
+        colorId,
         status: 'confirmed',
       })
     }
