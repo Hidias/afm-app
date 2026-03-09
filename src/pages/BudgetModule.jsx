@@ -81,6 +81,7 @@ export default function BudgetModule() {
   const months = useMemo(() => [...new Set(transactions.map(tx => tx.month).filter(Boolean))].sort(), [transactions])
 
   const filtered = useMemo(() => transactions.filter(tx => {
+    if (tx.linked_transaction_id) return false // Ligne bancaire absorbée par une saisie manuelle — masquée
     if (filterMonth !== 'all' && tx.month !== filterMonth) return false
     if (filterCat !== 'all' && tx.category_name !== filterCat) return false
     if (filterDir === 'debit' && !(tx.debit > 0)) return false
@@ -198,6 +199,8 @@ function TransactionsTab({ filtered, categories, months, filterMonth, setFilterM
     if (!filterSpecial) return filtered
     if (filterSpecial === 'resto_no_guest') return filtered.filter(tx => tx.category_name === 'Restauration pro' && tx.debit > 0)
     if (filterSpecial === 'credit_no_invoice') return filtered.filter(tx => tx.credit > 0 && !tx.linked_invoice_id && !tx.is_personal)
+    if (filterSpecial === 'manual_non_rapproche') return filtered.filter(tx => tx.is_manual && !tx.reconciled_at)
+    if (filterSpecial === 'manual_rapproche') return filtered.filter(tx => tx.is_manual && !!tx.reconciled_at)
     return filtered
   }, [filtered, filterSpecial])
 
@@ -225,6 +228,8 @@ function TransactionsTab({ filtered, categories, months, filterMonth, setFilterM
               <option value="">Filtres rapides</option>
               <option value="resto_no_guest">🍽️ Restos sans invités</option>
               <option value="credit_no_invoice">💳 Crédits non rapprochés</option>
+              <option value="manual_non_rapproche">✏️ Saisies sans rapprochement banque</option>
+              <option value="manual_rapproche">🏦 Saisies rapprochées banque</option>
             </select>
           </div>
         </div>
@@ -252,6 +257,7 @@ function TransactionsTab({ filtered, categories, months, filterMonth, setFilterM
                     {tx.is_personal && <span className="ml-1 text-purple-500">🏠</span>}
                     {tx.sent_to_comptable && <span className="ml-1 text-green-500" title="Envoyé au comptable">✓</span>}
                     {tx.linked_invoice_id && <span className="ml-1 text-blue-500" title="Rapproché avec facture">🔗</span>}
+                    {tx.is_manual && tx.reconciled_at && <span className="ml-1 text-violet-500" title={`Rapproché banque le ${new Date(tx.reconciled_at).toLocaleDateString('fr-FR')}`}>🏦</span>}
                   </td>
                   <td className="px-3 py-1.5 max-w-xs"><div className="truncate text-gray-800 text-xs" title={tx.description}>{tx.description}</div></td>
                   <td className="px-3 py-1.5">
@@ -2085,10 +2091,15 @@ function ImportTab({ loadAll, categories, rules, invoices, clients, transactions
     const normDesc = (s) => (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase()
       .replace(/[''`´"]+/g, '').replace(/\s+/g, ' ').replace(/[^A-Z0-9 ]/g, '').trim()
 
+    // Saisies manuelles non encore rapprochées (cibles de rapprochement)
+    const manualTxs = (transactions || []).filter(ex => ex.is_manual && !ex.linked_transaction_id && !ex.reconciled_at)
+
     return parsedTxs.map(tx => {
       const txDesc = normDesc(tx.description)
       const txAmount = tx.debit > 0 ? tx.debit : tx.credit
+      const txDate = new Date(tx.date)
 
+      // ── Doublon exact banque↔banque ──
       const isDuplicate = (transactions || []).some(ex => {
         // Check 1 : même date + description normalisée + montant
         const descMatch = ex.date === tx.date && normDesc(ex.description) === txDesc &&
@@ -2104,7 +2115,23 @@ function ImportTab({ loadAll, categories, rules, invoices, clients, transactions
 
         return false
       })
-      return { ...tx, isDuplicate }
+
+      // ── Match saisie manuelle : même montant + même sens + date ±3 jours ──
+      let manualMatch = null
+      if (!isDuplicate) {
+        const txIsDebit = tx.debit > 0
+        manualMatch = manualTxs.find(ex => {
+          const exIsDebit = (ex.debit || 0) > 0
+          if (exIsDebit !== txIsDebit) return false
+          const exAmount = exIsDebit ? (ex.debit || 0) : (ex.credit || 0)
+          if (Math.abs(exAmount - txAmount) > 0.01) return false
+          const exDate = new Date(ex.date)
+          const diffDays = Math.abs((txDate - exDate) / 86400000)
+          return diffDays <= 3
+        }) || null
+      }
+
+      return { ...tx, isDuplicate, hasManualMatch: !!manualMatch, manualMatch: manualMatch || null, absorbManual: !!manualMatch }
     })
   }
 
@@ -2128,6 +2155,7 @@ function ImportTab({ loadAll, categories, rules, invoices, clients, transactions
   function toggleRow(idx) { setSelectedRows(prev => { const n = new Set(prev); if (n.has(idx)) n.delete(idx); else n.add(idx); return n }) }
   function selectAllNew() { const s = new Set(); pre.forEach((tx, i) => { if (!tx.isDuplicate) s.add(i) }); setSelectedRows(s) }
   function selectNone() { setSelectedRows(new Set()) }
+  function toggleAbsorb(idx) { setPre(prev => prev.map((tx, i) => i === idx ? { ...tx, absorbManual: !tx.absorbManual } : tx)) }
 
   function changePreCategory(idx, catName) {
     setPre(prev => prev.map((tx, i) => i === idx ? { ...tx, category_name: catName } : tx))
@@ -2350,11 +2378,12 @@ function ImportTab({ loadAll, categories, rules, invoices, clients, transactions
     const toImport = pre.filter((_, i) => selectedRows.has(i))
     if (!toImport.length) { toast.error('Aucune ligne sélectionnée'); return }
     setImp(true)
-    let imported = 0, reconciled = 0, errors = []
+    let imported = 0, reconciled = 0, absorbed = 0, errors = []
     try {
       for (const tx of toImport) {
         const cat = categories.find(c => c.name === tx.category_name)
         const hasMatch = tx.credit > 0 && tx.matchConfidence === 'high' && tx.matchedInvoices?.length > 0
+        const isAbsorb = tx.hasManualMatch && tx.absorbManual && tx.manualMatch?.id
 
         // 1. Créer la transaction budget
         const txRow = {
@@ -2363,13 +2392,24 @@ function ImportTab({ loadAll, categories, rules, invoices, clients, transactions
           month: tx.month, year: tx.year, source_file: 'import_csv_cmb',
           payer: 'entreprise', is_manual: false, is_personal: false,
           linked_invoice_id: hasMatch ? tx.matchedInvoices[0].id : null,
-          reconciled_at: hasMatch ? new Date().toISOString() : null,
+          linked_transaction_id: isAbsorb ? tx.manualMatch.id : null,
+          reconciled_at: (hasMatch || isAbsorb) ? new Date().toISOString() : null,
+          sent_to_comptable: isAbsorb ? true : false,
         }
         const { data: insertedTx, error: txErr } = await supabase.from('budget_transactions').insert(txRow).select('id').single()
         if (txErr) { errors.push(`TX ${tx.description}: ${txErr.message}`); continue }
         imported++
 
-        // 2. Si match haute confiance → rapprocher les factures
+        // 2. Si absorption : marquer la saisie manuelle comme rapprochée
+        if (isAbsorb) {
+          const { error: reconcileErr } = await supabase.from('budget_transactions')
+            .update({ reconciled_at: new Date().toISOString() })
+            .eq('id', tx.manualMatch.id)
+          if (reconcileErr) errors.push(`Rapprochement saisie: ${reconcileErr.message}`)
+          else absorbed++
+        }
+
+        // 3. Si match haute confiance facture → rapprocher les factures
         if (hasMatch) {
           let remaining = tx.credit
           for (const inv of tx.matchedInvoices) {
@@ -2406,6 +2446,7 @@ function ImportTab({ loadAll, categories, rules, invoices, clients, transactions
       }
 
       const msg = [`✅ ${imported} transactions importées`]
+      if (absorbed > 0) msg.push(`✏️ ${absorbed} saisie(s) rapprochée(s)`)
       if (reconciled > 0) msg.push(`🔗 ${reconciled} facture(s) rapprochée(s)`)
       if (errors.length > 0) msg.push(`⚠️ ${errors.length} erreur(s)`)
       toast.success(msg.join(' — '))
@@ -2982,6 +3023,7 @@ function ImportTab({ loadAll, categories, rules, invoices, clients, transactions
         const dupCount = pre.filter(t => t.isDuplicate).length
         const matchedCount = pre.filter(t => t.matchConfidence === 'high').length
         const ambiguousCount = pre.filter(t => t.matchConfidence === 'ambiguous' || t.matchConfidence === 'medium').length
+        const manualMatchCount = pre.filter(t => t.hasManualMatch && !t.isDuplicate).length
         const selectedCount = selectedRows.size
         return (
           <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
@@ -2991,6 +3033,7 @@ function ImportTab({ loadAll, categories, rules, invoices, clients, transactions
                 <span className="text-sm font-bold text-gray-700">📊 {pre.length} transactions</span>
                 <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">{newCount} nouvelles</span>
                 {dupCount > 0 && <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">{dupCount} doublons</span>}
+                {manualMatchCount > 0 && <span className="text-xs bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full">✏️ {manualMatchCount} saisie(s) à rapprocher</span>}
                 {matchedCount > 0 && <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">🔗 {matchedCount} rapprochées</span>}
                 {ambiguousCount > 0 && <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">❓ {ambiguousCount} à vérifier</span>}
               </div>
@@ -3019,7 +3062,7 @@ function ImportTab({ loadAll, categories, rules, invoices, clients, transactions
                     <React.Fragment key={i}>
                       <tr onClick={() => toggleRow(i)}
                         className={`border-t cursor-pointer transition-colors
-                          ${tx.isDuplicate ? 'bg-amber-50/50 opacity-60' : selectedRows.has(i) ? 'bg-blue-50' : 'hover:bg-gray-50'}`}>
+                          ${tx.isDuplicate ? 'bg-amber-50/50 opacity-60' : tx.hasManualMatch ? 'bg-violet-50/40' : selectedRows.has(i) ? 'bg-blue-50' : 'hover:bg-gray-50'}`}>
                         <td className="px-2 py-1">
                           <input type="checkbox" checked={selectedRows.has(i)} onChange={() => toggleRow(i)}
                             className="rounded text-blue-600" />
@@ -3037,16 +3080,44 @@ function ImportTab({ loadAll, categories, rules, invoices, clients, transactions
                         <td className="px-2 py-1 text-center" onClick={e => e.stopPropagation()}>
                           {tx.isDuplicate
                             ? <span className="text-xs bg-amber-200 text-amber-800 px-1.5 py-0.5 rounded">doublon</span>
-                            : tx.matchConfidence === 'high'
-                              ? <button onClick={() => toggleSearchPanel(i)} className="text-xs bg-blue-200 text-blue-800 px-1.5 py-0.5 rounded hover:bg-blue-300">🔗 rapprochée</button>
-                              : tx.matchConfidence === 'medium' || tx.matchConfidence === 'ambiguous'
-                                ? <button onClick={() => toggleSearchPanel(i)} className="text-xs bg-purple-200 text-purple-800 px-1.5 py-0.5 rounded hover:bg-purple-300">❓ à vérifier</button>
-                                : tx.credit > 0
-                                  ? <button onClick={() => toggleSearchPanel(i)} className="text-xs bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded hover:bg-gray-300 cursor-pointer">🔍 matcher</button>
-                                  : <span className="text-xs bg-green-200 text-green-800 px-1.5 py-0.5 rounded">nouvelle</span>
+                            : tx.hasManualMatch
+                              ? <button onClick={() => toggleAbsorb(i)}
+                                  className={`text-xs px-1.5 py-0.5 rounded font-medium transition-colors ${tx.absorbManual ? 'bg-violet-200 text-violet-800 hover:bg-violet-300' : 'bg-gray-200 text-gray-600 hover:bg-gray-300'}`}
+                                  title={tx.absorbManual ? 'Cliquer pour importer séparément' : 'Cliquer pour absorber la saisie'}>
+                                  {tx.absorbManual ? '✏️ absorber' : '↔ séparer'}
+                                </button>
+                              : tx.matchConfidence === 'high'
+                                ? <button onClick={() => toggleSearchPanel(i)} className="text-xs bg-blue-200 text-blue-800 px-1.5 py-0.5 rounded hover:bg-blue-300">🔗 rapprochée</button>
+                                : tx.matchConfidence === 'medium' || tx.matchConfidence === 'ambiguous'
+                                  ? <button onClick={() => toggleSearchPanel(i)} className="text-xs bg-purple-200 text-purple-800 px-1.5 py-0.5 rounded hover:bg-purple-300">❓ à vérifier</button>
+                                  : tx.credit > 0
+                                    ? <button onClick={() => toggleSearchPanel(i)} className="text-xs bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded hover:bg-gray-300 cursor-pointer">🔍 matcher</button>
+                                    : <span className="text-xs bg-green-200 text-green-800 px-1.5 py-0.5 rounded">nouvelle</span>
                           }
                         </td>
                       </tr>
+
+                      {/* Sous-ligne : saisie manuelle détectée */}
+                      {tx.hasManualMatch && !tx.isDuplicate && tx.manualMatch && (
+                        <tr className="bg-violet-50/60 border-t border-violet-100">
+                          <td></td>
+                          <td colSpan="6" className="px-2 py-1.5" onClick={e => e.stopPropagation()}>
+                            <div className="flex items-center gap-2 flex-wrap text-xs">
+                              <span className="text-violet-500 font-medium">✏️ Saisie manuelle existante :</span>
+                              <span className="text-violet-700 font-medium">{tx.manualMatch.date ? new Date(tx.manualMatch.date).toLocaleDateString('fr-FR') : tx.manualMatch.date}</span>
+                              <span className="text-violet-700 truncate max-w-xs" title={tx.manualMatch.description}>{tx.manualMatch.description}</span>
+                              <span className="bg-violet-100 text-violet-700 px-2 py-0.5 rounded">{tx.manualMatch.category_name}</span>
+                              {tx.manualMatch.description !== tx.description && (
+                                <span className="text-gray-400 italic">descriptions différentes</span>
+                              )}
+                              {tx.absorbManual
+                                ? <span className="text-violet-600 font-medium">→ La saisie sera conservée, la ligne banque liée en arrière-plan</span>
+                                : <span className="text-gray-500">→ Deux lignes séparées seront créées</span>
+                              }
+                            </div>
+                          </td>
+                        </tr>
+                      )}
 
                       {/* Ligne de détail match pour les crédits — résumé compact */}
                       {tx.credit > 0 && !tx.isDuplicate && tx.matchedInvoices?.length > 0 && searchOpenRow !== i && (
@@ -3189,7 +3260,7 @@ function ImportTab({ loadAll, categories, rules, invoices, clients, transactions
                     className="px-4 py-2 border rounded-lg text-sm text-gray-600 hover:bg-gray-100">Annuler</button>
                   <button onClick={doImport} disabled={imp || selectedCount === 0}
                     className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50 hover:bg-blue-700">
-                    {imp ? '⏳ Import en cours...' : `✅ Importer ${selectedCount} transaction(s)${matchedCount > 0 ? ` + ${matchedCount} rapprochement(s)` : ''}`}
+                    {imp ? '⏳ Import en cours...' : `✅ Importer ${selectedCount} transaction(s)${matchedCount > 0 ? ` + ${matchedCount} rapprochement(s)` : ''}${pre.filter((t,i) => selectedRows.has(i) && t.hasManualMatch && t.absorbManual).length > 0 ? ` + ${pre.filter((t,i) => selectedRows.has(i) && t.hasManualMatch && t.absorbManual).length} absorption(s)` : ''}`}
                   </button>
                 </div>
               </div>
