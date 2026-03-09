@@ -3745,7 +3745,6 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
       const fixedDetail = Object.entries(chargesFixes)
         .filter(([, v]) => v.montant > 0)
         .map(([name, v]) => ({ name, icon: v.icon, monthly: v.montant }))
-        .sort((a, b) => b.monthly - a.monthly)
       const avgFixed = fixedDetail.reduce((s, d) => s + d.monthly, 0)
 
       // ── Dépenses par catégorie (pour camembert + optimisation) ──
@@ -4836,7 +4835,7 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
           </summary>
           <p className="text-xs text-gray-400 mt-2 mb-3">Montants réels validés. Cliquer sur un montant pour modifier.</p>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-            {analysis.fixedDetail.map((c, i) => {
+            {analysis.fixedDetail.map((c) => {
               const settingsKey = Object.entries(chargesFixes).find(([name]) => name === c.name)?.[0]
               const dbKey = settingsKey ? 'charge_' + {
                 'Salaire Maxime': 'salaire_maxime', 'Salaire Hicham': 'salaire_hicham',
@@ -4846,7 +4845,7 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
                 'Logiciels & SaaS': 'logiciels', 'Frais bancaires': 'frais_bancaires',
               }[c.name] : null
               return (
-                <div key={i} className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
+                <div key={c.name} className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
                   <span>{c.icon}</span>
                   <div className="flex-1 text-xs text-gray-700">{c.name}</div>
                   <input type="number" value={c.monthly} 
