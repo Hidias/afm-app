@@ -3939,6 +3939,8 @@ function PrevisionnelTab({ transactions, categories, invoices, clients }) {
       }
 
       // Factures attendues (entrées)
+      console.log('[CashFlow] invoices total:', (invoices||[]).length, '| unpaidInvoices:', unpaidInvoices.length, '| entreesAVenir:', entreesAVenir.length, '| currentYearMonth:', currentYearMonth)
+      console.log('[CashFlow] unpaid statuts:', unpaidInvoices.map(i => i.status + '/' + i.due_date?.substring(0,7)))
       entreesAVenir.forEach(inv => {
         const cli = (clients || []).find(c => c.id === inv.client_id)
         const isOverdue = inv.due_date && inv.due_date < today
