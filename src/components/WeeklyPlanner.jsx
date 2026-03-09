@@ -219,51 +219,6 @@ export default function WeeklyPlanner() {
 
   useEffect(() => { if (user?.id) loadWeekData() }, [loadWeekData, user?.id])
 
-  // ─── Plage horaire dynamique ─────────────────────────────
-  const { gridStartH, gridEndH } = useMemo(() => {
-    let minH = 6, maxH = 19
-    Object.values(dayEvents).flat().forEach(evt => {
-      if (evt.startTime) {
-        const h = Math.floor(timeToMin(evt.startTime) / 60)
-        if (h < minH) minH = Math.max(0, h - 1)
-      }
-      if (evt.endTime) {
-        const h = Math.ceil(timeToMin(evt.endTime) / 60)
-        if (h > maxH) maxH = Math.min(25, h + 1)
-      }
-    })
-    return { gridStartH: minH, gridEndH: maxH }
-  }, [dayEvents])
-
-  // ─── Assignation colonnes pour chevauchements ────────────
-  function assignEventColumns(events) {
-    const timed = events.filter(e => e.startTime)
-    if (!timed.length) return {}
-    const sorted = [...timed].sort((a, b) => timeToMin(a.startTime) - timeToMin(b.startTime))
-    const result = {}
-    const colEnds = []
-    for (const evt of sorted) {
-      const startMin = timeToMin(evt.startTime)
-      const endMin = timeToMin(evt.endTime || addMinutesToTime(evt.startTime, 30))
-      let colIdx = colEnds.findIndex(end => end <= startMin)
-      if (colIdx === -1) { colIdx = colEnds.length; colEnds.push(endMin) }
-      else { colEnds[colIdx] = endMin }
-      result[evt.id] = { colIdx, numCols: 1 }
-    }
-    const numCols = Math.max(1, colEnds.length)
-    Object.values(result).forEach(r => { r.numCols = numCols })
-    return result
-  }
-
-  // ─── Scroll auto vers heure courante ────────────────────
-  useEffect(() => {
-    if (!gridRef.current || weekOffset !== 0 || loading) return
-    const HOUR_PX = 60
-    const now = new Date()
-    const scrollTo = (now.getHours() + now.getMinutes() / 60 - gridStartH) * HOUR_PX - 120
-    gridRef.current.scrollTop = Math.max(0, scrollTo)
-  }, [gridStartH, weekOffset, loading])
-
   // ─── Stats appels ─────────────────────────────────────
   const loadCallStats = async () => {
     try {
@@ -383,6 +338,51 @@ export default function WeeklyPlanner() {
     const caRelance = devisRelance.reduce((s, q) => s + (parseFloat(q.total_ht) || 0), 0)
     return { totalSessions, totalRdv, totalCallbacks, totalRelances: devisRelance.length, caRelance }
   }, [weekDates, dayEvents, devisRelance])
+
+  // ─── Plage horaire dynamique (après dayEvents) ───────────
+  const { gridStartH, gridEndH } = useMemo(() => {
+    let minH = 6, maxH = 19
+    Object.values(dayEvents).flat().forEach(evt => {
+      if (evt.startTime) {
+        const h = Math.floor(timeToMin(evt.startTime) / 60)
+        if (h < minH) minH = Math.max(0, h - 1)
+      }
+      if (evt.endTime) {
+        const h = Math.ceil(timeToMin(evt.endTime) / 60)
+        if (h > maxH) maxH = Math.min(25, h + 1)
+      }
+    })
+    return { gridStartH: minH, gridEndH: maxH }
+  }, [dayEvents])
+
+  // ─── Assignation colonnes pour chevauchements ────────────
+  function assignEventColumns(events) {
+    const timed = events.filter(e => e.startTime)
+    if (!timed.length) return {}
+    const sorted = [...timed].sort((a, b) => timeToMin(a.startTime) - timeToMin(b.startTime))
+    const result = {}
+    const colEnds = []
+    for (const evt of sorted) {
+      const startMin = timeToMin(evt.startTime)
+      const endMin = timeToMin(evt.endTime || addMinutesToTime(evt.startTime, 30))
+      let colIdx = colEnds.findIndex(end => end <= startMin)
+      if (colIdx === -1) { colIdx = colEnds.length; colEnds.push(endMin) }
+      else { colEnds[colIdx] = endMin }
+      result[evt.id] = { colIdx, numCols: 1 }
+    }
+    const numCols = Math.max(1, colEnds.length)
+    Object.values(result).forEach(r => { r.numCols = numCols })
+    return result
+  }
+
+  // ─── Scroll auto vers heure courante ────────────────────
+  useEffect(() => {
+    if (!gridRef.current || weekOffset !== 0 || loading) return
+    const HOUR_PX = 60
+    const now = new Date()
+    const scrollTo = (now.getHours() + now.getMinutes() / 60 - gridStartH) * HOUR_PX - 120
+    gridRef.current.scrollTop = Math.max(0, scrollTo)
+  }, [gridStartH, weekOffset, loading])
 
   // ─── Détection conflits quand on ouvre la modal ajout ───
   useEffect(() => {
