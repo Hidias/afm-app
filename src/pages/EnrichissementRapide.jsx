@@ -1357,6 +1357,25 @@ export default function EnrichissementRapide() {
                               </div>
                               {s.site_web && <p className="text-xs text-gray-400 mt-1 truncate">🌐 {s.site_web}</p>}
                               {s.address && <p className="text-xs text-gray-400 mt-0.5 truncate">📍 {s.address}</p>}
+                              <div className="flex gap-1.5 mt-2">
+                                <button
+                                  onClick={() => window.open(`https://www.google.com/search?q=${encodeURIComponent(`${s.name} ${s.city || ''} téléphone`)}`, '_blank')}
+                                  className="flex items-center gap-1 text-xs px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded transition-colors">
+                                  🔍 Google
+                                </button>
+                                <button
+                                  onClick={() => window.open(`https://www.pagesjaunes.fr/pagesblanches/recherche?quoiqui=${encodeURIComponent(s.name)}&ou=${encodeURIComponent(s.city || '')}`, '_blank')}
+                                  className="flex items-center gap-1 text-xs px-2 py-1 bg-yellow-50 hover:bg-yellow-100 text-yellow-700 rounded transition-colors">
+                                  📒 Pages Jaunes
+                                </button>
+                                {s.site_web && (
+                                  <button
+                                    onClick={() => window.open(s.site_web.startsWith('http') ? s.site_web : `https://${s.site_web}`, '_blank')}
+                                    className="flex items-center gap-1 text-xs px-2 py-1 bg-green-50 hover:bg-green-100 text-green-700 rounded transition-colors">
+                                    🌐 Site web
+                                  </button>
+                                )}
+                              </div>
                             </div>
                           )
                         })}
