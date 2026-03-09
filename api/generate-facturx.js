@@ -332,17 +332,34 @@ function generateCIIXML(invoice, items, client) {
   const buyerSiretXml=clientId?`        <ram:SpecifiedLegalOrganization>
           <ram:ID schemeID="0002">${clientId}</ram:ID>
         </ram:SpecifiedLegalOrganization>`:''
+  const clientTva=(client.tva||'').trim()
+  const buyerTaxXml=clientTva?`        <ram:SpecifiedTaxRegistration><ram:ID schemeID="VA">${esc(clientTva)}</ram:ID></ram:SpecifiedTaxRegistration>`:''
+  const encaissementsNote=`    <ram:IncludedNote><ram:Content>TVA exigible d'apres les encaissements - Article 269 2-c du CGI</ram:Content></ram:IncludedNote>`
   const buyerRefXml=invoice.client_reference?`      <ram:BuyerOrderReferencedDocument>
         <ram:IssuerAssignedID>${esc(invoice.client_reference)}</ram:IssuerAssignedID>
       </ram:BuyerOrderReferencedDocument>`:''
-  const deliveryXml=invoice.service_start_date?`    <ram:ApplicableHeaderTradeDelivery>
+  // Mention 25 : date de fin d'exécution de la prestation
+  // ApplicableHeaderTradeDelivery → ActualDeliveryDate = service_end_date (ou start si absent)
+  // BillingSpecifiedPeriod (EN16931 BG-14) va sous ApplicableHeaderTradeSettlement
+  const deliveryEndDate = invoice.service_end_date || invoice.service_start_date
+  const deliveryXml = invoice.service_start_date
+    ? `    <ram:ApplicableHeaderTradeDelivery>
       <ram:ActualDeliverySupplyChainEvent><ram:OccurrenceDateTime>
-          <udt:DateTimeString format="102">${ciiDate(invoice.service_start_date)}</udt:DateTimeString>
+          <udt:DateTimeString format="102">${ciiDate(deliveryEndDate)}</udt:DateTimeString>
       </ram:OccurrenceDateTime></ram:ActualDeliverySupplyChainEvent>
-    </ram:ApplicableHeaderTradeDelivery>`:'    <ram:ApplicableHeaderTradeDelivery/>'
+    </ram:ApplicableHeaderTradeDelivery>`
+    : '    <ram:ApplicableHeaderTradeDelivery/>'
+  // BillingSpecifiedPeriod — sous ApplicableHeaderTradeSettlement (EN16931 BG-14)
+  const billingPeriodXml = (invoice.service_start_date && invoice.service_end_date && invoice.service_end_date !== invoice.service_start_date)
+    ? `    <ram:BillingSpecifiedPeriod>
+      <ram:StartDateTime><udt:DateTimeString format="102">${ciiDate(invoice.service_start_date)}</udt:DateTimeString></ram:StartDateTime>
+      <ram:EndDateTime><udt:DateTimeString format="102">${ciiDate(invoice.service_end_date)}</udt:DateTimeString></ram:EndDateTime>
+    </ram:BillingSpecifiedPeriod>` : ''
   const noteXml=invoice.notes?`    <ram:IncludedNote><ram:Content>${esc(invoice.notes)}</ram:Content></ram:IncludedNote>`:''
+  // Mention +6 : date d'émission de la facture rectifiée (obligatoire dans l'avoir)
   const precedingXml=isCredit&&invoice.parent_reference?`      <ram:InvoiceReferencedDocument>
-        <ram:IssuerAssignedID>${esc(invoice.parent_reference)}</ram:IssuerAssignedID>
+        <ram:IssuerAssignedID>${esc(invoice.parent_reference)}</ram:IssuerAssignedID>${invoice.parent_invoice_date ? `
+        <ram:FormattedIssueDateTime><qdt:DateTimeString format="102">${ciiDate(invoice.parent_invoice_date)}</qdt:DateTimeString></ram:FormattedIssueDateTime>` : ''}
       </ram:InvoiceReferencedDocument>`:''
 
   return `<?xml version='1.0' encoding='UTF-8'?>
@@ -363,6 +380,7 @@ function generateCIIXML(invoice, items, client) {
     <ram:TypeCode>${typeCode}</ram:TypeCode>
     <ram:IssueDateTime><udt:DateTimeString format="102">${ciiDate(invoice.invoice_date)}</udt:DateTimeString></ram:IssueDateTime>
 ${noteXml}
+${encaissementsNote}
   </rsm:ExchangedDocument>
   <rsm:SupplyChainTradeTransaction>
 ${linesXml}
@@ -385,6 +403,7 @@ ${buyerSiretXml}
           <ram:CityName>${esc((client.city||'').toUpperCase())}</ram:CityName>
           <ram:CountryID>FR</ram:CountryID>
         </ram:PostalTradeAddress>
+${buyerTaxXml}
       </ram:BuyerTradeParty>
 ${buyerRefXml}
     </ram:ApplicableHeaderTradeAgreement>
@@ -392,6 +411,7 @@ ${deliveryXml}
     <ram:ApplicableHeaderTradeSettlement>
       <ram:PaymentReference>${esc(invoice.reference)}</ram:PaymentReference>
       <ram:InvoiceCurrencyCode>EUR</ram:InvoiceCurrencyCode>
+${billingPeriodXml}
 ${paymentMeansXml}
 ${precedingXml}
 ${tvaBlocksXml}
@@ -579,10 +599,21 @@ export default async function handler(req, res) {
     if (itemsErr) return res.status(500).json({ error: 'Erreur chargement lignes' })
 
     const clientId = invoice.billing_client_id || invoice.client_id
-    const { data: client, error: clientErr } = await supabase.from('clients').select('id,name,address,postal_code,city,siret,siren').eq('id', clientId).single()
+    const { data: client, error: clientErr } = await supabase.from('clients').select('id,name,address,postal_code,city,siret,siren,tva').eq('id', clientId).single()
     if (clientErr || !client) return res.status(404).json({ error: 'Client introuvable' })
 
-    const xmlString = generateCIIXML(invoice, items || [], client)
+    // Résoudre référence + date de la facture parente pour les avoirs (mention +6)
+    let enrichedInvoice = { ...invoice }
+    if (invoice.type === 'credit_note' && invoice.parent_invoice_id) {
+      const { data: parentInv } = await supabase.from('invoices')
+        .select('reference,invoice_date').eq('id', invoice.parent_invoice_id).single()
+      if (parentInv) {
+        enrichedInvoice.parent_reference = parentInv.reference
+        enrichedInvoice.parent_invoice_date = parentInv.invoice_date
+      }
+    }
+
+    const xmlString = generateCIIXML(enrichedInvoice, items || [], client)
     const pdfBuffer = Buffer.from(pdf_base64, 'base64')
     const result = await embedAndMakePDFA3(pdfBuffer, xmlString, invoice.reference, invoice.invoice_date, invoice.type)
 
