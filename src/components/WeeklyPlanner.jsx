@@ -123,6 +123,17 @@ export default function WeeklyPlanner() {
   const searchTimeoutRef = useRef(null)
   const gridRef = useRef(null)
 
+  // UI — Édition RDV (réutilise rdvForm + rdvModal en mode edit)
+  const [editRdvId, setEditRdvId] = useState(null) // null = création, uuid = édition
+
+  // UI — Édition callback
+  const [showEditCallbackModal, setShowEditCallbackModal] = useState(false)
+  const [editCallbackId, setEditCallbackId] = useState(null)
+  const [editCallbackForm, setEditCallbackForm] = useState({ callback_date: '', callback_time: '', notes: '' })
+
+  // UI — Édition planning event (réutilise addModal + addForm, editEventId != null = mode edit)
+  const [editEventId, setEditEventId] = useState(null)
+
   // UI — Drag & Drop (desktop) + Tap-to-move (touch/iPad)
   const [dragItem, setDragItem] = useState(null)
   const [dragOverDay, setDragOverDay] = useState(null)
@@ -444,6 +455,7 @@ export default function WeeklyPlanner() {
 
   // ── Ajout événement (Indispo/ADM/Tâche/Phoning) ──
   const handleAddEvent = async () => {
+    if (editEventId) return handleUpdateEvent()
     if (!addForm.title.trim()) { toast.error('Titre requis'); return }
     if (timeToMin(addForm.start_time) >= timeToMin(addForm.end_time)) { toast.error('Heure de fin invalide'); return }
     const dateStr = format(addDate, 'yyyy-MM-dd')
@@ -475,6 +487,7 @@ export default function WeeklyPlanner() {
       setShowAddModal(false)
       setAddConflicts([])
       setAddForm({ event_type: 'indispo', title: '', start_time: '09:00', end_time: '12:00', description: '' })
+      setEditEventId(null)
       loadWeekData()
     } catch (err) { toast.error('Erreur: ' + err.message) }
   }
@@ -573,6 +586,7 @@ export default function WeeklyPlanner() {
     setClientResults([])
     setSelectedClient(null)
     setClientContacts([])
+    setEditRdvId(null)
     setRdvForm({
       rdv_time: '14:00', rdv_type: 'decouverte', contact_id: null,
       contact_name: '', notes: '', formations_interet: [],
@@ -586,6 +600,122 @@ export default function WeeklyPlanner() {
     try {
       await supabase.from('user_planning_events').delete().eq('id', eventId)
       toast.success('Supprimé')
+      loadWeekData()
+    } catch (err) { toast.error('Erreur: ' + err.message) }
+  }
+
+  // ── Ouvrir édition planning event ──
+  const handleOpenEditEvent = (evt) => {
+    const evtDate = planningEvents.find(e => e.id === evt.eventId)
+    if (!evtDate) return
+    setEditEventId(evt.eventId)
+    setAddDate(new Date(evtDate.event_date + 'T12:00:00'))
+    setAddForm({
+      event_type: evtDate.event_type,
+      title: evtDate.title,
+      start_time: evtDate.start_time || '09:00',
+      end_time: evtDate.end_time || '18:00',
+      description: evtDate.description || '',
+    })
+    setShowAddModal(true)
+  }
+
+  // ── Sauvegarder édition planning event ──
+  const handleUpdateEvent = async () => {
+    if (!addForm.title.trim()) { toast.error('Titre requis'); return }
+    if (timeToMin(addForm.start_time) >= timeToMin(addForm.end_time)) { toast.error('Heure de fin invalide'); return }
+    try {
+      await supabase.from('user_planning_events').update({
+        event_type: addForm.event_type,
+        title: addForm.title.trim(),
+        start_time: addForm.start_time,
+        end_time: addForm.end_time,
+        description: addForm.description.trim() || null,
+      }).eq('id', editEventId)
+      toast.success('Modifié ✓')
+      setShowAddModal(false)
+      setEditEventId(null)
+      setAddConflicts([])
+      setAddForm({ event_type: 'indispo', title: '', start_time: '09:00', end_time: '12:00', description: '' })
+      loadWeekData()
+    } catch (err) { toast.error('Erreur: ' + err.message) }
+  }
+
+  // ── Ouvrir édition RDV ──
+  const handleOpenEditRdv = async (rdvId) => {
+    try {
+      const { data: rdv } = await supabase.from('prospect_rdv')
+        .select('*, clients(id, name, city, contact_phone, contact_email, siret, type)')
+        .eq('id', rdvId).single()
+      if (!rdv) return
+      setEditRdvId(rdvId)
+      setRdvDate(new Date(rdv.rdv_date + 'T12:00:00'))
+      setRdvMode('existing')
+      setRdvForm({
+        rdv_time: rdv.rdv_time ? rdv.rdv_time.slice(0, 5) : '14:00',
+        rdv_type: rdv.rdv_type || 'decouverte',
+        contact_id: rdv.contact_id || null,
+        contact_name: rdv.contact_name || '',
+        notes: rdv.notes || '',
+        formations_interet: rdv.formations_interet || [],
+        new_company: '', new_contact_name: '', new_phone: '', new_email: '',
+      })
+      if (rdv.clients) {
+        setSelectedClient(rdv.clients)
+        setClientSearch(rdv.clients.name)
+        const { data: contacts } = await supabase.from('client_contacts')
+          .select('id, name, first_name, last_name, email, phone, mobile, fonction, is_primary')
+          .eq('client_id', rdv.clients.id).order('is_primary', { ascending: false })
+        setClientContacts(contacts || [])
+      }
+      setShowRdvModal(true)
+    } catch (err) { toast.error('Erreur chargement RDV: ' + err.message) }
+  }
+
+  // ── Sauvegarder édition RDV ──
+  const handleUpdateRdv = async () => {
+    setRdvSaving(true)
+    try {
+      await supabase.from('prospect_rdv').update({
+        rdv_time: rdvForm.rdv_time || null,
+        rdv_type: rdvForm.rdv_type,
+        contact_id: rdvForm.contact_id || null,
+        contact_name: rdvForm.contact_name || null,
+        formations_interet: rdvForm.formations_interet.length > 0 ? rdvForm.formations_interet : null,
+        notes: rdvForm.notes.trim() || null,
+      }).eq('id', editRdvId)
+      toast.success('RDV modifié ✓')
+      setEditRdvId(null)
+      closeRdvModal()
+      loadWeekData()
+    } catch (err) { toast.error('Erreur: ' + err.message) }
+    finally { setRdvSaving(false) }
+  }
+
+  // ── Ouvrir édition callback ──
+  const handleOpenEditCallback = (evt) => {
+    const cb = callbacks.find(c => c.id === evt.callId)
+    if (!cb) return
+    setEditCallbackId(evt.callId)
+    setEditCallbackForm({
+      callback_date: cb.callback_date || '',
+      callback_time: cb.callback_time ? cb.callback_time.slice(0, 5) : '',
+      notes: cb.notes || '',
+    })
+    setShowEditCallbackModal(true)
+  }
+
+  // ── Sauvegarder édition callback ──
+  const handleUpdateCallback = async () => {
+    try {
+      await supabase.from('prospect_calls').update({
+        callback_date: editCallbackForm.callback_date,
+        callback_time: editCallbackForm.callback_time || null,
+        notes: editCallbackForm.notes.trim() || null,
+      }).eq('id', editCallbackId)
+      toast.success('Rappel modifié ✓')
+      setShowEditCallbackModal(false)
+      setEditCallbackId(null)
       loadWeekData()
     } catch (err) { toast.error('Erreur: ' + err.message) }
   }
@@ -931,9 +1061,15 @@ export default function WeeklyPlanner() {
                     {allDayEvents.map(evt => {
                       const config = SLOT_TYPES[evt.type] || SLOT_TYPES.task
                       return (
-                        <div key={evt.id} className={`rounded px-1.5 py-0.5 text-[9px] font-semibold truncate ${config.color}`}>
-                          {evt.title}
-                          {evt.time && evt.time !== 'Heure à définir' ? '' : evt.time === 'Heure à définir' ? ' · À définir' : ''}
+                        <div key={evt.id}
+                          className={`rounded px-1.5 py-0.5 text-[9px] font-semibold truncate cursor-pointer hover:brightness-95 transition-all ${config.color}`}
+                          title={`${evt.title}${evt.time && evt.time !== 'Heure à définir' ? '' : ' — heure à définir'}`}
+                          onClick={() => {
+                            if (evt.type === 'rdv' && evt.dbId) handleOpenEditRdv(evt.dbId)
+                            else if (evt.type === 'callback' && evt.callId) handleOpenEditCallback(evt)
+                            else if (evt.eventId) handleOpenEditEvent(evt)
+                          }}>
+                          {evt.title}{evt.time === 'Heure à définir' ? ' · ?' : ''}
                         </div>
                       )
                     })}
@@ -1034,6 +1170,10 @@ export default function WeeklyPlanner() {
                         onDragEnd={evt.draggable ? handleDragEnd : undefined}
                         onClick={e => {
                           e.stopPropagation()
+                          if (evt.type === 'rdv' && evt.dbId) { handleOpenEditRdv(evt.dbId); return }
+                          if (evt.type === 'callback' && evt.callId) { handleOpenEditCallback(evt); return }
+                          if (evt.eventId) { handleOpenEditEvent(evt); return }
+                          if (evt.link) return
                           if (evt.draggable) handleTapSelect(evt)
                         }}
                       >
@@ -1278,8 +1418,10 @@ export default function WeeklyPlanner() {
                 </div>
               )}
               <div className="flex gap-2 pt-1">
-                <button onClick={() => setShowAddModal(false)} className="flex-1 py-2.5 text-sm border rounded-lg hover:bg-gray-50 font-medium text-gray-600">Annuler</button>
-                <button onClick={handleAddEvent} className="flex-1 py-2.5 text-sm bg-primary-600 text-white rounded-lg hover:bg-primary-700 font-medium shadow-sm">Ajouter</button>
+                <button onClick={() => { setShowAddModal(false); setEditEventId(null); setAddConflicts([]) }} className="flex-1 py-2.5 text-sm border rounded-lg hover:bg-gray-50 font-medium text-gray-600">Annuler</button>
+                <button onClick={handleAddEvent} className="flex-1 py-2.5 text-sm bg-primary-600 text-white rounded-lg hover:bg-primary-700 font-medium shadow-sm">
+                  {editEventId ? 'Modifier' : 'Ajouter'}
+                </button>
               </div>
             </div>
           </div>
@@ -1294,7 +1436,7 @@ export default function WeeklyPlanner() {
               <div>
                 <h3 className="font-bold text-gray-900 flex items-center gap-2">
                   <UserPlus className="w-4 h-4 text-green-600" />
-                  Nouveau RDV commercial
+                  {editRdvId ? 'Modifier le RDV' : 'Nouveau RDV commercial'}
                 </h3>
                 <p className="text-xs text-gray-500 mt-0.5">{format(rdvDate, 'EEEE d MMMM yyyy', { locale: fr })}</p>
               </div>
@@ -1460,19 +1602,65 @@ export default function WeeklyPlanner() {
                 <button onClick={closeRdvModal} className="flex-1 py-2.5 text-sm border rounded-lg hover:bg-gray-50 font-medium text-gray-600">
                   Annuler
                 </button>
-                <button onClick={handleCreateRdv} disabled={rdvSaving}
+                <button onClick={editRdvId ? handleUpdateRdv : handleCreateRdv} disabled={rdvSaving}
                   className={`flex-1 py-2.5 text-sm rounded-lg font-medium shadow-sm transition-colors ${
-                    rdvMode === 'new'
-                      ? 'bg-orange-500 text-white hover:bg-orange-600'
-                      : 'bg-green-600 text-white hover:bg-green-700'
+                    editRdvId ? 'bg-blue-600 text-white hover:bg-blue-700' :
+                    rdvMode === 'new' ? 'bg-orange-500 text-white hover:bg-orange-600' : 'bg-green-600 text-white hover:bg-green-700'
                   } ${rdvSaving ? 'opacity-50 cursor-not-allowed' : ''}`}>
                   {rdvSaving ? (
                     <><Loader2 className="w-4 h-4 inline animate-spin mr-1" /> Enregistrement...</>
+                  ) : editRdvId ? (
+                    <><Check className="w-4 h-4 inline mr-1" /> Enregistrer</>
                   ) : rdvMode === 'new' ? (
                     <><UserPlus className="w-4 h-4 inline mr-1" /> Créer prospect + RDV</>
                   ) : (
                     <><Calendar className="w-4 h-4 inline mr-1" /> Ajouter RDV</>
                   )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══ MODAL ÉDITION CALLBACK ═══ */}
+      {showEditCallbackModal && (
+        <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4"
+          onClick={() => { setShowEditCallbackModal(false); setEditCallbackId(null) }}>
+          <div className="bg-white rounded-xl shadow-xl max-w-sm w-full p-5" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-gray-900 flex items-center gap-2">
+                <Phone className="w-4 h-4 text-amber-500" /> Modifier le rappel
+              </h3>
+              <button onClick={() => { setShowEditCallbackModal(false); setEditCallbackId(null) }}
+                className="p-1 hover:bg-gray-100 rounded-lg"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Date</label>
+                <input type="date" value={editCallbackForm.callback_date}
+                  onChange={e => setEditCallbackForm(f => ({ ...f, callback_date: e.target.value }))}
+                  className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-amber-300 outline-none mt-1" />
+              </div>
+              <div>
+                <label className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Heure</label>
+                <input type="time" value={editCallbackForm.callback_time}
+                  onChange={e => setEditCallbackForm(f => ({ ...f, callback_time: e.target.value }))}
+                  className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-amber-300 outline-none mt-1" />
+              </div>
+              <div>
+                <label className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Notes</label>
+                <textarea value={editCallbackForm.notes}
+                  onChange={e => setEditCallbackForm(f => ({ ...f, notes: e.target.value }))}
+                  rows={2} placeholder="Notes..."
+                  className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-amber-300 outline-none resize-none mt-1" />
+              </div>
+              <div className="flex gap-2 pt-1">
+                <button onClick={() => { setShowEditCallbackModal(false); setEditCallbackId(null) }}
+                  className="flex-1 py-2.5 text-sm border rounded-lg hover:bg-gray-50 font-medium text-gray-600">Annuler</button>
+                <button onClick={handleUpdateCallback}
+                  className="flex-1 py-2.5 text-sm bg-amber-500 text-white rounded-lg hover:bg-amber-600 font-medium shadow-sm">
+                  <Check className="w-4 h-4 inline mr-1" /> Enregistrer
                 </button>
               </div>
             </div>
