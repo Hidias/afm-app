@@ -2009,6 +2009,20 @@ function ImportTab({ loadAll, categories, rules, invoices, clients, transactions
   const [csvDragOver, setCsvDragOver] = useState(false)
   const [searchOpenRow, setSearchOpenRow] = useState(null) // Index de la ligne avec panneau recherche ouvert
   const [searchQuery, setSearchQuery] = useState('')
+  const [localInvoices, setLocalInvoices] = useState(null)
+  const [localClients, setLocalClients] = useState(null)
+
+  useEffect(() => {
+    async function loadInvoicesAndClients() {
+      const [invR, cliR] = await Promise.all([
+        supabase.from('invoices').select('*').order('invoice_date', { ascending: false }),
+        supabase.from('clients').select('*').order('name'),
+      ])
+      if (invR.data) setLocalInvoices(invR.data)
+      if (cliR.data) setLocalClients(cliR.data)
+    }
+    loadInvoicesAndClients()
+  }, [])
 
   // Nouveau : collage rapide texte brut
   const [rawText, setRawText] = useState('')
