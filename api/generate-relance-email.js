@@ -35,9 +35,19 @@ export default async function handler(req, res) {
       `- ${it.description_title || ''} (${it.quantity || 1} x ${parseFloat(it.unit_price_ht || 0).toFixed(2).replace('.', ',')} EUR HT)`
     ).join('\n')
 
-    const interactionHistory = (interactions || []).slice(0, 5).map(i =>
-      `- ${i.interaction_date || ''} : ${i.type || ''} — ${i.title || ''} ${i.content ? '(' + i.content.slice(0, 100) + ')' : ''}`
-    ).join('\n')
+    const interactionHistory = (interactions || []).slice(0, 5).map(i => {
+      let contentPreview = ''
+      if (i.content) {
+        const emailMarker = i.content.indexOf('---EMAIL---')
+        if (emailMarker !== -1) {
+          const emailBody = i.content.slice(emailMarker + 11).trim()
+          contentPreview = emailBody ? ` | Email original : "${emailBody.slice(0, 500)}"` : ''
+        } else {
+          contentPreview = ` (${i.content.slice(0, 150)})`
+        }
+      }
+      return `- ${i.interaction_date || ''} : ${i.type || ''} — ${i.title || ''}${contentPreview}`
+    }).join('\n')
 
     const rdvInfo = rdvContext
       ? `Un RDV a eu lieu le ${rdvContext.rdv_date || 'date inconnue'}. Notes du RDV : ${rdvContext.notes || 'aucune'}`
