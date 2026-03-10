@@ -10,7 +10,7 @@ import { supabase } from '../lib/supabase'
 import { useAuthStore } from '../lib/store'
 import { Link } from 'react-router-dom'
 import {
-  ChevronLeft, ChevronRight, Plus, X, Phone,
+  ChevronLeft, ChevronRight, Plus, X, Phone, Send,
   Calendar, Clock, AlertTriangle,
   Loader2, Flame, Check, UserPlus,
   TrendingUp, Zap, Info, ExternalLink, Search, Building2,
@@ -19,6 +19,7 @@ import {
 import { format, startOfWeek, addDays, addWeeks, isToday } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import toast from 'react-hot-toast'
+import { useRelanceIA } from '../lib/useRelanceIA'
 
 // ─── Constantes ──────────────────────────────────────────
 const DAYS = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam']
@@ -103,6 +104,9 @@ export default function WeeklyPlanner() {
   const [addDate, setAddDate] = useState(null)
   const [addForm, setAddForm] = useState({ event_type: 'indispo', title: '', start_time: '09:00', end_time: '12:00', description: '' })
   const [relanceSending, setRelanceSending] = useState(null)
+  const { relanceQuote, generating: relanceGenerating, previewData, confirmSend, cancelPreview } = useRelanceIA()
+  const [relanceEdit, setRelanceEdit] = useState({ subject: '', body: '' })
+  const [relanceConfirmed, setRelanceConfirmed] = useState(false)
   const [addConflicts, setAddConflicts] = useState([])
   const [expandedDay, setExpandedDay] = useState(null)
 
@@ -739,49 +743,22 @@ export default function WeeklyPlanner() {
     } catch (err) { toast.error('Erreur: ' + err.message) }
   }
 
-  // ── Relance devis ──
-  const handleRelanceDevis = async (quote) => {
-    const clientEmail = quote.clients?.contact_email
-    if (!clientEmail) { toast.error('Pas d\'email — ajouter dans la fiche client'); return }
-    const relanceNum = (quote.relance_count || 0) + 1
-    if (relanceNum >= 4) {
-      toast.error('3 relances déjà envoyées — appeler le client directement')
-      return
+
+  // Synchro édition relance quand IA génère
+  useEffect(() => {
+    if (previewData) {
+      setRelanceEdit({ subject: previewData.subject || '', body: previewData.body || '' })
+      setRelanceConfirmed(false)
     }
-    if (!confirm(`${relanceNum === 1 ? '1ère' : relanceNum === 2 ? '2ème' : '3ème'} relance à ${quote.clients?.name} (${clientEmail}) — ${quote.reference} ?`)) return
-    setRelanceSending(quote.id)
-    try {
-      const montant = parseFloat(quote.total_ht).toLocaleString('fr-FR', { minimumFractionDigits: 2 })
-      const body = relanceNum === 1
-        ? `<p>Bonjour,</p><p>Je me permets de revenir vers vous concernant notre devis <strong>${quote.reference}</strong> d'un montant de <strong>${montant} € HT</strong>, envoyé le ${new Date(quote.quote_date).toLocaleDateString('fr-FR')}.</p><p>Avez-vous eu l'occasion d'en prendre connaissance ? Je reste à votre disposition pour en discuter.</p>`
-        : relanceNum === 2
-        ? `<p>Bonjour,</p><p>Je reviens vers vous au sujet du devis <strong>${quote.reference}</strong> (${montant} € HT). N'ayant pas eu de retour, je souhaitais savoir si cette proposition vous convenait ou si des ajustements seraient nécessaires.</p><p>Je peux vous rappeler si vous préférez en discuter de vive voix.</p>`
-        : `<p>Bonjour,</p><p>Dernière relance concernant notre proposition <strong>${quote.reference}</strong> (${montant} € HT). Si ce projet n'est plus d'actualité, n'hésitez pas à me le signaler.</p><p>Dans le cas contraire, je reste disponible pour finaliser les modalités.</p>`
+  }, [previewData])
 
-      const res = await fetch('/api/send-prospect-email', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          to: clientEmail,
-          subject: `${relanceNum > 1 ? 'Relance — ' : ''}Devis ${quote.reference} — Access Formation`,
-          body, caller: 'Hicham', clientId: quote.client_id,
-          prospectName: quote.clients?.name, templateType: 'relance_devis',
-        }),
-      })
-      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Erreur serveur')
-
-      const noteDate = new Date().toLocaleDateString('fr-FR')
-      await supabase.from('quotes').update({
-        relance_count: relanceNum,
-        last_relance_date: format(new Date(), 'yyyy-MM-dd'),
-        notes: (quote.notes ? quote.notes + '\n' : '') + `📧 ${relanceNum === 1 ? '1ère' : relanceNum === 2 ? '2ème' : '3ème'} relance envoyée le ${noteDate} à ${clientEmail}`,
-        updated_at: new Date().toISOString(),
-      }).eq('id', quote.id)
-
-      toast.success(`${relanceNum === 1 ? '1ère' : relanceNum === 2 ? '2ème' : '3ème'} relance envoyée ✓`)
-      setDevisRelance(prev => prev.filter(q => q.id !== quote.id))
-    } catch (err) { toast.error('Erreur: ' + err.message) }
-    finally { setRelanceSending(null) }
+  // ── Relance devis — ouvre la modale IA ──
+  const handleRelanceDevis = (quote) => {
+    relanceQuote(quote, { senderName: 'Hicham Saidi' })
   }
+
+  // Synchro édition quand IA génère le brouillon
+  // (useEffect dans le composant)
 
   // ═══════════════════════════════════════════════════════════
   // DRAG & DROP (HTML5 natif — même pattern que Dashboard)
@@ -1668,5 +1645,77 @@ export default function WeeklyPlanner() {
         </div>
       )}
     </div>
+
+    {/* Modale relance IA */}
+    {previewData && (
+      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+          <div className="p-6 border-b border-gray-100 flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-bold text-gray-900">
+                {previewData.relanceNum === 1 ? '1ère' : previewData.relanceNum === 2 ? '2ème' : '3ème'} relance — {previewData.quote?.clients?.name || previewData.quote?.reference}
+              </h2>
+              <p className="text-sm text-gray-500 mt-0.5">
+                {previewData.isFallback ? '⚠️ Généré sans IA (fallback)' : `✨ Généré par IA · ton ${previewData.tone || 'courtois'}`}
+              </p>
+            </div>
+            <button onClick={cancelPreview} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
+          </div>
+
+          <div className="p-6 space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Destinataire</label>
+              <p className="text-sm text-gray-600 bg-gray-50 px-3 py-2 rounded-lg">{previewData.clientEmail}</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Objet</label>
+              <input type="text" value={relanceEdit.subject}
+                onChange={e => setRelanceEdit(prev => ({ ...prev, subject: e.target.value }))}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-primary-300 focus:border-primary-400" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Corps du message</label>
+              <textarea value={relanceEdit.body}
+                onChange={e => setRelanceEdit(prev => ({ ...prev, body: e.target.value }))}
+                rows={12}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm font-sans focus:ring-2 focus:ring-primary-300 focus:border-primary-400" />
+            </div>
+            <p className="text-xs text-gray-400">La signature sera ajoutée automatiquement. BCC : contact@accessformation.pro</p>
+          </div>
+
+          <div className="p-6 border-t border-gray-100 space-y-3">
+            {!relanceConfirmed ? (
+              <div className="flex items-center justify-between gap-3">
+                <button onClick={cancelPreview} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 border border-gray-200 rounded-lg hover:bg-gray-50">
+                  Annuler
+                </button>
+                <button onClick={() => setRelanceConfirmed(true)}
+                  className="px-6 py-2 bg-orange-500 text-white text-sm font-medium rounded-lg hover:bg-orange-600 flex items-center gap-2">
+                  <Send size={15} /> Préparer l'envoi…
+                </button>
+              </div>
+            ) : (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3 space-y-3">
+                <p className="text-sm font-semibold text-red-700">⚠️ Confirmer l'envoi vers <span className="underline">{previewData.clientEmail}</span> ?</p>
+                <p className="text-xs text-red-600">L'email sera envoyé immédiatement et ne pourra pas être annulé.</p>
+                <div className="flex items-center justify-between gap-3">
+                  <button onClick={() => setRelanceConfirmed(false)} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 border border-gray-200 rounded-lg hover:bg-gray-50">
+                    ← Modifier
+                  </button>
+                  <button
+                    onClick={async () => {
+                      const ok = await confirmSend(relanceEdit.subject, relanceEdit.body)
+                      if (ok) { setRelanceConfirmed(false); setDevisRelance(prev => prev.filter(q => q.id !== previewData.quote?.id)) }
+                    }}
+                    className="px-6 py-2 bg-red-600 text-white text-sm font-bold rounded-lg hover:bg-red-700 flex items-center gap-2">
+                    <Send size={15} /> OUI — Envoyer maintenant
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    )}
   )
 }
