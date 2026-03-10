@@ -443,7 +443,7 @@ async function embedAndMakePDFA3(pdfBuffer, xmlString, invoiceRef, invoiceDate, 
   const xmlBytes = new TextEncoder().encode(xmlString)
   const label = invoiceType === 'credit_note' ? 'Avoir' : 'Facture'
   await pdfDoc.attach(xmlBytes, 'factur-x.xml', {
-    mimeType: 'application/xml',
+    mimeType: 'text/xml',
     description: `${label} ${invoiceRef} - Factur-X EN16931`,
     creationDate: invoiceDate ? new Date(invoiceDate) : new Date(),
     modificationDate: new Date(),
@@ -467,8 +467,8 @@ async function embedAndMakePDFA3(pdfBuffer, xmlString, invoiceRef, invoiceDate, 
             if (fRef) {
               const embStream = pdfDoc.context.lookup(fRef) || fRef
               if (embStream && embStream.dict) {
-                // Forcer Subtype comme PDFString et non PDFName
-                embStream.dict.set(PDFName.of('Subtype'), PDFString.of('application/xml'))
+                // Forcer Subtype comme PDFString text/xml (requis PDF/A-3 NF Z55-300)
+                embStream.dict.set(PDFName.of('Subtype'), PDFString.of('text/xml'))
               }
             }
           }
