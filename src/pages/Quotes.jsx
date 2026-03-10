@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import { money } from '../lib/utils'
 import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useRelanceIA } from '../lib/useRelanceIA'
 
 const STATUS_CONFIG = {
   draft: { label: 'Brouillon', class: 'bg-gray-100 text-gray-700', icon: '📝' },
@@ -164,6 +165,10 @@ export default function Quotes() {
   const [actionMenuId, setActionMenuId] = useState(null)
   const actionMenuRef = useRef(null)
 
+  // === Relance IA ===
+  const { relanceQuote, generating: relanceGenerating, previewData, confirmSend, cancelPreview } = useRelanceIA()
+  const [relanceEdit, setRelanceEdit] = useState({ subject: '', body: '' })
+
   // === Send Wizard State ===
   const [sendWizard, setSendWizard] = useState(null) // { quote, client, contact, items, pdfBlobUrl, pdfBase64 }
   const [sendStep, setSendStep] = useState(1) // 1=aperçu PDF, 2=texte email, 3=recap+envoi
@@ -197,6 +202,13 @@ export default function Quotes() {
   ]
 
   useEffect(() => { loadAll() }, [])
+
+  // Synchro édition relance quand IA a généré le brouillon
+  useEffect(() => {
+    if (previewData) {
+      setRelanceEdit({ subject: previewData.subject || '', body: previewData.body || '' })
+    }
+  }, [previewData])
 
   // Auto-open create mode if ?client_id=xxx in URL (from RDV "Créer devis")
   useEffect(() => {
@@ -852,6 +864,71 @@ export default function Quotes() {
       {mode === 'list' ? renderList() : mode === 'view' ? renderView() : renderForm()}
       {sendWizard && renderSendWizard()}
       {sessionWizard && renderSessionWizard()}
+
+      {/* Modale relance IA — preview + édition avant envoi */}
+      {previewData && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b border-gray-100 flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-bold text-gray-900">
+                  {previewData.relanceNum === 1 ? '1ère' : previewData.relanceNum === 2 ? '2ème' : '3ème'} relance — {previewData.quote?.clients?.name || previewData.quote?.reference}
+                </h2>
+                <p className="text-sm text-gray-500 mt-0.5">
+                  {previewData.isFallback ? '⚠️ Généré sans IA (fallback)' : `✨ Généré par IA · ton ${previewData.tone || 'courtois'}`}
+                </p>
+              </div>
+              <button onClick={cancelPreview} className="text-gray-400 hover:text-gray-600">
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Destinataire</label>
+                <p className="text-sm text-gray-600 bg-gray-50 px-3 py-2 rounded-lg">{previewData.clientEmail}</p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Objet</label>
+                <input
+                  type="text"
+                  value={relanceEdit.subject}
+                  onChange={e => setRelanceEdit(prev => ({ ...prev, subject: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-primary-300 focus:border-primary-400"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Corps du message</label>
+                <textarea
+                  value={relanceEdit.body}
+                  onChange={e => setRelanceEdit(prev => ({ ...prev, body: e.target.value }))}
+                  rows={12}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm font-sans focus:ring-2 focus:ring-primary-300 focus:border-primary-400"
+                />
+              </div>
+
+              <p className="text-xs text-gray-400">La signature sera ajoutée automatiquement. BCC : contact@accessformation.pro</p>
+            </div>
+
+            <div className="p-6 border-t border-gray-100 flex items-center justify-between gap-3">
+              <button onClick={cancelPreview} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 border border-gray-200 rounded-lg hover:bg-gray-50">
+                Annuler
+              </button>
+              <button
+                onClick={async () => {
+                  const ok = await confirmSend(relanceEdit.subject, relanceEdit.body)
+                  if (ok) loadAll()
+                }}
+                className="px-6 py-2 bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-700 flex items-center gap-2"
+              >
+                <Send size={15} /> Envoyer la relance
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   )
 
@@ -922,9 +999,10 @@ export default function Quotes() {
                     <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${q.daysSinceSent >= 15 ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'}`}>
                       {q.daysSinceSent}j
                     </span>
-                    <button onClick={(e) => { e.stopPropagation(); openSendWizard(q) }}
-                      className="text-xs px-3 py-1.5 bg-orange-600 text-white rounded-lg hover:bg-orange-700 font-medium flex items-center gap-1">
-                      <Send size={12} /> Relancer
+                    <button onClick={(e) => { e.stopPropagation(); relanceQuote(q, { senderName: q.created_by || 'Hicham Saidi' }) }}
+                      disabled={relanceGenerating === q.id}
+                      className="text-xs px-3 py-1.5 bg-orange-600 text-white rounded-lg hover:bg-orange-700 font-medium flex items-center gap-1 disabled:opacity-60">
+                      {relanceGenerating === q.id ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />} Relancer
                     </button>
                   </div>
                 </div>
@@ -990,9 +1068,10 @@ export default function Quotes() {
                             <Copy size={15} /> Dupliquer
                           </button>
                           {(q.status === 'draft' || q.status === 'sent') && (
-                            <button onClick={() => { setActionMenuId(null); openSendWizard(q) }}
-                              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-green-700 hover:bg-green-50">
-                              <Send size={15} /> {q.status === 'sent' ? 'Renvoyer par email' : 'Envoyer par email'}
+                            <button onClick={() => { setActionMenuId(null); q.status === 'sent' ? relanceQuote(q, { senderName: q.created_by || 'Hicham Saidi' }) : openSendWizard(q) }}
+                              disabled={relanceGenerating === q.id}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-green-700 hover:bg-green-50 disabled:opacity-60">
+                              {relanceGenerating === q.id ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />} {q.status === 'sent' ? 'Relancer par email' : 'Envoyer par email'}
                             </button>
                           )}
                           <div className="border-t border-gray-100 my-1" />
@@ -1094,9 +1173,10 @@ export default function Quotes() {
                     <Copy size={15} /> Dupliquer
                   </button>
                   {(q.status === 'draft' || q.status === 'sent') && (
-                    <button onClick={() => { setActionMenuId(null); openSendWizard(q) }}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-green-700 hover:bg-green-50">
-                      <Send size={15} /> {q.status === 'sent' ? 'Renvoyer' : 'Envoyer'} par email
+                    <button onClick={() => { setActionMenuId(null); q.status === 'sent' ? relanceQuote(q, { senderName: q.created_by || 'Hicham Saidi' }) : openSendWizard(q) }}
+                      disabled={relanceGenerating === q.id}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-green-700 hover:bg-green-50 disabled:opacity-60">
+                      {relanceGenerating === q.id ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />} {q.status === 'sent' ? 'Relancer' : 'Envoyer'} par email
                     </button>
                   )}
                   <div className="border-t border-gray-100 my-1" />
