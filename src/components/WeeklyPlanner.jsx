@@ -1644,7 +1644,6 @@ export default function WeeklyPlanner() {
           </div>
         </div>
       )}
-    </div>
 
     {/* Modale relance IA */}
     {previewData && (
@@ -1717,5 +1716,6 @@ export default function WeeklyPlanner() {
         </div>
       </div>
     )}
+    </div>
   )
 }
