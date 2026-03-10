@@ -745,15 +745,17 @@ export default function MarinePhoning() {
     try {
       const clientId = await findOrCreateClient(cap)
       await clearOldCallbacks(clientId, cap.siren)
+      // Prospect chaud ou refus = pas de rappel Marine, quoi qu'il arrive dans le state
+      const effectiveNeedsCallback = (callResult === 'chaud' || callResult === 'froid' || callResult === 'wrong_number') ? false : needsCallback
       const { data: insertedCall, error: callError } = await supabase.from('prospect_calls').insert({
         client_id: clientId, called_by: callerName,
         contact_name: contactName || null, contact_function: contactFunction || null,
         contact_email: contactEmail || null, contact_mobile: contactMobile || null,
         call_result: callResult,
         formations_mentioned: formationsSelected.length > 0 ? formationsSelected : null,
-        notes: notes || null, rdv_created: createRdv, needs_callback: needsCallback,
-        callback_date: needsCallback && callbackDate ? callbackDate : null, callback_time: needsCallback && callbackTime ? callbackTime : null,
-        callback_reason: needsCallback && callbackReason ? callbackReason : null, duration_seconds: getElapsedSeconds(),
+        notes: notes || null, rdv_created: createRdv, needs_callback: effectiveNeedsCallback,
+        callback_date: effectiveNeedsCallback && callbackDate ? callbackDate : null, callback_time: effectiveNeedsCallback && callbackTime ? callbackTime : null,
+        callback_reason: effectiveNeedsCallback && callbackReason ? callbackReason : null, duration_seconds: getElapsedSeconds(),
       }).select().single()
       if (callError) throw callError
 
@@ -822,7 +824,7 @@ export default function MarinePhoning() {
 
       let message = '✅ Appel enregistré'
       if (createRdv) message += callerName === 'Marine' ? ' • 🔥 Alerte prospect chaud envoyée' : ' • RDV créé pour ' + rdvAssignedTo
-      if (needsCallback) {
+      if (effectiveNeedsCallback) {
         message += ' • Rappel programmé'
         await supabase.from('notifications').insert({
           title: '🔔 Rappel — ' + cap.name,
