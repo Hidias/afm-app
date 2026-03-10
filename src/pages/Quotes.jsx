@@ -168,6 +168,7 @@ export default function Quotes() {
   // === Relance IA ===
   const { relanceQuote, generating: relanceGenerating, previewData, confirmSend, cancelPreview } = useRelanceIA()
   const [relanceEdit, setRelanceEdit] = useState({ subject: '', body: '' })
+  const [relanceConfirmed, setRelanceConfirmed] = useState(false)
 
   // === Send Wizard State ===
   const [sendWizard, setSendWizard] = useState(null) // { quote, client, contact, items, pdfBlobUrl, pdfBase64 }
@@ -207,6 +208,7 @@ export default function Quotes() {
   useEffect(() => {
     if (previewData) {
       setRelanceEdit({ subject: previewData.subject || '', body: previewData.body || '' })
+      setRelanceConfirmed(false)
     }
   }, [previewData])
 
@@ -912,19 +914,39 @@ export default function Quotes() {
               <p className="text-xs text-gray-400">La signature sera ajoutée automatiquement. BCC : contact@accessformation.pro</p>
             </div>
 
-            <div className="p-6 border-t border-gray-100 flex items-center justify-between gap-3">
-              <button onClick={cancelPreview} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 border border-gray-200 rounded-lg hover:bg-gray-50">
-                Annuler
-              </button>
-              <button
-                onClick={async () => {
-                  const ok = await confirmSend(relanceEdit.subject, relanceEdit.body)
-                  if (ok) loadAll()
-                }}
-                className="px-6 py-2 bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-700 flex items-center gap-2"
-              >
-                <Send size={15} /> Envoyer la relance
-              </button>
+            <div className="p-6 border-t border-gray-100 space-y-3">
+              {!relanceConfirmed ? (
+                <div className="flex items-center justify-between gap-3">
+                  <button onClick={cancelPreview} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 border border-gray-200 rounded-lg hover:bg-gray-50">
+                    Annuler
+                  </button>
+                  <button
+                    onClick={() => setRelanceConfirmed(true)}
+                    className="px-6 py-2 bg-orange-500 text-white text-sm font-medium rounded-lg hover:bg-orange-600 flex items-center gap-2"
+                  >
+                    <Send size={15} /> Préparer l'envoi…
+                  </button>
+                </div>
+              ) : (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3 space-y-3">
+                  <p className="text-sm font-semibold text-red-700">⚠️ Confirmer l'envoi vers <span className="underline">{previewData.clientEmail}</span> ?</p>
+                  <p className="text-xs text-red-600">L'email sera envoyé immédiatement et ne pourra pas être annulé.</p>
+                  <div className="flex items-center justify-between gap-3">
+                    <button onClick={() => setRelanceConfirmed(false)} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 border border-gray-200 rounded-lg hover:bg-gray-50">
+                      ← Modifier
+                    </button>
+                    <button
+                      onClick={async () => {
+                        const ok = await confirmSend(relanceEdit.subject, relanceEdit.body)
+                        if (ok) { setRelanceConfirmed(false); loadAll() }
+                      }}
+                      className="px-6 py-2 bg-red-600 text-white text-sm font-bold rounded-lg hover:bg-red-700 flex items-center gap-2"
+                    >
+                      <Send size={15} /> OUI — Envoyer maintenant
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
