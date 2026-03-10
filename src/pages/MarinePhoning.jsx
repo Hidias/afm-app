@@ -788,13 +788,20 @@ export default function MarinePhoning() {
         await supabase.from('prospect_calls').update({ rdv_id: insertedRdv.id }).eq('id', insertedCall.id)
 
         const notifMessage = isMarine
-          ? 'Marine a un prospect chaud : ' + cap.name + (cap.city ? ' (' + cap.city + ')' : '') + (dispoInfo ? ' • Dispo : ' + dispoInfo : '') + (formationsSelected.length > 0 ? ' • ' + formationsSelected.join(', ') : '') + (contactName ? ' • Contact : ' + contactName : '')
+          ? [
+              cap.name + (cap.city ? ' (' + cap.city + ')' : ''),
+              contactName ? '👤 ' + contactName + (contactFunction ? ' — ' + contactFunction : '') : null,
+              contactMobile ? '📱 ' + contactMobile : (contactEmail ? '✉️ ' + contactEmail : null),
+              formationsSelected.length > 0 ? '🎓 ' + formationsSelected.join(', ') : null,
+              dispoInfo ? '📅 Dispo : ' + dispoInfo : null,
+              notes ? '📝 ' + notes : null,
+            ].filter(Boolean).join('\n')
           : callerName + ' a décroché un RDV pour ' + rdvAssignedTo + ' le ' + new Date(rdvDate).toLocaleDateString('fr-FR') + (formationsSelected.length > 0 ? ' • ' + formationsSelected.join(', ') : '')
 
         await supabase.from('notifications').insert({
           title: '🔥 ' + (isMarine ? 'Prospect chaud' : 'Nouveau RDV') + ' — ' + cap.name,
           message: notifMessage,
-          type: 'rdv_phoning', link: '/prospection/' + insertedRdv.id,
+          type: 'rdv_phoning', link: '/clients/' + clientId,
         })
 
         // Email alerte prospect chaud / RDV
