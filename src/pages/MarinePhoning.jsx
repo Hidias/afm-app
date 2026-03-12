@@ -10,6 +10,8 @@ import toast from 'react-hot-toast'
 import SpeechToTextButton from '../components/SpeechToTextButton'
 import { MapContainer, TileLayer, CircleMarker, Circle, Popup, useMap } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
+import SirenConflictModal from '../components/SirenConflictModal'
+import { useSirenCheck } from '../lib/useSirenCheck'
 
 const BASES = {
   concarneau: { name: 'Concarneau', who: 'Hicham', lat: 47.8742, lng: -3.9196 },
@@ -237,6 +239,10 @@ export default function MarinePhoning() {
   const [rappelCallerMap, setRappelCallerMap] = useState(new Map()) // siren → last called_by
   const [showAddModal, setShowAddModal] = useState(false)
   const [newProspect, setNewProspect] = useState({ name: '', phone: '', city: '', postal_code: '', departement: '', siret: '', siren: '', email: '', notes: '' })
+
+  // ── Vérification doublons SIREN ──
+  const { checkSiren, clearSirenCheck } = useSirenCheck()
+  const [sirenConflict, setSirenConflict] = useState(null) // { matches, prospect, resolveFn }
   const [detectingOpco, setDetectingOpco] = useState(false)
   const [sendingReport, setSendingReport] = useState(false)
   // Stepped phoning flow
@@ -703,15 +709,7 @@ export default function MarinePhoning() {
     }
   }
 
-  async function findOrCreateClient(prospect) {
-    const cleanSiren = prospect.siren && !prospect.siren.startsWith('MANUAL_') ? prospect.siren.slice(0, 9) : null
-    const cleanSiret = prospect.siret && !prospect.siret.startsWith('MANUAL_') ? prospect.siret.slice(0, 14) : null
-    // 1. Chercher par SIRET (unique par établissement)
-    if (cleanSiret) {
-      const { data: existing } = await supabase.from('clients').select('id').eq('siret', cleanSiret).maybeSingle()
-      if (existing) return existing.id
-    }
-    // 2. Pas de match SIRET → créer un nouveau client (même si le SIREN existe pour un autre établissement)
+  async function doCreateClient(prospect, cleanSiren, cleanSiret) {
     const { data: newClient, error } = await supabase.from('clients').insert({
       name: prospect.name, address: prospect.city ? prospect.postal_code + ' ' + prospect.city : null,
       postal_code: prospect.postal_code, city: prospect.city, siret: cleanSiret, siren: cleanSiren,
@@ -720,6 +718,37 @@ export default function MarinePhoning() {
     }).select('id').single()
     if (error) throw error
     return newClient.id
+  }
+
+  async function findOrCreateClient(prospect) {
+    const cleanSiren = prospect.siren && !prospect.siren.startsWith('MANUAL_') ? prospect.siren.slice(0, 9) : null
+    const cleanSiret = prospect.siret && !prospect.siret.startsWith('MANUAL_') ? prospect.siret.slice(0, 14) : null
+
+    // 1. Chercher par SIRET exact (établissement déjà connu)
+    if (cleanSiret) {
+      const { data: existing } = await supabase.from('clients').select('id').eq('siret', cleanSiret).maybeSingle()
+      if (existing) return existing.id
+    }
+
+    // 2. Vérifier si un client avec le même SIREN existe (autre établissement)
+    if (cleanSiren) {
+      const matches = await checkSiren(cleanSiren)
+      if (matches.length > 0) {
+        // Bloquer et demander confirmation via modale
+        return new Promise((resolve) => {
+          setSirenConflict({
+            matches,
+            prospect,
+            cleanSiren,
+            cleanSiret,
+            resolveFn: resolve,
+          })
+        })
+      }
+    }
+
+    // 3. Aucun doublon → créer directement
+    return doCreateClient(prospect, cleanSiren, cleanSiret)
   }
 
   async function clearOldCallbacks(clientId, siren) {
@@ -744,6 +773,7 @@ export default function MarinePhoning() {
     setSaving(true)
     try {
       const clientId = await findOrCreateClient(cap)
+      if (!clientId) { setSaving(false); return } // annulation modale SIREN
       await clearOldCallbacks(clientId, cap.siren)
       // Prospect chaud ou refus = pas de rappel Marine, quoi qu'il arrive dans le state
       const effectiveNeedsCallback = (callResult === 'chaud' || callResult === 'froid' || callResult === 'wrong_number') ? false : needsCallback
@@ -907,6 +937,7 @@ export default function MarinePhoning() {
     setSaving(true)
     try {
       const clientId = await findOrCreateClient(cap)
+      if (!clientId) { setSaving(false); return } // annulation modale SIREN
       await clearOldCallbacks(clientId, cap.siren)
       await supabase.from('prospect_calls').insert({
         client_id: clientId, called_by: callerName, call_result: result,
@@ -946,6 +977,7 @@ export default function MarinePhoning() {
     setSaving(true)
     try {
       const clientId = await findOrCreateClient(cap)
+      if (!clientId) { setSaving(false); return } // annulation modale SIREN
       await clearOldCallbacks(clientId, cap.siren)
       const hasNew = wrongNumberNew.trim().length >= 6
       const noteText = hasNew ? 'Numéro erroné. Nouveau numéro : ' + wrongNumberNew.trim() : 'Numéro erroné'
@@ -1289,6 +1321,7 @@ export default function MarinePhoning() {
     setSaving(true)
     try {
       const clientId = await findOrCreateClient(capturedProspect)
+      if (!clientId) { setSaving(false); return } // annulation modale SIREN
       await clearOldCallbacks(clientId, capturedProspect.siren)
       const now = new Date()
       const noteText = `${callerName} — ${now.toLocaleDateString('fr-FR')} ${now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })} — ${messageLaisse ? 'Message laissé' : 'Pas de réponse'}` + (cbDate ? ` — Rappel ${new Date(cbDate).toLocaleDateString('fr-FR')}${cbTime ? ' à ' + cbTime : ''}` : '')
@@ -1318,6 +1351,7 @@ export default function MarinePhoning() {
     setSaving(true)
     try {
       const clientId = await findOrCreateClient(capturedProspect)
+      if (!clientId) { setSaving(false); return } // annulation modale SIREN
       await clearOldCallbacks(clientId, capturedProspect.siren)
       const noteText = `❄️ ${tag}` + (notes ? '\n' + notes : '')
       await supabase.from('prospect_calls').insert({
@@ -1346,6 +1380,7 @@ export default function MarinePhoning() {
     setSaving(true)
     try {
       const clientId = await findOrCreateClient(cap)
+      if (!clientId) { setSaving(false); return } // annulation modale SIREN
       await clearOldCallbacks(clientId, cap.siren)
       const noteText = `👋 Passer la main — ${transferReason}` + (transferNote ? '\n' + transferNote : '') + (contactName ? '\nContact : ' + contactName + (contactFunction ? ' (' + contactFunction + ')' : '') : '')
       await supabase.from('prospect_calls').insert({
@@ -3158,5 +3193,31 @@ export default function MarinePhoning() {
         )
       })()}
     </div>
+
+    {/* Modale doublon SIREN */}
+    {sirenConflict && (
+      <SirenConflictModal
+        matches={sirenConflict.matches}
+        newName={sirenConflict.prospect?.name}
+        newSiret={sirenConflict.cleanSiret}
+        newCity={sirenConflict.prospect?.city}
+        onUseExisting={(clientId) => {
+          setSirenConflict(null)
+          clearSirenCheck()
+          sirenConflict.resolveFn(clientId)
+        }}
+        onCreateAnyway={async () => {
+          setSirenConflict(null)
+          clearSirenCheck()
+          const id = await doCreateClient(sirenConflict.prospect, sirenConflict.cleanSiren, sirenConflict.cleanSiret)
+          sirenConflict.resolveFn(id)
+        }}
+        onCancel={() => {
+          setSirenConflict(null)
+          clearSirenCheck()
+          sirenConflict.resolveFn(null) // null = annulation → handleSave doit gérer
+        }}
+      />
+    )}
   )
 }
