@@ -1,410 +1,438 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { 
-  Plus, Search, Calendar, Edit, Trash2, CheckCircle, Clock, XCircle
-} from 'lucide-react'
+import { Plus } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { format, parseISO, isBefore, isToday, isTomorrow } from 'date-fns'
+import { formatDistanceToNowStrict, parseISO, isToday, isTomorrow, isBefore, startOfDay, format } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import { useNavigate } from 'react-router-dom'
 
-const RDV_TYPES = {
-  decouverte: { label: 'Découverte', color: 'bg-blue-100 text-blue-800' },
-  telephone: { label: 'Téléphone', color: 'bg-cyan-100 text-cyan-800' },
-  visio: { label: 'Visio', color: 'bg-indigo-100 text-indigo-800' },
-  sur_place: { label: 'Sur place', color: 'bg-teal-100 text-teal-800' },
-  suivi: { label: 'Suivi', color: 'bg-purple-100 text-purple-800' },
-  signature: { label: 'Signature', color: 'bg-green-100 text-green-800' },
-  relance: { label: 'Relance', color: 'bg-orange-100 text-orange-800' },
-  autre: { label: 'Autre', color: 'bg-gray-100 text-gray-800' }
+const LOCATION_LABELS = {
+  leurs_locaux: '📍 Leurs locaux',
+  nos_locaux: '🏢 Nos locaux',
+  visio: '💻 Visio',
+  telephone: '📞 Tél.',
 }
 
-const RDV_STATUS = {
-  a_prendre: { label: 'À prendre', icon: Clock, color: 'text-red-600' },
-  prevu: { label: 'Prévu', icon: Clock, color: 'text-blue-600' },
-  realise: { label: 'Réalisé', icon: CheckCircle, color: 'text-green-600' },
-  annule: { label: 'Annulé', icon: XCircle, color: 'text-red-600' },
-  reporte: { label: 'Reporté', icon: Calendar, color: 'text-orange-600' }
+const RDV_TYPE_LABELS = {
+  decouverte: 'Découverte',
+  telephone: 'Téléphone',
+  visio: 'Visio',
+  sur_place: 'Sur place',
+  suivi: 'Suivi',
+  signature: 'Signature',
+  relance: 'Relance',
+  autre: 'Autre',
+}
+
+function agoLabel(dateStr) {
+  if (!dateStr) return null
+  try {
+    return formatDistanceToNowStrict(parseISO(dateStr), { locale: fr, addSuffix: false })
+  } catch {
+    return null
+  }
+}
+
+function isActionLate(rdv) {
+  if (!rdv.next_action_date) return false
+  try {
+    return isBefore(parseISO(rdv.next_action_date), startOfDay(new Date()))
+  } catch {
+    return false
+  }
+}
+
+function isRdvLate(rdv) {
+  if (!rdv.rdv_date) return false
+  try {
+    return isBefore(parseISO(rdv.rdv_date), startOfDay(new Date()))
+  } catch {
+    return false
+  }
 }
 
 export default function Prospection() {
   const navigate = useNavigate()
   const [rdvs, setRdvs] = useState([])
-  const [clients, setClients] = useState([])
   const [loading, setLoading] = useState(true)
-  const [searchTerm, setSearchTerm] = useState('')
-  const [filterStatus, setFilterStatus] = useState('all')
-  const [filterProprietaire, setFilterProprietaire] = useState('all')
-  const [showNewRdvModal, setShowNewRdvModal] = useState(false)
+  const [filterBy, setFilterBy] = useState('all')
 
-  useEffect(() => {
-    loadData()
-  }, [])
+  useEffect(() => { loadData() }, [])
 
   const loadData = async () => {
     try {
-      // Charger les RDV avec les infos clients
-      const { data: rdvData, error: rdvError } = await supabase
+      const { data, error } = await supabase
         .from('prospect_rdv')
         .select(`
           *,
-          clients (
-            id,
-            name,
-            email,
-            contact_phone,
-            mobile,
-            proprietaire
-          )
+          clients (id, name, city, proprietaire)
         `)
-        .order('rdv_date', { ascending: false })
-
-      if (rdvError) throw rdvError
-
-      // Charger tous les clients pour le formulaire
-      const { data: clientsData, error: clientsError } = await supabase
-        .from('clients')
-        .select('*')
-        .order('name')
-
-      if (clientsError) throw clientsError
-
-      setRdvs(rdvData || [])
-      setClients(clientsData || [])
-    } catch (error) {
-      console.error('Erreur chargement:', error)
+        .order('updated_at', { ascending: false })
+      if (error) throw error
+      setRdvs(data || [])
+    } catch (err) {
+      console.error(err)
       toast.error('Erreur lors du chargement')
     } finally {
       setLoading(false)
     }
   }
 
-  const handleDeleteRdv = async (id) => {
+  const handleDelete = async (e, id) => {
+    e.stopPropagation()
     if (!confirm('Supprimer ce RDV ?')) return
-
     try {
-      const { error } = await supabase
-        .from('prospect_rdv')
-        .delete()
-        .eq('id', id)
-
+      const { error } = await supabase.from('prospect_rdv').delete().eq('id', id)
       if (error) throw error
       toast.success('RDV supprimé')
       loadData()
-    } catch (error) {
-      console.error('Erreur suppression:', error)
-      toast.error('Erreur lors de la suppression')
+    } catch (err) {
+      toast.error('Erreur suppression')
     }
   }
 
-  // Filtrage
-  const filteredRdvs = rdvs.filter(rdv => {
-    const matchSearch = !searchTerm || 
-      rdv.clients?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      rdv.contact_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      rdv.notes?.toLowerCase().includes(searchTerm.toLowerCase())
-
-    const matchStatus = filterStatus === 'all' || rdv.status === filterStatus
-    const matchProprietaire = filterProprietaire === 'all' || rdv.conducted_by === filterProprietaire
-
-    return matchSearch && matchStatus && matchProprietaire
+  // Filtrage par commercial
+  const filtered = rdvs.filter(r => {
+    if (filterBy === 'all') return true
+    return (r.conducted_by || '').toLowerCase() === filterBy.toLowerCase()
   })
 
-  // Grouper par urgence
-  const rdvsAPrendre = filteredRdvs.filter(r => r.status === 'a_prendre')
+  // 4 colonnes Kanban
+  // 🔥 Chauds : temperature='chaud' ET status != realise/annule
+  const chauds = filtered
+    .filter(r => r.temperature === 'chaud' && !['realise', 'annule'].includes(r.status))
+    .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
 
-  const rdvsUrgents = filteredRdvs.filter(r => {
-    if (r.status !== 'prevu') return false
-    // Urgent si : marqué manuel OU aujourd'hui/passé OU demain
-    if (r.is_urgent) return true
-    const date = parseISO(r.rdv_date)
-    return isBefore(date, new Date()) || isToday(date) || isTomorrow(date)
-  })
+  // 📅 RDV fixé : status='prevu'
+  const prevus = filtered
+    .filter(r => r.status === 'prevu')
+    .sort((a, b) => {
+      if (!a.rdv_date) return 1
+      if (!b.rdv_date) return -1
+      return new Date(a.rdv_date) - new Date(b.rdv_date)
+    })
 
-  const rdvsProchains = filteredRdvs.filter(r => {
-    if (r.status !== 'prevu') return false
-    // Exclure les urgents déjà affichés
-    if (r.is_urgent) return false
-    const date = parseISO(r.rdv_date)
-    if (isBefore(date, new Date()) || isToday(date) || isTomorrow(date)) return false
-    // Tous les RDVs futurs
-    return true
-  })
+  // 🔄 À relancer : status='a_prendre' ET pas chaud
+  const aRelancer = filtered
+    .filter(r => r.status === 'a_prendre' && r.temperature !== 'chaud')
+    .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
 
-  const rdvsRealises = filteredRdvs.filter(r => r.status === 'realise')
-  const rdvsAutres = filteredRdvs.filter(r => r.status === 'annule' || r.status === 'reporte')
+  // ✅ Réalisés
+  const realises = filtered
+    .filter(r => r.status === 'realise')
+    .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
 
-  const getDateLabel = (dateStr) => {
-    if (!dateStr) return null
-    const date = parseISO(dateStr)
-    if (isToday(date)) return "Aujourd'hui"
-    if (isTomorrow(date)) return 'Demain'
-    return format(date, 'EEE d MMM', { locale: fr })
-  }
-
-  const getLocationLabel = (loc) => {
-    if (!loc) return ''
-    const map = { leurs_locaux: '📍 Leurs locaux', nos_locaux: '🏢 Nos locaux', visio: '💻 Visio', telephone: '📞 Tél.' }
-    return map[loc] || loc
-  }
-
-  // Composant ligne compacte
-  const RdvRow = ({ rdv, highlight }) => {
-    const StatusInfo = RDV_STATUS[rdv.status] || RDV_STATUS.prevu
-    const StatusIcon = StatusInfo.icon || Clock
-    
-    return (
-      <tr 
-        className={`border-b hover:bg-gray-50 cursor-pointer transition-colors ${highlight ? 'bg-red-50 hover:bg-red-100' : ''}`}
-        onClick={() => navigate(`/prospection/${rdv.id}`)}
-      >
-        {/* Statut + Urgence */}
-        <td className="px-3 py-2.5 w-10">
-          <div className="flex items-center gap-1.5">
-            {rdv.is_urgent && <span className="text-red-500 text-xs" title="Urgent">🔴</span>}
-            <StatusIcon className={`w-4 h-4 ${StatusInfo.color}`} title={StatusInfo.label} />
-          </div>
-        </td>
-        {/* Entreprise + Contact */}
-        <td className="px-3 py-2.5">
-          <div className="flex items-center gap-2">
-            <span className="font-medium text-gray-900 text-sm">{rdv.clients?.name || 'Client inconnu'}</span>
-            {rdv.rdv_type && (
-              <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${RDV_TYPES[rdv.rdv_type]?.color || 'bg-gray-100'}`}>
-                {RDV_TYPES[rdv.rdv_type]?.label || rdv.rdv_type}
-              </span>
-            )}
-          </div>
-          {rdv.contact_name && (
-            <p className="text-xs text-gray-500 mt-0.5">{rdv.contact_name}</p>
-          )}
-        </td>
-        {/* Date + Heure */}
-        <td className="px-3 py-2.5 text-sm hidden md:table-cell">
-          {rdv.rdv_date ? (
-            <div>
-              <span className={`font-medium ${isToday(parseISO(rdv.rdv_date)) ? 'text-red-600' : isTomorrow(parseISO(rdv.rdv_date)) ? 'text-orange-600' : 'text-gray-700'}`}>
-                {getDateLabel(rdv.rdv_date)}
-              </span>
-              {rdv.rdv_time && <span className="text-gray-400 ml-1.5">{rdv.rdv_time.slice(0, 5)}</span>}
-            </div>
-          ) : (
-            <span className="text-red-500 text-xs italic">Date à définir</span>
-          )}
-        </td>
-        {/* Lieu */}
-        <td className="px-3 py-2.5 text-xs text-gray-500 hidden lg:table-cell">
-          {getLocationLabel(rdv.rdv_location)}
-        </td>
-        {/* Commercial */}
-        <td className="px-3 py-2.5 text-xs text-gray-500 hidden lg:table-cell">
-          {rdv.conducted_by || '—'}
-        </td>
-        {/* Notes / Prochaine action */}
-        <td className="px-3 py-2.5 hidden xl:table-cell max-w-[200px]">
-          {rdv.next_action ? (
-            <p className="text-xs text-yellow-700 bg-yellow-50 px-2 py-1 rounded truncate" title={rdv.next_action}>
-              ⚡ {rdv.next_action}
-            </p>
-          ) : rdv.notes ? (
-            <p className="text-xs text-gray-400 truncate" title={rdv.notes}>{rdv.notes}</p>
-          ) : null}
-        </td>
-        {/* Actions */}
-        <td className="px-3 py-2.5 text-right" onClick={e => e.stopPropagation()}>
-          <div className="flex gap-1 justify-end">
-            <button
-              onClick={() => navigate(`/prospection/${rdv.id}`)}
-              className="p-1.5 hover:bg-gray-100 rounded text-gray-500"
-              title="Éditer"
-            >
-              <Edit className="w-3.5 h-3.5" />
-            </button>
-            <button
-              onClick={() => handleDeleteRdv(rdv.id)}
-              className="p-1.5 hover:bg-red-100 rounded text-red-400"
-              title="Supprimer"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </td>
-      </tr>
-    )
-  }
-
-  // Composant tableau de section
-  const RdvSection = ({ title, icon: Icon, rdvList, color, highlight }) => {
-    if (rdvList.length === 0) return null
-    return (
-      <div className="mb-4">
-        <h2 className={`text-sm font-semibold ${color} mb-2 flex items-center gap-2 px-1`}>
-          <Icon className="w-4 h-4" />
-          {title} ({rdvList.length})
-        </h2>
-        <div className="bg-white rounded-lg border overflow-hidden">
-          <table className="w-full text-sm">
-            <tbody>
-              {rdvList.map(rdv => <RdvRow key={rdv.id} rdv={rdv} highlight={highlight} />)}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    )
-  }
+  // Annulés/reportés (on les met dans "réalisés" pour ne pas perdre l'info)
+  const autres = filtered.filter(r => ['annule', 'reporte'].includes(r.status))
 
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-gray-900" />
       </div>
     )
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Prospection</h1>
-          <p className="text-gray-600 mt-1">Gestion des rendez-vous commerciaux</p>
+    <div>
+
+      {/* ── HEADER ── */}
+      <div className="flex items-center gap-3 mb-4 flex-wrap">
+        <h2 className="text-sm font-bold text-gray-900">RDV commerciaux</h2>
+
+        {/* Filtres commerciaux */}
+        <div className="flex gap-1.5">
+          {['all', 'Hicham', 'Maxime', 'Marine'].map(f => (
+            <button
+              key={f}
+              onClick={() => setFilterBy(f)}
+              className={`px-3 py-1.5 rounded-md text-xs font-semibold border transition-colors ${
+                filterBy === f
+                  ? 'bg-gray-900 text-white border-gray-900'
+                  : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400'
+              }`}
+            >
+              {f === 'all' ? 'Tous' : f}
+            </button>
+          ))}
         </div>
+
         <button
           onClick={() => navigate('/prospection/nouveau')}
-          className="flex items-center gap-2 px-4 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600"
+          className="ml-auto flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 text-white rounded-lg text-xs font-semibold hover:bg-gray-700 transition-colors"
         >
-          <Plus className="w-5 h-5" />
+          <Plus className="w-3.5 h-3.5" />
           Nouveau RDV
         </button>
       </div>
 
-      {/* Stats rapides */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-white rounded-lg border border-gray-200 p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600">RDV prévus</p>
-              <p className="text-2xl font-bold text-blue-600">
-                {rdvs.filter(r => r.status === 'prevu').length}
-              </p>
-            </div>
-            <Clock className="w-8 h-8 text-blue-600 opacity-20" />
-          </div>
-        </div>
+      {/* ── BOARD ── */}
+      <div className="bg-gray-100 rounded-xl p-3 overflow-x-auto">
+        <div className="grid gap-3 min-w-0" style={{ gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' }}>
 
-        <div className="bg-white rounded-lg border border-gray-200 p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600">Urgents</p>
-              <p className="text-2xl font-bold text-red-600">
-                {rdvsUrgents.length}
-              </p>
-            </div>
-            <Calendar className="w-8 h-8 text-red-600 opacity-20" />
-          </div>
-        </div>
+          {/* ── COL 1 : CHAUDS ── */}
+          <KanbanCol
+            title="🔥 Chauds"
+            count={chauds.length}
+            accentColor="#f97316"
+            badgeBg="bg-orange-100"
+            badgeText="text-orange-700"
+            onAdd={() => navigate('/prospection/nouveau')}
+            addLabel="+ Signaler prospect chaud"
+          >
+            {chauds.map(rdv => (
+              <RdvCard
+                key={rdv.id}
+                rdv={rdv}
+                variant="hot"
+                onClick={() => navigate(`/prospection/${rdv.id}`)}
+                onDelete={handleDelete}
+              />
+            ))}
+            {chauds.length === 0 && <EmptyCol text="Aucun prospect chaud" />}
+          </KanbanCol>
 
-        <div className="bg-white rounded-lg border border-gray-200 p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600">Cette semaine</p>
-              <p className="text-2xl font-bold text-purple-600">
-                {rdvsProchains.length}
-              </p>
-            </div>
-            <Calendar className="w-8 h-8 text-purple-600 opacity-20" />
-          </div>
-        </div>
+          {/* ── COL 2 : RDV FIXÉ ── */}
+          <KanbanCol
+            title="📅 RDV fixé"
+            count={prevus.length}
+            accentColor="#3b82f6"
+            badgeBg="bg-blue-100"
+            badgeText="text-blue-700"
+            onAdd={() => navigate('/prospection/nouveau')}
+            addLabel="+ Fixer un RDV"
+          >
+            {prevus.map(rdv => (
+              <RdvCard
+                key={rdv.id}
+                rdv={rdv}
+                variant="prevu"
+                onClick={() => navigate(`/prospection/${rdv.id}`)}
+                onDelete={handleDelete}
+              />
+            ))}
+            {prevus.length === 0 && <EmptyCol text="Aucun RDV planifié" />}
+          </KanbanCol>
 
-        <div className="bg-white rounded-lg border border-gray-200 p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600">Réalisés</p>
-              <p className="text-2xl font-bold text-green-600">
-                {rdvsRealises.length}
-              </p>
-            </div>
-            <CheckCircle className="w-8 h-8 text-green-600 opacity-20" />
-          </div>
+          {/* ── COL 3 : À RELANCER ── */}
+          <KanbanCol
+            title="🔄 À relancer"
+            count={aRelancer.length}
+            accentColor="#8b5cf6"
+            badgeBg="bg-purple-100"
+            badgeText="text-purple-700"
+            onAdd={() => navigate('/prospection/nouveau')}
+            addLabel="+ Ajouter"
+          >
+            {aRelancer.map(rdv => (
+              <RdvCard
+                key={rdv.id}
+                rdv={rdv}
+                variant="relance"
+                onClick={() => navigate(`/prospection/${rdv.id}`)}
+                onDelete={handleDelete}
+              />
+            ))}
+            {aRelancer.length === 0 && <EmptyCol text="Aucune relance en attente" />}
+          </KanbanCol>
+
+          {/* ── COL 4 : RÉALISÉS ── */}
+          <KanbanCol
+            title="✅ Réalisés"
+            count={realises.length + autres.length}
+            accentColor="#22c55e"
+            badgeBg="bg-green-100"
+            badgeText="text-green-700"
+          >
+            {realises.map(rdv => (
+              <RdvCard
+                key={rdv.id}
+                rdv={rdv}
+                variant="realise"
+                onClick={() => navigate(`/prospection/${rdv.id}`)}
+                onDelete={handleDelete}
+              />
+            ))}
+            {autres.map(rdv => (
+              <RdvCard
+                key={rdv.id}
+                rdv={rdv}
+                variant="autre"
+                onClick={() => navigate(`/prospection/${rdv.id}`)}
+                onDelete={handleDelete}
+              />
+            ))}
+            {realises.length === 0 && autres.length === 0 && <EmptyCol text="Aucun RDV réalisé" />}
+          </KanbanCol>
+
         </div>
       </div>
+    </div>
+  )
+}
 
-      {/* Filtres */}
-      <div className="bg-white rounded-lg border border-gray-200 p-4">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Rechercher..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-            />
-          </div>
-
-          <select
-            value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value)}
-            className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-          >
-            <option value="all">Tous les statuts</option>
-            <option value="a_prendre">À prendre</option>
-            <option value="prevu">Prévus</option>
-            <option value="realise">Réalisés</option>
-            <option value="annule">Annulés</option>
-            <option value="reporte">Reportés</option>
-          </select>
-
-          <select
-            value={filterProprietaire}
-            onChange={(e) => setFilterProprietaire(e.target.value)}
-            className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-          >
-            <option value="all">Tous les commerciaux</option>
-            <option value="Hicham">Hicham</option>
-            <option value="Maxime">Maxime</option>
-            <option value="Marine">Marine</option>
-          </select>
-        </div>
+/* ─────────────────────────────────────────
+   COLONNE KANBAN
+───────────────────────────────────────── */
+function KanbanCol({ title, count, accentColor, badgeBg, badgeText, children, onAdd, addLabel }) {
+  return (
+    <div className="flex flex-col gap-2 min-w-0">
+      {/* Header */}
+      <div className="flex items-center gap-2 px-1 mb-1">
+        <span className="text-xs font-bold uppercase tracking-wide text-gray-500">{title}</span>
+        <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${badgeBg} ${badgeText}`}>
+          {count}
+        </span>
       </div>
 
-      {/* Listes de RDV */}
-      {filteredRdvs.length === 0 ? (
-        <div className="bg-white rounded-lg border border-gray-200 p-12 text-center">
-          <Calendar className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-          <p className="text-gray-600">Aucun RDV trouvé</p>
-          <button
-            onClick={() => navigate('/prospection/nouveau')}
-            className="mt-4 text-primary-600 hover:text-primary-700 font-medium"
-          >
-            Créer le premier RDV
-          </button>
-        </div>
-      ) : (
-        <div>
-          {/* En-tête de colonnes global */}
-          <div className="hidden md:grid grid-cols-[40px_1fr_140px_120px_80px_200px_70px] gap-0 px-4 py-2 text-[10px] text-gray-400 uppercase font-medium mb-1">
-            <span></span>
-            <span>Entreprise</span>
-            <span>Date</span>
-            <span className="hidden lg:block">Lieu</span>
-            <span className="hidden lg:block">Par</span>
-            <span className="hidden xl:block">Action</span>
-            <span></span>
-          </div>
+      {/* Barre accent */}
+      <div className="h-0.5 rounded-full mb-1" style={{ backgroundColor: accentColor }} />
 
-          <RdvSection title="🔴 À prendre" icon={Clock} rdvList={rdvsAPrendre} color="text-red-700" highlight />
-          <RdvSection title="⚠️ Urgents" icon={Calendar} rdvList={rdvsUrgents} color="text-orange-700" highlight />
-          <RdvSection title="📅 À venir" icon={Clock} rdvList={rdvsProchains} color="text-blue-700" />
-          {filterStatus !== 'prevu' && (
-            <RdvSection title="✅ Réalisés" icon={CheckCircle} rdvList={rdvsRealises} color="text-green-700" />
-          )}
-          {rdvsAutres.length > 0 && (
-            <RdvSection title="📁 Annulés / Reportés" icon={XCircle} rdvList={rdvsAutres} color="text-gray-500" />
-          )}
-        </div>
+      {/* Cards */}
+      {children}
+
+      {/* Bouton ajouter */}
+      {onAdd && (
+        <button
+          onClick={onAdd}
+          className="w-full mt-1 py-2 border-2 border-dashed border-gray-300 rounded-lg text-xs text-gray-400 hover:border-gray-500 hover:text-gray-600 hover:bg-white transition-colors"
+        >
+          {addLabel}
+        </button>
       )}
+    </div>
+  )
+}
+
+/* ─────────────────────────────────────────
+   CARTE RDV
+───────────────────────────────────────── */
+function RdvCard({ rdv, variant, onClick, onDelete }) {
+  const late = isActionLate(rdv) || (variant === 'prevu' && isRdvLate(rdv))
+  const isHotFromMarine = rdv.temperature === 'chaud' && rdv.source?.includes('marine')
+  const ago = agoLabel(rdv.updated_at)
+
+  // Couleur bordure gauche
+  let borderLeft = 'border-l-2 border-l-transparent'
+  if (late) borderLeft = 'border-l-2 border-l-red-400'
+  else if (variant === 'hot') borderLeft = 'border-l-2 border-l-orange-400'
+
+  // Date label pour les prévus
+  let dateLbl = null
+  let dateColor = 'text-gray-500'
+  if (rdv.rdv_date) {
+    try {
+      const d = parseISO(rdv.rdv_date)
+      if (isToday(d)) { dateLbl = `Auj.${rdv.rdv_time ? ' ' + rdv.rdv_time.slice(0, 5) : ''}`; dateColor = 'text-red-600 font-bold' }
+      else if (isTomorrow(d)) { dateLbl = `Dem.${rdv.rdv_time ? ' ' + rdv.rdv_time.slice(0, 5) : ''}`; dateColor = 'text-orange-500 font-semibold' }
+      else if (isRdvLate(rdv)) { dateLbl = 'Dépassé'; dateColor = 'text-red-500 font-semibold' }
+      else {
+        dateLbl = format(d, 'EEE d MMM', { locale: fr }) + (rdv.rdv_time ? ' ' + rdv.rdv_time.slice(0, 5) : '')
+      }
+    } catch {}
+  }
+
+  return (
+    <div
+      onClick={onClick}
+      className={`group bg-white rounded-lg border border-gray-200 p-3 cursor-pointer hover:shadow-md hover:-translate-y-px transition-all ${borderLeft}`}
+    >
+      {/* Nom + actions au hover */}
+      <div className="flex items-start justify-between gap-1 mb-1">
+        <span className="text-sm font-semibold text-gray-900 leading-tight">
+          {rdv.clients?.name || 'Client inconnu'}
+        </span>
+        <button
+          onClick={(e) => onDelete(e, rdv.id)}
+          className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-400 transition-opacity flex-shrink-0 mt-0.5"
+        >
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
+      {/* Contact */}
+      {(rdv.contact_name || rdv.conducted_by) && (
+        <p className="text-xs text-gray-400 mb-2 truncate">
+          {[rdv.contact_name, rdv.conducted_by ? `· ${rdv.conducted_by}` : null].filter(Boolean).join(' ')}
+        </p>
+      )}
+
+      {/* Footer : pills + ago */}
+      <div className="flex items-center gap-1.5 flex-wrap">
+
+        {/* Badge Marine chaud */}
+        {isHotFromMarine && (
+          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700">
+            🔥 Marine
+          </span>
+        )}
+
+        {/* Badge date (prévus) */}
+        {dateLbl && variant === 'prevu' && (
+          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-gray-100 ${dateColor}`}>
+            {dateLbl}
+          </span>
+        )}
+
+        {/* Badge formations */}
+        {rdv.formations_interet?.length > 0 && (
+          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700 truncate max-w-[90px]" title={rdv.formations_interet.join(', ')}>
+            {rdv.formations_interet[0]}{rdv.formations_interet.length > 1 ? ` +${rdv.formations_interet.length - 1}` : ''}
+          </span>
+        )}
+
+        {/* Badge type RDV si pas de formations */}
+        {!rdv.formations_interet?.length && rdv.rdv_type && (
+          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500">
+            {RDV_TYPE_LABELS[rdv.rdv_type] || rdv.rdv_type}
+          </span>
+        )}
+
+        {/* Badge en retard */}
+        {late && (
+          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-100 text-red-600">
+            ⚠️ En retard
+          </span>
+        )}
+
+        {/* Prochaine action visible au hover */}
+        {rdv.next_action && (
+          <span className="hidden group-hover:inline text-[10px] px-1.5 py-0.5 rounded-full bg-yellow-50 text-yellow-700 truncate max-w-[120px]" title={rdv.next_action}>
+            ⚡ {rdv.next_action}
+          </span>
+        )}
+
+        {/* Ago */}
+        {ago && (
+          <span className={`text-[10px] ml-auto flex-shrink-0 ${late ? 'text-red-400 font-semibold' : 'text-gray-300'}`}>
+            {ago}
+          </span>
+        )}
+      </div>
+
+      {/* Lieu si prévu */}
+      {variant === 'prevu' && rdv.rdv_location && (
+        <p className="text-[10px] text-gray-400 mt-1.5">
+          {LOCATION_LABELS[rdv.rdv_location] || rdv.rdv_location}
+        </p>
+      )}
+
+      {/* Status annulé/reporté */}
+      {variant === 'autre' && (
+        <span className="text-[10px] text-gray-400 mt-1 block">
+          {rdv.status === 'annule' ? '❌ Annulé' : '⏩ Reporté'}
+        </span>
+      )}
+    </div>
+  )
+}
+
+function EmptyCol({ text }) {
+  return (
+    <div className="text-center py-6 text-xs text-gray-400">
+      {text}
     </div>
   )
 }
