@@ -97,29 +97,49 @@ export default function Prospection() {
     return (r.conducted_by || '').toLowerCase() === filterBy.toLowerCase()
   })
 
-  // 4 colonnes — basées UNIQUEMENT sur status, zéro overlap possible
+  const today = startOfDay(new Date())
+
+  // helper : RDV prévu dont la date est passée
+  const isPrevuLate = r => r.status === 'prevu' && r.rdv_date && isBefore(parseISO(r.rdv_date), today)
+  // helper : next_action_date dépassée (tous statuts actifs)
+  const hasLateAction = r => r.next_action_date && isBefore(parseISO(r.next_action_date), today)
+  // helper : réalisé sans session liée
+  const realiseOrphelin = r => r.status === 'realise' && !r.session_id
+
   // 🔥 Chauds = a_prendre signalé par Marine (source phoning_*)
   const chauds = filtered
     .filter(r => r.status === 'a_prendre' && r.source?.includes('phoning'))
     .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
 
-  // 📅 RDV fixé = prevu
+  // 🔄 À relancer = 4 cas (mutuellement exclusif avec chauds/prevus/realises)
+  const aRelancer = filtered
+    .filter(r =>
+      // a_prendre créé manuellement
+      (r.status === 'a_prendre' && !r.source?.includes('phoning')) ||
+      // prevu dont la date est passée sans être clôturé
+      isPrevuLate(r) ||
+      // prevu avec next_action_date dépassée (et date pas encore passée)
+      (r.status === 'prevu' && !isPrevuLate(r) && hasLateAction(r)) ||
+      // réalisé sans suite (pas de session liée)
+      realiseOrphelin(r)
+    )
+    .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
+
+  // IDs déjà dans aRelancer pour éviter doublons dans prevus/realises
+  const relancerIds = new Set(aRelancer.map(r => r.id))
+
+  // 📅 RDV fixé = prevu avec date future (ou sans date), hors aRelancer
   const prevus = filtered
-    .filter(r => r.status === 'prevu')
+    .filter(r => r.status === 'prevu' && !relancerIds.has(r.id))
     .sort((a, b) => {
       if (!a.rdv_date) return 1
       if (!b.rdv_date) return -1
       return new Date(a.rdv_date) - new Date(b.rdv_date)
     })
 
-  // 🔄 À relancer = a_prendre créé manuellement (sans source phoning)
-  const aRelancer = filtered
-    .filter(r => r.status === 'a_prendre' && !r.source?.includes('phoning'))
-    .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
-
-  // ✅ Réalisés + annulés + reportés — jamais de badge "en retard" ici
+  // ✅ Réalisés avec suite + annulés + reportés — jamais de badge "en retard"
   const realises = filtered
-    .filter(r => ['realise', 'annule', 'reporte'].includes(r.status))
+    .filter(r => ['annule', 'reporte'].includes(r.status) || (r.status === 'realise' && !relancerIds.has(r.id)))
     .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
 
   if (loading) {
