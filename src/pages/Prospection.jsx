@@ -97,13 +97,13 @@ export default function Prospection() {
     return (r.conducted_by || '').toLowerCase() === filterBy.toLowerCase()
   })
 
-  // 4 colonnes Kanban
-  // 🔥 Chauds : temperature='chaud' ET status != realise/annule
+  // 4 colonnes — basées UNIQUEMENT sur status, zéro overlap possible
+  // 🔥 Chauds = a_prendre signalé par Marine (source phoning_*)
   const chauds = filtered
-    .filter(r => r.temperature === 'chaud' && !['realise', 'annule'].includes(r.status))
+    .filter(r => r.status === 'a_prendre' && r.source?.includes('phoning'))
     .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
 
-  // 📅 RDV fixé : status='prevu'
+  // 📅 RDV fixé = prevu
   const prevus = filtered
     .filter(r => r.status === 'prevu')
     .sort((a, b) => {
@@ -112,18 +112,15 @@ export default function Prospection() {
       return new Date(a.rdv_date) - new Date(b.rdv_date)
     })
 
-  // 🔄 À relancer : status='a_prendre' ET pas chaud
+  // 🔄 À relancer = a_prendre créé manuellement (sans source phoning)
   const aRelancer = filtered
-    .filter(r => r.status === 'a_prendre' && r.temperature !== 'chaud')
+    .filter(r => r.status === 'a_prendre' && !r.source?.includes('phoning'))
     .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
 
-  // ✅ Réalisés
+  // ✅ Réalisés + annulés + reportés — jamais de badge "en retard" ici
   const realises = filtered
-    .filter(r => r.status === 'realise')
+    .filter(r => ['realise', 'annule', 'reporte'].includes(r.status))
     .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
-
-  // Annulés/reportés (on les met dans "réalisés" pour ne pas perdre l'info)
-  const autres = filtered.filter(r => ['annule', 'reporte'].includes(r.status))
 
   if (loading) {
     return (
@@ -239,7 +236,7 @@ export default function Prospection() {
           {/* ── COL 4 : RÉALISÉS ── */}
           <KanbanCol
             title="✅ Réalisés"
-            count={realises.length + autres.length}
+            count={realises.length}
             accentColor="#22c55e"
             badgeBg="bg-green-100"
             badgeText="text-green-700"
@@ -253,16 +250,7 @@ export default function Prospection() {
                 onDelete={handleDelete}
               />
             ))}
-            {autres.map(rdv => (
-              <RdvCard
-                key={rdv.id}
-                rdv={rdv}
-                variant="autre"
-                onClick={() => navigate(`/prospection/${rdv.id}`)}
-                onDelete={handleDelete}
-              />
-            ))}
-            {realises.length === 0 && autres.length === 0 && <EmptyCol text="Aucun RDV réalisé" />}
+            {realises.length === 0 && <EmptyCol text="Aucun RDV réalisé" />}
           </KanbanCol>
 
         </div>
@@ -308,7 +296,7 @@ function KanbanCol({ title, count, accentColor, badgeBg, badgeText, children, on
    CARTE RDV
 ───────────────────────────────────────── */
 function RdvCard({ rdv, variant, onClick, onDelete }) {
-  const late = isActionLate(rdv) || (variant === 'prevu' && isRdvLate(rdv))
+  const late = !['realise', 'annule', 'reporte'].includes(variant) && (isActionLate(rdv) || (variant === 'prevu' && isRdvLate(rdv)))
   const isHotFromMarine = rdv.temperature === 'chaud' && rdv.source?.includes('marine')
   const ago = agoLabel(rdv.updated_at)
 
