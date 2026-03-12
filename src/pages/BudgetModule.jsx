@@ -5425,31 +5425,30 @@ function ProspectCreateModal({ initial, onClose, onCreated }) {
           </button>
         </div>
       </div>
+      {sirenConflict && (
+        <SirenConflictModal
+          matches={sirenConflict.matches}
+          newName={sirenConflict.formData?.name}
+          newSiret={sirenConflict.formData?.siret}
+          newCity={sirenConflict.formData?.city}
+          onUseExisting={async (clientId) => {
+            setSirenConflict(null)
+            clearSirenCheck()
+            const { data } = await supabase.from('clients').select().eq('id', clientId).single()
+            if (data) onCreated(data)
+          }}
+          onCreateAnyway={async () => {
+            const formData = sirenConflict.formData
+            setSirenConflict(null)
+            clearSirenCheck()
+            await doInsert(formData)
+          }}
+          onCancel={() => {
+            setSirenConflict(null)
+            clearSirenCheck()
+          }}
+        />
+      )}
     </div>
-
-    {sirenConflict && (
-      <SirenConflictModal
-        matches={sirenConflict.matches}
-        newName={sirenConflict.formData?.name}
-        newSiret={sirenConflict.formData?.siret}
-        newCity={sirenConflict.formData?.city}
-        onUseExisting={async (clientId) => {
-          setSirenConflict(null)
-          clearSirenCheck()
-          const { data } = await supabase.from('clients').select().eq('id', clientId).single()
-          if (data) onCreated(data)
-        }}
-        onCreateAnyway={async () => {
-          const formData = sirenConflict.formData
-          setSirenConflict(null)
-          clearSirenCheck()
-          await doInsert(formData)
-        }}
-        onCancel={() => {
-          setSirenConflict(null)
-          clearSirenCheck()
-        }}
-      />
-    )}
   )
 }
