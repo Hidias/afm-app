@@ -3192,32 +3192,31 @@ export default function MarinePhoning() {
         </div>
         )
       })()}
+      {/* Modale doublon SIREN */}
+      {sirenConflict && (
+        <SirenConflictModal
+          matches={sirenConflict.matches}
+          newName={sirenConflict.prospect?.name}
+          newSiret={sirenConflict.cleanSiret}
+          newCity={sirenConflict.prospect?.city}
+          onUseExisting={(clientId) => {
+            setSirenConflict(null)
+            clearSirenCheck()
+            sirenConflict.resolveFn(clientId)
+          }}
+          onCreateAnyway={async () => {
+            setSirenConflict(null)
+            clearSirenCheck()
+            const id = await doCreateClient(sirenConflict.prospect, sirenConflict.cleanSiren, sirenConflict.cleanSiret)
+            sirenConflict.resolveFn(id)
+          }}
+          onCancel={() => {
+            setSirenConflict(null)
+            clearSirenCheck()
+            sirenConflict.resolveFn(null)
+          }}
+        />
+      )}
     </div>
-
-    {/* Modale doublon SIREN */}
-    {sirenConflict && (
-      <SirenConflictModal
-        matches={sirenConflict.matches}
-        newName={sirenConflict.prospect?.name}
-        newSiret={sirenConflict.cleanSiret}
-        newCity={sirenConflict.prospect?.city}
-        onUseExisting={(clientId) => {
-          setSirenConflict(null)
-          clearSirenCheck()
-          sirenConflict.resolveFn(clientId)
-        }}
-        onCreateAnyway={async () => {
-          setSirenConflict(null)
-          clearSirenCheck()
-          const id = await doCreateClient(sirenConflict.prospect, sirenConflict.cleanSiren, sirenConflict.cleanSiret)
-          sirenConflict.resolveFn(id)
-        }}
-        onCancel={() => {
-          setSirenConflict(null)
-          clearSirenCheck()
-          sirenConflict.resolveFn(null) // null = annulation → handleSave doit gérer
-        }}
-      />
-    )}
   )
 }
