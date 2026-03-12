@@ -4,6 +4,8 @@ import { useDataStore } from '../lib/store'
 import { supabase } from '../lib/supabase'
 import { Plus, Search, Edit, Trash2, X, Save, Building2, Mail, Phone, MapPin, User, Eye, Users, Upload, FileSpreadsheet, FileText, RefreshCw, CheckCircle, AlertCircle, Archive, MoreVertical } from 'lucide-react'
 import toast from 'react-hot-toast'
+import SirenConflictModal from '../components/SirenConflictModal'
+import { useSirenCheck } from '../lib/useSirenCheck'
 
 // Formatage nom entreprise (majuscules)
 const formatCompanyName = (value) => {
@@ -330,6 +332,10 @@ export default function Clients() {
   const [form, setForm] = useState({
     name: '', siret: '', address: '', email: '', phone: '', contact_name: '', contact_function: '', notes: '', status: 'prospect', client_type: 'entreprise'
   })
+
+  // ── Vérification doublons SIREN ──
+  const { checkSiren, clearSirenCheck } = useSirenCheck()
+  const [sirenConflict, setSirenConflict] = useState(null) // { matches, formData }
   
   useEffect(() => { fetchClients() }, [])
 
@@ -385,26 +391,42 @@ export default function Clients() {
     setShowPreview(true)
   }
   
+  const doCreateClient = async (formData) => {
+    await createClient({
+      ...formData,
+      name: formatCompanyName(formData.name),
+      contact_email: formData.email,
+      contact_phone: formData.phone
+    })
+    toast.success('Client créé')
+    setShowForm(false)
+  }
+
   const handleSave = async () => {
     if (!form.name) return toast.error('Nom requis')
     if (selectedClient) {
-      await updateClient(selectedClient.id, { 
-        ...form, 
+      // Modification : pas de vérif SIREN (client déjà existant)
+      await updateClient(selectedClient.id, {
+        ...form,
         name: formatCompanyName(form.name),
         contact_email: form.email,
         contact_phone: form.phone
       })
       toast.success('Client mis à jour')
+      setShowForm(false)
     } else {
-      await createClient({ 
-        ...form, 
-        name: formatCompanyName(form.name),
-        contact_email: form.email,
-        contact_phone: form.phone
-      })
-      toast.success('Client créé')
+      // Création : vérifier doublon SIREN
+      const cleanSiret = form.siret?.replace(/\s/g, '') || ''
+      const cleanSiren = cleanSiret.length >= 9 ? cleanSiret.slice(0, 9) : null
+      if (cleanSiren && !cleanSiret.startsWith('MANUAL_')) {
+        const matches = await checkSiren(cleanSiren)
+        if (matches.length > 0) {
+          setSirenConflict({ matches, formData: form })
+          return // bloqué, attend la réponse de la modale
+        }
+      }
+      await doCreateClient(form)
     }
-    setShowForm(false)
   }
   
   const handleDeleteClick = (client) => setConfirmDelete(client)
@@ -1246,6 +1268,35 @@ export default function Clients() {
         description="Cette action est irréversible. Les factures et sessions liées pourraient empêcher la suppression."
         confirmLabel="Supprimer"
         onConfirm={handleDelete} onCancel={() => setConfirmDelete(null)} />
+
+      {/* Modale doublon SIREN */}
+      {sirenConflict && (
+        <SirenConflictModal
+          matches={sirenConflict.matches}
+          newName={sirenConflict.formData?.name}
+          newSiret={sirenConflict.formData?.siret}
+          newCity={sirenConflict.formData?.city}
+          onUseExisting={(clientId) => {
+            setSirenConflict(null)
+            clearSirenCheck()
+            setShowForm(false)
+            // Sélectionner et afficher le client existant
+            const existing = clients.find(c => c.id === clientId)
+            if (existing) { setSelectedClient(existing); setShowPreview(true) }
+            toast.success('Client existant sélectionné')
+          }}
+          onCreateAnyway={async () => {
+            const formData = sirenConflict.formData
+            setSirenConflict(null)
+            clearSirenCheck()
+            await doCreateClient(formData)
+          }}
+          onCancel={() => {
+            setSirenConflict(null)
+            clearSirenCheck()
+          }}
+        />
+      )}
     </div>
   )
 }
