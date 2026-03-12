@@ -103,8 +103,8 @@ export default function Prospection() {
   const isPrevuLate = r => r.status === 'prevu' && r.rdv_date && isBefore(parseISO(r.rdv_date), today)
   // helper : next_action_date dépassée (tous statuts actifs)
   const hasLateAction = r => r.next_action_date && isBefore(parseISO(r.next_action_date), today)
-  // helper : réalisé sans session liée
-  const realiseOrphelin = r => r.status === 'realise' && !r.session_id
+  // helper : réalisé sans session liée ET next_action_date dépassée
+  const realiseOrphelin = r => r.status === 'realise' && !r.session_id && r.next_action_date && isBefore(parseISO(r.next_action_date), today)
 
   // 🔥 Chauds = a_prendre signalé par Marine (source phoning_*)
   const chauds = filtered
