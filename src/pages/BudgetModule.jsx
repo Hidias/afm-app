@@ -3,6 +3,8 @@ import { supabase } from '../lib/supabase'
 import toast from 'react-hot-toast'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, AreaChart, Area } from 'recharts'
 import { generateInvoicePDF, generateFacturXPDF, calcInvoiceTotals } from '../lib/invoiceGenerator'
+import SirenConflictModal from '../components/SirenConflictModal'
+import { useSirenCheck } from '../lib/useSirenCheck'
 
 // ════════════════════════════════════════════════════════════
 //  BUDGET MODULE v4 — Access Campus
@@ -5313,30 +5315,44 @@ function ProspectCreateModal({ initial, onClose, onCreated }) {
     status: 'prospect',
   })
   const [saving, setSaving] = useState(false)
+  const { checkSiren, clearSirenCheck } = useSirenCheck()
+  const [sirenConflict, setSirenConflict] = useState(null)
 
-  async function handleSave() {
-    if (!form.name.trim()) { toast.error('Nom requis'); return }
+  async function doInsert(formData) {
     setSaving(true)
     try {
       const { data, error } = await supabase.from('clients').insert({
-        name: form.name.trim().toUpperCase(),
-        siret: form.siret || null,
-        address: form.address || null,
-        postal_code: form.postal_code || null,
-        city: form.city || null,
-        phone: form.phone || null,
-        contact_email: form.contact_email || null,
-        contact_name: form.contact_name || null,
-        notes: form.notes || null,
+        name: formData.name.trim().toUpperCase(),
+        siret: formData.siret || null,
+        address: formData.address || null,
+        postal_code: formData.postal_code || null,
+        city: formData.city || null,
+        phone: formData.phone || null,
+        contact_email: formData.contact_email || null,
+        contact_name: formData.contact_name || null,
+        notes: formData.notes || null,
         status: 'prospect',
       }).select().single()
-
       if (error) throw error
       onCreated(data)
     } catch (err) {
       toast.error('Erreur: ' + err.message)
     }
     setSaving(false)
+  }
+
+  async function handleSave() {
+    if (!form.name.trim()) { toast.error('Nom requis'); return }
+    const cleanSiret = form.siret?.replace(/\s/g, '') || ''
+    const cleanSiren = cleanSiret.length >= 9 && !cleanSiret.startsWith('MANUAL_') ? cleanSiret.slice(0, 9) : null
+    if (cleanSiren) {
+      const matches = await checkSiren(cleanSiren)
+      if (matches.length > 0) {
+        setSirenConflict({ matches, formData: form })
+        return
+      }
+    }
+    await doInsert(form)
   }
 
   return (
@@ -5410,5 +5426,30 @@ function ProspectCreateModal({ initial, onClose, onCreated }) {
         </div>
       </div>
     </div>
+
+    {sirenConflict && (
+      <SirenConflictModal
+        matches={sirenConflict.matches}
+        newName={sirenConflict.formData?.name}
+        newSiret={sirenConflict.formData?.siret}
+        newCity={sirenConflict.formData?.city}
+        onUseExisting={async (clientId) => {
+          setSirenConflict(null)
+          clearSirenCheck()
+          const { data } = await supabase.from('clients').select().eq('id', clientId).single()
+          if (data) onCreated(data)
+        }}
+        onCreateAnyway={async () => {
+          const formData = sirenConflict.formData
+          setSirenConflict(null)
+          clearSirenCheck()
+          await doInsert(formData)
+        }}
+        onCancel={() => {
+          setSirenConflict(null)
+          clearSirenCheck()
+        }}
+      />
+    )}
   )
 }
