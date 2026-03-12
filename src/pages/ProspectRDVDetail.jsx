@@ -105,6 +105,7 @@ export default function ProspectRDVDetail() {
       if (error) throw error
 
       setFormData({
+        id: data.id,
         client_id: data.client_id,
         rdv_date: data.rdv_date,
         rdv_time: data.rdv_time || '09:00',
@@ -150,8 +151,9 @@ export default function ProspectRDVDetail() {
     setSaving(true)
     try {
       // Préparer les données : transformer "" en null pour les dates
+      const { id: _id, ...formDataWithoutId } = formData
       const dataToSave = {
-        ...formData,
+        ...formDataWithoutId,
         rdv_date: formData.status === 'a_prendre' ? null : formData.rdv_date,
         rdv_time: formData.status === 'a_prendre' ? null : (formData.rdv_time || null),
         next_action_date: formData.next_action_date || null,
