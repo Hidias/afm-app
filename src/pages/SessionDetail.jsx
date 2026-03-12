@@ -23,6 +23,7 @@ import SessionEmailModal from '../components/SessionEmailModal'
 import StageEmailModal from '../components/StageEmailModal'
 import { SignatureAuditBadge } from '../components/SignaturePad'
 import { getNeedsAnalysisPDFBytes } from '../lib/needsAnalysisPDF'
+import { generateSatisfactionDOPDF } from '../lib/satisfactionDOPDF'
 
 const statusLabels = {
   draft: { label: 'Brouillon', class: 'badge-gray' },
@@ -1748,6 +1749,24 @@ export default function SessionDetail() {
     if (url) window.open(url, '_blank')
   }
   
+  // ── Téléchargement questionnaire satisfaction DO ──
+  const handleDownloadSatisfactionDO = async () => {
+    try {
+      toast.loading('Génération du questionnaire...', { id: 'satDO' })
+      const result = await generateSatisfactionDOPDF(session)
+      const url = URL.createObjectURL(result.blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = result.filename
+      a.click()
+      URL.revokeObjectURL(url)
+      toast.success('Questionnaire généré', { id: 'satDO' })
+    } catch (err) {
+      console.error(err)
+      toast.error('Erreur génération questionnaire', { id: 'satDO' })
+    }
+  }
+
   const handleDelete = async () => {
     if (!confirm('Supprimer cette session ?')) return
     await deleteSession(id)
@@ -2614,7 +2633,8 @@ ${trainer ? `${trainer.first_name} ${trainer.last_name}` : 'Access Formation'}`
               </div>
               <p className="text-gray-500 text-sm mt-1">{session.clients?.name}</p>
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
+              <button onClick={handleDownloadSatisfactionDO} className="btn btn-secondary flex items-center gap-2"><FileText className="w-4 h-4" />Éval. DO</button>
               <button onClick={() => setShowEdit(true)} className="btn btn-secondary flex items-center gap-2"><Edit className="w-4 h-4" />Modifier</button>
               <button onClick={handleDelete} className="btn btn-danger"><Trash2 className="w-4 h-4" /></button>
             </div>
