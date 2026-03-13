@@ -2292,7 +2292,7 @@ export async function downloadDocument(docType, session, options = {}) {
         } catch (err) { console.error('Erreur QR convocation individuelle:', err) }
       }
       generateConvocationContent(doc, session, trainee, trainer, qrCodeDataURL)
-      filename = `Convocation_${ref}_${trainee?.last_name || ''}.pdf`
+      filename = `Convocation_${ref}_${trainee?.last_name || ''}_${trainee?.first_name || ''}.pdf`
       break
     }
     case 'attestation': doc = generateAttestation(session, trainee, trainer); filename = `Attestation_${ref}_${trainee?.last_name || ''}.pdf`; break
@@ -2428,7 +2428,7 @@ export async function generatePDF(docType, session, options = {}) {
         } catch (err) { console.error('Erreur QR convocation individuelle:', err) }
       }
       generateConvocationContent(doc, session, trainee, trainer, qrCodeDataURL)
-      filename = `Convocation_${ref}_${trainee?.last_name || ''}.pdf`
+      filename = `Convocation_${ref}_${trainee?.last_name || ''}_${trainee?.first_name || ''}.pdf`
       break
     }
     case 'attestation': doc = generateAttestation(session, trainee, trainer); filename = `Attestation_${ref}_${trainee?.last_name || ''}.pdf`; break
