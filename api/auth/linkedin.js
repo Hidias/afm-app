@@ -36,7 +36,7 @@ export default async function handler(req, res) {
       // Scope Community Management API uniquement :
       // rw_organization_social = poster + lire depuis la page entreprise
       // (Sign In with LinkedIn et w_member_social non requis pour la page entreprise)
-      const scope = 'rw_organization_social'
+      const scope = 'r_organization_social w_organization_social'
       const state = Math.random().toString(36).substring(2, 15)
 
       const authUrl = `https://www.linkedin.com/oauth/v2/authorization?response_type=code&client_id=${LINKEDIN_CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=${encodeURIComponent(scope)}&state=${state}`
@@ -157,7 +157,7 @@ export default async function handler(req, res) {
         org_urn: orgUrn,
         person_name: personName,
         person_urn: personUrn,
-        scope: 'rw_organization_social',
+        scope: 'r_organization_social w_organization_social',
       },
       updated_at: new Date().toISOString(),
     }, { onConflict: 'platform' })
