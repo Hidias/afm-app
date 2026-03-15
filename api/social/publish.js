@@ -140,9 +140,65 @@ async function publishLinkedIn(content, mediaUrl, token) {
 
   if (!personUrn) throw new Error('LinkedIn: aucun profil connecté')
 
-  // Construire l'auteur URN — le sub peut être un ID simple ou déjà un URN
-  const authorUrn = personUrn.startsWith('urn:') ? personUrn : `urn:li:person:${personUrn}`
+  const authorUrn = personUrn.startsWith('urn:') ? personUrn : `urn:li:organization:${personUrn}`
 
+  const LI_HEADERS = {
+    Authorization: `Bearer ${accessToken}`,
+    'Content-Type': 'application/json',
+    'X-Restli-Protocol-Version': '2.0.0',
+    'LinkedIn-Version': '202510',
+  }
+
+  // ── Upload image si présente (3 étapes LinkedIn Images API) ──
+  let imageUrn = null
+  if (mediaUrl) {
+    try {
+      // Étape 1 : Initialiser l'upload
+      const initRes = await fetch('https://api.linkedin.com/rest/images?action=initializeUpload', {
+        method: 'POST',
+        headers: LI_HEADERS,
+        body: JSON.stringify({
+          initializeUploadRequest: {
+            owner: authorUrn,
+          },
+        }),
+      })
+      const initData = await initRes.json()
+      console.log('[linkedin] initializeUpload:', JSON.stringify(initData).slice(0, 300))
+
+      const uploadUrl = initData.value?.uploadUrl
+      imageUrn = initData.value?.image
+
+      if (!uploadUrl || !imageUrn) {
+        throw new Error('LinkedIn: uploadUrl ou imageUrn manquant dans initializeUpload')
+      }
+
+      // Étape 2 : Télécharger l'image depuis Supabase et l'uploader sur LinkedIn
+      const imageRes = await fetch(mediaUrl)
+      if (!imageRes.ok) throw new Error(`LinkedIn: impossible de télécharger l'image (${imageRes.status})`)
+      const imageBuffer = await imageRes.arrayBuffer()
+
+      const uploadRes = await fetch(uploadUrl, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': imageRes.headers.get('content-type') || 'image/jpeg',
+        },
+        body: imageBuffer,
+      })
+
+      if (!uploadRes.ok) {
+        const uploadErr = await uploadRes.text()
+        throw new Error(`LinkedIn image upload failed (${uploadRes.status}): ${uploadErr.slice(0, 200)}`)
+      }
+
+      console.log('[linkedin] Image uploadée, URN:', imageUrn)
+    } catch (imgErr) {
+      throw new Error(`LinkedIn: échec upload image — ${imgErr.message}`)
+    }
+  }
+
+  // ── Construire le corps du post ──────────────────────
   const postBody = {
     author: authorUrn,
     lifecycleState: 'PUBLISHED',
@@ -150,27 +206,25 @@ async function publishLinkedIn(content, mediaUrl, token) {
     commentary: content,
     distribution: {
       feedDistribution: 'MAIN_FEED',
+      targetEntities: [],
+      thirdPartyDistributionChannels: [],
     },
+    isReshareDisabledByAuthor: false,
   }
 
-  // Ajouter l'image si disponible
-  if (mediaUrl) {
+  // Étape 3 : Ajouter l'image uploadée si disponible
+  if (imageUrn) {
     postBody.content = {
-      article: {
-        source: mediaUrl,
-        title: 'Access Formation',
+      media: {
+        id: imageUrn,
       },
     }
   }
 
+  // ── Publier le post ──────────────────────────────────
   const res = await fetch('https://api.linkedin.com/rest/posts', {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-      'X-Restli-Protocol-Version': '2.0.0',
-      'LinkedIn-Version': '202510',
-    },
+    headers: LI_HEADERS,
     body: JSON.stringify(postBody),
   })
 
