@@ -63,8 +63,20 @@ export default function SocialMedia() {
       toast.error(`Erreur Google : ${params.get('reason')}`)
     }
 
+    if (params.get('linkedin') === 'success') {
+      const page = params.get('page')
+      toast.success(`LinkedIn connecté : ${page || 'page entreprise'}`)
+      loadConnections()
+    } else if (params.get('linkedin') === 'error') {
+      const reason = params.get('reason')
+      const msg = reason === 'no_org_page'
+        ? 'Aucune page entreprise trouvée — connectez-vous avec le compte admin de la page Access Formation'
+        : `Erreur LinkedIn : ${reason}`
+      toast.error(msg)
+    }
+
     // Nettoyer l'URL
-    if (params.get('meta') || params.get('google')) {
+    if (params.get('meta') || params.get('google') || params.get('linkedin')) {
       window.history.replaceState(null, '', window.location.pathname + '#/social')
     }
   }
@@ -265,10 +277,9 @@ function ConnectionPanel({ connections, onRefresh }) {
       id: 'linkedin',
       label: 'LinkedIn',
       icon: '💼',
-      connectUrl: null,
+      connectUrl: '/api/auth/linkedin?action=connect',
       color: 'blue',
-      details: 'En attente de validation API',
-      disabled: true,
+      details: connections?.linkedin?.metadata?.org_name || null,
     },
   ]
 
@@ -929,7 +940,7 @@ Réponds UNIQUEMENT en JSON valide (pas de markdown, pas de backticks) avec cett
               {/* 🚀 PUBLIER MAINTENANT */}
               <button
                 onClick={async () => {
-                  const connectedPlatforms = selectedPlatforms.filter(p => p !== 'linkedin' && connections?.[p === 'gmb' ? 'gmb' : p]?.connected)
+                  const connectedPlatforms = selectedPlatforms.filter(p => connections?.[p === 'gmb' ? 'gmb' : p]?.connected)
                   if (connectedPlatforms.length === 0) {
                     toast.error('Connectez d\'abord vos réseaux (panneau ci-dessus)')
                     return
