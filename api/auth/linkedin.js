@@ -2,7 +2,8 @@
 // VERCEL API ROUTE — OAuth LinkedIn
 // GET /api/auth/linkedin?action=connect (initie le flow OAuth)
 // GET /api/auth/linkedin?code=... (callback après auth)
-// Scope : rw_organization_social (poster depuis la page entreprise)
+// Scope : r_organization_social w_organization_social
+// L'org URN est défini via LINKEDIN_ORG_ID (variable Vercel)
 // ═══════════════════════════════════════════════════════════
 
 import { createClient } from '@supabase/supabase-js'
@@ -14,6 +15,7 @@ const supabase = createClient(
 
 const LINKEDIN_CLIENT_ID = process.env.LINKEDIN_CLIENT_ID
 const LINKEDIN_CLIENT_SECRET = process.env.LINKEDIN_CLIENT_SECRET
+const LINKEDIN_ORG_ID = process.env.LINKEDIN_ORG_ID // ex: "12345678" (numéro dans l'URL de la page)
 const APP_URL = process.env.APP_URL || 'https://app.accessformation.pro'
 const REDIRECT_URI = `${APP_URL}/api/auth/linkedin`
 
@@ -32,10 +34,10 @@ export default async function handler(req, res) {
       if (!LINKEDIN_CLIENT_ID) {
         return res.status(500).json({ error: 'LINKEDIN_CLIENT_ID non configuré' })
       }
+      if (!LINKEDIN_ORG_ID) {
+        return res.status(500).json({ error: 'LINKEDIN_ORG_ID non configuré' })
+      }
 
-      // Scope Community Management API uniquement :
-      // rw_organization_social = poster + lire depuis la page entreprise
-      // (Sign In with LinkedIn et w_member_social non requis pour la page entreprise)
       const scope = 'r_organization_social w_organization_social'
       const state = Math.random().toString(36).substring(2, 15)
 
@@ -47,6 +49,11 @@ export default async function handler(req, res) {
     // ── Étape 2 : Échanger le code contre un token ──────
     if (!code) {
       return res.status(400).json({ error: 'Missing code parameter' })
+    }
+
+    if (!LINKEDIN_ORG_ID) {
+      console.error('[linkedin] LINKEDIN_ORG_ID non configuré')
+      return res.redirect(`${APP_URL}/#/social?linkedin=error&reason=org_id_missing`)
     }
 
     console.log('[linkedin] Exchanging code for token...')
@@ -75,88 +82,24 @@ export default async function handler(req, res) {
 
     console.log('[linkedin] Token obtained, expires in', expiresIn, 'seconds')
 
-    // ── Étape 3 : Pas de profil utilisateur (Sign In with LinkedIn non activé) ─
-    // On récupère directement les pages entreprise sans passer par le profil
-    const personUrn = null
-    const personName = null
+    // ── Étape 3 : Construire l'org URN depuis la variable d'env ─
+    const orgUrn = `urn:li:organization:${LINKEDIN_ORG_ID}`
+    const orgName = 'Access Formation'
 
-    // ── Étape 4 : Récupérer les pages entreprise administrées ─
-    let orgUrn = null
-    let orgName = null
+    console.log('[linkedin] Org URN (from env):', orgUrn)
 
-    try {
-      // Récupérer les organisations où l'utilisateur est ADMINISTRATOR
-      const aclRes = await fetch(
-        'https://api.linkedin.com/v2/organizationalEntityAcls?q=roleAssignee&role=ADMINISTRATOR&state=APPROVED&count=10',
-        {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'X-Restli-Protocol-Version': '2.0.0',
-            'LinkedIn-Version': '202401',
-          },
-        }
-      )
-      const aclData = await aclRes.json()
-      console.log('[linkedin] Org ACLs:', JSON.stringify(aclData).slice(0, 500))
-
-      const elements = aclData.elements || []
-      if (elements.length > 0) {
-        // Prendre la première organisation (Access Formation)
-        orgUrn = elements[0].organizationalTarget
-        console.log('[linkedin] Org URN:', orgUrn)
-
-        // Récupérer le nom de la page entreprise
-        if (orgUrn) {
-          const orgId = orgUrn.replace('urn:li:organization:', '')
-          try {
-            const orgRes = await fetch(
-              `https://api.linkedin.com/v2/organizations/${orgId}?fields=localizedName,vanityName`,
-              {
-                headers: {
-                  Authorization: `Bearer ${accessToken}`,
-                  'X-Restli-Protocol-Version': '2.0.0',
-                  'LinkedIn-Version': '202401',
-                },
-              }
-            )
-            const orgData = await orgRes.json()
-            console.log('[linkedin] Org details:', JSON.stringify(orgData).slice(0, 300))
-            orgName = orgData.localizedName || orgData.vanityName || 'Access Formation'
-          } catch (orgErr) {
-            console.warn('[linkedin] Org name fetch error:', orgErr.message)
-            orgName = 'Access Formation'
-          }
-        }
-      } else {
-        console.warn('[linkedin] Aucune page entreprise trouvée pour cet utilisateur')
-      }
-    } catch (aclErr) {
-      console.warn('[linkedin] ACL fetch error:', aclErr.message)
-    }
-
-    // Si pas de page entreprise trouvée, bloquer la connexion
-    if (!orgUrn) {
-      console.error('[linkedin] Aucune page entreprise admin trouvée')
-      return res.redirect(`${APP_URL}/#/social?linkedin=error&reason=no_org_page`)
-    }
-
-    console.log('[linkedin] Org:', orgName, 'URN:', orgUrn)
-
-    // ── Étape 5 : Stocker dans Supabase ─────────────────
-    // page_id = URN de la page entreprise (urn:li:organization:XXXXX)
-    // account_id = URN de la personne admin (urn:li:person:XXXXX)
+    // ── Étape 4 : Stocker dans Supabase ─────────────────
+    // page_id = URN de la page entreprise — utilisé comme author dans les posts
     await supabase.from('social_tokens').upsert({
       platform: 'linkedin',
       access_token: accessToken,
-      refresh_token: null, // LinkedIn OAuth 2.0 standard n'a pas de refresh token
+      refresh_token: null,
       token_expires_at: new Date(Date.now() + expiresIn * 1000).toISOString(),
-      page_id: orgUrn,      // URN page entreprise — utilisé comme author dans les posts
-      account_id: personUrn, // URN profil admin — pour référence
+      page_id: orgUrn,
+      account_id: orgUrn,
       metadata: {
         org_name: orgName,
         org_urn: orgUrn,
-        person_name: personName,
-        person_urn: personUrn,
         scope: 'r_organization_social w_organization_social',
       },
       updated_at: new Date().toISOString(),
@@ -164,7 +107,7 @@ export default async function handler(req, res) {
 
     // ── Succès ! ────────────────────────────────────────
     return res.redirect(
-      `${APP_URL}/#/social?linkedin=success&page=${encodeURIComponent(orgName || 'Access Formation')}`
+      `${APP_URL}/#/social?linkedin=success&page=${encodeURIComponent(orgName)}`
     )
 
   } catch (err) {
