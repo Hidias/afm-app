@@ -8,7 +8,8 @@ import toast from 'react-hot-toast'
 // ═══════════════════════════════════════════════════════════
 
 const PLATFORMS = [
-  { id: 'linkedin', label: 'LinkedIn', icon: '💼', color: 'blue', maxChars: 3000 },
+  { id: 'linkedin', label: 'LinkedIn Page', icon: '💼', color: 'blue', maxChars: 3000 },
+  { id: 'linkedin_hicham', label: 'LinkedIn Hicham', icon: '👤', color: 'blue', maxChars: 3000 },
   { id: 'facebook', label: 'Facebook', icon: '📘', color: 'indigo', maxChars: 5000 },
   { id: 'instagram', label: 'Instagram', icon: '📸', color: 'pink', maxChars: 2200 },
   { id: 'gmb', label: 'Google', icon: '📍', color: 'green', maxChars: 1500 },
@@ -22,6 +23,8 @@ const POST_TYPES = [
   { id: 'educatif', label: '📚 Éducatif', desc: 'Conseil prévention, réglementation, bonnes pratiques' },
   { id: 'qualiopi', label: '✅ Qualiopi / Qualité', desc: 'Démarche qualité, certification, processus' },
   { id: 'campus', label: '💻 Access Campus', desc: 'Fonctionnalités de la plateforme, innovation' },
+  { id: 'offre_promo', label: '🎯 Offre promotionnelle', desc: 'Offre avec date de fin, CTA fort, urgence positive' },
+  { id: 'veille_reglementaire', label: '📋 Veille réglementaire', desc: 'Nouvelle norme, obligation légale, mise à jour INRS/CACES' },
 ]
 
 // Hashtags gérés dynamiquement par l'IA dans le prompt
@@ -235,7 +238,7 @@ export default function SocialMedia() {
       {activeTab === 'generator' && <GeneratorTab stats={stats} onSave={loadData} media={media} editingDraft={editingDraft} onClearDraft={() => setEditingDraft(null)} connections={connections} />}
       {activeTab === 'calendar' && <CalendarTab posts={posts} onUpdate={loadData} />}
       {activeTab === 'library' && <LibraryTab media={media} onUpdate={loadData} />}
-      {activeTab === 'drafts' && <DraftsTab posts={posts.filter(p => p.status === 'draft')} onUpdate={loadData} onEdit={(draft) => { setEditingDraft(draft); setActiveTab('generator') }} />}
+      {activeTab === 'drafts' && <DraftsTab posts={posts.filter(p => p.status === 'draft')} onUpdate={loadData} onEdit={(draft) => { setEditingDraft(draft); setActiveTab('generator') }} onRecycle={(draft) => { setEditingDraft({ ...draft, _recycle: true }); setActiveTab('generator') }} />}
     </div>
   )
 }
@@ -275,11 +278,20 @@ function ConnectionPanel({ connections, onRefresh }) {
     },
     {
       id: 'linkedin',
-      label: 'LinkedIn',
+      label: 'LinkedIn Page',
       icon: '💼',
       connectUrl: '/api/auth/linkedin?action=connect',
       color: 'blue',
       details: connections?.linkedin?.metadata?.org_name || null,
+    },
+    {
+      id: 'linkedin_hicham',
+      label: 'LinkedIn Hicham',
+      icon: '👤',
+      connectUrl: null,
+      color: 'blue',
+      details: connections?.linkedin?.connected ? 'Utilise le token LinkedIn page' : null,
+      linkedTo: 'linkedin',
     },
   ]
 
@@ -389,6 +401,7 @@ function GeneratorTab({ stats, onSave, media, editingDraft, onClearDraft, connec
   const [scheduledAt, setScheduledAt] = useState('')
   const [editingId, setEditingId] = useState(null) // ID du brouillon en cours d'édition
   const [publishing, setPublishing] = useState(false)
+  const [withStory, setWithStory] = useState(false)
 
   // ── Charger un brouillon pour édition ────────────────
   useEffect(() => {
@@ -396,9 +409,11 @@ function GeneratorTab({ stats, onSave, media, editingDraft, onClearDraft, connec
       const posts = {}
       const platforms = editingDraft.platforms || []
       if (editingDraft.content_linkedin) posts.linkedin = editingDraft.content_linkedin
+      if (editingDraft.content_linkedin_hicham) posts.linkedin_hicham = editingDraft.content_linkedin_hicham
       if (editingDraft.content_facebook) posts.facebook = editingDraft.content_facebook
       if (editingDraft.content_instagram) posts.instagram = editingDraft.content_instagram
       if (editingDraft.content_gmb) posts.gmb = editingDraft.content_gmb
+      if (editingDraft.content_story) posts.story = editingDraft.content_story
 
       setGeneratedPosts(posts)
       setEditedPosts(posts)
@@ -415,8 +430,14 @@ function GeneratorTab({ stats, onSave, media, editingDraft, onClearDraft, connec
         setScheduledAt('')
       }
       setPreviewPlatform(platforms[0] || 'linkedin')
-      setEditingId(editingDraft.id)
+      setEditingId(editingDraft._recycle ? null : editingDraft.id) // Recycler = nouveau post
       setSelectedMedia((editingDraft.media_urls || []).map(url => ({ file_url: url })))
+      if (editingDraft._recycle) {
+        // Pré-remplir le contexte avec le titre du post recyclé pour que l'IA reformule
+        setFreeInput(`Reformuler et améliorer ce post existant en gardant le même sujet mais avec un angle différent. Titre original : "${editingDraft.title || 'Sans titre'}"`)
+        setGeneratedPosts(null)
+        setEditedPosts({})
+      }
       onClearDraft?.()
     }
   }, [editingDraft])
@@ -455,7 +476,7 @@ function GeneratorTab({ stats, onSave, media, editingDraft, onClearDraft, connec
       }
       contextParts.push(`Certification Qualiopi obtenue en février 2026`)
       contextParts.push(`Habilitation INRS : H37007/2025/SST-1/O/13`)
-      contextParts.push(`Zone : Bretagne (22,29,35,56) et Pays de la Loire (44,49,53,72,85)`)
+      contextParts.push(`Zone : Bretagne et Pays de la Loire`)
       contextParts.push(`Spécialités : SST, incendie, habilitation électrique, PRAP, gestes & postures, DUERP`)
       contextParts.push(`Approche : ludopédagogie, formations en entreprise, matériel fourni`)
 
@@ -466,7 +487,7 @@ function GeneratorTab({ stats, onSave, media, editingDraft, onClearDraft, connec
 - Access Formation parle en tant qu'équipe : "Nous intervenons", "Notre approche", "Nos formateurs"
 - JAMAIS de signature ("L'équipe AF", "Hicham"...)
 - JAMAIS de guillemets fictifs ou de citations inventées
-- Inciter à nous contacter : contact@accessformation.pro (naturellement, pas en formule creuse)
+- Coordonnées à inclure naturellement : 📧 contact@accessformation.pro | 📞 02 98 90 30 24
 - Pas de "N'hésitez pas", "Ne ratez pas", "Ne manquez pas" — formuler positivement
 
 ═══ TONALITÉ ═══
@@ -478,48 +499,63 @@ function GeneratorTab({ stats, onSave, media, editingDraft, onClearDraft, connec
 - Professionnel mais humain, ancré dans le terrain
 - Emojis avec parcimonie (2-3 max par post, jamais en rafale)
 
-═══ LINKEDIN — ALGO 2025 ═══
-Objectif : dwell time (temps de lecture) + commentaires
-- HOOK en 1ère ligne (visible avant "voir plus") : question percutante OU stat marquante OU affirmation forte
+═══ LINKEDIN PAGE ENTREPRISE — ALGO 2026 ═══
+Objectif : dwell time (temps de lecture) + commentaires de qualité
+- HOOK en 1ère ligne (visible avant "voir plus") : affirmation forte OU constat terrain OU question professionnelle
 - 1 phrase = 1 ligne (sauts de ligne fréquents pour aérer)
 - Texte : 800-1500 caractères
-- JAMAIS de lien dans le corps du post (reach divisé par 10)
+- JAMAIS de lien dans le corps du post (reach pénalisé)
 - Terminer par "🔗 Lien en commentaire" si besoin
-- Finir par une QUESTION OUVERTE pour générer des commentaires (l'algo booste les posts qui génèrent des conversations)
-- Hashtags : 3-5 MAX, les mettre dans un PREMIER COMMENTAIRE (pas dans le post)
-- Donc le post LinkedIn ne contient AUCUN hashtag dans le corps
-- Ton : expert terrain qui partage du vécu, pas du corporate
-- 📍 Mentionner "Bretagne" ou "Pays de la Loire" pour le reach local
+- Finir par une QUESTION PROFESSIONNELLE ancrée dans le vécu terrain (pas d'engagement bait générique type "vous êtes d'accord ?" — l'algo 2026 pénalise ça)
+- Exemple de bonne question : "Dans votre secteur, quelle situation d'urgence revient le plus souvent ?"
+- Hashtags : 3-5 MAX en PREMIER COMMENTAIRE, JAMAIS dans le corps
+- Ton : expert terrain qui partage du vécu concret, pas du corporate
+- 📍 Mentionner "Bretagne" ET/OU "Pays de la Loire" — ne jamais se limiter à la Bretagne seule
+- Ne PAS mentionner Hicham ou Maxime nommément (post de page entreprise)
 
-═══ FACEBOOK — ALGO 2025 ═══
-Objectif : réactions (❤️ 😮 comptent plus que 👍) + partages
+═══ LINKEDIN PROFIL HICHAM — ALGO 2026 ═══
+Objectif : reach maximal (profil perso = 40x plus de reach qu'une page entreprise)
+- Ton : "je" autorisé — Hicham parle en son nom, formateur et co-dirigeant
+- HOOK fort en 1ère ligne : retour d'expérience terrain, anecdote formation, observation professionnelle
+- Mentionner @Maxime Langlais quand c'est pertinent (co-formateur, co-directeur)
+- Mentionner Access Formation pour renvoyer vers la page entreprise
+- Même règles que LinkedIn page : pas de lien dans le corps, hashtags en commentaire, question finale professionnelle
+- Texte : 600-1200 caractères (plus court que la page, plus personnel)
+- Finir par inviter à contacter Access Formation : 📧 contact@accessformation.pro | 📞 02 98 90 30 24
+
+═══ FACEBOOK — ALGO 2026 ═══
+Objectif : Saves + Shares (signaux #1 en 2026, bien plus que les likes)
 - Texte court : 300-600 caractères
 - Ton accessible et local, tutoiement OK
-- JAMAIS de lien externe dans le corps (reach divisé par 5)
-- Photo native mentionnée > lien avec preview
+- JAMAIS de lien externe dans le corps (reach pénalisé — mettre en commentaire si besoin)
+- Photo native > lien avec preview
 - Emoji en début de paragraphe pour structurer
-- Finir par une QUESTION pour les commentaires
-- 3-4 hashtags en fin de post
-- 📍 Ancrage local : "en Bretagne", "dans le Finistère", "à Concarneau"
+- CTA orienté partage : "Partage à un dirigeant / RH que ça concerne" — le partage booste le reach x3
+- Finir par une question qui donne envie de commenter ET de partager
+- 3-4 hashtags en fin de post dont #AccessFormation obligatoire
+- 📍 Ancrage local : alterner entre "en Bretagne", "en Pays de la Loire", "dans le Grand Ouest" — ne pas se limiter au Finistère ou à Concarneau
+- Inclure les coordonnées naturellement : 📧 contact@accessformation.pro | 📞 02 98 90 30 24
 
-═══ INSTAGRAM — ALGO 2025 ═══
-Objectif : saves (enregistrements) + partages en DM
+═══ INSTAGRAM — ALGO 2026 ═══
+Objectif : DM shares (signal #1, pondéré 3-5x plus que les likes) + saves
 - 1ère phrase = hook visible dans le feed (avant le "...plus")
 - Texte : 200-500 caractères (hors hashtags)
-- CTA "Enregistre ce post" ou "Envoie-le à un collègue concerné" (le save booste x3)
+- CTA PRIORITAIRE : "Envoie ce post à ton DRH / dirigeant / responsable sécu" — les DM shares sont le signal le plus fort en 2026
+- CTA SECONDAIRE : "Enregistre ce post" pour les contenus éducatifs / check-lists
 - Ligne de séparation avec des points avant les hashtags :
   .
   .
   .
 - Hashtags : 5-10 pertinents et spécifiques (pas 30 génériques)
-  Mix : 3 gros volume (#formation #sécurité) + 3 niche (#SSTFormation #PréventionBretagne) + 2 marque (#AccessFormation)
+  Mix : 3 gros volume (#formation #sécurité) + 3 niche (#SSTFormation #PréventionRisques ou #PaysdelaLoire selon le post) + 2 marque (#AccessFormation)
 - Pas de lien (non cliquable) — dire "Lien en bio"
-- Ton inspirant et visuel
+- Inclure 📞 02 98 90 30 24 naturellement dans le texte ou sous le texte
+- Ton inspirant et visuel, ancré terrain
 
 ═══ GOOGLE MY BUSINESS — SEO LOCAL ═══
 Objectif : référencement local + conversions
 - Très court : 100-250 caractères
-- Mots-clés locaux obligatoires : "formation sécurité Bretagne", "SST Concarneau", "prévention risques Finistère"
+- Mots-clés locaux obligatoires : "formation sécurité Bretagne", "formation sécurité Pays de la Loire", "SST Bretagne", "prévention risques Grand Ouest"
 - CTA direct avec email : "📧 contact@accessformation.pro"
 - Pas de hashtags
 - Mentionner la certification Qualiopi (facteur de confiance)
@@ -529,8 +565,15 @@ Objectif : référencement local + conversions
 - JAMAIS mentionner de noms de clients ou d'entreprises clientes
 - JAMAIS inventer de citations entre guillemets
 - JAMAIS utiliser "ne pas" / "ne plus" / "ne jamais" sauf contexte accident/urgence
-- TOUJOURS "nous" jamais "je" jamais "on" (sauf Facebook où "on" est toléré)
-- Contact : contact@accessformation.pro uniquement (PAS de numéro de téléphone)
+- TOUJOURS "nous" jamais "je" jamais "on" (sauf Facebook où "on" est toléré, sauf linkedin_hicham où "je" est OBLIGATOIRE)
+- Contact : 📧 contact@accessformation.pro | 📞 02 98 90 30 24 | 🌐 www.accessformation.pro
+- Zone d'intervention : Bretagne et Pays de la Loire (TOUJOURS mentionner l'une ou l'autre)
+- Qualiopi : toujours "Access Formation est certifié Qualiopi" — JAMAIS "formation certifiée Qualiopi"
+- Hashtag #AccessFormation OBLIGATOIRE dans tous les posts (LinkedIn en commentaire, autres dans le corps)
+
+═══ TYPES DE POST SPÉCIAUX ═══
+- offre_promo : Mettre en avant une offre avec une date de fin (ex: "Jusqu'au JJ/MM"). CTA fort et positif : "Contactez-nous avant le JJ/MM". Urgence sans pression négative. Mentionner la certification Qualiopi comme gage de qualité. Toujours inclure 📧 contact@accessformation.pro | 📞 02 98 90 30 24.
+- veille_reglementaire : Citer OBLIGATOIREMENT la source officielle (INRS, Code du travail, arrêté ministériel, etc.). Expliquer l'obligation de façon simple et accessible. Terminer par comment Access Formation aide à y répondre. Ton pédagogique, jamais alarmiste.
 
 ═══ STATISTIQUES ET CHIFFRES — RÈGLE STRICTE ═══
 - JAMAIS inventer ou approximer des statistiques, pourcentages ou chiffres chocs
@@ -541,23 +584,29 @@ Objectif : référencement local + conversions
 
 ${contextParts.join('\n')}
 
-Localisation : 📍 Concarneau, Bretagne — Interventions en Bretagne (22,29,35,56) et Pays de la Loire (44,49,53,72,85)
-Contact : contact@accessformation.pro | www.accessformation.pro`
+Localisation : 📍 Concarneau, Bretagne — Interventions en Bretagne et Pays de la Loire
+Contact : 📧 contact@accessformation.pro | 📞 02 98 90 30 24 | 🌐 www.accessformation.pro`
+
+      const hasLinkedInPage = selectedPlatforms.includes('linkedin')
+      const hasLinkedInHicham = selectedPlatforms.includes('linkedin_hicham')
+      const hasLinkedIn = hasLinkedInPage || hasLinkedInHicham
 
       const userPrompt = `Génère un post de type "${typeInfo.label}" pour les plateformes : ${selectedPlatforms.join(', ')}.
 
 ${freeInput ? `Idée/contexte spécifique : ${freeInput}` : `Choisis un angle pertinent et original basé sur les données ci-dessus.`}
 
 RAPPEL IMPORTANT :
-- LinkedIn : PAS de hashtags dans le post (ils vont en commentaire séparé)
-- Toujours parler en "nous", jamais "je"
+- linkedin (page entreprise) : parler en "nous", PAS de hashtags dans le corps (commentaire séparé), question professionnelle ancrée terrain en fin de post
+- linkedin_hicham (profil perso) : parler en "je", Hicham Saidi co-dirigeant formateur, mentionner @Maxime Langlais et Access Formation quand pertinent, PAS de hashtags dans le corps
+- Facebook : orienté Shares/partages, CTA "Partage à un dirigeant / RH"
+- Instagram : DM shares prioritaires, CTA "Envoie ce post à ton responsable sécu / DRH"
 - Formulations positives, sauf contexte accident où il faut être impactant
-- Chaque plateforme a son propre style et sa propre longueur
+- Chaque plateforme a son propre style et sa propre longueur${withStory ? '\n- Générer aussi une version Story courte (5-7 mots max, impactant, format vertical)' : ''}
 
 Réponds UNIQUEMENT en JSON valide (pas de markdown, pas de backticks) avec cette structure :
 {
   "title": "titre interne court (3-5 mots)",
-  ${selectedPlatforms.map(p => `"${p}": "texte du post pour ${p}"`).join(',\n  ')}${selectedPlatforms.includes('linkedin') ? ',\n  "linkedin_hashtags": "3-5 hashtags pour le commentaire LinkedIn"' : ''}
+  ${selectedPlatforms.map(p => `"${p}": "texte du post pour ${p}"`).join(',\n  ')}${hasLinkedIn ? `,\n  "linkedin_hashtags": "3-5 hashtags pour le commentaire LinkedIn — #AccessFormation OBLIGATOIRE"` : ''}${withStory ? `,\n  "story": "texte story 5-7 mots percutants pour Instagram/Facebook Stories"` : ''}
 }`
 
       const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -633,9 +682,11 @@ Réponds UNIQUEMENT en JSON valide (pas de markdown, pas de backticks) avec cett
       const postData = {
         title: title || 'Sans titre',
         content_linkedin: editedPosts.linkedin || null,
+        content_linkedin_hicham: editedPosts.linkedin_hicham || null,
         content_facebook: editedPosts.facebook || null,
         content_instagram: editedPosts.instagram || null,
         content_gmb: editedPosts.gmb || null,
+        content_story: editedPosts.story || null,
         media_urls: selectedMedia.map(m => m.file_url),
         platforms: selectedPlatforms,
         status,
@@ -861,14 +912,29 @@ Réponds UNIQUEMENT en JSON valide (pas de markdown, pas de backticks) avec cett
                   {(editedPosts[previewPlatform] || '').length} / {PLATFORMS.find(p => p.id === previewPlatform)?.maxChars} caractères
                 </span>
               </div>
+              {/* Story générée */}
+              {withStory && editedPosts.story && (
+                <div className="bg-purple-50 border border-purple-200 rounded-lg p-2 flex items-center justify-between">
+                  <div className="text-xs text-purple-700">
+                    <span className="font-medium">📲 Story :</span> {editedPosts.story}
+                  </div>
+                  <button
+                    onClick={() => { navigator.clipboard.writeText(editedPosts.story); toast.success('Story copiée !') }}
+                    className="text-[10px] bg-purple-100 hover:bg-purple-200 px-2 py-1 rounded-md text-purple-700 ml-2 shrink-0"
+                  >
+                    📋 Copier
+                  </button>
+                </div>
+              )}
+
               {/* Hashtags LinkedIn à poster en commentaire */}
-              {previewPlatform === 'linkedin' && editedPosts.linkedin_hashtags && (
+              {(previewPlatform === 'linkedin' || previewPlatform === 'linkedin_hicham') && editedPosts.linkedin_hashtags && (
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-2 flex items-center justify-between">
                   <div className="text-xs text-blue-700">
                     <span className="font-medium">💬 Commentaire LinkedIn :</span> {editedPosts.linkedin_hashtags}
                   </div>
                   <button
-                    onClick={() => { navigator.clipboard.writeText(editedPosts.linkedin_hashtags); toast.success('Hashtags copiés !') }}
+                    onClick={() => { navigator.clipboard.writeText(editedPosts.linkedin_hashtags || ''); toast.success('Hashtags copiés !') }}
                     className="text-[10px] bg-blue-100 hover:bg-blue-200 px-2 py-1 rounded-md text-blue-700 ml-2 shrink-0"
                   >
                     📋 Copier
@@ -912,7 +978,19 @@ Réponds UNIQUEMENT en JSON valide (pas de markdown, pas de backticks) avec cett
           </div>
 
           {/* Planification + Actions */}
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 pt-2 border-t">
+          <div className="flex flex-col gap-3 pt-2 border-t">
+            {/* Story toggle */}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setWithStory(!withStory)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-all ${withStory ? 'border-purple-400 bg-purple-50 text-purple-700' : 'border-gray-200 text-gray-400 hover:border-gray-300'}`}
+              >
+                📲 {withStory ? 'Story incluse ✓' : 'Générer une Story aussi'}
+              </button>
+              <span className="text-[10px] text-gray-400">Instagram & Facebook Stories (5-7 mots percutants)</span>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-start gap-3">
             <div className="flex-1">
               <label className="text-xs text-gray-500">📅 Planifier pour : <span className="text-[10px] text-gray-400">(heure de Paris)</span></label>
               <input
@@ -921,6 +999,44 @@ Réponds UNIQUEMENT en JSON valide (pas de markdown, pas de backticks) avec cett
                 onChange={e => setScheduledAt(e.target.value)}
                 className="w-full mt-1 border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#E9B44C]"
               />
+              {/* Suggestions horaires rapides */}
+              <div className="mt-2 flex flex-wrap gap-1">
+                <span className="text-[10px] text-gray-400 w-full mb-0.5">⚡ Horaires optimaux :</span>
+                {[
+                  { label: 'Mar 8h (LI)', day: 2, hour: 8 },
+                  { label: 'Mar 9h (LI)', day: 2, hour: 9 },
+                  { label: 'Mer 8h (LI)', day: 3, hour: 8 },
+                  { label: 'Jeu 8h (LI)', day: 4, hour: 8 },
+                  { label: 'Mer 12h (FB/IG)', day: 3, hour: 12 },
+                  { label: 'Jeu 12h (FB/IG)', day: 4, hour: 12 },
+                  { label: 'Ven 12h (FB/IG)', day: 5, hour: 12 },
+                  { label: 'Ven 17h (FB/IG)', day: 5, hour: 17 },
+                ].map(({ label, day, hour }) => {
+                  const getNextWeekday = (targetDay, targetHour) => {
+                    const now = new Date()
+                    const current = now.getDay() // 0=dim, 1=lun...
+                    const jsDay = targetDay === 7 ? 0 : targetDay
+                    let daysUntil = jsDay - current
+                    if (daysUntil <= 0) daysUntil += 7
+                    const d = new Date(now)
+                    d.setDate(d.getDate() + daysUntil)
+                    d.setHours(targetHour, 0, 0, 0)
+                    const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000)
+                    return local.toISOString().slice(0, 16)
+                  }
+                  return (
+                    <button
+                      key={label}
+                      type="button"
+                      onClick={() => setScheduledAt(getNextWeekday(day, hour))}
+                      className="text-[10px] bg-gray-100 hover:bg-[#E9B44C] hover:text-[#0F2D35] px-2 py-1 rounded-md transition-colors"
+                    >
+                      {label}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
             </div>
             <div className="flex gap-2 flex-wrap">
               <button
@@ -954,9 +1070,11 @@ Réponds UNIQUEMENT en JSON valide (pas de markdown, pas de backticks) avec cett
                     const postData = {
                       title: title || 'Sans titre',
                       content_linkedin: editedPosts.linkedin || null,
+                      content_linkedin_hicham: editedPosts.linkedin_hicham || null,
                       content_facebook: editedPosts.facebook || null,
                       content_instagram: editedPosts.instagram || null,
                       content_gmb: editedPosts.gmb || null,
+                      content_story: editedPosts.story || null,
                       media_urls: selectedMedia.map(m => m.file_url),
                       platforms: selectedPlatforms,
                       status: 'publishing',
@@ -1018,12 +1136,13 @@ Réponds UNIQUEMENT en JSON valide (pas de markdown, pas de backticks) avec cett
                   const allTexts = selectedPlatforms
                     .map(pId => {
                       let text = `=== ${PLATFORMS.find(p => p.id === pId)?.label?.toUpperCase()} ===\n${editedPosts[pId] || ''}`
-                      if (pId === 'linkedin' && editedPosts.linkedin_hashtags) {
+                      if ((pId === 'linkedin' || pId === 'linkedin_hicham') && editedPosts.linkedin_hashtags) {
                         text += `\n\n--- COMMENTAIRE LINKEDIN ---\n${editedPosts.linkedin_hashtags}`
                       }
                       return text
                     })
                     .join('\n\n')
+                    + (withStory && editedPosts.story ? `\n\n=== STORY ===\n${editedPosts.story}` : '')
                   navigator.clipboard.writeText(allTexts)
                   toast.success('Tous les posts copiés !')
                 }}
@@ -1048,6 +1167,7 @@ function PostPreview({ platform, content, media }) {
 
   const platformStyles = {
     linkedin: { bg: 'bg-white', border: 'border-gray-200', accent: '#0a66c2', name: 'Access Formation', subtitle: 'Organisme de formation • Concarneau' },
+    linkedin_hicham: { bg: 'bg-white', border: 'border-gray-200', accent: '#0a66c2', name: 'Hicham Saidi', subtitle: 'Co-dirigeant Access Formation • Formateur' },
     facebook: { bg: 'bg-white', border: 'border-gray-200', accent: '#1877f2', name: 'Access Formation', subtitle: 'Organisme de formation' },
     instagram: { bg: 'bg-white', border: 'border-gray-200', accent: '#e4405f', name: 'accessformation', subtitle: '' },
     gmb: { bg: 'bg-white', border: 'border-gray-200', accent: '#4285f4', name: 'Access Formation', subtitle: 'Concarneau, Bretagne' },
@@ -1084,7 +1204,7 @@ function PostPreview({ platform, content, media }) {
 
       {/* Footer mock */}
       <div className="px-3 pb-3 flex items-center gap-4 text-[10px] text-gray-400">
-        {platform === 'linkedin' && <><span>👍 J'aime</span><span>💬 Commenter</span><span>🔄 Partager</span></>}
+        {(platform === 'linkedin' || platform === 'linkedin_hicham') && <><span>👍 J'aime</span><span>💬 Commenter</span><span>🔄 Partager</span></>}
         {platform === 'facebook' && <><span>👍 J'aime</span><span>💬 Commenter</span><span>↗️ Partager</span></>}
         {platform === 'instagram' && <><span>❤️</span><span>💬</span><span>📤</span><span>🔖</span></>}
         {platform === 'gmb' && <><span>📞 Appeler</span><span>🗺️ Itinéraire</span><span>🌐 Site web</span></>}
@@ -1364,9 +1484,9 @@ function CalendarTab({ posts, onUpdate }) {
               ))}
             </span>
           </div>
-          {(p.content_facebook || p.content_linkedin) && (
+          {(p.content_facebook || p.content_linkedin || p.content_linkedin_hicham) && (
             <p className="text-[10px] opacity-60 mt-1 line-clamp-2">
-              {(p.content_facebook || p.content_linkedin).slice(0, 120)}...
+              {(p.content_facebook || p.content_linkedin || p.content_linkedin_hicham).slice(0, 120)}...
             </p>
           )}
         </div>
@@ -1628,7 +1748,7 @@ function LibraryTab({ media, onUpdate }) {
 // ═══════════════════════════════════════════════════════════
 // ONGLET BROUILLONS
 // ═══════════════════════════════════════════════════════════
-function DraftsTab({ posts, onUpdate, onEdit }) {
+function DraftsTab({ posts, onUpdate, onEdit, onRecycle }) {
   const deleteDraft = async (id) => {
     if (!confirm('Supprimer ce brouillon ?')) return
     await supabase.from('social_posts').delete().eq('id', id)
@@ -1673,16 +1793,23 @@ function DraftsTab({ posts, onUpdate, onEdit }) {
 
           {/* Preview du contenu */}
           <div className="text-xs text-gray-600 line-clamp-3">
-            {post.content_linkedin || post.content_facebook || post.content_instagram || post.content_gmb || 'Aucun contenu'}
+            {post.content_linkedin || post.content_linkedin_hicham || post.content_facebook || post.content_instagram || post.content_gmb || 'Aucun contenu'}
           </div>
 
           {/* Actions */}
-          <div className="flex items-center gap-1 pt-1">
+          <div className="flex items-center gap-1 pt-1 flex-wrap">
             <button
               onClick={() => onEdit?.(post)}
               className="text-[10px] bg-[#E9B44C] text-[#0F2D35] font-bold px-3 py-1.5 rounded-md hover:bg-[#d4a43e] transition-colors"
             >
               ✏️ Reprendre
+            </button>
+            <button
+              onClick={() => onRecycle?.(post)}
+              className="text-[10px] bg-purple-100 text-purple-700 font-bold px-3 py-1.5 rounded-md hover:bg-purple-200 transition-colors"
+              title="Reformuler ce post avec l'IA"
+            >
+              🔄 Recycler
             </button>
             {post.platforms?.map(pl => (
               <button
