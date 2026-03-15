@@ -353,7 +353,9 @@ function ConnectionPanel({ connections, onRefresh }) {
                     <>
                       {p.linkedTo ? (
                         <div className="text-[10px] text-gray-400">
-                          {connections?.[p.linkedTo]?.connected ? '✅ Lié via Facebook' : 'Connectez Facebook d\'abord'}
+                          {connections?.[p.linkedTo]?.connected
+                            ? `✅ Lié via ${p.linkedTo === 'facebook' ? 'Facebook' : 'LinkedIn page'}`
+                            : `Connectez ${p.linkedTo === 'facebook' ? 'Facebook' : 'LinkedIn page'} d'abord`}
                         </div>
                       ) : p.disabled ? (
                         <div className="text-[10px] text-gray-400">{p.details}</div>
