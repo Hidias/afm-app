@@ -2,6 +2,7 @@
 // VERCEL API ROUTE — OAuth LinkedIn
 // GET /api/auth/linkedin?action=connect (initie le flow OAuth)
 // GET /api/auth/linkedin?code=... (callback après auth)
+// Scope : rw_organization_social (poster depuis la page entreprise)
 // ═══════════════════════════════════════════════════════════
 
 import { createClient } from '@supabase/supabase-js'
@@ -32,8 +33,10 @@ export default async function handler(req, res) {
         return res.status(500).json({ error: 'LINKEDIN_CLIENT_ID non configuré' })
       }
 
-      // Scopes : openid + profile (Sign In) + w_member_social (Share)
-      const scope = 'openid profile w_member_social'
+      // Scope Community Management API uniquement :
+      // rw_organization_social = poster + lire depuis la page entreprise
+      // (Sign In with LinkedIn et w_member_social non requis pour la page entreprise)
+      const scope = 'rw_organization_social'
       const state = Math.random().toString(36).substring(2, 15)
 
       const authUrl = `https://www.linkedin.com/oauth/v2/authorization?response_type=code&client_id=${LINKEDIN_CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=${encodeURIComponent(scope)}&state=${state}`
@@ -72,64 +75,97 @@ export default async function handler(req, res) {
 
     console.log('[linkedin] Token obtained, expires in', expiresIn, 'seconds')
 
-    // ── Étape 3 : Récupérer le profil utilisateur ───────
-    let personName = 'Utilisateur LinkedIn'
-    let personUrn = null
+    // ── Étape 3 : Pas de profil utilisateur (Sign In with LinkedIn non activé) ─
+    // On récupère directement les pages entreprise sans passer par le profil
+    const personUrn = null
+    const personName = null
+
+    // ── Étape 4 : Récupérer les pages entreprise administrées ─
+    let orgUrn = null
+    let orgName = null
 
     try {
-      // OpenID Connect userinfo endpoint
-      const profileRes = await fetch('https://api.linkedin.com/v2/userinfo', {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      })
-      const profileData = await profileRes.json()
-      console.log('[linkedin] Profile:', JSON.stringify(profileData).slice(0, 300))
-
-      if (profileData.sub) {
-        personUrn = profileData.sub // Format: "abc123" — on construit le URN
-        personName = [profileData.given_name, profileData.family_name].filter(Boolean).join(' ') || 'Utilisateur'
-      }
-    } catch (profileErr) {
-      console.warn('[linkedin] Profile fetch error:', profileErr.message)
-    }
-
-    // Si on n'a pas eu le sub via userinfo, essayer /v2/me
-    if (!personUrn) {
-      try {
-        const meRes = await fetch('https://api.linkedin.com/v2/me', {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        })
-        const meData = await meRes.json()
-        console.log('[linkedin] /v2/me:', JSON.stringify(meData).slice(0, 300))
-
-        if (meData.id) {
-          personUrn = meData.id
-          personName = [meData.localizedFirstName, meData.localizedLastName].filter(Boolean).join(' ') || personName
+      // Récupérer les organisations où l'utilisateur est ADMINISTRATOR
+      const aclRes = await fetch(
+        'https://api.linkedin.com/v2/organizationalEntityAcls?q=roleAssignee&role=ADMINISTRATOR&state=APPROVED&count=10',
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'X-Restli-Protocol-Version': '2.0.0',
+            'LinkedIn-Version': '202401',
+          },
         }
-      } catch (meErr) {
-        console.warn('[linkedin] /v2/me error:', meErr.message)
+      )
+      const aclData = await aclRes.json()
+      console.log('[linkedin] Org ACLs:', JSON.stringify(aclData).slice(0, 500))
+
+      const elements = aclData.elements || []
+      if (elements.length > 0) {
+        // Prendre la première organisation (Access Formation)
+        orgUrn = elements[0].organizationalTarget
+        console.log('[linkedin] Org URN:', orgUrn)
+
+        // Récupérer le nom de la page entreprise
+        if (orgUrn) {
+          const orgId = orgUrn.replace('urn:li:organization:', '')
+          try {
+            const orgRes = await fetch(
+              `https://api.linkedin.com/v2/organizations/${orgId}?fields=localizedName,vanityName`,
+              {
+                headers: {
+                  Authorization: `Bearer ${accessToken}`,
+                  'X-Restli-Protocol-Version': '2.0.0',
+                  'LinkedIn-Version': '202401',
+                },
+              }
+            )
+            const orgData = await orgRes.json()
+            console.log('[linkedin] Org details:', JSON.stringify(orgData).slice(0, 300))
+            orgName = orgData.localizedName || orgData.vanityName || 'Access Formation'
+          } catch (orgErr) {
+            console.warn('[linkedin] Org name fetch error:', orgErr.message)
+            orgName = 'Access Formation'
+          }
+        }
+      } else {
+        console.warn('[linkedin] Aucune page entreprise trouvée pour cet utilisateur')
       }
+    } catch (aclErr) {
+      console.warn('[linkedin] ACL fetch error:', aclErr.message)
     }
 
-    console.log('[linkedin] Person:', personName, 'URN/sub:', personUrn)
+    // Si pas de page entreprise trouvée, bloquer la connexion
+    if (!orgUrn) {
+      console.error('[linkedin] Aucune page entreprise admin trouvée')
+      return res.redirect(`${APP_URL}/#/social?linkedin=error&reason=no_org_page`)
+    }
 
-    // ── Étape 4 : Stocker dans Supabase ─────────────────
+    console.log('[linkedin] Org:', orgName, 'URN:', orgUrn)
+
+    // ── Étape 5 : Stocker dans Supabase ─────────────────
+    // page_id = URN de la page entreprise (urn:li:organization:XXXXX)
+    // account_id = URN de la personne admin (urn:li:person:XXXXX)
     await supabase.from('social_tokens').upsert({
       platform: 'linkedin',
       access_token: accessToken,
       refresh_token: null, // LinkedIn OAuth 2.0 standard n'a pas de refresh token
       token_expires_at: new Date(Date.now() + expiresIn * 1000).toISOString(),
-      page_id: personUrn, // Stocké dans page_id pour cohérence avec les autres plateformes
-      account_id: personUrn,
+      page_id: orgUrn,      // URN page entreprise — utilisé comme author dans les posts
+      account_id: personUrn, // URN profil admin — pour référence
       metadata: {
+        org_name: orgName,
+        org_urn: orgUrn,
         person_name: personName,
         person_urn: personUrn,
-        scope: 'openid profile w_member_social',
+        scope: 'rw_organization_social',
       },
       updated_at: new Date().toISOString(),
     }, { onConflict: 'platform' })
 
     // ── Succès ! ────────────────────────────────────────
-    return res.redirect(`${APP_URL}/#/social?linkedin=success&name=${encodeURIComponent(personName)}`)
+    return res.redirect(
+      `${APP_URL}/#/social?linkedin=success&page=${encodeURIComponent(orgName || 'Access Formation')}`
+    )
 
   } catch (err) {
     console.error('LinkedIn OAuth handler error:', err)
